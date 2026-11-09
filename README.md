@@ -9,3 +9,17 @@ Clean Django foundation for the NegosyoOnline API.
 3. Run `uv run python manage.py runserver`.
 
 Railway staging owns PostgreSQL and Redis. Its credentials must be configured later as Railway environment variables, not committed here.
+
+## Railway staging
+
+`railway.toml` deliberately starts Gunicorn without running database migrations. Migrations stay an explicit reviewed release action.
+
+Before a staging deploy, configure these Railway variables through the service UI:
+
+- `DJANGO_SECRET_KEY`: a unique staging-only secret.
+- `DJANGO_DEBUG=false`
+- `DJANGO_ALLOWED_HOSTS`: the generated Railway domain plus `healthcheck.railway.app`.
+- `CSRF_TRUSTED_ORIGINS`: the generated Railway HTTPS domain.
+- `DATABASE_URL` and `REDIS_URL`: references to the staging Postgres and Redis services.
+
+The deployment must return HTTP 200 from `/healthz/` before Railway accepts it as healthy.
