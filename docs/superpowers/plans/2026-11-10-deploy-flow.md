@@ -112,7 +112,7 @@ Run: `uv run python manage.py test apps.health`
 Expected: PASS (3 tests).
 
 Run: `DJANGO_DEBUG=false DJANGO_SECRET_KEY=ci-only-long-randomized-value-5rYxP2nQ8kL7mV4cD9aF1wH6sT3uJ0bE uv run python manage.py check --deploy`
-Expected: `System check identified no issues`.
+Expected: exactly two warnings, `security.W005` (HSTS include-subdomains) and `security.W021` (HSTS preload), both pre-existing and deliberately deferred per CLAUDE.md. No other issues.
 
 - [ ] **Step 6: Commit**
 
