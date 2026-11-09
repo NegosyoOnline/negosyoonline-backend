@@ -10,6 +10,13 @@ Clean Django foundation for the NegosyoOnline API.
 
 Railway staging owns PostgreSQL and Redis. Its credentials must be configured later as Railway environment variables, not committed here.
 
+## Layout
+
+- `config/api.py`: the single API, served under `/v1/`. Its OpenAPI description is at `/v1/openapi.json` and is the contract the frontend builds against.
+- `apps/common`: shared code with no business meaning (public ids, the error shape, the origin allowlist).
+- `apps/operators`: the staff user model used by the Django admin. Subscribers are not Django users.
+- `API_ALLOWED_ORIGINS`: the site and dashboard origins allowed to call the API from a browser. Never list a storefront origin.
+
 ## Railway staging
 
 `railway.toml` deliberately starts Gunicorn without running database migrations. Migrations stay an explicit reviewed release action.
