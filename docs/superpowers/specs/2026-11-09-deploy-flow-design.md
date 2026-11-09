@@ -27,7 +27,7 @@ Scope: backend (this repo) and frontend (`negosyoonline-frontend`) delivery to s
 1. **Environment model:** `main` deploys to staging automatically. Production is a deliberate promotion of a commit already verified on staging.
 2. **Trigger:** platform git integration (Railway and Vercel watch branches). No deploy tokens in the main deploy path.
 3. **Promotion:** version tag plus an approval gate in a GitHub `production` environment.
-4. **Migrations:** manual `migrate` workflows per environment, each behind that environment's approval.
+4. **Migrations:** manual, run by Coach Ed or an approved session through the documented runbook (`docs/runbooks/migrations.md`). Not run from CI: a Railway project token cannot use `railway ssh` (tested 2026-11-10), and CI would otherwise need an account-level credential.
 
 ## 1. The flow
 
@@ -35,12 +35,12 @@ Scope: backend (this repo) and frontend (`negosyoonline-frontend`) delivery to s
 feature branch -> PR -> CI green (required) -> merge to main
   -> Railway staging and staging Vercel projects deploy from main
   -> verify staging (health endpoint, smoke checks)
-  -> if models changed: run "migrate staging" workflow (approval)
+  -> if models changed: run the migrations runbook on staging (approval)
   -> tag vX.Y.Z on the verified commit
   -> tag workflow waits for approval in the GitHub `production` environment
   -> workflow fast-forwards the `production` branch to the tag
   -> Railway production and live Vercel projects deploy from `production`
-  -> if models changed: run "migrate production" workflow (approval)
+  -> if models changed: run the migrations runbook on production (approval)
   -> verify production
 ```
 
@@ -59,7 +59,7 @@ Storefronts: only one project, `negosyoonline-storefronts`, exists and it curren
 
 - **Before merge:** required CI checks on `main`. Platform "wait for CI" options are a second layer, not the primary protection.
 - **Before production:** the tag must reference a commit already on `main`. The `production` GitHub environment requires Coach Ed's approval. The approval is recorded in GitHub.
-- **Migrations:** run only by the manual workflows. Never on deploy.
+- **Migrations:** run only manually per the runbook, with Coach Ed's approval for each run. Never on deploy and never from CI.
 - Backend and frontend are promoted independently, since they are separate repositories.
 
 ## 3. Verification and rollback
@@ -75,7 +75,7 @@ Storefronts: only one project, `negosyoonline-storefronts`, exists and it curren
 1. Link the frontend repo to the three staging Vercel projects with `main` as the production branch. Link the live projects with `production`. Auto-deploy on push is unconfirmed today.
 2. Find out why the storefronts project did not attach its domains on deploy (a manual promotion was needed) and fix it.
 3. Create the `production` branch and a `production` GitHub environment in both repos, with Coach Ed as required reviewer. Add the tag promotion workflow.
-4. Add the manual migrate workflows and scope Railway tokens as environment secrets.
+4. Follow `docs/runbooks/migrations.md` for migrations. No migrate workflow and no Railway token secrets.
 5. Point the Railway staging environment at `main` and create the production environment tracking `production`. Enable Railway's wait-for-CI option.
 
 ## 5. Build and reproducibility

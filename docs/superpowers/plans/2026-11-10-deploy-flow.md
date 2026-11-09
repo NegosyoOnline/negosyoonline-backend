@@ -4,7 +4,7 @@
 
 **Goal:** Implement the approved deploy flow in `docs/superpowers/specs/2026-11-09-deploy-flow-design.md`: `main` deploys to staging, and production moves only through an approved version tag.
 
-**Architecture:** Railway and Vercel track git branches (`main` for staging, `production` for production). A GitHub Actions tag workflow, gated by a `production` environment approval, is the only thing that moves the `production` branch. A manual migrate workflow, gated per environment, runs migrations. A commit stamp in `/healthz/` and a verify script prove which build is running.
+**Architecture:** Railway and Vercel track git branches (`main` for staging, `production` for production). A GitHub Actions tag workflow, gated by a `production` environment approval, is the only thing that moves the `production` branch. Migrations are run manually through a runbook, with approval for each run. A commit stamp in `/healthz/` and a verify script prove which build is running.
 
 **Tech Stack:** Django 5.2, GitHub Actions, Railway, Vercel, uv, pnpm.
 
@@ -27,7 +27,7 @@
 | `apps/health/tests.py` | backend | Tests for the stamp |
 | `scripts/verify_deploy.sh` | backend | Poll a health URL until it reports the expected commit |
 | `.github/workflows/promote-production.yml` | backend | Verify then promote a tag to the `production` branch |
-| `.github/workflows/migrate.yml` | backend | Manual, approval-gated migrations |
+| `docs/runbooks/migrations.md` | backend | Manual, approval-gated migration procedure |
 | `.github/workflows/promote-production.yml` | frontend | Same promotion flow, checking the frontend CI |
 
 ---
@@ -245,94 +245,17 @@ git commit -m "ci: add approval-gated production promotion workflow"
 
 ---
 
-### Task 4: Manual migrate workflow (backend)
+### Task 4: Migrations runbook (replaces the CI migrate workflow)
 
 **Files:**
-- Create: `.github/workflows/migrate.yml`
+- Create: `docs/runbooks/migrations.md`
 
-CLAUDE.md keeps migrations an explicit reviewed release step. This workflow only runs when someone dispatches it and the environment approves. It runs from the runner against the target database, so the target needs a `DATABASE_URL` environment secret reachable from GitHub. Railway's internal URL is not reachable from a runner, so **Step 1 is a decision gate before any code is written.**
+**Decision (2026-11-10):** a Railway project token scoped to staging was valid but rejected for `railway ssh` ("Unauthorized"), so CI cannot run migrations without an account-level credential. Migrations stay manual and approval-gated. No `migrate.yml` and no `RAILWAY_TOKEN` secret.
 
-- [ ] **Step 1: APPROVAL gate. Choose and prove the database access method**
-
-Ask Coach Ed to pick one:
-1. A Railway TCP proxy (public) `DATABASE_URL`, stored as an environment secret per environment. Simplest, but exposes the database to the internet behind a password.
-2. Run the migration inside Railway via the Railway CLI with a scoped project token. Keeps the database private, but needs the CLI syntax proven on staging first.
-
-Do not store either value or run anything against a database until Coach Ed approves the choice and the staging dry run in Step 4. The workflow below assumes option 1. If option 2 is chosen, replace the two `manage.py` steps with the proven Railway CLI command and update this task before continuing.
-
-- [ ] **Step 2: Write the workflow**
-
-```yaml
-name: Migrate database
-
-on:
-  workflow_dispatch:
-    inputs:
-      target:
-        description: Environment to migrate
-        type: choice
-        required: true
-        options:
-          - staging
-          - production
-
-permissions:
-  contents: read
-
-concurrency:
-  group: migrate-${{ inputs.target }}
-  cancel-in-progress: false
-
-jobs:
-  migrate:
-    name: Migrate ${{ inputs.target }}
-    runs-on: ubuntu-24.04
-    environment: ${{ inputs.target }}
-    env:
-      DJANGO_SECRET_KEY: ci-only-long-randomized-value-5rYxP2nQ8kL7mV4cD9aF1wH6sT3uJ0bE
-      DJANGO_DEBUG: "false"
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-    steps:
-      - name: Check out the branch deployed to this environment
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.target == 'production' && 'production' || 'main' }}
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: "3.12"
-      - name: Install locked dependencies
-        run: python -m pip install uv && uv sync --frozen
-      - name: Record the migration plan
-        run: |
-          {
-            echo "### Migration plan for ${{ inputs.target }} ($(git rev-parse --short HEAD))"
-            echo '```'
-            uv run python manage.py migrate --plan
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - name: Apply migrations
-        run: uv run python manage.py migrate --noinput
-```
-
-- [ ] **Step 3: Lint the YAML**
-
-Run: `uvx --from yamllint yamllint -d "{extends: relaxed, rules: {line-length: disable}}" .github/workflows/migrate.yml`
-Expected: no errors.
-
-- [ ] **Step 4: APPROVAL. Staging dry run**
-
-After the PR merges and Coach Ed has stored the staging `DATABASE_URL` environment secret and approved running it, dispatch with `target: staging`, then verify:
-
-Run: `scripts/verify_deploy.sh https://api-staging.negosyonline.com/healthz/`
-Expected: `OK:` and the job summary shows the plan. With no models yet the plan lists the Django built-in migrations only.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add .github/workflows/migrate.yml
-git commit -m "ci: add approval-gated manual migrate workflow"
-```
+- [x] **Step 1:** Prove the Railway CLI route on staging with the read-only `migrate --plan` (done, exit 0; 18 built-in migrations were pending).
+- [x] **Step 2:** Test a project-scoped token for CI (done, rejected for ssh).
+- [x] **Step 3:** Apply the 18 built-in migrations on staging with Coach Ed's approval (done; `migrate --plan` then reported no pending operations).
+- [ ] **Step 4:** Commit `docs/runbooks/migrations.md` (procedure, identifiers, preconditions, history).
 
 ---
 
