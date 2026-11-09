@@ -29,6 +29,10 @@ Skip to "Verify and report" using the most recent merged backend PR (`gh pr list
 ## Verify and report
 
 1. Read the merged PR's merge commit with `gh pr view <n> --json state,mergeCommit`. If it is not merged yet, say so and stop.
-2. Run `scripts/verify_deploy.sh https://api-staging.negosyonline.com/healthz/ <first 12 chars of the merge commit>`.
-3. Read the latest `Verify staging deploy` run once with `gh run list --workflow "Verify staging deploy" --limit 1`.
-4. Report plainly: PR link, merge commit, the commit staging reports, and whether the verify run is green. If staging does not report the commit, say it failed and what was observed. Never claim success without the `OK:` line.
+2. Read Railway's own deploy status for that commit. Railway reports each deploy to GitHub as a deployment by `railway-app[bot]` in the environment `negosyoonline-backend / staging`:
+   `gh api "repos/NegosyoOnline/negosyoonline-backend/deployments?sha=<full merge commit>" --jq '.[0].id'`, then
+   `gh api repos/NegosyoOnline/negosyoonline-backend/deployments/<id>/statuses --jq '.[0].state'`.
+   The newest status is `success` when Railway finished, `in_progress` while it builds, or a failure state. No deployment yet means Railway has not picked up the commit: say so and stop.
+3. Run `scripts/verify_deploy.sh https://api-staging.negosyonline.com/healthz/ <first 12 chars of the merge commit>`. This is the proof the live app reports the commit.
+4. Read the latest `Verify staging deploy` run once with `gh run list --workflow "Verify staging deploy" --limit 1`.
+5. Report plainly: PR link, merge commit, Railway's deploy status, the commit staging reports, and whether the verify run is green. If any of them disagree or fail, say it failed and what was observed. Never claim success without Railway `success` and the `OK:` line.
