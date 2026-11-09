@@ -114,7 +114,8 @@ Expected: PASS (3 tests).
 Run: `DJANGO_DEBUG=false DJANGO_SECRET_KEY=ci-only-long-randomized-value-5rYxP2nQ8kL7mV4cD9aF1wH6sT3uJ0bE uv run python manage.py check --deploy`
 Expected: exactly two warnings, `security.W005` (HSTS include-subdomains) and `security.W021` (HSTS preload), both pre-existing and deliberately deferred per CLAUDE.md. No other issues.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Investigate the storefronts domain attach problem.** Cause: Vercel "Auto-assign Custom Domains" was off on `negosyoonline-storefronts`, so new production deployments were not aliased to the tenant hosts and the hosts kept serving the manually promoted build. Fixed 2026-11-10 by setting `autoAssignCustomDomains: true`; frontend PR 3 deploy `6c654b3` carried all tenant aliases and the hosts returned 200.
+- [ ] **Step 6b (pre-launch blocker): wildcard certificate.** `*.storefronts-staging.negosyonline.com` has no usable certificate (TLS handshake fails for unattached subdomains) while DNS is on Cloudflare; only explicitly attached hosts work. Launch needs subscriber-chosen subdomains (picked after payment) to resolve, so either fix the wildcard certificate (options: delegate the ACME challenge to Vercel, move the zone to Vercel nameservers, or terminate at Cloudflare) or attach each subdomain through the Vercel API from the backend. Decide before launch. Needs Coach Ed's approval for any DNS change.
 
 ```bash
 git add config/settings.py config/urls.py apps/health/tests.py
