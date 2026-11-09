@@ -345,7 +345,7 @@ Each item changes shared infrastructure. Do one at a time, state what will chang
 - [ ] **Step 6: Investigate the storefronts domain attach problem.** A deploy did not attach the project's domains until it was promoted by hand. Find the cause in the project's Domains and Git settings, fix it, and confirm a new deploy aliases the tenant hosts without a manual promote.
 - [ ] **Step 7: Decide the production storefronts project** for `live4moreonline.store`. A project cannot track both `main` and `production`, so a separate project is required. This is a separate decision, not part of this flow.
 - [ ] **Step 8: Railway.** Point the staging service at `main`, create the production environment tracking `production`, and enable wait-for-CI. Confirm Railway provides `RAILWAY_GIT_COMMIT_SHA` by checking `/healthz/` reports a real commit after the next staging deploy. If it reports `unknown`, set the variable name accordingly and update Task 1.
-- [ ] **Step 9: Align runtime versions.** CI pins Node 22.23.1 and Python 3.12. Check the Vercel projects (`22.x`) and the Railway Python version and match them.
+- [x] **Step 9: Align runtime versions.** CI pins Node 22.23.1 and Python 3.12. Vercel staging projects use `22.x` (compatible). Railway defaulted to Python 3.13, so `.python-version` now pins 3.12.
 
 ---
 
