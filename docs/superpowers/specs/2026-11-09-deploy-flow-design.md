@@ -58,7 +58,7 @@ Storefronts: only one project, `negosyoonline-storefronts`, exists and it curren
 ## 2. Gates
 
 - **Before merge:** required CI checks on `main`. Platform "wait for CI" options are a second layer, not the primary protection.
-- **Before production:** the tag must reference a commit already on `main`. The `production` GitHub environment requires Coach Ed's approval. The approval is recorded in GitHub.
+- **Before production:** the tag must reference a commit already on `main`. **Interim gate (decided 2026-11-10):** GitHub does not offer Required reviewers for private repos on the Team plan (the API returns 422 and the UI shows no protection rules), so the approval is Coach Ed's deliberate push of the `v*` tag. A repository ruleset restricts creating, moving and deleting `v*` tags to repository admins, and the `production` environment accepts deployments only from `v*` tags. The tag push is recorded in GitHub. When Required reviewers becomes available (for example on GitHub Enterprise), add Coach Ed as reviewer on the `production` environment.
 - **Migrations:** run only manually per the runbook, with Coach Ed's approval for each run. Never on deploy and never from CI.
 - Backend and frontend are promoted independently, since they are separate repositories.
 
@@ -74,7 +74,7 @@ Storefronts: only one project, `negosyoonline-storefronts`, exists and it curren
 
 1. Link the frontend repo to the three staging Vercel projects with `main` as the production branch. Link the live projects with `production`. Auto-deploy on push is unconfirmed today.
 2. Find out why the storefronts project did not attach its domains on deploy (a manual promotion was needed) and fix it.
-3. Create the `production` branch and a `production` GitHub environment in both repos, with Coach Ed as required reviewer. Add the tag promotion workflow.
+3. Create the `production` branch and a `production` GitHub environment in both repos, restricted to `v*` tags, plus a `v*` tag ruleset limited to admins (see the interim gate in section 2). Add the tag promotion workflow.
 4. Follow `docs/runbooks/migrations.md` for migrations. No migrate workflow and no Railway token secrets.
 5. Point the Railway staging environment at `main` and create the production environment tracking `production`. Enable Railway's wait-for-CI option.
 
@@ -96,5 +96,5 @@ Storefronts: only one project, `negosyoonline-storefronts`, exists and it curren
 ## Risks
 
 - Vercel does not natively wait for GitHub Actions, so the protected-`main` PR gate carries the CI guarantee for the frontend.
-- A single approver is a bottleneck and a single point of failure. A second reviewer can be added to the `production` environment later.
+- A single approver is a bottleneck and a single point of failure. A second reviewer can be added to the `production` environment once Required reviewers is available.
 - Platform-only build failures can appear after merge. Staging catches them before production.
