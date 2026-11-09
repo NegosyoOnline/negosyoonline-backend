@@ -1,0 +1,162 @@
+# Backend MVP scope and design (2026-11-10)
+
+Status: design approved by Coach Ed on 2026-11-10. This document is the written MVP scope that `CLAUDE.md` requires before features, models or integrations are built. It contains no code. Each slice in section 9 gets its own implementation plan and approval before work starts.
+
+## 1. Purpose
+
+Rebuild the NegosyoOnline platform backend in this repository as a clean Django API. The legacy implementation inside TWCinc is the behaviour reference only: read it to understand a rule, never copy its code, dependencies or configuration. A separate session builds the frontend against the API described here.
+
+## 2. Decisions
+
+| Topic | Decision |
+|---|---|
+| Signup | 14-day free trial starts at signup. No payment at signup. |
+| Subdomain | Chosen by the subscriber during onboarding, after signup, when the first site is created. |
+| Sites per account | One site per account in the MVP. The schema allows several without a rebuild. |
+| Subscriber sign-in | Passwordless email code, plus Google. Facebook sign-in and Facebook features are deferred. |
+| In the MVP | Referral codes and credit, usage overage charges, PDF billing statements, mobile number OTP. |
+| Production | Railway production services are built only when the MVP is complete. API host: `api.negosyoonline.com`. |
+
+## 3. Architecture
+
+- One Django project, a modular monolith. Small apps by domain under `apps/`:
+  `accounts`, `sites`, `billing`, `payments`, `statements`, `notifications`, `operators`, plus the existing `health`.
+- One HTTP API under `/v1/`, built with Django Ninja. It publishes an OpenAPI description at `/v1/openapi.json`; the frontend generates its client from that file. The description is the contract.
+- An app talks to another app only through that app's service functions, never by writing its tables directly.
+- Django owns identity, tenancy, authorization, money, webhook validation and auditability. The frontend is untrusted.
+- Background work (charging, lifecycle sweeps, statements, SMS and email sending) runs in a worker and a beat service on Railway, built from this repo. They are added with slice 4, not before.
+
+## 4. Identity and sign-in
+
+- A subscriber is an `Account`: unique email, no password. It is not a Django user.
+- Operators are Django staff users. `AUTH_USER_MODEL` is a custom `operators.User`, set in slice 1 because it must exist before the first migration. Operators use one Django admin; the legacy second console is not rebuilt.
+- Email code: 6 digits, held in the cache with an expiry and an attempt limit, rate-limited per email and per IP.
+- Google: server-side OAuth redirect flow. The callback signs the account in and redirects to the dashboard. Google vouches for the email.
+- Session: on sign-in the API sets a cookie holding an opaque random token. Only the token's SHA-256 is stored, with expiry (30 days), revocation time, device label and masked IP.
+  - The cookie is `HttpOnly`, `Secure`, `SameSite=Lax` and host-only on the API host, so it is never sent to subscriber storefront hosts.
+  - The dashboard and site call the API from the browser with credentials included.
+  - CORS allows credentials only for the configured site and dashboard origins.
+  - Every state-changing request must carry an `Origin` in that same allowlist. Storefront origins are never in it.
+- Verifying an email by code revokes that account's earlier sessions.
+
+## 5. Tenancy rules
+
+- Every site-owned row carries its `site`. Every dashboard endpoint under `/v1/sites/{site_id}/` checks that the site belongs to the signed-in account and answers 404 otherwise.
+- URLs and responses use opaque public ids (for example `acc_…`, `site_…`), never database sequence numbers.
+- Subdomain rules, carried from legacy:
+  - lowercase letters, digits and hyphens; starts and ends with a letter or digit; 30 characters at most;
+  - infrastructure labels (such as `www`, `api`, `dash`, `admin`) and brand names are reserved;
+  - a subdomain is never reissued. A name a site was renamed away from, or whose site was deleted, stays taken unless an operator releases it with an audit entry.
+- Availability check answers one of: `available`, `taken`, `reserved`, `invalid`.
+- The `Host` header is untrusted input. The storefronts app passes the host to the API, which looks it up; the host is never used to build queries or URLs directly.
+- Sites are soft-deleted only.
+
+## 6. Data model
+
+One line per table. Money is stored as integer centavos with a currency code. Ledger tables are append-only.
+
+**accounts**
+- `Account`: email (unique), name, email_verified_at, referral_code (unique), referred_by, closed_at.
+- `GoogleIdentity`: account, Google subject id (unique).
+- `Session`: account, token hash, expires_at, revoked_at, device label, masked IP, last_used_at.
+- `PolicyAcceptance`: account, policy version, policies accepted, IP, accepted_at.
+- `AccountMobile`: account (one each), verified mobile number.
+- `MobileOtpChallenge`: account, code hash, expires_at, attempts.
+- `AccountAuditEvent`: account, what changed, when.
+
+**sites**
+- `Site`: account, template, display name, contact email and mobile, accent colour, social links, operator_hold, created_at, deleted_at. One table replaces legacy's billing Site and platform Site.
+- `Subdomain`: name (unique, lowercase), site, state (`active`, `retired`, `operator_reserved`), retired_at, released_at. The single source of truth for "never reissued". A site has exactly one active subdomain.
+- `SiteBusinessProfile`: site (one each), business name, TIN, DTI number, address, shipping estimates.
+
+**billing**
+- `Subscription`: site (one each), state, trial start and end, attention, cancel and service-end dates. The only place trial dates live.
+- `SubscriptionTransition`: subscription, from state, to state, trigger, idempotency key (unique), at.
+- `BillingCycle`: subscription, sequence, start, end, settlement (`pending`, `paid`, `lapsed`).
+- `UsageEntry`: cycle, kind (`orders`, `storage`, `video`), quantity, source reference (unique).
+- `ChargeLine`: cycle, kind (`base`, `overage`, `referral_credit`), amount.
+- `ReferralCredit`: referrer account, referred account (unique), amount, applied cycle.
+- `BillingProfile`: site (one each), company name, TIN, address.
+
+**payments**
+- `PaymentCustomer`: site, provider, provider customer id.
+- `PaymentMethod`: site, provider, provider method id, brand, last four, status.
+- `PaymentAttempt`: cycle, our reference (unique), idempotency key (unique), amount, status, outcome source.
+- `WebhookEvent`: provider, provider event id (unique together), body hash, received_at, processed_at.
+
+**statements**
+- `Statement`: cycle, number (unique, from a numbered series), issued_at, totals, PDF storage key.
+- `StatementLine`: statement, description, amount.
+- `StatementDelivery`: statement, channel, status, at.
+
+**notifications**
+- `EmailMessage`, `SmsMessage`: recipient, category, status, provider reference. No message body is stored for SMS.
+
+**operators**
+- `User`: Django staff user.
+- `OperatorAuditEntry`: operator, action, target, reason, at.
+
+Not rebuilt from legacy: launch gate, platform switches, per-account gate exceptions, interim site states, the second admin console, the Santé selection approval table, the unused `Account.mobile`, and the duplicate trial dates on Account.
+
+## 7. Subscription states and site availability
+
+States, carried from legacy: `trial_active`, `active`, `payment_requires_attention`, `suspended`, `cancelled`, `cancelled_no_payment_method`.
+
+- Signup creates the Account only. Creating the first site creates the Site, its Subdomain and its Subscription in one transaction.
+- The 14-day trial is counted from account creation, as in legacy. The Subscription copies those dates when it is created. If the first site is created after the 14 days have passed, the subscription starts in `cancelled_no_payment_method` and the site goes live once a card is added and the first charge succeeds.
+- A storefront is served only when the site is not deleted, has no operator hold, and its subscription is `trial_active`, `active` or `payment_requires_attention`. This fixes a legacy gap where billing state never drove storefront availability.
+- Billing values carried from legacy, to be confirmed in the slice 4 plan before they are coded:
+  - plan: PHP 2,499 per month, monthly anniversary cycles;
+  - included per cycle: 1,000 orders, 5 GB storage, 50 GB video; overage PHP 5 per order, PHP 30 per GB storage, PHP 10 per GB video;
+  - failed payment: retries after 1, 3 and 5 days, then a 7-day attention period before suspension;
+  - after cancellation: 30-day download window, deletion at 90 days.
+
+## 8. API contract
+
+All paths are under `/v1/`. Errors use one shape: `{"error": {"code": "...", "message": "...", "fields": {...}}}` with a normal HTTP status (400, 401, 403, 404, 409, 429). Lists are paginated with a cursor.
+
+| Area | Endpoints |
+|---|---|
+| Public | `GET plan/`, `GET referrals/{code}/`, `GET public/sites/by-host/?host=` |
+| Sign-in | `POST auth/email-code/request/`, `POST auth/email-code/verify/`, `GET auth/google/start/`, `GET auth/google/callback/`, `POST auth/logout/` |
+| Account | `GET me/`, `GET PATCH account/`, `POST account/email/start/`, `POST account/email/confirm/`, `GET account/sessions/`, `POST account/sessions/sign-out-others/`, `POST account/mobile/start/`, `POST account/mobile/verify/`, `GET account/referrals/` |
+| Sites | `GET POST sites/`, `POST sites/subdomain-check/`, `GET PATCH sites/{site_id}/`, `GET PATCH sites/{site_id}/business-profile/` |
+| Billing | `GET sites/{site_id}/billing/`, `PUT sites/{site_id}/billing/profile/`, `POST sites/{site_id}/billing/payment-method/setup/`, `POST sites/{site_id}/billing/cancel/`, `POST sites/{site_id}/billing/reactivate/`, `GET sites/{site_id}/billing/usage/`, `GET sites/{site_id}/billing/statements/`, `GET sites/{site_id}/billing/statements/{number}/`, `GET sites/{site_id}/billing/statements/{number}/pdf/` |
+| Webhooks | `POST webhooks/xendit/` |
+
+`public/sites/by-host/` is the storefront lookup. It is unauthenticated and cacheable, returns only public branding, template and availability, and answers 404 for unknown, reserved or unavailable hosts.
+
+Payments and webhooks:
+- Xendit is the provider. Card details are entered on Xendit's hosted page; the API never sees card numbers.
+- Webhooks: body size cap, constant-time check of the callback token, insert into `WebhookEvent`, and a duplicate event answers 200 without reprocessing. Events are matched only by our own reference.
+- Every charge carries an idempotency key, so a retry can never double-charge.
+
+## 9. Build order
+
+Each slice has its own plan, tests and approval. Migrations are a reviewed release step per `docs/runbooks/migrations.md`.
+
+1. **Foundation.** App layout, custom `operators.User`, Django Ninja, error shape, public ids, settings for origins, test tooling, OpenAPI published.
+2. **Accounts and sign-in.** Account, email code, sessions, policy acceptance, account settings, then Google.
+3. **Sites and subdomains.** Site, Subdomain ledger, trial subscription start, subdomain check, site creation and settings, business profile, public host lookup.
+4. **Billing core.** Xendit customer and card setup, webhook inbox, cycles, charging and retries, state transitions, cancel and reactivate. Adds the worker and beat services and the task queue dependency.
+5. **Usage and overage.** Usage entries and overage charge lines.
+6. **Statements.** Numbered statements, PDF, email delivery.
+7. **Referrals.** Referrer lookup at signup, credit ledger applied to the base charge.
+8. **Mobile OTP.** Needs an SMS provider decision first; legacy has only a stub.
+
+The frontend can start against slice 2 as soon as its OpenAPI description is published on staging.
+
+## 10. Out of scope
+
+- Commerce: products, orders, buyer checkout, buyer payments, members, payouts, the Santé pack, media library. These live in other legacy apps that have not been mapped; they need their own scope after this one. The usage figures in slice 5 depend on orders and media, so slice 5 ships its ledger and charging first and is fed real numbers when commerce exists.
+- Facebook sign-in and Facebook features.
+- Custom domains per subscriber (for example `live4moreonline.store`).
+- Annual billing.
+- Data retention and disposal automation beyond the dates recorded on the subscription.
+- Production deployment.
+
+## 11. Open decisions
+
+- SMS provider for mobile OTP (blocks slice 8 only).
+- Confirmation of the billing values in section 7 (blocks slice 4 only).
+- Where statement PDFs are stored (blocks slice 6 only).
