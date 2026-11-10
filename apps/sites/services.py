@@ -56,6 +56,17 @@ def _subdomain_error(status):
     )
 
 
+def _is_email(value):
+    """A valid address that also fits the column: validate_email alone accepts longer ones."""
+    if len(value) > 254:
+        return False
+    try:
+        validate_email(value)
+    except ValidationError:
+        return False
+    return True
+
+
 def site_for(account, site_id):
     """The only way to reach a Site from a request. Missing, deleted and foreign all answer 404."""
     site = Site.objects.filter(
@@ -132,9 +143,7 @@ def _clean_site(data):
             pass  # every other field may be cleared
         elif name == "contact_email":
             value = value.lower()
-            try:
-                validate_email(value)
-            except ValidationError:
+            if not _is_email(value):
                 errors[name] = "Enter a valid email address."
         elif name == "contact_mobile":
             try:
@@ -188,10 +197,8 @@ def _clean_profile(data):
                     raise ValueError(f"Use up to {MAX_LENGTHS[name]} characters.")
             elif name == "privacy_contact_email":
                 value = value.lower()
-                try:
-                    validate_email(value)
-                except ValidationError:
-                    raise ValueError("Enter a valid email address.") from None
+                if not _is_email(value):
+                    raise ValueError("Enter a valid email address.")
             elif name == "tin":
                 value = _tin(value)
             elif name == "dti_business_number":
