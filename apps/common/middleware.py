@@ -3,13 +3,23 @@ from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.utils.cache import patch_vary_headers
 
-from apps.common.errors import error_body
+from apps.common.errors import ApiError, error_body
 
 API_PREFIX = "/v1/"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 ALLOW_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
 ALLOW_HEADERS = "content-type"
 PREFLIGHT_MAX_AGE = "600"
+
+
+def require_allowed_origin(request):
+    """Sign-in and cookie-backed endpoints call this: a write must name an allowed Origin."""
+    if request.method in SAFE_METHODS:
+        return
+    if request.headers.get("Origin") not in settings.API_ALLOWED_ORIGINS:
+        raise ApiError(
+            "origin_required", "This request must come from the site or the dashboard.", status=403
+        )
 
 
 class ApiOriginMiddleware:

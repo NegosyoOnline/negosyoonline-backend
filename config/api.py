@@ -5,6 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 from ninja import NinjaAPI
 
 from apps.common.errors import error_body, register_error_handlers
+from apps.accounts.api import router as accounts_router
 
 api = NinjaAPI(
     title="NegosyoOnline API",
@@ -14,6 +15,7 @@ api = NinjaAPI(
     docs_url="/docs" if settings.DEBUG else None,
 )
 register_error_handlers(api)
+api.add_router("", accounts_router)
 
 
 @csrf_exempt  # so a write to an unknown path gets this JSON 404, not Django's HTML CSRF page
