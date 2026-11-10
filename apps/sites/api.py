@@ -47,6 +47,7 @@ class SitePatch(StrictSchema):
     display_name: str | None = None
     contact_email: str | None = None
     contact_mobile: str | None = None
+    facebook_url: str | None = None
     instagram_url: str | None = None
     tiktok_url: str | None = None
 
@@ -62,6 +63,7 @@ class SiteOut(Schema):
     contact_email: str
     contact_mobile: str
     accent_color: str
+    facebook_url: str
     instagram_url: str
     tiktok_url: str
     created_at: datetime
@@ -155,6 +157,7 @@ def site_out(site):
         "contact_email": site.contact_email,
         "contact_mobile": site.contact_mobile,
         "accent_color": site.accent_color,
+        "facebook_url": site.facebook_url,
         "instagram_url": site.instagram_url,
         "tiktok_url": site.tiktok_url,
         "created_at": site.created_at,
