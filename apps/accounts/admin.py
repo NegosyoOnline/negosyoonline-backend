@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from apps.accounts.models import Account, AccountAuditEvent, PolicyAcceptance, Session
+from apps.accounts.models import (
+    Account,
+    AccountAuditEvent,
+    ExternalIdentity,
+    PolicyAcceptance,
+    Session,
+)
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -36,3 +42,9 @@ class PolicyAcceptanceAdmin(ReadOnlyAdmin):
 class AccountAuditEventAdmin(ReadOnlyAdmin):
     list_display = ("account", "event", "created_at")
     list_filter = ("event",)
+
+
+@admin.register(ExternalIdentity)
+class ExternalIdentityAdmin(ReadOnlyAdmin):
+    list_display = ("account", "provider", "linked_at")
+    list_filter = ("provider",)
