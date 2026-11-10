@@ -24,6 +24,7 @@ class SiteAdmin(ReadOnlyAdmin):
         "deleted_at",
     )
     list_filter = ("template", "operator_hold")
+    list_select_related = ("account",)  # the masked column reads the account's email
     search_fields = ("display_name", "public_id", "account__email", "subdomains__name")
 
 
@@ -43,4 +44,5 @@ class SiteBusinessProfileAdmin(ReadOnlyAdmin):
 @admin.register(Onboarding)
 class OnboardingAdmin(ReadOnlyAdmin):
     list_display = (masked_account, "first_site", "started_at", "minimum_completed_at")
+    list_select_related = ("account", "first_site")
     search_fields = ("account__email",)

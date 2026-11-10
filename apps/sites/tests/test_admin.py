@@ -1,5 +1,7 @@
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from apps.sites.tests.base import make_account, make_site
@@ -26,6 +28,19 @@ class SitesAdminTests(TestCase):
                 response = self.client.get(url, secure=True)
                 self.assertContains(response, "a***@example.test")
                 self.assertNotContains(response, "ana@example.test")
+
+    def test_the_lists_do_not_read_the_account_once_per_row(self):
+        for model in ("site", "onboarding"):
+            with self.subTest(model=model):
+                url = reverse(f"admin:sites_{model}_changelist")
+                with CaptureQueriesContext(connection) as one_row:
+                    self.client.get(url, secure=True)
+                for number in range(3):
+                    account = make_account(f"{model}{number}@example.test")
+                    make_site(account, name=f"{model}-{number}")
+                with CaptureQueriesContext(connection) as four_rows:
+                    self.client.get(url, secure=True)
+                self.assertEqual(len(four_rows), len(one_row))
 
     def test_nothing_can_be_added_changed_or_deleted(self):
         add = reverse("admin:sites_site_add")
