@@ -2,7 +2,7 @@
 
 Date: 2026-11-10. ClickUp task: z8uq9md33v (https://app.clickup.com/t/z8uq9md33v), parent z8uq9mbreu.
 Design: `docs/superpowers/specs/2026-11-10-sms-gateway-mobile-verification-design.md` ("the Design"; D1 to D13 are its decisions).
-Status: **plan only, partly ruled. Nothing is built.** No code, migration, dependency, variable or repository exists yet. Ruled on 2026-11-10 (the Design's section 2.1): D1 (our own small Android app), D2 (the phone asks the server) and D12 (a new repository is needed; creating it is his action) by Coach Ed; D3, D9 and D11 by the coordinator. Still with Coach Ed: D4, D5, D6, D7, D8, D10, and confirmation of D13 (incoming texts). No migration, variable, repository or pull request of section 3 is approved; section 6 lists them. For the open decisions the plan is written for the Design's recommended answers; section 8 says what changes if he rules otherwise.
+Status: **plan only, partly ruled. Nothing is built.** No code, migration, dependency, variable or repository exists yet. Ruled on 2026-11-10 (the Design's section 2.1): D1 (our own small Android app), D2 (the phone asks the server) and D12 (a new repository is needed; creating it is his action) by Coach Ed; D3, D9 and D11 by the coordinator. Ruled on 2026-11-11 by Coach Ed: D13 is (a), incoming texts built into the app behind a per-phone switch, off for the system phone, nothing stored. Still with Coach Ed: D4, D5, D6, D7, D8, D10. No migration, variable, repository or pull request of section 3 is approved; section 6 lists them. For the open decisions the plan is written for the Design's recommended answers; section 8 says what changes if he rules otherwise.
 
 ## 1. Sources
 
@@ -17,7 +17,7 @@ The Design's section 1. Code state: backend `e85e727`, frontend `ab852d3`. Open 
 | 1 | A1: one send function every app uses | 6.1, 6.2, 6.3, 6.5 | PR 1 |
 | 2 | A1: the gateway the phone talks to | 5 | PR 2 |
 | 3 | A1: the phone app | 4 | PR 5 (new repository) |
-| 3a | Ruling of 2026-11-10: the app can read incoming texts (D13 (a), to be confirmed) | 5.6 | PR 1 (the per-phone switch), PR 2 (the `received` call and the `incoming` command), PR 5 (the app's receiver). Switched off for the system phone; nothing is stored |
+| 3a | Ruling of 2026-11-10: the app can read incoming texts (D13 (a), confirmed 2026-11-11) | 5.6 | PR 1 (the per-phone switch), PR 2 (the `received` call and the `incoming` command), PR 5 (the app's receiver). Switched off for the system phone; nothing is stored |
 | 4 | A2: mobile verification for every Philippine number; `mobile` in `GET /v1/account/` | 7 | PR 3 |
 | 5 | A3: daily limits per site and platform, kill switch, email fallback | 8.1 to 8.3 | PR 1 |
 | 6 | A3: masked numbers in the admin | 8.4 | PR 1 (send records, phones, settings), PR 3 (account mobile) |
@@ -142,7 +142,7 @@ Already existing and required where the gateway is on: `REDIS_URL`, `DJANGO_SECR
 
 ### 6.1 Before any code is written (Coach Ed, relayed by the coordinator)
 
-- **A0. The Design's open decisions: D4, D5, D6, D7, D8, D10, and confirmation of D13.** D4, D5 and D7 change what is built; D6 and D10 are numbers and words; D8 is reported for a ruling; D13 confirms that incoming texts are built switched off, with nothing stored. Already ruled and not asked again: D1, D2, D12 (Coach Ed) and D3, D9, D11 (the coordinator), all on 2026-11-10.
+- **A0. The Design's open decisions: D4, D5, D6, D7, D8, D10.** D4, D5 and D7 change what is built; D6 and D10 are numbers and words; D8 is reported for a ruling. Already ruled and not asked again: D1, D2, D12 (Coach Ed) and D3, D9, D11 (the coordinator) on 2026-11-10; D13 (Coach Ed) on 2026-11-11.
 - **A1. Migration M1**: creating the file, and applying it to the builder's local SQLite file for the local check.
 - **A2. Migration M2**: the same, after the coordinator agrees the number and order with the session that owns `apps/accounts` migrations.
 - **A3. Variable `SMS_GATEWAY_ENABLED`**: adding it to the code and `.env.example`, and setting it to `1` in the builder's ignored local `.env`.
@@ -178,8 +178,6 @@ Merging each PR; applying M1 and M2 on staging; setting `SMS_GATEWAY_ENABLED` on
 | D6 (b): limits as variables | PR 1 drops `SmsPolicy` from M1 and adds three variables |
 | D7 (b): text the old number | PR 3 adds a third purpose; the ruling "only sign-in codes and order-status texts" is widened by Coach Ed first |
 | D8 ruled in | PR 3 adds one read-only route |
-| D13 (b): reading switched on for the system phone in this task | The task widens. M1 gains a table for incoming texts with their text; PR 1 adds its masked admin list; PR 2's `received` stores instead of discarding; PR 4 gains a retention rule for it; a rule is needed for texts that are not for a subscriber. The ruling "no message text stored" and the NPC wording must be changed by Coach Ed first, and the filing checked before the switch is turned on |
-| D13 ruled out: no reading at all | The switch field leaves M1; PR 2 drops `received`, the `incoming` command and its audit action; PR 5 drops the receiver and the receive permission; T-GW 16 to 18 and T-CMD 7 go |
 
 ## 9. Tests
 

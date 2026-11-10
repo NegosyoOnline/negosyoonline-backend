@@ -31,7 +31,9 @@ Status: **design proposed, partly ruled. Nothing is built.** No code, migration,
   - D1 is (a): our own small Android app. He chose it after seeing the legacy handset app compared with the other options; that app is not reused.
   - D2 is (a): the phone asks the server. No Firebase. The question put to him was "our own small Android app that polls the API".
   - D12: a new repository is needed. Creating it remains Coach Ed's own action or approval.
-  - New requirement: the app must be able to read incoming texts, because the SMS inbox planned in the Dedicated SMS Line add-on (z8uq9mb19f) will show them. How this is written here (section 5.6) is the coordinator's working interpretation and **needs Coach Ed's confirmation** (D13).
+  - New requirement: the app must be able to read incoming texts, because the SMS inbox planned in the Dedicated SMS Line add-on (z8uq9mb19f) will show them. How this is written here (section 5.6) was the coordinator's interpretation, confirmed by Coach Ed on 2026-11-11 (D13, below).
+- **2026-11-11, Coach Ed, in the coordinator session:** "yes, agree with your recommendation", answering the coordinator's recommendation: reading built into the app behind a per-phone server switch, off by default, kept off for the system phone until the inbox is designed in the add-on task (z8uq9mb19f).
+  - D13 is (a).
 - **2026-11-10, the coordinator, as reversible details inside the approved scope:** D3 is (a), the API host under `/gateway/`; D9, the `SmsMessage` field names as proposed; D11, two accounts may verify the same number.
 
 ## 3. Decisions that need Coach Ed
@@ -52,7 +54,7 @@ Rows marked **Settled** are ruled (section 2.1) and are kept for the record. Eve
 | D10 | The wording of the code text and the error messages (sections 7.2, 7.3) | Proposed text is in 7.6 | As proposed | The words subscribers read |
 | D11 | May two accounts verify the same mobile number? (section 7.1) — **Settled**: (a), the coordinator, 2026-11-10 | (a) yes; (b) no | (a) | Matches legacy and the scope doc, which says "one each" per account only. A number is proof of reach, not an identity |
 | D12 | The Android app's repository (section 4.3) — **Settled**: a new repository is needed (Coach Ed, 2026-11-10); creating it is still his action or approval | A new private repository, for example `negosyoonline-sms-gateway-android` | As stated | Needed only if D1 is (a). The repository does not exist; creating it is Coach Ed's action or approval |
-| D13 | Reading incoming texts (section 5.6). **Needs Coach Ed's confirmation** | (a) the app can receive texts, behind a per-phone switch that is off for the system phone until the add-on's inbox is designed; (b) reading is switched on for the system phone in this task | (a), the coordinator's working interpretation of the ruling | (a): this task stores no incoming text, and "no message text stored" and the NPC wording stand; the add-on designs where incoming text is kept, who sees it and for how long. (b): this task must also design inbound storage, retention and admin masking, and the filing wording must be checked before it is switched on |
+| D13 | Reading incoming texts (section 5.6) — **Settled**: (a), Coach Ed, 2026-11-11 | (a) the app can receive texts, behind a per-phone switch that is off for the system phone until the add-on's inbox is designed; (b) reading is switched on for the system phone in this task | (a) | (a): this task stores no incoming text, and "no message text stored" and the NPC wording stand; the add-on designs where incoming text is kept, who sees it and for how long. (b): this task must also design inbound storage, retention and admin masking, and the filing wording must be checked before it is switched on |
 
 What Coach Ed supplies in any case: the phone, the Globe SIM and its plan, a charger and a stable internet connection for the phone, and the approvals in the plan. With the recommended answers he supplies **no Firebase project and no new hostname**.
 
@@ -146,9 +148,9 @@ Holding one request open until a text arrives (long polling) is not offered: `ra
 - **The phone drops out after a text was queued:** the text waits until its expiry (10 minutes for a code). If the phone returns in time, it is sent. If not, the record becomes `expired`, the text is gone from the cache, and a text with an email fallback is emailed then.
 - An ERROR log line with a fixed name (`sms_gateway_offline`) is written at most once an hour while sends are being refused, so the outage is visible in the Railway log. There is no alert table yet; the hq health page that would show this is not part of this task.
 
-### 5.6 Incoming texts (D13, needs Coach Ed's confirmation)
+### 5.6 Incoming texts (D13; ruled: (a), Coach Ed, 2026-11-11)
 
-Coach Ed's ruling of 2026-11-10 asks for the app to be able to read incoming texts, for the SMS inbox of the Dedicated SMS Line add-on (z8uq9mb19f). What follows is the coordinator's working interpretation, option (a) of D13.
+Coach Ed's ruling of 2026-11-10 asks for the app to be able to read incoming texts, for the SMS inbox of the Dedicated SMS Line add-on (z8uq9mb19f). What follows is option (a) of D13, which he confirmed on 2026-11-11 ("yes, agree with your recommendation").
 
 **What is built in this task**
 
@@ -167,7 +169,7 @@ Where incoming text is stored, who may see it, how long it is kept, how numbers 
 - Android treats this as a sensitive permission. For an app installed from a file rather than from Google Play, recent Android versions can show the permission greyed out until the phone's owner allows restricted settings for that app by hand, and Google Play Protect can warn about or block the install. The documentation of the open-source app in section 4.2 reports both for Android 15; the exact steps on the chosen phone are to be proven when the phone is set up (section 12).
 - A SIM receives texts that have nothing to do with NegosyoOnline. If forwarding is ever switched on for the **system** phone, every such text would reach the server. That is new personal data flowing in, which the NPC documents do not describe today: they say the phone sends, and that only the recipient number and the message text leave. **The filing and policy wording must be checked before the switch is turned on for the system number.**
 
-**Option (b), reading switched on for the system phone in this task.** This task would then also need: a table for incoming texts with their text, a retention period and job, masked admin lists, a rule for texts that are not for a subscriber, and a change to the rule "no message text stored" and to the NPC wording. It widens the task and is not recommended.
+**Option (b), reading switched on for the system phone in this task (not chosen).** This task would then also need: a table for incoming texts with their text, a retention period and job, masked admin lists, a rule for texts that are not for a subscriber, and a change to the rule "no message text stored" and to the NPC wording. It widens the task and was not recommended.
 
 ## 6. Sending (A1)
 
