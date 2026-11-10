@@ -15,6 +15,7 @@ SITE_BODY = {
     "display_name": "Taken Over",
     "contact_email": "taken@example.test",
     "contact_mobile": "09181234567",
+    "facebook_url": "https://facebook.com/taken",
     "instagram_url": "https://instagram.com/taken",
     "tiktok_url": "https://tiktok.com/@taken",
 }

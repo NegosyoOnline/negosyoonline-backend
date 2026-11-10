@@ -288,6 +288,40 @@ class UpdateSiteTests(TestCase):
             {"tiktok_url": ["Enter the full https link to your TikTok page."]},
         )
 
+    def test_a_facebook_link_is_saved_on_the_facebook_hosts_only_and_can_be_cleared(self):
+        for host in ("facebook.com", "www.facebook.com", "m.facebook.com"):
+            with self.subTest(host=host):
+                services.update_site(
+                    self.account, self.site, {"facebook_url": f"https://{host}/anas"}
+                )
+                self.site.refresh_from_db()
+                self.assertEqual(self.site.facebook_url, f"https://{host}/anas")
+
+        bad = (
+            "http://facebook.com/anas", "https://fb.com/anas", "https://facebook.com.evil.test/anas",
+            "https://evil.test/facebook.com", "facebook.com/anas", "https://instagram.com/anas",
+            "https://facebook.com/" + "a" * 200,
+        )
+        for value in bad:
+            with self.subTest(value=value):
+                with self.assertRaises(ApiError) as raised:
+                    services.update_site(self.account, self.site, {"facebook_url": value})
+                self.assertEqual(
+                    raised.exception.fields,
+                    {"facebook_url": ["Enter the full https link to your Facebook page."]},
+                )
+        self.site.refresh_from_db()
+        self.assertEqual(self.site.facebook_url, "https://m.facebook.com/anas")
+
+        for value in ("", "  ", None):
+            with self.subTest(clear=value):
+                services.update_site(
+                    self.account, self.site, {"facebook_url": "https://facebook.com/anas"}
+                )
+                services.update_site(self.account, self.site, {"facebook_url": value})
+                self.site.refresh_from_db()
+                self.assertEqual(self.site.facebook_url, "")
+
     def test_another_accounts_site_cannot_be_updated(self):
         other = make_account("ben@example.test")
 
@@ -346,6 +380,10 @@ class UpdateBusinessProfileTests(TestCase):
             sorted(raised.exception.fields),
             ["bir_rsn", "dti_business_number", "privacy_contact_email",
              "shipping_estimates_confirmed", "shipping_luzon_estimate", "tin"],
+        )
+        self.assertEqual(
+            raised.exception.fields["bir_rsn"],
+            ["Enter your BIR Official Control Number (OCN), like 113RC20260000017598."],
         )
         self.assertEqual(self.site.business_profile.business_name, "")
 

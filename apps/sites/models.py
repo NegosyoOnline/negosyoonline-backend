@@ -19,6 +19,7 @@ class Site(models.Model):
     contact_email = models.EmailField(blank=True)
     contact_mobile = models.CharField(max_length=13, blank=True)  # +639XXXXXXXXX
     accent_color = models.CharField(max_length=7, blank=True)  # #RRGGBB
+    facebook_url = models.URLField(max_length=200, blank=True)
     instagram_url = models.URLField(max_length=200, blank=True)
     tiktok_url = models.URLField(max_length=200, blank=True)
     operator_hold = models.BooleanField(default=False)
