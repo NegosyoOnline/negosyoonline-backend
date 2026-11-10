@@ -2,7 +2,7 @@
 
 ClickUp task: z8uq9md33v "NPC Build 1 — SMS Carrier & Data-Flow Controls" (https://app.clickup.com/t/z8uq9md33v), parent z8uq9mbreu. This is slice 8 "Mobile OTP" of `docs/superpowers/specs/2026-11-10-backend-mvp-scope-design.md`.
 
-Status: **design proposed. Nothing here is approved, and nothing is built.** No code, migration, variable or Railway change exists. Section 3 lists the decisions that need Coach Ed; until he rules, the rest of this document assumes the recommended answer. The plan is `docs/superpowers/plans/2026-11-10-backend-npc-build1-sms-gateway.md`.
+Status: **design proposed, partly ruled. Nothing is built.** No code, migration, variable or Railway change exists. Section 2.1 records the rulings given so far; section 3 lists the decisions still open. Until Coach Ed rules on those, the rest of this document assumes the recommended answer. The plan is `docs/superpowers/plans/2026-11-10-backend-npc-build1-sms-gateway.md`.
 
 ## 1. Sources
 
@@ -25,24 +25,34 @@ Status: **design proposed. Nothing here is approved, and nothing is built.** No 
 - The paid Dedicated SMS Line add-on (z8uq9mb19f) is not designed here. Section 6.6 shows it is not blocked.
 - Each migration and each Railway variable needs Coach Ed's own approval. This document lists them; it creates none.
 
+### 2.1 Rulings on this design
+
+- **2026-11-10, Coach Ed, in the coordinator session:** "let's build our own small app, but include reading sms since in our CMS inbox, we will include SMS."
+  - D1 is (a): our own small Android app. He chose it after seeing the legacy handset app compared with the other options; that app is not reused.
+  - D2 is (a): the phone asks the server. No Firebase. The question put to him was "our own small Android app that polls the API".
+  - D12: a new repository is needed. Creating it remains Coach Ed's own action or approval.
+  - New requirement: the app must be able to read incoming texts, because the SMS inbox planned in the Dedicated SMS Line add-on (z8uq9mb19f) will show them. How this is written here (section 5.6) is the coordinator's working interpretation and **needs Coach Ed's confirmation** (D13).
+- **2026-11-10, the coordinator, as reversible details inside the approved scope:** D3 is (a), the API host under `/gateway/`; D9, the `SmsMessage` field names as proposed; D11, two accounts may verify the same number.
+
 ## 3. Decisions that need Coach Ed
 
-Each row is marked **needs Coach Ed**. The detail and the evidence are in the section named.
+Rows marked **Settled** are ruled (section 2.1) and are kept for the record. Every other row **needs Coach Ed**. The detail and the evidence are in the section named.
 
 | # | Decision | Options | Recommended | Consequence of the recommendation |
 |---|---|---|---|---|
-| D1 | Which phone app (section 4) | (a) a small Android app of our own; (b) the open-source "SMS Gateway for Android" with its private server; (c) the same app in local-server mode; (d) httpSMS or textbee | (a) | No third party sees anything. No Firebase. No new Railway service. We own and maintain a small Android app in a new repository, and the phone installs it from a file, not from Google Play |
-| D2 | How the phone learns a text is waiting (section 5.3) | (a) the phone asks every 5 seconds; (b) a push nudge through Firebase | (a) | A code leaves the phone within about 5 seconds of being queued. No Firebase project, no Google in the path. About 17,000 small requests a day to the API |
-| D3 | Which hostname the phone uses (section 5.2) | (a) the API host, under `/gateway/`; (b) a dedicated host such as `sms.negosyoonline.com` | (a) | No new domain, DNS record or Railway custom domain. The phone's address is not in the published API description |
+| D1 | Which phone app (section 4) — **Settled**: (a), Coach Ed, 2026-11-10 | (a) a small Android app of our own; (b) the open-source "SMS Gateway for Android" with its private server; (c) the same app in local-server mode; (d) httpSMS or textbee | (a) | No third party sees anything. No Firebase. No new Railway service. We own and maintain a small Android app in a new repository, and the phone installs it from a file, not from Google Play |
+| D2 | How the phone learns a text is waiting (section 5.3) — **Settled**: (a), Coach Ed, 2026-11-10 | (a) the phone asks every 5 seconds; (b) a push nudge through Firebase | (a) | A code leaves the phone within about 5 seconds of being queued. No Firebase project, no Google in the path. About 17,000 small requests a day to the API |
+| D3 | Which hostname the phone uses (section 5.2) — **Settled**: (a), the coordinator, 2026-11-10 | (a) the API host, under `/gateway/`; (b) a dedicated host such as `sms.negosyoonline.com` | (a) | No new domain, DNS record or Railway custom domain. The phone's address is not in the published API description |
 | D4 | Where the text waits for the phone (section 6.3) | (a) the cache, encrypted, for at most 10 minutes; (b) written only at pickup, from the record | (a) | The text exists only in Redis, as ciphertext, until the phone takes it or it expires. It is never in PostgreSQL |
 | D5 | What starts the retention job before slice 4 adds beat (section 9.3) | (a) the web service, once a day; (b) a Railway cron service; (c) by hand | (a) | No new Railway service. If the web service gets no gateway traffic for a day, that day's run is skipped and the next run catches up. Build 7 can reuse it or choose (b) |
 | D6 | The daily limits and where they are kept (section 8.1) | Numbers: carried from legacy, 500 a day for the platform and 100 a day per site, or Coach Ed's own. Kept in: (a) one settings row the admin edits in the Django admin; (b) Railway variables | 500 and 100, in (a) | The admin can change a limit or stop all sending in seconds, without a deploy. Each change is audited. One more small table |
 | D7 | The notice when a subscriber changes mobile (section 7.5) | (a) email only; (b) also a text to the old number | (a) | Stays inside the ruling "only sign-in codes and order-status texts". The dashboard sentence "we send a notice to your old number and your email" must change, in a frontend task |
 | D8 | `GET /v1/account/mobile/` (section 7.4) | (a) serve it; (b) leave it out | Reported, not decided | `earnings.js` calls it; the Task does not list it. See 7.4 |
-| D9 | `SmsMessage` field names (section 6.1) | The Task says number, purpose, status, time. The scope doc says recipient, category, status, provider reference | `recipient`, `category`, `purpose`, `status`, `created_at`; a link to the sending phone instead of a provider reference | Both documents are satisfied. The scope doc line is amended |
+| D9 | `SmsMessage` field names (section 6.1) — **Settled**: as recommended, the coordinator, 2026-11-10 | The Task says number, purpose, status, time. The scope doc says recipient, category, status, provider reference | `recipient`, `category`, `purpose`, `status`, `created_at`; a link to the sending phone instead of a provider reference | Both documents are satisfied. The scope doc line is amended |
 | D10 | The wording of the code text and the error messages (sections 7.2, 7.3) | Proposed text is in 7.6 | As proposed | The words subscribers read |
-| D11 | May two accounts verify the same mobile number? (section 7.1) | (a) yes; (b) no | (a) | Matches legacy and the scope doc, which says "one each" per account only. A number is proof of reach, not an identity |
-| D12 | The Android app's repository (section 4.3) | A new private repository, for example `negosyoonline-sms-gateway-android` | As stated | Needed only if D1 is (a). The repository does not exist; creating it is Coach Ed's action or approval |
+| D11 | May two accounts verify the same mobile number? (section 7.1) — **Settled**: (a), the coordinator, 2026-11-10 | (a) yes; (b) no | (a) | Matches legacy and the scope doc, which says "one each" per account only. A number is proof of reach, not an identity |
+| D12 | The Android app's repository (section 4.3) — **Settled**: a new repository is needed (Coach Ed, 2026-11-10); creating it is still his action or approval | A new private repository, for example `negosyoonline-sms-gateway-android` | As stated | Needed only if D1 is (a). The repository does not exist; creating it is Coach Ed's action or approval |
+| D13 | Reading incoming texts (section 5.6). **Needs Coach Ed's confirmation** | (a) the app can receive texts, behind a per-phone switch that is off for the system phone until the add-on's inbox is designed; (b) reading is switched on for the system phone in this task | (a), the coordinator's working interpretation of the ruling | (a): this task stores no incoming text, and "no message text stored" and the NPC wording stand; the add-on designs where incoming text is kept, who sees it and for how long. (b): this task must also design inbound storage, retention and admin masking, and the filing wording must be checked before it is switched on |
 
 What Coach Ed supplies in any case: the phone, the Globe SIM and its plan, a charger and a stable internet connection for the phone, and the approvals in the plan. With the recommended answers he supplies **no Firebase project and no new hostname**.
 
@@ -50,7 +60,7 @@ What Coach Ed supplies in any case: the phone, the Globe SIM and its plan, a cha
 
 ### 4.1 What the phone app has to do
 
-Ask the server for waiting texts, send each one through the SIM, and tell the server the result. Nothing else: it does not read incoming texts, the contact list or anything on the phone.
+Ask the server for waiting texts, send each one through the SIM, and tell the server the result. By Coach Ed's ruling of 2026-11-10 it can also pass texts that arrive on the SIM to the server, behind a switch that is off unless the server turns it on for that phone (section 5.6). It reads nothing else: not the texts already stored on the phone, not the contact list.
 
 ### 4.2 Options
 
@@ -79,7 +89,7 @@ Facts about third-party apps come from their documentation on 2026-11-10 (sectio
 
 **Not offered: our Django speaking another app's private device protocol.** Legacy did this with a commercial app. For the capcom6 app the device-side routes are not in the published documentation, so an app update could break sending without notice.
 
-### 4.3 Recommendation
+### 4.3 Recommendation (ruled: (a), Coach Ed, 2026-11-10)
 
 **(a), a small app of our own**, in a new private repository (D12). It is the only option that keeps every third party except Globe out of the path, adds no Railway service, keeps the text out of every database, and matches A1. Its cost is real: a second small codebase. If Coach Ed does not want an Android codebase, (b) with end-to-end encryption on is the workable alternative; sections 5 and 6.3 would then be replaced by a client for that server, and the plan's PR 2 and PR 5 change.
 
@@ -87,13 +97,13 @@ The parent task's filing list says "No mobile app". That line is about apps the 
 
 ## 5. How the phone and the server talk
 
-### 5.1 The two calls
+### 5.1 The calls
 
-Both are `POST`, JSON, over HTTPS, and carry the phone's token. They are plain Django views in `apps/notifications`, mounted outside `/v1/` so they are not in the published API description.
+Two calls carry outgoing texts; a third, for incoming texts, is in section 5.6. All are `POST`, JSON, over HTTPS, and carry the phone's token. They are plain Django views in `apps/notifications`, mounted outside `/v1/` so they are not in the published API description.
 
 | Call | The phone sends | The server answers |
 |---|---|---|
-| `POST /gateway/v1/poll` | App version, battery level, charging or not | Up to 5 waiting texts, each with an id, the number, the text and its expiry; and how many seconds to wait before asking again |
+| `POST /gateway/v1/poll` | App version, battery level, charging or not | Up to 5 waiting texts, each with an id, the number, the text and its expiry; how many seconds to wait before asking again; and whether this phone forwards incoming texts (section 5.6) |
 | `POST /gateway/v1/report` | For each text: its id and `sent` or `failed` with a short reason | Nothing (204). Repeating a report changes nothing |
 
 Rules:
@@ -103,9 +113,9 @@ Rules:
 - The phone waits at least 2 seconds between two texts, so the SIM's traffic looks like a person's and not a broadcast.
 - The "seconds to wait" in each answer lets the server slow the phone down (for example to 30 seconds while sending is stopped) without an app update.
 - A `dispatched` record with no report after 10 minutes becomes `failed` with reason `no_report`.
-- The app asks Android only for permission to send texts, use the network, run in the background and start after a restart. It does not ask to read or receive texts.
+- The app asks Android for permission to send texts, to receive texts as they arrive (section 5.6), to use the network, to run in the background and to start after a restart. It does not ask for permission to read the texts stored on the phone.
 
-### 5.2 Hostname (D3)
+### 5.2 Hostname (D3; settled: (a), the coordinator, 2026-11-10)
 
 **(a) The API host, under `/gateway/`** (staging: `https://api-staging.negosyonline.com/gateway/v1/...`; production: `https://api.negosyoonline.com/gateway/v1/...`). Recommended. Nothing new to register. The browser rules of the API do not apply: the phone sends no `Origin` header, and `ApiOriginMiddleware` acts only under `/v1/`.
 
@@ -113,7 +123,7 @@ Rules:
 
 Whichever is chosen, the labels `sms` and `gateway` should be added to the reserved list, so no store can look like part of the gateway. That is a two-word change in `apps/sites`, which another session owns; the plan lists it for the coordinator.
 
-### 5.3 How the phone learns a text is waiting (D2)
+### 5.3 How the phone learns a text is waiting (D2; ruled: (a), Coach Ed, 2026-11-10)
 
 **(a) The phone asks every 5 seconds.** Recommended. Each call is a few hundred bytes and one or two cache reads on the server. At 5 seconds that is 17,280 calls a day. A code is on its way within about 5 seconds, which is well inside its 10-minute life. The phone stays on its charger, so battery is not a constraint.
 
@@ -126,7 +136,7 @@ Holding one request open until a text arrives (long polling) is not offered: `ra
 - Each phone is one row, `SmsDevice`, created only with a terminal command (`manage.py sms_device add --name ... --actor USERNAME`), the same way admin identities are. There is no browser path.
 - The command prints a random token **once**. Only its SHA-256 is stored. Coach Ed types or scans it into the app, which keeps it in Android's encrypted storage.
 - Every call sends the token in the `Authorization` header over TLS. The server looks the phone up by the token's hash. An unknown, rotated or disabled token gets the same 401 answer and counts against a per-IP limit of failed tries.
-- `sms_device rotate` replaces the token; `sms_device disable` stops the phone at once; `sms_device list` shows each phone's name, state and last contact. Every action except `list` writes an `OperatorAuditEntry`.
+- `sms_device rotate` replaces the token; `sms_device disable` stops the phone at once; `sms_device incoming on|off` sets the switch in section 5.6; `sms_device list` shows each phone's name, state and last contact. Every action except `list` writes an `OperatorAuditEntry`.
 - The token gives the right to fetch waiting texts and report results, nothing else. It cannot read records, accounts or settings.
 
 ### 5.5 When the phone is offline
@@ -136,9 +146,32 @@ Holding one request open until a text arrives (long polling) is not offered: `ra
 - **The phone drops out after a text was queued:** the text waits until its expiry (10 minutes for a code). If the phone returns in time, it is sent. If not, the record becomes `expired`, the text is gone from the cache, and a text with an email fallback is emailed then.
 - An ERROR log line with a fixed name (`sms_gateway_offline`) is written at most once an hour while sends are being refused, so the outage is visible in the Railway log. There is no alert table yet; the hq health page that would show this is not part of this task.
 
+### 5.6 Incoming texts (D13, needs Coach Ed's confirmation)
+
+Coach Ed's ruling of 2026-11-10 asks for the app to be able to read incoming texts, for the SMS inbox of the Dedicated SMS Line add-on (z8uq9mb19f). What follows is the coordinator's working interpretation, option (a) of D13.
+
+**What is built in this task**
+
+- **A per-phone switch, on the server.** `SmsDevice` gains one field, "forwards incoming texts", off by default. Only the `sms_device` terminal command can change it, and the change is audited. Each `poll` answer tells the phone its current value.
+- **The app's receiving part.** While the switch is off, the app's receiver is disabled: it forwards nothing and keeps nothing, and an arriving text stays only in the phone's own messaging app, as on any phone. While it is on, the app passes each arriving text to the server with the third call and keeps it only until the server has answered.
+- **The third call, `POST /gateway/v1/received`.** The phone sends, for each text: the sender's number, the text, the time it arrived and the SIM slot. The server answers 204.
+- **For this task the system phone's switch stays off, and the server stores no incoming text.** While a phone's switch is off, the call answers **204 and discards** what was sent, without reading it into any record or log. Proposed over answering 404: a phone that has not yet learned its switch was turned off would treat 404 as a fault and hold the text to try again, which is exactly the keeping this design rules out; a 204 lets it drop the text at once.
+
+**What is not built in this task**
+
+Where incoming text is stored, who may see it, how long it is kept, how numbers are masked, and what happens to texts that are not for a subscriber (the carrier's own notices, wrong numbers, one-time codes from other services sent to that SIM). Those belong to the add-on's design; its checklist already says the inbox needs its own storage design. This task's rule "no message text stored" and the NPC wording therefore stand unchanged.
+
+**Consequences of the wider permission, stated plainly**
+
+- The app now holds Android's permission to receive texts. It asks only for that one: it sees a text at the moment it arrives, and never the texts already stored on the phone.
+- Android treats this as a sensitive permission. For an app installed from a file rather than from Google Play, recent Android versions can show the permission greyed out until the phone's owner allows restricted settings for that app by hand, and Google Play Protect can warn about or block the install. The documentation of the open-source app in section 4.2 reports both for Android 15; the exact steps on the chosen phone are to be proven when the phone is set up (section 12).
+- A SIM receives texts that have nothing to do with NegosyoOnline. If forwarding is ever switched on for the **system** phone, every such text would reach the server. That is new personal data flowing in, which the NPC documents do not describe today: they say the phone sends, and that only the recipient number and the message text leave. **The filing and policy wording must be checked before the switch is turned on for the system number.**
+
+**Option (b), reading switched on for the system phone in this task.** This task would then also need: a table for incoming texts with their text, a retention period and job, masked admin lists, a rule for texts that are not for a subscriber, and a change to the rule "no message text stored" and to the NPC wording. It widens the task and is not recommended.
+
 ## 6. Sending (A1)
 
-### 6.1 Records (D9)
+### 6.1 Records (D9; settled as proposed, the coordinator, 2026-11-10)
 
 All in `apps/notifications`, in one additive migration.
 
@@ -159,7 +192,7 @@ All in `apps/notifications`, in one additive migration.
 
 Difference to report: the Task names the fields number, purpose, status, time; the scope doc, section 6, names them recipient, category, status, provider reference. Proposed resolution, above: keep `recipient` (the same name `EmailMessage` uses), keep both `category` and `purpose` because they do different jobs, and replace "provider reference" with the sending phone. The scope doc line is amended when this design is approved (section 13).
 
-**`SmsDevice`** — one row per phone: name, token hash, active, last contact, app version, battery, created and rotated times. It never holds the SIM's number.
+**`SmsDevice`** — one row per phone: name, token hash, active, forwards incoming texts (off by default; section 5.6), last contact, app version, battery, created and rotated times. It never holds the SIM's number.
 
 **`SmsPolicy`** — one row: sending stopped (the kill switch), the platform daily limit, the per-site daily limit, updated time (section 8).
 
@@ -196,11 +229,11 @@ Two things happen "later" and are done at the start of each `poll`, cheaply: que
 
 ### 6.5 The master switch
 
-One Railway variable, `SMS_GATEWAY_ENABLED`, off by default. While it is off: `send_sms` refuses with reason `gateway_off`, both gateway calls answer 404, and mobile verification answers 503 with the "not available" message. The code can therefore be merged and deployed dark, the way hq was behind `HQ_HOST`.
+One Railway variable, `SMS_GATEWAY_ENABLED`, off by default. While it is off: `send_sms` refuses with reason `gateway_off`, all three gateway calls answer 404, and mobile verification answers 503 with the "not available" message. The code can therefore be merged and deployed dark, the way hq was behind `HQ_HOST`.
 
 ### 6.6 The Dedicated SMS Line add-on is not blocked
 
-The add-on (z8uq9mb19f) is not designed here. Three choices keep its door open: phones are rows, so a second phone is a second row; each record names the phone that took it; and one function picks the phone for a text, which today always returns the system phone. The add-on's own statement that all sign-in codes use the NegosyoOnline system number is already how `code` texts behave.
+The add-on (z8uq9mb19f) is not designed here. Four choices keep its door open: phones are rows, so a second phone is a second row; each record names the phone that took it; and one function picks the phone for a text, which today always returns the system phone; and the app can already forward incoming texts for a phone whose switch is on (section 5.6), so the add-on's inbox needs no new app. The add-on's own statement that all sign-in codes use the NegosyoOnline system number is already how `code` texts behave.
 
 ## 7. Mobile verification (A2)
 
@@ -208,7 +241,7 @@ The add-on (z8uq9mb19f) is not designed here. Three choices keep its door open: 
 
 Both in `apps/accounts`, in one additive migration. Another session owns migrations in `apps/accounts`; the plan names this one for the coordinator and does not assume a number.
 
-- **`AccountMobile`**: account (one each), the verified number, verified time, created and updated times. A row exists only for a verified number. Two accounts may hold the same number (D11).
+- **`AccountMobile`**: account (one each), the verified number, verified time, created and updated times. A row exists only for a verified number. Two accounts may hold the same number (D11; settled, the coordinator, 2026-11-10).
 - **`MobileOtpChallenge`**: account, the number being verified, code hash, expires at (10 minutes), attempts (5 at most), used at, superseded at, the id of the `SmsMessage` that carried the code, created at. The scope doc lists account, code hash, expires_at and attempts; the number, the two end times and the message id are added because a challenge must remember which number it is for and must be usable once. The hash is a keyed hash of account, number and code, so a database copy does not reveal codes.
 
 One open challenge per account: starting a new one supersedes the old. Challenges are personal data (a number that may never be verified), so they are deleted 24 hours after expiry (section 9).
@@ -331,7 +364,7 @@ Listed for approval in the plan. None is created by this document.
 
 ## 11. Not in this design
 
-The Dedicated SMS Line add-on; any text other than a code or an order status; reading incoming texts; delivery receipts from the carrier; the hq health page and its SMS counts; an alert table; order-status texts themselves (no orders exist); per-site limit overrides; the dashboard wording change in 7.5; any filing or policy text.
+The Dedicated SMS Line add-on; any text other than a code or an order status; storing, showing or acting on incoming texts (the app can forward them, switched off, section 5.6; everything after that is the add-on's); delivery receipts from the carrier; the hq health page and its SMS counts; an alert table; order-status texts themselves (no orders exist); per-site limit overrides; the dashboard wording change in 7.5; any filing or policy text.
 
 ## 12. What was verified, and what was not
 
@@ -347,7 +380,7 @@ Not verified:
 
 - Whether Globe's link blocking is still in force in 2026, and Globe's fair-use limit on unlimited texts. Coach Ed should check the plan's terms when choosing the SIM. The plan must include texts to all networks, or "every Philippine number" is not true.
 - The current version and last release date of SMS Gateway for Android (only a third-party listing was found), the details of its held-open connection, and exactly which fields its private server stores.
-- Android behaviour stated from memory, to be proven on the real phone before the build is called done: that a phone on its charger is not put to sleep in a way that stops a 5-second background service; that the SMS permission rules out Google Play for this app.
+- Android behaviour stated from memory, to be proven on the real phone before the build is called done: that a phone on its charger is not put to sleep in a way that stops a 5-second background service; that the SMS permission rules out Google Play for this app; and the exact steps Android asks for before an app installed from a file may receive texts (section 5.6).
 - Railway facts this session did not read: whether staging has `REDIS_URL` set, how many Gunicorn workers run (the start command sets none, so the default of one is assumed), and the database region.
 - Nothing was run. This stage wrote documents only.
 
@@ -360,5 +393,5 @@ To be made when this design is approved, and not before:
 - Section 3, last bullet: SMS sending does not wait for the worker; the phone collects texts from the web service.
 - Section 6, accounts: `AccountMobile` and `MobileOtpChallenge` as in 7.1.
 - Section 6, notifications: `SmsMessage` as in 6.1, plus `SmsDevice` and `SmsPolicy`.
-- Section 8: the two gateway calls, noted as outside `/v1/`; `GET account/mobile/` only if D8 is ruled in.
+- Section 8: the three gateway calls, noted as outside `/v1/`; `GET account/mobile/` only if D8 is ruled in.
 - Section 10: SMS send-record retention moves into scope.
