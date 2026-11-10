@@ -17,6 +17,7 @@ ACTIONS = {
     "admin_identity_enrol": KEPT,
     "admin_identity_reset": KEPT,
     "admin_identity_disable": KEPT,
+    "sms_policy_change": KEPT,
 }
 SIGN_IN_ACTIONS = ("admin_sign_in_ok", "admin_sign_in_failed", "admin_locked", "admin_sign_out")
 IDENTITY_TARGET = "admin_identity"

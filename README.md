@@ -34,6 +34,7 @@ Before a staging deploy, configure these Railway variables through the service U
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: the Google OAuth client for this environment. Without them the Google sign-in endpoints answer 404.
 - `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET`: the Meta app for this environment. Without them the Facebook sign-in endpoints and the data deletion callback answer 404.
 - `ADMIN_SECRETS_KEY` and `HQ_HOST`: admin two-step sign-in, hq and the admin lists. Leave both unset until `docs/runbooks/admin-two-step.md` is followed.
+- `SMS_GATEWAY_ENABLED`: `1` turns on the SMS gateway (`send_sms` in `apps/notifications`, and the admin's SMS lists). Leave it unset until the `apps/notifications` SMS migration has been applied and `REDIS_URL` is set; unset, no text is queued and the SMS tables are not read or written.
 - `DASHBOARD_URL` and `SITE_URL`: where the browser lands after a Google sign-in that worked (the dashboard) or did not (the public site's sign-in popup). No trailing slashes.
 
 The deployment must return HTTP 200 from `/healthz/` before Railway accepts it as healthy.

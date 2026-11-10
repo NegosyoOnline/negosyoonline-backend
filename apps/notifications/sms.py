@@ -1,0 +1,265 @@
+"""The parts `send_sms` and the gateway are built from: what may be sent, the limits, the kill
+switch, where a text waits, and which phone sends it.
+
+Nothing here is called by another app. Every app sends through
+`apps.notifications.services.send_sms`.
+"""
+import base64
+import hashlib
+import json
+import logging
+import re
+from dataclasses import asdict, dataclass
+from datetime import datetime, time, timedelta
+
+from cryptography.fernet import Fernet, InvalidToken
+from django.conf import settings
+from django.core.cache import cache
+from django.utils import timezone
+
+from apps.notifications.models import SmsDevice, SmsMessage, SmsPolicy
+
+logger = logging.getLogger(__name__)
+
+Priority = SmsMessage.Priority
+CODE, STATUS = SmsMessage.Category.CODE.value, SmsMessage.Category.STATUS.value
+QUEUED, EMAILED, REFUSED = "queued", "emailed", "refused"
+
+DEFAULT_LIFETIME = 600  # seconds a text is worth sending: a code's 10 minutes
+ONLINE_WITHIN = timedelta(seconds=60)
+NO_REPORT_AFTER = 600  # seconds the gateway waits for the phone's report on a text it took
+_COUNT_KEPT = 2 * 24 * 3600
+
+
+@dataclass(frozen=True)
+class Purpose:
+    category: str
+    priority: int
+
+
+# The closed list of what may be sent. A text of any other kind cannot be sent without a
+# reviewed change to this list: sign-in and verification codes and order-status texts only,
+# no reply and no marketing text.
+PURPOSES = {
+    "mobile_verify": Purpose(category=CODE, priority=Priority.CODE),
+}
+
+
+@dataclass(frozen=True)
+class EmailFallback:
+    """The email that goes out when the text cannot."""
+
+    to: str
+    subject: str
+    body: str
+
+
+@dataclass(frozen=True)
+class SmsResult:
+    outcome: str  # QUEUED, EMAILED or REFUSED
+    reason: str = ""
+    message: SmsMessage | None = None  # None while the gateway is off: no record is written
+
+
+# --- The master switch ---------------------------------------------------------------------
+
+
+def redis_missing():
+    """A deployment without Redis keeps the cache per process, so a text queued by one process
+    could not be found by the one the phone reaches."""
+    return not settings.DEBUG and not settings.REDIS_URL
+
+
+def gateway_on():
+    return bool(settings.SMS_GATEWAY_ENABLED) and not redis_missing()
+
+
+# --- The text ------------------------------------------------------------------------------
+
+# The GSM 7-bit basic set: the characters of which 160 fit one SMS.
+_PLAIN = frozenset(
+    "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?"
+    "¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà"
+)
+_LINK = re.compile(r"(?i)https?://|\bwww\.|\b[a-z0-9-]+\.[a-z]{2,}\b")
+MAX_LENGTH = 160
+
+
+def text_problem(text):
+    """Why a text cannot be sent, or "" when it can."""
+    if not isinstance(text, str) or not text.strip():
+        return "The text is empty."
+    if len(text) > MAX_LENGTH or not _PLAIN.issuperset(text):
+        return "The text must fit one SMS: at most 160 plain characters."
+    if _LINK.search(text):
+        return "The text must not contain a web link."
+    return ""
+
+
+# --- Where a text waits --------------------------------------------------------------------
+#
+# Holding and taking are keyed by the send record. The database never holds a text; the cache
+# holds ciphertext only, for as long as the text is worth sending.
+
+
+def _fernet():
+    digest = hashlib.sha256(b"notifications.sms.text:" + settings.SECRET_KEY.encode()).digest()
+    return Fernet(base64.urlsafe_b64encode(digest))
+
+
+def text_key(message):
+    return f"sms:text:{message.public_id}"
+
+
+def fallback_key(message):
+    return f"sms:fallback:{message.public_id}"
+
+
+def _hold(key, plain, lifetime):
+    cache.set(key, _fernet().encrypt(plain.encode()).decode(), lifetime)
+
+
+def _take(key):
+    held = cache.get(key)
+    if held is None:
+        return None
+    cache.delete(key)
+    try:
+        return _fernet().decrypt(held.encode()).decode()
+    except (InvalidToken, AttributeError):
+        return None
+
+
+def hold_text(message, text, lifetime):
+    _hold(text_key(message), text, lifetime)
+
+
+def take_text(message):
+    """The text, once. None when it expired or was lost."""
+    return _take(text_key(message))
+
+
+def hold_fallback(message, fallback, lifetime):
+    # It can still be owed after the text itself expired: when the phone took the text and
+    # never reported, which the gateway learns NO_REPORT_AFTER seconds later.
+    _hold(fallback_key(message), json.dumps(asdict(fallback)), lifetime + NO_REPORT_AFTER + 60)
+
+
+def take_fallback(message):
+    held = _take(fallback_key(message))
+    return EmailFallback(**json.loads(held)) if held else None
+
+
+def forget(message):
+    cache.delete_many([text_key(message), fallback_key(message)])
+
+
+# --- The kill switch and the limits --------------------------------------------------------
+
+
+def policy():
+    return SmsPolicy.objects.get_or_create(pk=1)[0]
+
+
+def _today():
+    return timezone.localdate()  # TIME_ZONE is Asia/Manila
+
+
+def _day_start():
+    return timezone.make_aware(datetime.combine(_today(), time.min))
+
+
+def _counted(message=None):
+    """Today's texts that used a slot. The records are the source of truth for the counts."""
+    rows = SmsMessage.objects.filter(created_at__gte=_day_start()).exclude(
+        status=SmsMessage.Status.REFUSED
+    )
+    return rows.exclude(pk=message.pk) if message else rows
+
+
+def _platform_key():
+    return f"sms:count:platform:{_today():%Y%m%d}"
+
+
+def _site_key(site):
+    return f"sms:count:site:{site.pk}:{_today():%Y%m%d}"
+
+
+def _claim(key, limit, recount):
+    """Take one of the day's slots. The add is atomic, so two requests cannot both take the
+    last one. An empty cache is started from the records."""
+    if cache.get(key) is None:
+        cache.add(key, recount(), _COUNT_KEPT)
+    try:
+        used = cache.incr(key)
+    except ValueError:  # the entry went between the add and the incr
+        used = recount() + 1
+        cache.set(key, used, _COUNT_KEPT)
+    if used > limit:
+        _release(key)
+        return False
+    return True
+
+
+def _release(key):
+    try:
+        cache.decr(key)
+    except ValueError:
+        pass
+
+
+def platform_count():
+    """Today's count for the platform, as the limit sees it."""
+    held = cache.get(_platform_key())
+    return _counted().count() if held is None else held
+
+
+def refusal(message):
+    """Why this text is not sent now, or "" when it may be queued. Takes its daily slots."""
+    rules = policy()
+    if rules.sending_stopped:
+        return "paused"
+    site_key = None
+    if message.category == STATUS and message.site_id:
+        site_key = _site_key(message.site)
+        of_site = _counted(message).filter(site=message.site, category=STATUS)
+        if not _claim(site_key, rules.site_daily_limit, of_site.count):
+            return "site_limit"
+    if not _claim(_platform_key(), rules.platform_daily_limit, _counted(message).count):
+        if site_key:
+            _release(site_key)
+        return "platform_limit"
+    if not gateway_online():
+        _release(_platform_key())
+        if site_key:
+            _release(site_key)
+        return "gateway_offline"
+    return ""
+
+
+# --- The phone -----------------------------------------------------------------------------
+
+
+def pick_device():
+    """The phone that sends a text. Today there is one: the system phone."""
+    return SmsDevice.objects.filter(is_active=True).order_by("-last_contact_at", "pk").first()
+
+
+def gateway_online():
+    """A phone asked for texts in the last minute."""
+    recently = timezone.now() - ONLINE_WITHIN
+    return SmsDevice.objects.filter(is_active=True, last_contact_at__gte=recently).exists()
+
+
+def log_not_sent(reason, purpose, *, email_failed=False):
+    """One ERROR line for a text that neither went out nor was emailed. Never a number or a
+    text. While the phone is away the line is written at most once an hour, except for a
+    fallback email that failed, which is always written."""
+    if email_failed:
+        logger.error("sms_not_sent reason=%s purpose=%s fallback_email=failed", reason, purpose)
+        return
+    if reason == "gateway_offline":
+        if cache.add("sms:offline-logged", 1, 3600):
+            logger.error("sms_gateway_offline: no phone has asked for texts in the last minute.")
+        return
+    logger.error("sms_not_sent reason=%s purpose=%s", reason, purpose)

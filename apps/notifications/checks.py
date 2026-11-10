@@ -1,0 +1,22 @@
+"""The SMS gateway needs Redis on a deployment: a text waits in the cache, and a cache kept per
+process cannot be read by the process the phone reaches.
+
+`manage.py check` reports it as an error. A running service treats the gateway as off.
+"""
+from django.conf import settings
+from django.core.checks import Error, register
+
+from apps.notifications import sms
+
+
+@register()
+def check_sms_gateway_cache(app_configs, **kwargs):
+    if not settings.SMS_GATEWAY_ENABLED or not sms.redis_missing():
+        return []
+    return [
+        Error(
+            "SMS_GATEWAY_ENABLED is on but REDIS_URL is not set.",
+            hint="The gateway stays off until REDIS_URL is set.",
+            id="notifications.E001",
+        )
+    ]
