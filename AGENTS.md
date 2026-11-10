@@ -15,7 +15,8 @@ This repository is the clean Django API and background-services foundation for N
 - Signed-in endpoints use `auth=signed_in` from `apps/accounts/api.py` (the `SessionCookieAuth` class). Never read the session cookie by hand.
 - Unauthenticated endpoints that change state call `require_allowed_origin(request)` first.
 - Never store or log a sign-in code, a session token, or an email body.
-- Only `apps/accounts/google.py` talks to Google. Never store or log a provider code, token or response.
+- Only `apps/accounts/google.py` talks to Google and only `apps/accounts/facebook.py` talks to Facebook. Never store or log a provider code, token or response.
+- A Facebook email is never trusted until the subscriber confirms it with an email code.
 
 ## Workflow
 
