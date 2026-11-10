@@ -4,7 +4,7 @@ from datetime import timedelta
 from unittest import mock
 
 from django.core import mail
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.db import connection
 from django.test import Client, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -151,9 +151,20 @@ class MobileStartTests(MobileCase):
         self.assertEqual(self.start(OTHER).status_code, 429)
 
     def test_3_no_cache_key_holds_a_number(self):
-        self.start()
+        backend = caches["default"]  # spied on by method, so it holds on any cache backend
+        names = ("add", "set", "get", "incr", "decr", "delete", "touch", "get_or_set")
+        spies = {name: mock.patch.object(backend, name, wraps=getattr(backend, name)) for name in names}
+        with spies["add"], spies["set"], spies["get"], spies["incr"], spies["decr"], spies["delete"]:
+            with spies["touch"], spies["get_or_set"]:
+                self.start()
+                keys = [
+                    str(call.args[0] if call.args else call.kwargs["key"])
+                    for name in names
+                    for call in getattr(backend, name).call_args_list
+                ]
 
-        for key in cache._cache:  # the local-memory cache of the tests
+        self.assertTrue(keys)
+        for key in keys:
             self.assertNotIn("9171234567", key)
 
     def test_4_start_answers_queued_and_queues_one_text(self):
