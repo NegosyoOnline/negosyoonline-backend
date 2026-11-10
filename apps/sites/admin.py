@@ -3,6 +3,7 @@ which is a later task, so nothing here can be added, edited or deleted."""
 from django.contrib import admin
 
 from apps.common.admin import masked_account
+from apps.sites import labels
 from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
 
 
@@ -21,11 +22,22 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 class SiteAdmin(ReadOnlyAdmin):
     list_display = (
         "display_name", "public_id", masked_account, "template", "operator_hold", "created_at",
-        "deleted_at",
+        "deleted_at", "counts_for_sante_site_owner",
     )
     list_filter = ("template", "operator_hold")
     list_select_related = ("account",)  # the masked column reads the account's email
     search_fields = ("display_name", "public_id", "account__email", "subdomains__name")
+
+    def get_queryset(self, request):
+        return labels.with_counts_for_sante_site_owner(super().get_queryset(request))
+
+    @admin.display(
+        boolean=True, description=f"Counts for {labels.SANTE_SITE_OWNER}",
+        ordering="counts_for_sante_site_owner",
+    )
+    def counts_for_sante_site_owner(self, site):
+        """Derived on each read; shows why an account has or lacks the label."""
+        return site.counts_for_sante_site_owner
 
 
 @admin.register(Subdomain)

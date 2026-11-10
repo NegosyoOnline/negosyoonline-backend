@@ -73,11 +73,16 @@ def _is_email(value):
     return True
 
 
-def site_for(account, site_id):
-    """The only way to reach a Site from a request. Missing, deleted and foreign all answer 404."""
-    site = Site.objects.filter(
-        public_id=site_id, account=account, deleted_at__isnull=True
-    ).first()
+def site_for(account, site_id, template=None):
+    """The only way to reach a Site from a request. Missing, deleted and foreign all answer 404.
+
+    `template` is the capability check: a Santé-only feature passes `templates.SANTE`, and a
+    site whose stored template differs answers the same 404, so it never shows the site exists.
+    """
+    sites = Site.objects.filter(public_id=site_id, account=account, deleted_at__isnull=True)
+    if template is not None:
+        sites = sites.filter(template=template)
+    site = sites.first()
     if site is None:
         raise ApiError("not_found", "Not found.", status=404)
     return site
