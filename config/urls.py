@@ -19,6 +19,7 @@ from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, re_path
 
+from apps.operators import admin_views
 from config.api import api, api_not_found
 
 
@@ -26,6 +27,9 @@ def healthz(_request):
     return JsonResponse({"status": "ok", "commit": settings.RELEASE_COMMIT})
 
 urlpatterns = [
+    # The second step of admin sign-in. Before the admin, so the admin cannot shadow them.
+    path("admin/two-step/", admin_views.two_step_code),
+    path("admin/two-step/sign-out/", admin_views.two_step_sign_out),
     path('admin/', admin.site.urls),
     path("healthz/", healthz, name="healthz"),
     path("v1/", api.urls),

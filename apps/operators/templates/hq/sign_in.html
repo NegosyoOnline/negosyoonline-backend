@@ -1,0 +1,17 @@
+{% extends "hq/base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block main %}
+<div class="card">
+<h1>Admin sign-in</h1>
+<p>Enter your admin email. We will send you a 6-digit code.</p>
+<form method="post" action="/sign-in/" novalidate>
+<input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+<div class="fld">
+<label for="email">Email</label>
+<input class="inp" id="email" type="email" name="email" value="{{ typed }}" autocomplete="email" autocapitalize="none" spellcheck="false" required maxlength="254" autofocus{% if error %} aria-invalid="true" aria-describedby="email-msg"{% endif %}>
+{% if error %}<p class="err" id="email-msg">Enter an email address.</p>{% endif %}
+</div>
+<button class="btn" type="submit">Send code</button>
+</form>
+</div>
+{% endblock %}

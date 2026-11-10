@@ -58,10 +58,7 @@ class AuditTests(TwoStepTestCase):
                 self.assertIsInstance(action, ast.Constant, f"{path.name}:{node.lineno}")
                 self.assertIn(action.value, audit.ACTIONS, f"{path.name}:{node.lineno}")
                 seen.add(action.value)
-        self.assertEqual(seen, set(audit.ACTIONS) - self.not_yet_written)
-
-    # Written by the hq and Django admin sign-out views.
-    not_yet_written = {"admin_sign_out"}
+        self.assertEqual(seen, set(audit.ACTIONS))
 
     def test_an_entry_cannot_be_changed_or_deleted(self):
         entry = audit.record(None, "admin_locked")

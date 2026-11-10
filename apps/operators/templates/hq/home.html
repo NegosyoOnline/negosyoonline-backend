@@ -1,0 +1,22 @@
+{% extends "hq/base.html" %}
+{% block title %}Admin console{% endblock %}
+{% block header_right %}<form method="post" action="/sign-out/">
+<input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+<button class="btn ghost sm" type="submit">Sign out</button>
+</form>{% endblock %}
+{% block main %}
+<div class="card wide">
+<h1>Admin console</h1>
+<p>Signed in as {{ email }}.</p>
+<div class="status"><span>Two-step sign-in</span> <span class="badge ok">Verified</span></div>
+<p class="small">Two-step sign-in: verified at {{ verified_at|date:"j M Y, g:i A" }}; session ends {{ expires_at|date:"j M Y, g:i A" }}.</p>
+</div>
+<div class="card wide">
+<h2>Recent sign-in activity</h2>
+<p class="hint">Your last 10 sign-in events on the admin console and the operator admin.</p>
+{% if events %}<ol class="rows">
+{% for event in events %}<li class="row"><span>{{ event.label }}{% if event.where %} <small>{{ event.where }}</small>{% endif %}</span> <time datetime="{{ event.at|date:"c" }}">{{ event.at|date:"j M Y, g:i A" }}</time></li>
+{% endfor %}</ol>
+{% else %}<p class="small">No sign-in events yet.</p>
+{% endif %}</div>
+{% endblock %}

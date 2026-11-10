@@ -1,0 +1,20 @@
+{% extends "hq/base.html" %}
+{% block title %}Enter your code{% endblock %}
+{% block main %}
+<div class="card">
+<h1>Enter your code</h1>
+{% if notice %}<p class="note info" role="status">If this address is allowed, a code was sent. It expires in 10 minutes.</p>{% endif %}
+<p>Code sent to {{ email }}.</p>
+<form method="post" action="/code/">
+<input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+<div class="fld">
+<label for="code">6-digit code</label>
+<input class="inp" id="code" type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required autofocus aria-describedby="{% if error %}code-msg {% endif %}code-hint"{% if error %} aria-invalid="true"{% endif %}>
+{% if error %}<p class="err" id="code-msg">That code did not work. Check it, or get a new code.</p>{% endif %}
+<p class="hint" id="code-hint">Check your inbox and spam folder.</p>
+</div>
+<button class="btn" type="submit">Continue</button>
+</form>
+<p class="below"><a class="lnk" href="/sign-in/">Use a different email or get a new code</a></p>
+</div>
+{% endblock %}
