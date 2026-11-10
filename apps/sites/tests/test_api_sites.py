@@ -11,7 +11,8 @@ from apps.sites.tests.base import make_site
 
 SITE_KEYS = {
     "id", "template", "template_label", "display_name", "subdomain", "host", "business_name",
-    "contact_email", "contact_mobile", "accent_color", "instagram_url", "tiktok_url",
+    "contact_email", "contact_mobile", "accent_color", "facebook_url",
+    "instagram_url", "tiktok_url",
     "created_at",
 }
 MISSING = "/v1/sites/site_00000000000000000000/"
@@ -287,6 +288,21 @@ class DetailAndPatchTests(SitesApiTestCase):
 
         self.assertEqual(body["instagram_url"], "")
         self.assertEqual(body["contact_mobile"], "+639171234567")
+
+    def test_a_facebook_link_is_saved_read_back_and_cleared(self):
+        body = self.patch(self.path, {"facebook_url": "https://www.facebook.com/anas"}).json()
+        self.assertEqual(body["facebook_url"], "https://www.facebook.com/anas")
+        self.assertEqual(self.get(self.path).json()["facebook_url"], "https://www.facebook.com/anas")
+        listed = self.get("/v1/sites/").json()
+        self.assertIn("https://www.facebook.com/anas", str(listed))
+
+        refused = self.patch(self.path, {"facebook_url": "https://fb.com/anas"})
+        self.assertEqual(
+            self.error(refused, 400, "invalid_request")["fields"],
+            {"facebook_url": ["Enter the full https link to your Facebook page."]},
+        )
+
+        self.assertEqual(self.patch(self.path, {"facebook_url": None}).json()["facebook_url"], "")
 
     def test_a_blank_store_email_or_mobile_is_400_and_nothing_in_the_request_saves(self):
         self.patch(self.path, {"contact_email": "a@example.test", "contact_mobile": "09171234567"})

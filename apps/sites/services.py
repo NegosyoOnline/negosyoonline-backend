@@ -15,11 +15,14 @@ from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
 
 BIR_SERIAL = re.compile(r"^\d{3}[A-Z]{2}\d{14}$")  # e.g. 113RC20260000017598
 SOCIAL_HOSTS = {
+    "facebook_url": ("Facebook", {"facebook.com", "www.facebook.com", "m.facebook.com"}),
     "instagram_url": ("Instagram", {"instagram.com", "www.instagram.com"}),
     "tiktok_url": ("TikTok", {"tiktok.com", "www.tiktok.com"}),
 }
 # accent_color is stored but not editable here: no colour control while ruling R3 stands.
-SITE_FIELDS = ("display_name", "contact_email", "contact_mobile", "instagram_url", "tiktok_url")
+SITE_FIELDS = (
+    "display_name", "contact_email", "contact_mobile", "facebook_url", "instagram_url", "tiktok_url",
+)
 SHIPPING_FIELDS = (
     "shipping_processing_time", "shipping_metro_manila_estimate", "shipping_luzon_estimate",
     "shipping_visayas_estimate", "shipping_mindanao_estimate", "shipping_other_areas_estimate",
