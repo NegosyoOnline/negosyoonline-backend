@@ -101,3 +101,10 @@ uv run python manage.py sms_fake_phone --token TOKEN --url http://127.0.0.1:8000
 ```
 
 `sms_fake_phone` polls like the phone, prints each text in its terminal instead of sending it, and reports it sent. It refuses to run unless `DEBUG` is on.
+
+## Retention
+
+- `sms_messages` deletes SMS send records 365 days after they were written. `mobile_challenges` deletes mobile verification challenges 24 hours after they expired. Both are in `apps/notifications/retention.py`.
+- Neither rule is behind `RETENTION_ENABLED`. While `SMS_GATEWAY_ENABLED` is off, both do nothing and read no table.
+- Until a beat service exists, the phone's `poll` starts the run: the first `poll` of each Manila day runs these two rules once, in the background, and writes one `retention_run` audit entry. A day with no `poll` has no run; the next run removes everything that is due. The daily start covers these two rules only: every other retention rule stays manual until slice 4.
+- To run or count by hand, see `docs/runbooks/retention.md`.

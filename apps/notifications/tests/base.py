@@ -46,3 +46,9 @@ class SmsTestCase(TestCase):
         patcher = mock.patch.dict(sms.PURPOSES, declared)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # No test starts a real background thread: a poll would otherwise start the day's
+        # retention run beside the test's own database work. A case that needs the background
+        # step to happen patches this again, to run it at once.
+        later = mock.patch("apps.operators.background.run_later")
+        later.start()
+        self.addCleanup(later.stop)

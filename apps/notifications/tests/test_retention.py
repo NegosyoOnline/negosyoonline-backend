@@ -1,10 +1,18 @@
 from datetime import timedelta
+from unittest import mock
 
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from apps.accounts.models import Account, MobileOtpChallenge
 from apps.common import retention
+from apps.notifications import retention as notifications_retention
 from apps.notifications.models import EmailMessage, SmsMessage
+from apps.notifications.tests.base import gateway_on
+from apps.operators.models import OperatorAuditEntry
+
+SECOND = timedelta(seconds=1)
 
 RULE = "email_messages"
 
@@ -50,3 +58,154 @@ class EmailMessagesRetentionTests(TestCase):
         self.build()
         retention.run_all(now=self.now, only=[RULE])
         self.assertEqual(EmailMessage.objects.count(), 4)
+
+
+@gateway_on
+class SmsRetentionTests(TestCase):
+    """T-RET: the two SMS rules. They are not behind RETENTION_ENABLED, which is off here."""
+
+    def setUp(self):
+        cache.clear()
+        self.now = timezone.now()
+        self.account = Account.objects.create(email="ana@example.test")
+
+    def text(self, purpose, age):
+        message = SmsMessage.objects.create(
+            recipient="+639171234567", category="code", purpose=purpose, priority=10,
+            expires_at=self.now,
+        )
+        SmsMessage.objects.filter(pk=message.pk).update(created_at=self.now - age)
+
+    def challenge(self, name, expired_ago):
+        return MobileOtpChallenge.objects.create(
+            account=self.account, number="+639171234567", code_hash="0" * 64,
+            expires_at=self.now - expired_ago, sms_public_id=name,
+        )
+
+    def build(self):
+        self.text("year-and-a-second", timedelta(days=365, seconds=1))
+        self.text("year", timedelta(days=365))
+        self.text("second-short", timedelta(days=365) - SECOND)
+        self.text("day-364", timedelta(days=364))
+        self.text("new", timedelta(0))
+        self.challenge("day-and-a-second", timedelta(hours=24) + SECOND)
+        self.challenge("day", timedelta(hours=24))
+        self.challenge("second-short", timedelta(hours=24) - SECOND)
+        self.challenge("open", -timedelta(minutes=10))
+        EmailMessage.objects.create(recipient="ana@example.test", category="old")
+        EmailMessage.objects.update(created_at=self.now - timedelta(days=900))
+
+    def texts_left(self):
+        return sorted(SmsMessage.objects.values_list("purpose", flat=True))
+
+    def challenges_left(self):
+        return sorted(MobileOtpChallenge.objects.values_list("sms_public_id", flat=True))
+
+    def test_both_rules_are_registered(self):
+        self.assertIn("sms_messages", retention.names())
+        self.assertIn("mobile_challenges", retention.names())
+        with self.assertRaises(ValueError):  # T-RET-1: a rule that is not registered cannot run
+            retention.run_all(now=self.now, only=["sms_text_bodies"])
+
+    def test_3_sms_messages_deletes_a_year_after_the_record_was_written(self):
+        self.build()
+
+        report = retention.run_all(now=self.now, only=["sms_messages"])
+
+        self.assertEqual(report.counts, {"sms_messages": 2})
+        self.assertEqual(report.switched_off, [])
+        self.assertEqual(self.texts_left(), ["day-364", "new", "second-short"])
+        self.assertEqual(MobileOtpChallenge.objects.count(), 4)
+        self.assertEqual(EmailMessage.objects.count(), 1)
+
+    def test_4_mobile_challenges_deletes_24_hours_after_expiry(self):
+        self.build()
+
+        report = retention.run_all(now=self.now, only=["mobile_challenges"])
+
+        self.assertEqual(report.counts, {"mobile_challenges": 2})
+        self.assertEqual(self.challenges_left(), ["open", "second-short"])
+        self.assertEqual(SmsMessage.objects.count(), 5)
+        self.assertTrue(Account.objects.filter(pk=self.account.pk).exists())
+
+    def test_2_the_dry_run_counts_the_same_and_deletes_nothing(self):
+        self.build()
+
+        report = retention.run_all(
+            now=self.now, dry_run=True, only=["sms_messages", "mobile_challenges"]
+        )
+
+        self.assertEqual(report.counts, {"sms_messages": 2, "mobile_challenges": 2})
+        self.assertEqual(SmsMessage.objects.count(), 5)
+        self.assertEqual(MobileOtpChallenge.objects.count(), 4)
+        self.assertFalse(OperatorAuditEntry.objects.filter(action="retention_run").exists())
+
+    def test_5_the_run_writes_one_audit_row_with_the_counts(self):
+        self.build()
+
+        retention.run_all(now=self.now)
+
+        entry = OperatorAuditEntry.objects.get(action="retention_run")
+        self.assertEqual(entry.detail["counts"]["sms_messages"], 2)
+        self.assertEqual(entry.detail["counts"]["mobile_challenges"], 2)
+        self.assertNotIn("sms_messages", entry.detail["switched_off"])
+        self.assertNotIn("mobile_challenges", entry.detail["switched_off"])
+        self.assertIn("email_messages", entry.detail["switched_off"])  # RETENTION_ENABLED is off
+        self.assertEqual(EmailMessage.objects.count(), 1)
+
+    def test_gateway_off_the_rules_touch_no_table(self):
+        self.build()
+
+        with override_settings(SMS_GATEWAY_ENABLED=False):
+            for rule in (notifications_retention.sms_messages,
+                         notifications_retention.mobile_challenges):
+                for dry_run in (False, True):
+                    with self.subTest(rule=rule.__name__, dry_run=dry_run):
+                        with self.assertNumQueries(0):
+                            self.assertEqual(rule(self.now, dry_run), 0)
+            report = retention.run_all(now=self.now, only=["sms_messages", "mobile_challenges"])
+
+        self.assertEqual(report.counts, {"sms_messages": 0, "mobile_challenges": 0})
+        self.assertEqual(SmsMessage.objects.count(), 5)
+        self.assertEqual(MobileOtpChallenge.objects.count(), 4)
+
+
+class DailyStartTests(TestCase):
+    """T-RET-6: the once-a-day start."""
+
+    def setUp(self):
+        cache.clear()
+        patcher = mock.patch("apps.operators.background.run_later")
+        self.run_later = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_6_it_runs_once_however_many_calls_arrive(self):
+        started = [notifications_retention.start_daily() for _ in range(5)]
+
+        self.assertEqual(started, [True, False, False, False, False])
+        self.run_later.assert_called_once_with(notifications_retention.run_daily_rules)
+
+    def test_6_it_runs_the_two_sms_rules_and_no_other_registered_rule(self):
+        ran = []
+        other = mock.patch.dict(
+            retention._rules, {"another_builds_rule": lambda now, dry_run: ran.append(1) or 0}
+        )
+        with other, override_settings(RETENTION_ENABLED=True):
+            self.assertIn("another_builds_rule", retention.names())
+            report = notifications_retention.run_daily_rules()
+
+        self.assertEqual(sorted(report.counts), ["mobile_challenges", "sms_messages"])
+        self.assertEqual(ran, [])
+        entry = OperatorAuditEntry.objects.get(action="retention_run")
+        self.assertEqual(sorted(entry.detail["counts"]), ["mobile_challenges", "sms_messages"])
+        self.assertEqual(entry.detail["switched_off"], [])
+
+    def test_6_it_runs_again_the_next_manila_day(self):
+        today = timezone.localdate()
+        notifications_retention.start_daily()
+
+        with mock.patch.object(timezone, "localdate", return_value=today + timedelta(days=1)):
+            self.assertTrue(notifications_retention.start_daily())
+            self.assertFalse(notifications_retention.start_daily())
+
+        self.assertEqual(self.run_later.call_count, 2)
