@@ -94,12 +94,21 @@ class GatewayIdentityTests(GatewayCase):
             self.assertEqual(self.call("poll", token="wrong").status_code, 401)
 
         self.assertEqual(self.call("poll", token="wrong").status_code, 429)
-        self.assertEqual(self.call("poll").status_code, 429)  # the token is not looked at
-        self.assertEqual(self.call("poll", ip="203.0.113.8").status_code, 200)
+        self.assertEqual(self.call("report", token=None).status_code, 429)
+        self.assertEqual(self.call("poll", token="wrong", ip="203.0.113.8").status_code, 401)
+
+    def test_2_a_good_token_is_served_from_an_address_that_is_limited(self):
+        """The phone shares its address with strangers, who must not be able to lock it out."""
+        for _ in range(gateway.FAILED_TRIES + 1):
+            self.call("poll", token="wrong")
+
+        self.assertEqual(self.call("poll").status_code, 200)
+        self.assertEqual(self.call("poll", token="wrong").status_code, 429)
 
     def test_2_a_good_call_does_not_count_as_a_failed_try(self):
         for _ in range(gateway.FAILED_TRIES + 2):
             self.assertEqual(self.call("poll").status_code, 200)
+        self.assertEqual(self.call("poll", token="wrong").status_code, 401)
 
     def test_only_post_is_answered(self):
         for name in ("poll", "report", "received"):
@@ -220,6 +229,27 @@ class PollTests(GatewayCase):
         for message in (unreported, lost):
             message.refresh_from_db()
             self.assertEqual((message.status, message.emailed), (S.FAILED, True))
+
+    def test_11_a_send_ends_expired_texts_while_the_phone_is_away(self):
+        from apps.notifications.services import send_sms
+
+        expired = self.queue(P.STATUS, STATUS_TEXT, ttl=-1, with_fallback=True)
+        unreported = self.queue(P.STATUS, STATUS_TEXT, with_fallback=True)
+        SmsMessage.objects.filter(pk=unreported.pk).update(
+            status=S.DISPATCHED, device=self.phone,
+            dispatched_at=timezone.now() - timedelta(minutes=11),
+        )
+
+        for _ in range(2):  # no poll in between
+            send_sms(to=MOBILE, purpose="mobile_verify", text=CODE_TEXT)
+
+        self.assertEqual(len(mail.outbox), 2)
+        expired.refresh_from_db()
+        unreported.refresh_from_db()
+        self.assertEqual((expired.status, expired.emailed), (S.EXPIRED, True))
+        self.assertEqual(
+            (unreported.status, unreported.reason, unreported.emailed), (S.FAILED, "no_report", True)
+        )
 
     def test_13_sending_stopped_hands_out_nothing_and_slows_the_phone(self):
         message = self.queue()
@@ -481,6 +511,11 @@ class ReceivedTests(GatewayCase):
     def test_23_received_sent_twice_with_the_same_ids_answers_204_both_times(self):
         for _ in range(2):
             self.assertEqual(self.call("received", self.TEXTS).status_code, 204)
+
+    def test_17_the_body_is_never_read(self):
+        with mock.patch("django.core.handlers.wsgi.WSGIRequest.body", new_callable=mock.PropertyMock) as body:
+            self.assertEqual(self.call("received", self.TEXTS).status_code, 204)
+        body.assert_not_called()
 
     def test_received_takes_anything_the_phone_sends(self):
         for raw in ("", "not json", json.dumps({"messages": [{}] * 50})):

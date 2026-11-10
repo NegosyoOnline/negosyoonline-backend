@@ -10,6 +10,7 @@ from apps.common.errors import ApiError
 from apps.common.phones import normalise_ph_mobile
 from apps.notifications import sms
 from apps.notifications.models import EmailMessage, SmsMessage
+from apps.operators import background
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ def send_sms(*, to, purpose, text, site=None, fallback=None, ttl=sms.DEFAULT_LIF
         # No record: the gateway's tables are not read or written while it is switched off.
         return email_instead(None, "gateway_off", purpose, fallback)
 
+    sms.sweep(timezone.now(), unsent)
     message = SmsMessage.objects.create(
         recipient=recipient,
         category=declared.category,
@@ -93,3 +95,12 @@ def email_instead(message, reason, purpose, fallback):
         message.emailed = True
         message.save(update_fields=["emailed"])
     return sms.SmsResult(sms.EMAILED, reason, message)
+
+
+def unsent(message, reason):
+    """A queued or handed-out text ended unsent: email its fallback, when it has one."""
+    fallback = sms.take_fallback(message)
+    if fallback is None:
+        sms.log_not_sent(reason, message.purpose)
+    else:  # in the background, so the caller is not held up by the mail server
+        background.run_later(email_instead, message, reason, message.purpose, fallback)

@@ -36,7 +36,6 @@ from apps.accounts.sessions import client_ip
 from apps.common.errors import error_body
 from apps.notifications import services, sms
 from apps.notifications.models import SmsDevice, SmsMessage
-from apps.operators import background
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +47,6 @@ GAP_SECONDS = (18, 25)  # the pause before a marketing text, chosen for each one
 FAILED_TRIES = 10  # bad tokens from one IP address ...
 FAILED_TRIES_WINDOW = 15 * 60  # ... in this many seconds
 MAX_REPORTS = 100
-SWEEP = 200  # texts expired or failed in one poll; the rest wait for the next one
 PHONE_REASON = "phone_failed"
 
 
@@ -80,11 +78,14 @@ def phone_call(view):
             return _error(404, "not_found", "No such endpoint.")
         if request.method != "POST":
             return _error(405, "method_not_allowed", "Use POST.")
-        key = _tries_key(request)
-        if (cache.get(key) or 0) >= FAILED_TRIES:
-            return _error(429, "rate_limited", "Too many attempts. Please wait and try again.")
         device = _device(request)
         if device is None:
+            # Only a bad or missing token is counted and limited. A good token is always
+            # served: the phone is on mobile data, where many subscribers share one address,
+            # and a stranger behind that address must not be able to lock the phone out.
+            key = _tries_key(request)
+            if (cache.get(key) or 0) >= FAILED_TRIES:
+                return _error(429, "rate_limited", "Too many attempts. Please wait and try again.")
             cache.add(key, 0, FAILED_TRIES_WINDOW)
             try:
                 cache.incr(key)
@@ -103,36 +104,6 @@ def _body(request):
     except (ValueError, UnicodeDecodeError):
         return None
     return body if isinstance(body, dict) else None
-
-
-# --- Texts that will not be sent after all -------------------------------------------------
-
-
-def _not_going_out(message, reason):
-    """A queued or handed-out text ended unsent: email its fallback, when it has one."""
-    fallback = sms.take_fallback(message)
-    if fallback is None:
-        sms.log_not_sent(reason, message.purpose)
-    else:  # in the background, so the phone's call is not held up by the mail server
-        background.run_later(services.email_instead, message, reason, message.purpose, fallback)
-
-
-def _sweep(now):
-    """Texts whose time passed while waiting, and texts the phone took and never reported."""
-    expired = SmsMessage.objects.filter(status=Status.QUEUED, expires_at__lte=now)
-    for message in expired.order_by("pk")[:SWEEP]:
-        if SmsMessage.objects.filter(pk=message.pk, status=Status.QUEUED).update(
-            status=Status.EXPIRED
-        ):
-            sms.take_text(message)
-            _not_going_out(message, "expired")
-    silent_since = now - timedelta(seconds=sms.NO_REPORT_AFTER)
-    unreported = SmsMessage.objects.filter(status=Status.DISPATCHED, dispatched_at__lte=silent_since)
-    for message in unreported.order_by("pk")[:SWEEP]:
-        if SmsMessage.objects.filter(pk=message.pk, status=Status.DISPATCHED).update(
-            status=Status.FAILED, reason="no_report"
-        ):
-            _not_going_out(message, "no_report")
 
 
 # --- poll ----------------------------------------------------------------------------------
@@ -181,7 +152,7 @@ def _hand_out(device, now):
         text = sms.take_text(message)
         if text is None:
             SmsMessage.objects.filter(pk=message.pk).update(status=Status.FAILED, reason="text_lost")
-            _not_going_out(message, "text_lost")
+            services.unsent(message, "text_lost")
             continue
         paced = message.priority == SmsMessage.Priority.MARKETING
         handed.append(
@@ -203,7 +174,7 @@ def poll(request, device):
         return _error(400, "invalid_request", "Send a JSON object.")
     now = timezone.now()
     _note_contact(device, body, now)
-    _sweep(now)
+    sms.sweep(now, services.unsent)
     answer = {"messages": [], "wait": WAIT, "incoming": device.forwards_incoming}
     if sms.policy().sending_stopped:
         answer["wait"] = WAIT_STOPPED
@@ -260,20 +231,20 @@ def report(request, device):
             if handed_out.update(status=Status.SENT, sent_at=now):
                 sms.take_fallback(message)  # not owed any more
         elif handed_out.update(status=Status.FAILED, reason=reason):
-            _not_going_out(message, reason)
+            services.unsent(message, reason)
     return HttpResponse(status=204)
 
 
 # --- received ------------------------------------------------------------------------------
 
 
-def store_incoming(device, raw):
+def store_incoming(device, request):
     """Where texts the phone received would be kept. Nothing is kept: there is no inbox yet,
-    so the body is dropped unread, whatever the phone's switch says. The Dedicated SMS Line
-    add-on replaces this body and nothing else."""
+    so the request's body is never read, whatever the phone's switch says. The Dedicated SMS
+    Line add-on replaces this body and nothing else."""
 
 
 @phone_call
 def received(request, device):
-    store_incoming(device, request.body)
+    store_incoming(device, request)
     return HttpResponse(status=204)
