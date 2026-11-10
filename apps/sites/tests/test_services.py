@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from apps.accounts.models import AccountAuditEvent
 from apps.common.errors import ApiError
-from apps.sites import onboarding, services
+from apps.sites import onboarding, services, templates
 from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
 from apps.sites.tests.base import make_account, make_site
 
@@ -142,6 +142,56 @@ class SiteForTests(TestCase):
             error = raised.exception
             answers.append((error.code, error.message, error.status, error.fields))
         self.assertEqual(set(answers), {("not_found", "Not found.", 404, None)})
+
+
+class SiteForTemplateTests(TestCase):
+    """The capability check: a Santé feature reaches its site only through the stored template."""
+
+    def setUp(self):
+        self.account = make_account()
+        self.mine = make_site(self.account)
+
+    def refusal(self, site_id, **kwargs):
+        with self.assertRaises(ApiError) as raised:
+            services.site_for(self.account, site_id, **kwargs)
+        error = raised.exception
+        return (error.code, error.message, error.status, error.fields)
+
+    def test_the_owners_sante_site_is_returned_with_and_without_the_template(self):
+        self.assertEqual(services.site_for(self.account, self.mine.public_id), self.mine)
+        self.assertEqual(
+            services.site_for(self.account, self.mine.public_id, template=templates.SANTE),
+            self.mine,
+        )
+
+    def test_a_site_of_another_type_is_404_with_the_template_and_returned_without_it(self):
+        # The service refuses to create any other type, so the stored value is changed directly.
+        Site.objects.filter(pk=self.mine.pk).update(template="basic")
+
+        self.assertEqual(services.site_for(self.account, self.mine.public_id), self.mine)
+        self.assertEqual(
+            self.refusal(self.mine.public_id, template=templates.SANTE),
+            ("not_found", "Not found.", 404, None),
+        )
+
+    def test_foreign_deleted_unknown_and_other_type_answer_one_identical_404(self):
+        foreign = make_site(make_account("ben@example.test"), name="bens-store")
+        deleted = make_site(
+            self.account, name="old-store", first=False, deleted_at=timezone.now()
+        )
+        other_type = make_site(self.account, name="other-store", first=False)
+        Site.objects.filter(pk=other_type.pk).update(template="basic")
+
+        answers = [
+            self.refusal(site_id, template=templates.SANTE)
+            for site_id in (
+                foreign.public_id, deleted.public_id, "site_" + "0" * 20, other_type.public_id,
+            )
+        ]
+
+        self.assertEqual(set(answers), {("not_found", "Not found.", 404, None)})
+        # The same answer as the check without a template gives for a missing site.
+        self.assertEqual(self.refusal("site_" + "0" * 20), answers[0])
 
 
 class UpdateSiteTests(TestCase):

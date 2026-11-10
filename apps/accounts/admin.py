@@ -13,6 +13,7 @@ from apps.accounts.models import (
 from apps.common import masking
 from apps.common.admin import MaskedListAdmin, masked_account
 from apps.common.masking import mask_email
+from apps.sites import labels
 
 
 @admin.display(description="Email", ordering="email")
@@ -31,11 +32,38 @@ class ReadOnlyAdmin(MaskedListAdmin):
         return False
 
 
+class SanteSiteOwnerFilter(admin.SimpleListFilter):
+    title = labels.SANTE_SITE_OWNER
+    parameter_name = "sante_site_owner"
+
+    def lookups(self, request, model_admin):
+        return (("yes", "Yes"), ("no", "No"))
+
+    def queryset(self, request, queryset):
+        if self.value() in ("yes", "no"):
+            return queryset.filter(sante_site_owner=self.value() == "yes")
+        return queryset
+
+
 @admin.register(Account)
 class AccountAdmin(MaskedListAdmin):
-    list_display = (masked_email, "public_id", "name", "email_verified_at", "created_at", "closed_at")
+    list_display = (
+        masked_email, "public_id", "name", "email_verified_at", "created_at", "closed_at",
+        "sante_site_owner",
+    )
+    list_filter = (SanteSiteOwnerFilter,)
     search_fields = ("email", "public_id", "name")
     readonly_fields = ("public_id", "referral_code", "created_at")
+
+    def get_queryset(self, request):
+        return labels.with_sante_site_owner(super().get_queryset(request))
+
+    @admin.display(
+        boolean=True, description=labels.SANTE_SITE_OWNER, ordering="sante_site_owner"
+    )
+    def sante_site_owner(self, account):
+        """Derived from the account's sites on each read. Never stored, never authorizes."""
+        return account.sante_site_owner
 
 
 @admin.register(Session)
