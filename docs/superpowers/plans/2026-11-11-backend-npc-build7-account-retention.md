@@ -62,9 +62,9 @@ Each item is separate. The recommended answer is what the rest of the plan assum
 - **Recommended.** The command writes one JSON file to `--out-dir`, or prints the JSON with `--stdout` so the admin can save it on his own computer through the ssh call. How the file reaches the requester (from the DPO mailbox, after the admin has confirmed who is asking) is done by hand and is not built.
 - **Consequence.** The export file holds personal data on the admin's computer until he sends and removes it. The runbook says so.
 
-### 2.7 Two source disagreements, reported, not decided here
+### 2.7 Two source disagreements
 
-- **Billing and tax records.** The Task says they "are kept at least 5 years". The Parent's retention summary and R-6 say 10 years. This build never touches them, so nothing here depends on the answer; the policy text does.
+- **Billing and tax records.** The Task says they "are kept at least 5 years"; the Parent's retention summary and R-6 say 10 years. Settled by the coordinator, 2026-11-11: 5 years is Coach Ed's ruling (2026-11-07, launch build list) and the Parent's "10 years" is stale text. This build never touches them.
 - **"Deleted" and "disposed of".** R-4 says never-verified accounts are "deleted". The Task says "disposed of" and defines disposal as blanking with the row kept (R-2). The plan follows the Task: the row is kept.
 
 ### 2.8 Gaps found, outside the seven deliverables (not built here)
