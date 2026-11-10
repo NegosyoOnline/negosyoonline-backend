@@ -56,7 +56,7 @@ def send_sms(*, to, purpose, text, site=None, fallback=None, ttl=sms.DEFAULT_LIF
 
     if not sms.gateway_on():
         # No record: the gateway's tables are not read or written while it is switched off.
-        return _not_sent(None, "gateway_off", purpose, fallback)
+        return email_instead(None, "gateway_off", purpose, fallback)
 
     message = SmsMessage.objects.create(
         recipient=recipient,
@@ -71,15 +71,16 @@ def send_sms(*, to, purpose, text, site=None, fallback=None, ttl=sms.DEFAULT_LIF
         message.status = SmsMessage.Status.REFUSED
         message.reason = reason
         message.save(update_fields=["status", "reason"])
-        return _not_sent(message, reason, purpose, fallback)
+        return email_instead(message, reason, purpose, fallback)
     sms.hold_text(message, text, ttl)
     if fallback is not None:
         sms.hold_fallback(message, fallback, ttl)
     return sms.SmsResult(sms.QUEUED, message=message)
 
 
-def _not_sent(message, reason, purpose, fallback):
-    """The text is not going out: send its email instead, when it has one."""
+def email_instead(message, reason, purpose, fallback):
+    """The text is not going out: send its email instead, when it has one. `message` is None
+    when no record was written."""
     if fallback is None:
         sms.log_not_sent(reason, purpose)
         return sms.SmsResult(sms.REFUSED, reason, message)
