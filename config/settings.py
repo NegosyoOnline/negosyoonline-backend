@@ -45,6 +45,25 @@ API_ALLOWED_ORIGINS = [
     ).split(",")
     if origin.strip()
 ]
+# Email. With no EMAIL_HOST the message is printed to the service log instead of sent.
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if EMAIL_HOST
+    else "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = True
+EMAIL_TIMEOUT = 10
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL", "NegosyoOnline <no-reply@negosyoonline.com>"
+)
+# Subscriber sign-in. The cookie is host-only on the API host and scoped to /v1/.
+ACCOUNT_SESSION_COOKIE = "no_session"
+POLICY_VERSION = "2026-11-10"
+POLICIES = ["terms", "privacy"]
 
 
 # Application definition
@@ -58,6 +77,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'apps.common',
     'apps.operators',
+    'apps.accounts',
+    'apps.notifications',
     'apps.health',
 ]
 
