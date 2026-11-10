@@ -64,3 +64,29 @@ class AccountAuditEvent(models.Model):
     event = models.CharField(max_length=40)
     detail = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ExternalIdentity(models.Model):
+    """A Google or Facebook user linked to an account. No provider token is ever stored."""
+
+    class Provider(models.TextChoices):
+        GOOGLE = "google"
+        FACEBOOK = "facebook"
+
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="identities")
+    provider = models.CharField(max_length=20, choices=Provider.choices)
+    provider_user_id = models.CharField(max_length=255)
+    linked_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "provider_user_id"], name="unique_provider_user"
+            ),
+            models.UniqueConstraint(
+                fields=["account", "provider"], name="one_identity_per_provider"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.provider} for {self.account}"
