@@ -169,7 +169,7 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
 - Facebook features other than sign-in (pages, posting, catalogue, messaging).
 - Custom domains per subscriber (for example `live4moreonline.store`).
 - Annual billing.
-- Data retention and disposal automation beyond the dates recorded on the subscription, except the SMS retention job, which is in scope with slice 8: send records are deleted after 1 year and mobile verification challenges 24 hours after expiry.
+- Data retention and disposal automation beyond the dates recorded on the subscription, with two exceptions. The SMS retention job is in scope with slice 8: send records are deleted after 1 year and mobile verification challenges 24 hours after expiry. The account-side retention rules of NPC Build 7 (z8uq9mdwdy) are in scope as manual commands behind `RETENTION_ENABLED`, which is off by default: accounts whose email was never verified are disposed of 30 days after sign-up; an account is disposed of on request; expired sessions and admin sign-in codes are deleted 30 days after they expire; email send records are deleted after 2 years; an account and its sites are exported on request. Still out of scope: their schedule (slice 4), the rules that need billing, store disposal, customer erasure, and anything that touches billing or tax records.
 - Production deployment.
 
 ## 11. Open decisions
@@ -220,3 +220,8 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
   - The Django admin lists are kept as they are and served only on `HQ_HOST` at `/admin/`, to an hq session that passed the emailed code and the authenticator or recovery code. The user they see is the staff user linked to that admin identity; Django permissions are unchanged. No other host serves `/admin/`.
   - The lists use Django's own CSS and script, served from the hq host to a verified session only. The hq pages themselves stay without script.
   - The first hq page links to the lists. Sign out on a list is hq's sign-out. New admin screens are built in hq.
+- 2026-11-11: account-side retention, from ClickUp task z8uq9mdwdy (NPC Build 7) and Coach Ed's approval of its plan on 2026-11-11 ("Approve as recommended"). Section 10 was updated. Plan: `docs/superpowers/plans/2026-11-11-backend-npc-build7-account-retention.md`.
+  - One retention mechanism serves every build: a registry of rules in `apps/common/retention.py`, `manage.py run_retention` with a dry run, and one `retention_run` audit entry per run with the count per rule. The SMS build registers its own rules there.
+  - `RETENTION_ENABLED` is off by default and is checked inside each account-side rule: off, a run of them deletes and blanks nothing, whoever starts it.
+  - Built first: expired subscriber sessions, admin sign-in codes, hq sessions and Django session rows are deleted 30 days after they expire; email send records after 2 years. Built next, in its own pull request: account disposal (personal fields blanked, the row kept, each blanking in the audit record), the never-verified rule, the send guard and the export. No model changed and no migration is needed.
+  - No schedule is part of this. Runbook: `docs/runbooks/retention.md`.

@@ -9,7 +9,7 @@ from apps.operators.tests.base import TwoStepTestCase
 
 APP = Path(__file__).resolve().parent.parent
 # Other apps that write operator audit rows through audit.record().
-CALLERS = (APP, APP.parent / "notifications")
+CALLERS = (APP, APP.parent / "notifications", APP.parent / "common")
 
 
 class AuditTests(TwoStepTestCase):
