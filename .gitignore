@@ -8,3 +8,6 @@ staticfiles/
 .mypy_cache/
 .coverage
 htmlcov/
+
+# /handover session state files: local only, removed with the worktree
+docs/session-state/
