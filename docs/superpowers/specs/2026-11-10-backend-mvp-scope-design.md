@@ -216,7 +216,7 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
   - The notice for a changed mobile number goes by email only. `GET account/mobile/` is not built.
   - The NPC filing and policy wording must be checked before any inbox text is stored and before any reply or marketing text is sent. This amendment changes no filing or policy text.
 - 2026-11-11: hq is the only admin door, from Coach Ed's ruling of 2026-11-11 on ClickUp task z8uq9mdxvt ("lets remove the django admin login.. all will now be in hq dashboard"). Section 4 was updated. Plan: `docs/superpowers/plans/2026-11-11-backend-npc-build9-hq-only-admin-door.md`.
-  - This replaces two lines of the 2026-11-10 entry above: the Django admin no longer has a password sign-in or its own second step, and `ADMIN_TWO_STEP_REQUIRED` no longer exists.
+  - This replaces two lines of the 2026-11-10 "admin two-step sign-in and hq" entry above: the Django admin no longer has a password sign-in or its own second step, and `ADMIN_TWO_STEP_REQUIRED` no longer exists.
   - The Django admin lists are kept as they are and served only on `HQ_HOST` at `/admin/`, to an hq session that passed the emailed code and the authenticator or recovery code. The user they see is the staff user linked to that admin identity; Django permissions are unchanged. No other host serves `/admin/`.
   - The lists use Django's own CSS and script, served from the hq host to a verified session only. The hq pages themselves stay without script.
   - The first hq page links to the lists. Sign out on a list is hq's sign-out. New admin screens are built in hq.
