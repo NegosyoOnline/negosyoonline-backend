@@ -1,0 +1,8 @@
+<div class="fld">
+{% if recovery %}<label for="code">Recovery code</label>
+<input class="inp" id="code" type="text" name="code" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="12" required autofocus{% if error %} aria-invalid="true" aria-describedby="code-msg"{% endif %}>
+{% else %}<label for="code">Authenticator code</label>
+<input class="inp" id="code" type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required autofocus{% if error %} aria-invalid="true" aria-describedby="code-msg"{% endif %}>
+{% endif %}{% if error %}<p class="err" id="code-msg">That code did not work. Try again.</p>{% endif %}
+</div>
+<button class="btn" type="submit">Verify</button>

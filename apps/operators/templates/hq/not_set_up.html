@@ -1,0 +1,12 @@
+{% extends "hq/base.html" %}
+{% block title %}Two-step sign-in not set up{% endblock %}
+{% block main %}
+<div class="card">
+<h1>Two-step sign-in is not set up</h1>
+<p>Two-step sign-in is not set up for this account. Ask the admin owner to set it up.</p>
+<form method="post" action="/admin/two-step/sign-out/">
+<input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+<button class="btn ghost" type="submit">Sign out</button>
+</form>
+</div>
+{% endblock %}

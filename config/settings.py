@@ -84,12 +84,16 @@ SITE_URL = os.environ.get("SITE_URL", "http://localhost:3000").rstrip("/")
 # enrolled. "1" makes the Django admin ask for the second step; it is off by default.
 ADMIN_SECRETS_KEY = os.environ.get("ADMIN_SECRETS_KEY", "").strip()
 ADMIN_TWO_STEP_REQUIRED = os.environ.get("ADMIN_TWO_STEP_REQUIRED", "").strip() == "1"
+# The one host that serves hq, the admin's console. Empty means hq is off.
+HQ_HOST = os.environ.get("HQ_HOST", "").strip().lower()
+if HQ_HOST and HQ_HOST not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(HQ_HOST)
 
 
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
+    'apps.operators.admin_config.TwoStepAdminConfig',  # django.contrib.admin with the two-step site
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -107,6 +111,7 @@ AUTH_USER_MODEL = "operators.User"
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'apps.operators.middleware.HqHostMiddleware',
     'apps.common.middleware.ApiOriginMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',

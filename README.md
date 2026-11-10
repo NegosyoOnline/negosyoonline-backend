@@ -17,6 +17,7 @@ Railway staging owns PostgreSQL and Redis. Its credentials must be configured la
 - `apps/operators`: the staff user model used by the Django admin, admin two-step sign-in and the operator audit record (`audit.record()` is the only way to write it). Subscribers are not Django users. See `docs/runbooks/admin-two-step.md`.
 - `API_ALLOWED_ORIGINS`: the site and dashboard origins allowed to call the API from a browser. Never list a storefront origin.
 - `apps/accounts`: subscribers (`Account`), their sessions, email-code, Google and Facebook sign-in, and account settings. Other apps call `apps/accounts/services.py`, never the tables.
+- hq, the admin's console: Django pages in `apps/operators` (`hq_urls.py`, `hq_views.py`, `templates/hq/`), served only on the host named by `HQ_HOST` and nowhere when it is empty. That host serves nothing else. The Django admin's code page is `/admin/two-step/`.
 - `apps/notifications`: `send_email()` is the only way to send email. With no `EMAIL_HOST` set, email is printed to the service log.
 
 ## Railway staging
@@ -32,7 +33,7 @@ Before a staging deploy, configure these Railway variables through the service U
 - `DATABASE_URL` and `REDIS_URL`: references to the staging Postgres and Redis services.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: the Google OAuth client for this environment. Without them the Google sign-in endpoints answer 404.
 - `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET`: the Meta app for this environment. Without them the Facebook sign-in endpoints and the data deletion callback answer 404.
-- `ADMIN_SECRETS_KEY` and `ADMIN_TWO_STEP_REQUIRED`: admin two-step sign-in. Leave both unset until `docs/runbooks/admin-two-step.md` is followed.
+- `ADMIN_SECRETS_KEY`, `ADMIN_TWO_STEP_REQUIRED` and `HQ_HOST`: admin two-step sign-in and hq. Leave all three unset until `docs/runbooks/admin-two-step.md` is followed.
 - `DASHBOARD_URL` and `SITE_URL`: where the browser lands after a Google sign-in that worked (the dashboard) or did not (the public site's sign-in popup). No trailing slashes.
 
 The deployment must return HTTP 200 from `/healthz/` before Railway accepts it as healthy.
