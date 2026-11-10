@@ -1,12 +1,12 @@
 # NPC Build 1: SMS gateway and mobile verification (plan)
 
 Date: 2026-11-10. ClickUp task: z8uq9md33v (https://app.clickup.com/t/z8uq9md33v), parent z8uq9mbreu.
-Design: `docs/superpowers/specs/2026-11-10-sms-gateway-mobile-verification-design.md` ("the Design"; D1 to D13 are its decisions).
-Status: **plan only, partly ruled. Nothing is built.** No code, migration, dependency, variable or repository exists yet. Ruled on 2026-11-10 (the Design's section 2.1): D1 (our own small Android app), D2 (the phone asks the server) and D12 (a new repository is needed; creating it is his action) by Coach Ed; D3, D9 and D11 by the coordinator. Ruled on 2026-11-11 by Coach Ed: D13 is (a), incoming texts built into the app behind a per-phone switch, off for the system phone, nothing stored. Still with Coach Ed: D4, D5, D6, D7, D8, D10. No migration, variable, repository or pull request of section 3 is approved; section 6 lists them. For the open decisions the plan is written for the Design's recommended answers; section 8 says what changes if he rules otherwise.
+Design: `docs/superpowers/specs/2026-11-10-sms-gateway-mobile-verification-design.md` ("the Design"; D1 to D14 are its decisions).
+Status: **plan only, mostly ruled. Nothing is built.** No code, migration, dependency, variable or repository exists yet. The Design's section 2.1 holds every ruling with its source. Ruled by Coach Ed: D1, D2, D12 (2026-11-10); D4, D7, D13, that inbox conversation text is stored in its own table which the add-on creates, and the sending order (2026-11-11). Settled by the coordinator: D3, D9, D11 (2026-11-10); D5, D8, D10 (2026-11-11). **Still with Coach Ed: the numbers in D6**, and then the approvals of section 6: no migration, variable, repository or pull request of section 3 is approved, and neither is the Design as a whole. D14 (how long inbox text is kept) is open too, but belongs to the add-on and does not hold this build up.
 
 ## 1. Sources
 
-The Design's section 1. Code state: backend `e85e727`, frontend `ab852d3`. Open pull requests checked on 2026-11-11: none in either repository other than this plan's own (backend 42).
+The Design's section 1. Code state: backend `e85e727`, frontend `ab852d3`. Open pull requests checked on 2026-11-11: backend 42 (this plan's own) and backend 43 (`apps/sites` only, no file in common with this plan); frontend none.
 
 ## 2. Scope, traced
 
@@ -18,6 +18,8 @@ The Design's section 1. Code state: backend `e85e727`, frontend `ab852d3`. Open 
 | 2 | A1: the gateway the phone talks to | 5 | PR 2 |
 | 3 | A1: the phone app | 4 | PR 5 (new repository) |
 | 3a | Ruling of 2026-11-10: the app can read incoming texts (D13 (a), confirmed 2026-11-11) | 5.6 | PR 1 (the per-phone switch), PR 2 (the `received` call and the `incoming` command), PR 5 (the app's receiver). Switched off for the system phone; nothing is stored |
+| 3b | Ruling of 2026-11-11: codes at once, inbox replies ahead of marketing, marketing paced at a random 18 to 25 seconds | 6.7 | PR 1 (the sending class on each purpose and record), PR 2 (handout order and the gap in the `poll` answer), PR 5 (the app obeys the gap). Only the `code` class is used; no reply and no marketing text can be sent |
+| 3c | Ruling of 2026-11-11: inbox conversation text is stored, in its own table | 14 | **Designed only.** No pull request of this plan creates the table or stores a text. Section 12 lists what the add-on adds |
 | 4 | A2: mobile verification for every Philippine number; `mobile` in `GET /v1/account/` | 7 | PR 3 |
 | 5 | A3: daily limits per site and platform, kill switch, email fallback | 8.1 to 8.3 | PR 1 |
 | 6 | A3: masked numbers in the admin | 8.4 | PR 1 (send records, phones, settings), PR 3 (account mobile) |
@@ -36,7 +38,7 @@ The Design's section 1. Code state: backend `e85e727`, frontend `ab852d3`. Open 
 
 ### 2.3 Boundaries
 
-Not built: the Design's section 11, which includes storing, showing or acting on incoming texts (the add-on z8uq9mb19f designs that). Also not touched: `apps/sites` (one reserved-label change is listed for its owner in section 7), billing, any frontend file, any filing or policy text, `railway.toml`, CI.
+Not built: the Design's section 11, which includes creating the inbox table and storing, showing or acting on incoming texts (the Design's section 14 designs the storage; the add-on z8uq9mb19f builds it), any reply or marketing text, and `GET /v1/account/mobile/` (D8). Also not touched: `apps/sites` (one reserved-label change is listed for its owner in section 7), billing, any frontend file, any filing or policy text, `railway.toml`, CI.
 
 ## 3. Pull requests
 
@@ -46,9 +48,9 @@ Each is small, has its own tests, and is opened only after the branch is updated
 
 | File | Change |
 |---|---|
-| `apps/notifications/models.py` | `SmsMessage`, `SmsDevice`, `SmsPolicy` (Design 6.1). `SmsDevice` includes the switch "forwards incoming texts", off by default (Design 5.6) |
+| `apps/notifications/models.py` | `SmsMessage`, `SmsDevice`, `SmsPolicy` (Design 6.1). `SmsMessage` includes `priority`, the sending class (Design 6.7), and has no text column. `SmsDevice` includes the switch "forwards incoming texts", off by default (Design 5.6) |
 | `apps/notifications/migrations/0002_…` | **Migration M1** (approval A1) |
-| `apps/notifications/sms.py` (new) | The purposes list; limits and counters; the kill switch; holding and taking the encrypted text; picking the phone |
+| `apps/notifications/sms.py` (new) | The purposes list, each purpose with its category and sending class; limits and counters; the kill switch; holding and taking the encrypted text, as two functions keyed by the send record, so the add-on can give inbox text a second source (Design 6.3); picking the phone |
 | `apps/notifications/services.py` | `send_sms`, beside `send_email` |
 | `apps/notifications/admin.py` | Masked read-only lists for `SmsMessage` and `SmsDevice`; the one `SmsPolicy` row, audited on change |
 | `apps/operators/audit.py` | Declares `sms_policy_change` (class `KEPT`). One line in the registry, as that file's comment asks |
@@ -60,7 +62,7 @@ Each is small, has its own tests, and is opened only after the branch is updated
 
 | File | Change |
 |---|---|
-| `apps/notifications/gateway.py` (new) | `poll`, `report` and `received` views; token check; expiry and no-report sweeps; presence. `poll` also answers the phone's incoming switch. `received` checks the token, answers 204 and discards the body: it stores nothing and logs nothing, whatever the switch says (Design 5.6) |
+| `apps/notifications/gateway.py` (new) | `poll`, `report` and `received` views; token check; expiry and no-report sweeps; presence. `poll` hands texts out by sending class, then oldest first, each with its gap (0 for a code); a full answer tells the phone to ask again at once; it also answers the phone's incoming switch (Design 6.7). `received` takes the final shape of Design 5.6 (a list of up to 20 texts, each with the app's id), checks the token, and calls one storing function, which in this task discards: it answers 204 and stores and logs nothing, whatever the switch says. The add-on replaces that one function's body |
 | `config/urls.py` | Three paths under `gateway/v1/` (`poll`, `report`, `received`), before `v1/` |
 | `apps/notifications/management/commands/sms_device.py` (new) | `add`, `rotate`, `disable`, `incoming on|off`, `list`; each but `list` needs `--actor` and is audited |
 | `apps/notifications/management/commands/sms_fake_phone.py` (new) | Local development only: polls like a phone and prints each text in the terminal instead of sending it. Refuses to run unless `DEBUG` is on |
@@ -76,8 +78,8 @@ No migration. No variable.
 |---|---|
 | `apps/accounts/models.py` | `AccountMobile`, `MobileOtpChallenge` (Design 7.1) |
 | `apps/accounts/migrations/<next>_…` | **Migration M2** (approval A2; number and order agreed through the coordinator first) |
-| `apps/accounts/mobile.py` (new) | Start, verify, the `mobile` object, the change notice email |
-| `apps/accounts/api.py` | `POST account/mobile/start/`, `POST account/mobile/verify/`; `settings_out` returns the `mobile` object; a typed schema replaces `dict | None` |
+| `apps/accounts/mobile.py` (new) | Start, verify, the `mobile` object, the change notice by email only (D7) |
+| `apps/accounts/api.py` | `POST account/mobile/start/`, `POST account/mobile/verify/`; `settings_out` returns the `mobile` object; a typed schema replaces `dict | None`. No `GET account/mobile/` (D8) |
 | `apps/accounts/admin.py` | Masked read-only lists for the two tables |
 | `apps/accounts/tests/` | T-MOB |
 | `docs/superpowers/specs/2026-11-10-backend-mvp-scope-design.md` | The Design's section 13 changes |
@@ -91,7 +93,7 @@ No variable. Depends on PR 1 (it calls `send_sms`). It does not depend on PR 2 t
 | `apps/common/retention.py` (new) | The rule registry, `run_all`, and the once-a-day trigger (Design 9.3) |
 | `apps/common/management/commands/run_retention.py` (new) | `--dry-run`, `--only NAME`; prints counts; writes the run log |
 | `apps/notifications/apps.py`, `apps/accounts/apps.py` | Each registers its rule in `ready()` |
-| `apps/notifications/gateway.py` | Calls the once-a-day trigger from `poll` (only if D5 is ruled (a)) |
+| `apps/notifications/gateway.py` | Calls the once-a-day trigger from `poll` (D5 (a), settled) |
 | `apps/operators/audit.py` | Declares `retention_run` (`KEPT`) |
 | `apps/common/tests/` | T-RET |
 
@@ -101,11 +103,11 @@ No migration. No variable. **Shared with Build 7 (z8uq9mdwdy):** if Build 7 merg
 
 Ruled on 2026-11-10: our own small app (D1), which asks the server (D2, polling, no Firebase), in a new repository (D12). Kotlin, one module, no third-party service. Its own short plan is written once Coach Ed has created the repository; the outline:
 
-- A foreground service that calls `poll` on the server's "seconds to wait", sends each text with the platform's SMS interface, waits 2 seconds between texts, and calls `report`.
-- A receiver for arriving texts, **disabled unless the last `poll` answer said this phone's switch is on**. Disabled, it forwards nothing and keeps nothing. Enabled, it passes each arriving text to `received` and keeps it only until the server has answered. It never reads the texts already stored on the phone (Design 5.6).
+- A foreground service that calls `poll` on the server's "seconds to wait", sends each text with the platform's SMS interface, one at a time, and calls `report`. It adds no wait of its own: a text with gap 0 goes at once, and a text with a gap goes no sooner than that many seconds after the last text that carried one (Design 6.7). When an answer is full it asks again at once.
+- A receiver for arriving texts, **disabled unless the last `poll` answer said this phone's switch is on**. Disabled, it forwards nothing and keeps nothing. Enabled, it gives each arriving text an id, passes it to `received` in the final shape of the Design's 5.6, keeps it in encrypted storage only until the server answers 204, and tries again if no answer comes. It never reads the texts already stored on the phone (Design 5.6).
 - One screen: server address, token (typed or scanned), a start and stop switch, last contact time, texts sent today, last error.
 - Token kept in Android's encrypted storage. Starts again after a restart. Asks only for the permissions in the Design's 5.1: send texts, receive texts as they arrive, network, background, start after a restart.
-- Unit tests for the protocol client, the send loop and the receiver's on and off states against a fake server. A signed release file built on Coach Ed's computer or in CI, never committed.
+- Unit tests for the protocol client, the send loop (order, the gap, a code never waiting), and the receiver's on and off states and its retry, against a fake server. A signed release file built on Coach Ed's computer or in CI, never committed.
 - Phone set-up notes, kept in that repository: the app is installed from a file, not from Google Play; the SMS permissions are granted by hand, and on recent Android versions that can mean first allowing restricted settings for the app and answering a Google Play Protect warning. The exact steps are proven on the chosen phone when it is set up (Design 5.6 and 12), not assumed.
 
 ### Stage 6: staging, each step its own approval
@@ -123,7 +125,7 @@ Production is not built until the MVP is complete; nothing here touches it.
 
 | # | App | Creates | Changes existing tables | Depends on |
 |---|---|---|---|---|
-| M1 | `apps/notifications`, next free number (`0002` as of `e85e727`) | `SmsMessage`, `SmsDevice` (with the incoming switch, off by default), `SmsPolicy`. No table or column for incoming text | No | `notifications.0001`; `sites.0001` for the optional site link |
+| M1 | `apps/notifications`, next free number (`0002` as of `e85e727`) | `SmsMessage` (with the sending class), `SmsDevice` (with the incoming switch, off by default), `SmsPolicy`. No table or column for any message text: the inbox tables are the add-on's own migration | No | `notifications.0001`; `sites.0001` for the optional site link |
 | M2 | `apps/accounts`, next free number (`0003` as of `e85e727`) | `AccountMobile`, `MobileOtpChallenge` | No | `accounts.0002` only |
 
 - **M2 is in the app whose migrations another session owns.** Before PR 3 is opened, the coordinator is told that an `apps/accounts` migration creating these two tables is coming and confirms no other open branch adds one; the number is taken then, not now.
@@ -142,7 +144,7 @@ Already existing and required where the gateway is on: `REDIS_URL`, `DJANGO_SECR
 
 ### 6.1 Before any code is written (Coach Ed, relayed by the coordinator)
 
-- **A0. The Design's open decisions: D4, D5, D6, D7, D8, D10.** D4, D5 and D7 change what is built; D6 and D10 are numbers and words; D8 is reported for a ruling. Already ruled and not asked again: D1, D2, D12 (Coach Ed) and D3, D9, D11 (the coordinator) on 2026-11-10; D13 (Coach Ed) on 2026-11-11.
+- **A0. The Design's one open decision for this build: the numbers in D6** (the platform and per-site daily limits; the coordinator is asking whether the platform limit follows from the sending pace). Where they are kept stays as proposed: one `SmsPolicy` row the admin edits, audited. Then the Design as a whole. Already ruled and not asked again: D1, D2, D4, D7, D12, D13 (Coach Ed) and D3, D5, D8, D9, D10, D11 (the coordinator); sources in the Design's 2.1.
 - **A1. Migration M1**: creating the file, and applying it to the builder's local SQLite file for the local check.
 - **A2. Migration M2**: the same, after the coordinator agrees the number and order with the session that owns `apps/accounts` migrations.
 - **A3. Variable `SMS_GATEWAY_ENABLED`**: adding it to the code and `.env.example`, and setting it to `1` in the builder's ignored local `.env`.
@@ -166,27 +168,27 @@ Merging each PR; applying M1 and M2 on staging; setting `SMS_GATEWAY_ENABLED` on
 - **Build 7 (z8uq9mdwdy):** shares `apps/common/retention.py`, `run_retention` and the `retention_run` audit action (PR 4). Whichever build merges first creates them.
 - **`apps/operators/audit.py`:** PRs 1, 2 and 4 each add lines to the `ACTIONS` registry. Build 7 will add its own. A conflict there is resolved by keeping both sides' lines.
 - **`apps/sites/subdomains.py`:** the labels `sms` and `gateway` should be reserved (Design 5.2). The file belongs to the session that owns slice 3; this build does not change it and asks the coordinator to route it.
-- **Frontend:** if D7 is ruled (a), three sentences in `apps/dash/public/assets/js/account.js` promise a text to the old number and need a wording task. If D8 is ruled out, `earnings.js` keeps calling a route that answers 404, which it already handles.
+- **Frontend, a separate task that needs its own ClickUp task (not part of this build):** D7 is ruled email only, so the sentences in `apps/dash/public/assets/js/account.js` that promise a text to the old number (the security note, the dialog note and the "Security alerts" line "Sent to your email and mobile") need a wording change. Until it is done the dashboard promises a text that is not sent. D8 is settled as not built, so `earnings.js` keeps calling a route that answers 404, which it already handles.
+- **The add-on (z8uq9mb19f):** section 12. Its description differs from Coach Ed's ruling of 2026-11-11 on the pace and on replies; the Design's 6.7 lists the differences for the add-on's own design.
 - **Shared files:** `config/settings.py`, `config/urls.py`, `README.md`, `.env.example`, the scope doc. Before each PR: fetch `origin/main`, update the branch, re-run the tests and checks, list open PRs with their files, and report any overlap to the coordinator first.
 
 ## 8. What changes if Coach Ed rules otherwise
 
+Only D6 is open.
+
 | Ruling | Effect on this plan |
 |---|---|
-| D4 (b): text written at pickup | PR 1's `send_sms` takes a reference instead of a text; PR 3 generates the code at pickup |
-| D5 (b): Railway cron | PR 4 drops the trigger; Stage 6 adds a cron service |
+| D6: other numbers | Two default values in PR 1. Nothing else |
 | D6 (b): limits as variables | PR 1 drops `SmsPolicy` from M1 and adds three variables |
-| D7 (b): text the old number | PR 3 adds a third purpose; the ruling "only sign-in codes and order-status texts" is widened by Coach Ed first |
-| D8 ruled in | PR 3 adds one read-only route |
 
 ## 9. Tests
 
 Run with `uv run python manage.py test`, then `manage.py check`, `makemigrations --check --dry-run`, and `check --deploy` with `DJANGO_DEBUG=false`. Test first at each step.
 
-- **T-SEND** 1 an undeclared purpose is refused; 2 a `status` text without a site or without an email fallback is a programming error; 3 a text over 160 characters or containing a link is refused; 4 gateway off: refused `gateway_off`, nothing queued; 5 sending stopped: refused `paused`; 6 platform limit reached: a `code` text is refused, a `status` text is emailed; 7 site limit reached: emailed, and another site is unaffected; 8 counts follow the Manila day and are rebuilt from the records when the cache is empty; 9 the record has no text in any field; 10 the cache value is not the plain text and expires with the text; 11 no log line holds a number or a text; 12 phone offline: `code` refused `gateway_offline`, `status` emailed; 13 the fallback email failing leaves the record refused and logs an error.
-- **T-GW** 1 no token, a wrong token, a rotated token and a disabled phone all get the same 401; 2 failed tries are limited per IP; 3 `poll` hands out at most 5, oldest first, and marks them `dispatched`; 4 a second `poll` does not hand the same text out again; 5 the text is gone from the cache after handout; 6 an expired text is never handed out and becomes `expired`; 7 a missing cache entry gives `failed` `text_lost`; 8 `report` sets `sent` or `failed`, and repeating it changes nothing; 9 a report for another phone's text is refused; 10 no report after 10 minutes gives `failed` `no_report`; 11 a failed or expired text with a fallback is emailed once; 12 gateway off: all three calls answer 404; 13 sending stopped: `poll` hands out nothing and asks the phone to wait longer; 14 `poll` updates last contact and presence; 15 the calls are not in `/v1/openapi.json`; 16 `poll` answers the phone's incoming switch, off for a new phone; 17 `received` answers 204 with the switch off and with it on, and writes no record, no cache entry and no log line holding a number or a text; 18 `received` with no token or a wrong one gets the same 401 as the other calls.
+- **T-SEND** 1 an undeclared purpose is refused; 2 a `status` text without a site or without an email fallback is a programming error; 3 a text over 160 characters or containing a link is refused; 4 gateway off: refused `gateway_off`, nothing queued; 5 sending stopped: refused `paused`; 6 platform limit reached: a `code` text is refused, a `status` text is emailed; 7 site limit reached: emailed, and another site is unaffected; 8 counts follow the Manila day and are rebuilt from the records when the cache is empty; 9 the record has no text in any field; 10 the cache value is not the plain text and expires with the text; 11 no log line holds a number or a text; 12 phone offline: `code` refused `gateway_offline`, `status` emailed; 13 the fallback email failing leaves the record refused and logs an error; 14 each record carries the sending class of its purpose, and `mobile_verify` is `code`; 15 outside the tests no purpose of class `reply` or `marketing` is declared.
+- **T-GW** 1 no token, a wrong token, a rotated token and a disabled phone all get the same 401; 2 failed tries are limited per IP; 3 `poll` hands out at most 5, oldest first, and marks them `dispatched`; 4 a second `poll` does not hand the same text out again; 5 the text is gone from the cache after handout; 6 an expired text is never handed out and becomes `expired`; 7 a missing cache entry gives `failed` `text_lost`; 8 `report` sets `sent` or `failed`, and repeating it changes nothing; 9 a report for another phone's text is refused; 10 no report after 10 minutes gives `failed` `no_report`; 11 a failed or expired text with a fallback is emailed once; 12 gateway off: all three calls answer 404; 13 sending stopped: `poll` hands out nothing and asks the phone to wait longer; 14 `poll` updates last contact and presence; 15 the calls are not in `/v1/openapi.json`; 16 `poll` answers the phone's incoming switch, off for a new phone; 17 `received` answers 204 with the switch off and with it on, and writes no record, no cache entry and no log line holding a number or a text; 18 `received` with no token or a wrong one gets the same 401 as the other calls; 19 `poll` hands out a code before a reply, a reply before a status text, and a status text before a marketing text, whatever order they were queued in (classes declared only in the tests); 20 every text in a `poll` answer carries a gap, 0 for a code, and between 18 and 25 seconds for a marketing text; 21 a phone is handed one gap-carrying text at a time, and codes are still handed out while it is unreported; 22 a full `poll` answer tells the phone to ask again at once; 23 `received` sent twice with the same ids answers 204 both times.
 - **T-CMD** 1 `add` prints the token once and stores only its hash; 2 `rotate` makes the old token fail; 3 `disable` stops the phone; 4 `list` writes no audit row; 5 every other action writes one audit row with the actor; 6 `sms_fake_phone` refuses to run without `DEBUG`; 7 `incoming on` and `incoming off` set the switch, each writes one `sms_device_incoming` audit row with the actor, and `list` shows the switch.
-- **T-MOB** 1 every form `normalise_ph_mobile` accepts is accepted, including the dashboard's `+63` form; 2 a bad number answers `invalid_mobile` with `fields.mobile`; 3 the four start limits; 4 `start` answers `{"queued": true}` and queues one `mobile_verify` text; 5 a new `start` supersedes the old challenge; 6 the right code answers `{"verified": true, "mobile_masked": "+63917***4567"}`; 7 wrong, expired, used and sixth-try codes each give their message under `fields.code`; 8 `GET /v1/account/` shows the object, verified and not; 9 the full number is in no response; 10 changing a verified number emails the notice and texts nobody; 11 gateway off or offline answers 503 `sms_unavailable`; stopped or at the limit answers 503 `sms_paused`; 12 signed-out calls answer 401; 13 the audit event holds no number.
+- **T-MOB** 1 every form `normalise_ph_mobile` accepts is accepted, including the dashboard's `+63` form; 2 a bad number answers `invalid_mobile` with `fields.mobile`; 3 the four start limits; 4 `start` answers `{"queued": true}` and queues one `mobile_verify` text; 5 a new `start` supersedes the old challenge; 6 the right code answers `{"verified": true, "mobile_masked": "+63917***4567"}`; 7 wrong, expired, used and sixth-try codes each give their message under `fields.code`; 8 `GET /v1/account/` shows the object, verified and not; 9 the full number is in no response; 10 changing a verified number emails the notice and texts nobody; `GET /v1/account/mobile/` answers 404; 11 gateway off or offline answers 503 `sms_unavailable`; stopped or at the limit answers 503 `sms_paused`; 12 signed-out calls answer 401; 13 the audit event holds no number.
 - **T-ADM** 1 each list shows the number masked; 2 the detail page shows it masked; 3 nothing can be added, changed or deleted except the `SmsPolicy` row; 4 changing `SmsPolicy` writes an audit row with before and after; 5 no token or code hash is shown.
 - **T-RET** 1 a rule that is not registered cannot run; 2 the dry run deletes nothing and reports the same counts; 3 `sms_messages` deletes a row of 366 days and keeps one of 364; 4 `mobile_challenges` deletes 24 hours after expiry; 5 the run writes one audit row with the counts; 6 the once-a-day trigger runs once however many calls arrive, and again the next day.
 - **T-BND** 1 no model in `apps/notifications` or `apps/accounts` has a field that could hold a text body; 2 `apps/accounts` writes `SmsMessage` only through `send_sms`.
@@ -211,3 +213,17 @@ Desktop and phone widths are the dashboard's own, already built; this build chan
 ## 11. Build order after approval
 
 PR 1, then PR 2 and PR 3 (either order; both need PR 1), then PR 4, then PR 5 in its own repository, then Stage 6. The phone and SIM are needed only for Stage 6; everything before it is built and checked with the fake phone.
+
+## 12. What the add-on (z8uq9mb19f) adds later
+
+From the Design's 14.3, so that nothing in PRs 1 to 5 is redone. None of it is in this plan, and each item needs its own approval in that task.
+
+1. **The NPC wording check first** (Design 14.4): register row 6, filing-store-sms, filing-subscriber-accounts-billing, filing-subscriber-stores, PIA 5, privacy manual s8, and the Terms and Privacy provider list. They must be checked, and changed where needed by Coach Ed, before any inbox text is stored and before any reply or marketing text is sent. This build edits none of them.
+2. **Its own migration**: the two inbox tables of the Design's 14.2 and the phone-to-site assignment. M1 and M2 are not changed.
+3. **The storing step**: the body of the one function `received` calls, and a refusal to turn the switch on for a phone with no site.
+4. **Turning the switch on**, per dedicated phone, with `sms_device incoming on`. Never for the system phone without a separate ruling.
+5. **The `reply` and `marketing` purposes**, their text source, the page count and the pace.
+6. **The retention rule for inbox text**, after D14 is ruled (the Parent states both "SMS records 1 year" and "message records and support email 2 years"; which applies is not settled).
+7. The inbox screens, replies, broadcasts, billing and SIM custody.
+
+Unchanged by all of it: the phone app, the three gateway calls, the phone's token, `SmsMessage`, `SmsPolicy` and mobile verification.
