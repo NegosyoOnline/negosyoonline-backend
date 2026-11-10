@@ -16,6 +16,8 @@ Railway staging owns PostgreSQL and Redis. Its credentials must be configured la
 - `apps/common`: shared code with no business meaning (public ids, the error shape, the origin allowlist).
 - `apps/operators`: the staff user model used by the Django admin. Subscribers are not Django users.
 - `API_ALLOWED_ORIGINS`: the site and dashboard origins allowed to call the API from a browser. Never list a storefront origin.
+- `apps/accounts`: subscribers (`Account`), their sessions, email-code sign-in and account settings. Other apps call `apps/accounts/services.py`, never the tables.
+- `apps/notifications`: `send_email()` is the only way to send email. With no `EMAIL_HOST` set, email is printed to the service log.
 
 ## Railway staging
 
