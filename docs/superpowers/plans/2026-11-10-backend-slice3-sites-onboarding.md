@@ -766,7 +766,12 @@ def site_for(account, site_id):
 def _locked_record(account):
     """The account's Onboarding row, locked. Serialises every site write for one account."""
     Onboarding.objects.get_or_create(account=account)
-    return Onboarding.objects.select_for_update().get(account=account)
+    # of=("self",): PostgreSQL refuses FOR UPDATE on the nullable first_site join.
+    return (
+        Onboarding.objects.select_for_update(of=("self",))
+        .select_related("first_site")
+        .get(account=account)
+    )
 
 
 @transaction.atomic
