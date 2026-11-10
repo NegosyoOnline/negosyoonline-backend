@@ -5,10 +5,6 @@
 <h1>Sign-in paused</h1>
 <p class="note warn" role="alert">Too many wrong codes. Sign-in is paused for 15 minutes.</p>
 <p>We sent an email about this to your admin address. If this was not you, tell the admin owner.</p>
-{% if hq %}<p class="below"><a class="lnk" href="/sign-in/">Back to sign-in</a></p>
-{% else %}<form method="post" action="/admin/two-step/sign-out/">
-<input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
-<button class="btn ghost" type="submit">Sign out</button>
-</form>
-{% endif %}</div>
+<p class="below"><a class="lnk" href="/sign-in/">Back to sign-in</a></p>
+</div>
 {% endblock %}

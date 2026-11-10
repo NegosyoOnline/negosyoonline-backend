@@ -1,7 +1,6 @@
-"""The second step of admin sign-in, shared by hq and the Django admin.
+"""The second step of admin sign-in: an authenticator code or a recovery code.
 
-Both call `verify_second_step`, so an authenticator code cannot be replayed on the other one,
-recovery codes are shared, and five wrong codes pause both.
+hq is the only place that asks for it. The admin lists open from the hq session it makes.
 """
 import hmac
 import logging
@@ -26,6 +25,7 @@ LOCK_MINUTES = 15
 RECOVERY_COUNT = 10
 RECOVERY_LENGTH = 10
 RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no I, O, 0 or 1
+# "django_admin" is no longer written. Audit rows made before hq became the only door carry it.
 SURFACE_HQ, SURFACE_DJANGO_ADMIN = "hq", "django_admin"
 STEP_EMAIL, STEP_TOTP, STEP_RECOVERY = "email", "totp", "recovery"
 
@@ -36,7 +36,7 @@ _SIX_DIGITS = re.compile(r"\d{6}")
 class Result:
     ok: bool
     locked: bool = False
-    # Read under the same row lock as the check. A session or flag is made from this value only.
+    # Read under the same row lock as the check. A session is made from this value only.
     credential_version: int | None = None
 
 
@@ -81,7 +81,7 @@ def note_secrets_key_problem():
 
 
 def bump_credentials(identity, now):
-    """End every hq session and Django admin flag of this identity for good. Does not save."""
+    """End every hq session of this identity for good. Does not save."""
     identity.credential_version += 1
     identity.sessions.filter(revoked_at__isnull=True).update(revoked_at=now)
 

@@ -172,13 +172,10 @@ class AdminIdentityCommandTests(TwoStepTestCase):
         self.assertIn("Staff users with no enrolled identity", output)
         self.assertIn("  coach", output)
         self.assertNotIn("  operator", output)
-        self.assertIn("ADMIN_TWO_STEP_REQUIRED is off.", output)
-        self.assertIn("Warning: an identity is enrolled", output)
-        self.assertEqual(self.audit(), [])
-        with override_settings(ADMIN_TWO_STEP_REQUIRED=True):
-            output = self.run_command("list")
-        self.assertIn("ADMIN_TWO_STEP_REQUIRED is on.", output)
+        self.assertIn("(they cannot open the admin lists)", output)
+        self.assertNotIn("ADMIN_TWO_STEP_REQUIRED", output)
         self.assertNotIn("Warning", output)
+        self.assertEqual(self.audit(), [])
 
     def test_every_change_writes_one_error_log_line_without_the_address(self):
         with self.assertLogs("apps.operators", "ERROR") as logs:

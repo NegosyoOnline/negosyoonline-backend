@@ -12,8 +12,13 @@
 <p class="small">Two-step sign-in: verified at {{ verified_at|date:"j M Y, g:i A" }}; session ends {{ expires_at|date:"j M Y, g:i A" }}.</p>
 </div>
 <div class="card wide">
+<h2>Admin lists</h2>
+<p>Subscribers, sites and sent emails.</p>
+<p class="small"><a class="lnk" href="/admin/">Open admin lists</a></p>
+</div>
+<div class="card wide">
 <h2>Recent sign-in activity</h2>
-<p class="hint">Your last 10 sign-in events on the admin console and the operator admin.</p>
+<p class="hint">Your last 10 sign-in events.</p>
 {% if events %}<ol class="rows">
 {% for event in events %}<li class="row"><span>{{ event.label }}{% if event.where %} <small>{{ event.where }}</small>{% endif %}</span> <time datetime="{{ event.at|date:"c" }}">{{ event.at|date:"j M Y, g:i A" }}</time></li>
 {% endfor %}</ol>

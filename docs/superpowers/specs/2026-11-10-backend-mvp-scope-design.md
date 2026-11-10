@@ -29,7 +29,7 @@ Rebuild the NegosyoOnline platform backend in this repository as a clean Django 
 ## 4. Identity and sign-in
 
 - A subscriber is an `Account`: unique email, no password. It is not a Django user.
-- Operators are Django staff users. `AUTH_USER_MODEL` is a custom `operators.User`, set in slice 1 because it must exist before the first migration. Operators use the Django admin. The admin's console, hq, is rebuilt by Coach Ed's ruling of 2026-11-10 (ClickUp task z8uq9mdwdx): Django renders it on its own host, with no script and no external asset. hq and the Django admin both require two-step sign-in; see section 12.
+- Operators are Django staff users. `AUTH_USER_MODEL` is a custom `operators.User`, set in slice 1 because it must exist before the first migration. The admin's console, hq, is rebuilt by Coach Ed's ruling of 2026-11-10 (ClickUp task z8uq9mdwdx): Django renders it on its own host, with no script and no external asset. By his ruling of 2026-11-11 (ClickUp task z8uq9mdxvt) hq is the only admin door: it requires two-step sign-in, and the Django admin lists open only from it, on the hq host; see section 12.
 - Email code: 6 digits, held in the cache with an expiry and an attempt limit, rate-limited per email and per IP.
 - Google: server-side OAuth redirect flow. The callback signs the account in and redirects to the dashboard. Google vouches for the email.
 - Facebook: server-side OAuth redirect flow requesting only `public_profile` and `email`. Facebook does not vouch for the email, and may return none. So the first time a Facebook identity is seen:
@@ -215,3 +215,8 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
   - Daily limits: 4,000 per site and 4,000 for the platform, kept with the kill switch in one settings row the admin edits; each change is audited.
   - The notice for a changed mobile number goes by email only. `GET account/mobile/` is not built.
   - The NPC filing and policy wording must be checked before any inbox text is stored and before any reply or marketing text is sent. This amendment changes no filing or policy text.
+- 2026-11-11: hq is the only admin door, from Coach Ed's ruling of 2026-11-11 on ClickUp task z8uq9mdxvt ("lets remove the django admin login.. all will now be in hq dashboard"). Section 4 was updated. Plan: `docs/superpowers/plans/2026-11-11-backend-npc-build9-hq-only-admin-door.md`.
+  - This replaces two lines of the 2026-11-10 "admin two-step sign-in and hq" entry above: the Django admin no longer has a password sign-in or its own second step, and `ADMIN_TWO_STEP_REQUIRED` no longer exists.
+  - The Django admin lists are kept as they are and served only on `HQ_HOST` at `/admin/`, to an hq session that passed the emailed code and the authenticator or recovery code. The user they see is the staff user linked to that admin identity; Django permissions are unchanged. No other host serves `/admin/`.
+  - The lists use Django's own CSS and script, served from the hq host to a verified session only. The hq pages themselves stay without script.
+  - The first hq page links to the lists. Sign out on a list is hq's sign-out. New admin screens are built in hq.

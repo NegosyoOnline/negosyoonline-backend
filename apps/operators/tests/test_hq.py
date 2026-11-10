@@ -11,10 +11,8 @@ from django.utils import timezone
 from apps.notifications.models import EmailMessage
 from apps.operators import audit, checks, hq_auth, two_step
 from apps.operators.models import AdminIdentity, AdminSession, AdminSignInChallenge, OperatorAuditEntry
-from apps.operators.tests.base import EMAIL, TwoStepTestCase
+from apps.operators.tests.base import EMAIL, HQ, OTHER, TwoStepTestCase
 
-HQ = "hq.example.test"
-OTHER = "api.example.test"
 SESSION, PRE = "__Host-no_hq", "__Host-no_hq_pre"
 FORBIDDEN_WORDS = ("twc", "merchant", "member", "shopper", "client")
 GENERIC_CODE_ERROR = "That code did not work. Check it, or get a new code."
@@ -566,9 +564,10 @@ class HqHomeTests(HqTestCase):
         self.assertContains(page, "<title>Admin console | NegosyoOnline admin</title>", html=True)
         self.assertContains(page, f"Signed in as {EMAIL}.")
         self.assertContains(page, "Recent sign-in activity")
-        self.assertContains(
-            page, "Your last 10 sign-in events on the admin console and the operator admin."
-        )
+        self.assertContains(page, '<p class="hint">Your last 10 sign-in events.</p>', html=True)
+        self.assertContains(page, "<h2>Admin lists</h2>", html=True)
+        self.assertContains(page, "<p>Subscribers, sites and sent emails.</p>", html=True)
+        self.assertContains(page, '<a class="lnk" href="/admin/">Open admin lists</a>', html=True)
         self.assertContains(page, "Verified")
         session = AdminSession.objects.get()
         local = timezone.localtime
@@ -590,7 +589,7 @@ class HqHomeTests(HqTestCase):
         self.assertEqual(page.content.decode().count('<li class="row">'), 4)  # not the other admin's
         self.assertContains(page, '<form method="post" action="/sign-out/">')
         self.assertContains(page, "Sign out")
-        self.assertEqual(page.content.decode().count("<a "), 0)  # no links out
+        self.assertEqual(page.content.decode().count("<a "), 1)  # the admin lists, and no other link
         self.assertNotContains(page, "127.0.0.1")
 
     def manila(self, moment):
@@ -689,8 +688,8 @@ class HqHostTests(HqTestCase):
     HQ_PATHS = ("/sign-in/", "/code/", "/verify/", "/sign-out/")
 
     def test_the_hq_host_serves_only_hq(self):
-        for path in ("/admin/", "/admin/login/", "/admin/two-step/", "/healthz/", "/v1/openapi.json",
-                     "/v1/account", "/sign-in"):
+        for path in ("/static/admin/css/base.css", "/static/", "/healthz/",
+                     "/v1/openapi.json", "/v1/account", "/sign-in"):
             response = self.get(path)
             self.assertEqual(response.status_code, 404, path)
             self.assertContains(response, "Page not found.", status_code=404)

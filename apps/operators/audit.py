@@ -37,7 +37,7 @@ def record(operator, action, *, target_type="", target_id="", reason="", detail=
 
 
 def recent_sign_in_events(identity, limit=10):
-    """The newest sign-in events of one admin identity, on hq and the Django admin."""
+    """The newest sign-in events of one admin identity."""
     return list(
         OperatorAuditEntry.objects.filter(
             target_type=IDENTITY_TARGET, target_id=str(identity.pk), action__in=SIGN_IN_ACTIONS

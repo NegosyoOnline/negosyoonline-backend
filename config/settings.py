@@ -81,10 +81,10 @@ FACEBOOK_APP_SECRET = os.environ.get("FACEBOOK_APP_SECRET", "")
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3001").rstrip("/")
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:3000").rstrip("/")
 # Admin two-step sign-in. The key encrypts authenticator secrets; with no key nobody can be
-# enrolled. "1" makes the Django admin ask for the second step; it is off by default.
+# enrolled.
 ADMIN_SECRETS_KEY = os.environ.get("ADMIN_SECRETS_KEY", "").strip()
-ADMIN_TWO_STEP_REQUIRED = os.environ.get("ADMIN_TWO_STEP_REQUIRED", "").strip() == "1"
-# The one host that serves hq, the admin's console. Empty means hq is off.
+# The one host that serves hq, the admin's console, and the admin lists behind its sign-in.
+# Empty means hq is off and the lists are served nowhere.
 HQ_HOST = os.environ.get("HQ_HOST", "").strip().lower()
 if HQ_HOST and HQ_HOST not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(HQ_HOST)
@@ -93,14 +93,14 @@ if HQ_HOST and HQ_HOST not in ALLOWED_HOSTS:
 # Application definition
 
 INSTALLED_APPS = [
-    'apps.operators.admin_config.TwoStepAdminConfig',  # django.contrib.admin with the two-step site
+    'apps.operators',  # before the admin, so its admin/base_site.html is the one used
+    'apps.operators.admin_config.HqAdminConfig',  # django.contrib.admin, opened only by hq
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'apps.common',
-    'apps.operators',
     'apps.accounts',
     'apps.sites',
     'apps.notifications',
@@ -117,6 +117,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.operators.middleware.HqUserMiddleware',  # after it: on hq the user is the hq session's
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

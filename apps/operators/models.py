@@ -17,7 +17,7 @@ class AdminIdentity(models.Model):
 
     user = models.ForeignKey(User, on_delete=models.PROTECT, related_name="admin_identities")
     email = models.EmailField(unique=True)  # stored lower-cased
-    # Raised on lock, reset, disable and enrol. A session or flag made under an older value is dead.
+    # Raised on lock, reset, disable and enrol. A session made under an older value is dead.
     credential_version = models.PositiveIntegerField(default=1)
     totp_secret_ciphertext = models.TextField(blank=True)
     totp_last_step = models.BigIntegerField(default=0)

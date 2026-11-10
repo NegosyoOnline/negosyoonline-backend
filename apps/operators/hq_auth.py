@@ -1,6 +1,6 @@
 """hq sign-in before the second step: the emailed code, its limits, and the hq session.
 
-hq uses no Django auth session. Its cookie holds a random token; the row holds the SHA-256.
+hq uses no Django auth session, and neither do the admin lists it opens. Its cookie holds a random token; the row holds the SHA-256.
 """
 import hashlib
 import hmac
