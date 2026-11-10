@@ -20,16 +20,18 @@ Slice 2 is split into three plans so each one ships working software:
 
 Not in this plan: `ExternalIdentity`, `AccountMobile`, `MobileOtpChallenge` (slice 8), `account/referrals/` (slice 7), sites (slice 3).
 
-## Decisions Coach Ed should confirm before execution
+## Decisions (approved by Coach Ed on 2026-11-10)
 
-1. **Email provider.** No provider is chosen yet. This plan sends through Django's SMTP backend when `EMAIL_HOST` is set and otherwise prints the email to the service log. Until a provider is configured on staging, a sign-in code can only be read from the Railway log. Real subscribers need a provider first.
-2. **A new email-code sign-in signs out the account's other sessions.** The spec says "Verifying an email by code revokes that account's earlier sessions", so signing in on a phone signs out the laptop. This plan follows the spec.
-3. **Policy label.** New accounts record acceptance of policies `terms` and `privacy`, version `2026-11-10`. Both are settings and can change without a migration.
+Coach Ed approved this plan as written, with these decisions:
+
+1. **Email provider: Resend.** It is sent through Resend's SMTP service, so no code in this plan changes. The staging variables for Task 9 Step 4 are `EMAIL_HOST=smtp.resend.com`, `EMAIL_PORT=587`, `EMAIL_HOST_USER=resend`, `EMAIL_HOST_PASSWORD=<a Resend API key>` and `DEFAULT_FROM_EMAIL` on a domain verified in Resend. TWCinc already uses Resend, but its key and configuration are not copied: NegosyoOnline gets its own API key, and Coach Ed enters it in Railway himself. Until the variables are set, sign-in emails are printed to the Railway log.
+2. **A new email-code sign-in signs out the account's other sessions.** Confirmed: this follows the spec.
+3. **Policy label is temporary.** `POLICY_VERSION = "2026-11-10"` and `POLICIES = ["terms", "privacy"]` are placeholders. All dates are provisional until launch; the final policy version is set on the launch date by changing the settings, with no migration.
 
 ## Rules for whoever executes this
 
 - Read `CLAUDE.md` first. Work on feature branches; `main` is protected; merge through pull requests with CI green.
-- Three steps change staging state and need Coach Ed's explicit approval at the time: Task 6 Step 6 (apply migrations), Task 9 Step 4 (email variables, only if a provider has been chosen) and Task 9 Step 5 (creating a test account on staging). Do not run them on standing permission.
+- Three steps change staging state and need Coach Ed's explicit approval at the time: Task 6 Step 6 (apply migrations), Task 9 Step 4 (the Resend email variables) and Task 9 Step 5 (creating a test account on staging). Do not run them on standing permission.
 - Generating the migration files in Task 6 Step 2 is part of this plan; Coach Ed approves it by approving the plan.
 - Never print secrets. Never touch `production`.
 - All commands run from the repository root with `uv run`.
@@ -1920,9 +1922,9 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Content-Type: application/j
 
 Expected: `OK:` with the merge commit; the path list contains `/v1/me/`, `/v1/account/`, `/v1/account/email/confirm/`, `/v1/account/email/start/`, `/v1/account/sessions/`, `/v1/account/sessions/sign-out-others/`, `/v1/auth/email-code/request/`, `/v1/auth/email-code/verify/` and `/v1/auth/logout/`; then `401`; then `403` (no `Origin`, so no email is sent).
 
-- [ ] **Step 4: APPROVAL. Email variables on staging (only if a provider has been chosen)**
+- [ ] **Step 4: APPROVAL. Resend email variables on staging**
 
-If Coach Ed has chosen an email provider, he approves and these variables are set on the staging `api` service (it redeploys): `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL`. The password is entered by Coach Ed in Railway, never pasted into a chat or a file. If no provider is chosen, skip this step: sign-in emails are printed to the Railway log.
+The provider is Resend (see Decisions). Before this step, the sending domain must be verified in Resend and a Resend API key created for NegosyoOnline. With Coach Ed's approval, these variables are set on the staging `api` service (it redeploys): `EMAIL_HOST=smtp.resend.com`, `EMAIL_PORT=587`, `EMAIL_HOST_USER=resend`, `EMAIL_HOST_PASSWORD` (the API key) and `DEFAULT_FROM_EMAIL`. The API key is entered by Coach Ed in Railway, never pasted into a chat or a file. If the domain or key is not ready, skip this step: sign-in emails are printed to the Railway log.
 
 - [ ] **Step 5: APPROVAL. One real sign-in on staging**
 
