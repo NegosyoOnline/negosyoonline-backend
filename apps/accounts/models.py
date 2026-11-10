@@ -90,3 +90,43 @@ class ExternalIdentity(models.Model):
 
     def __str__(self):
         return f"{self.provider} for {self.account}"
+
+
+class AccountMobile(models.Model):
+    """An account's verified mobile number. A row exists only for a verified number. Two
+    accounts may hold the same number."""
+
+    account = models.OneToOneField(Account, on_delete=models.CASCADE, related_name="mobile")
+    number = models.CharField(max_length=13)  # +639XXXXXXXXX
+    verified_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "account mobile"
+
+    def __str__(self):  # never the number
+        return f"Mobile of account {self.account_id}"
+
+
+class MobileOtpChallenge(models.Model):
+    """One request to verify a number. The code is never stored: only a keyed hash of account,
+    number and code. Deleted 24 hours after it expires."""
+
+    account = models.ForeignKey(
+        Account, on_delete=models.CASCADE, related_name="mobile_challenges"
+    )
+    number = models.CharField(max_length=13)  # the number being verified
+    code_hash = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    used_at = models.DateTimeField(null=True, blank=True)
+    superseded_at = models.DateTimeField(null=True, blank=True)
+    sms_public_id = models.CharField(max_length=40, blank=True)  # the send record's id
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "mobile verification challenge"
+
+    def __str__(self):  # never the number
+        return f"Mobile challenge {self.pk} of account {self.account_id}"

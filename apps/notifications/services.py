@@ -41,6 +41,15 @@ def send_email(*, to, category, subject, body):
     return message
 
 
+SMS_QUEUED = sms.QUEUED
+
+
+def sms_on():
+    """Whether texts can be sent at all here. While this is False no app reads or writes a
+    table that exists only for texts: the code is released before those tables are created."""
+    return sms.gateway_on()
+
+
 def send_sms(*, to, purpose, text, site=None, fallback=None, ttl=sms.DEFAULT_LIFETIME):
     """Queue one text for the phone, or say why not. Returns an `sms.SmsResult`.
 
