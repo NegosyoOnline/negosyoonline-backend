@@ -80,6 +80,10 @@ FACEBOOK_APP_SECRET = os.environ.get("FACEBOOK_APP_SECRET", "")
 # site's sign-in popup when it did not. No trailing slashes.
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3001").rstrip("/")
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:3000").rstrip("/")
+# Admin two-step sign-in. The key encrypts authenticator secrets; with no key nobody can be
+# enrolled. "1" makes the Django admin ask for the second step; it is off by default.
+ADMIN_SECRETS_KEY = os.environ.get("ADMIN_SECRETS_KEY", "").strip()
+ADMIN_TWO_STEP_REQUIRED = os.environ.get("ADMIN_TWO_STEP_REQUIRED", "").strip() == "1"
 
 
 # Application definition

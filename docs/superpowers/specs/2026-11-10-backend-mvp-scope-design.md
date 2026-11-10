@@ -29,7 +29,7 @@ Rebuild the NegosyoOnline platform backend in this repository as a clean Django 
 ## 4. Identity and sign-in
 
 - A subscriber is an `Account`: unique email, no password. It is not a Django user.
-- Operators are Django staff users. `AUTH_USER_MODEL` is a custom `operators.User`, set in slice 1 because it must exist before the first migration. Operators use one Django admin; the legacy second console is not rebuilt.
+- Operators are Django staff users. `AUTH_USER_MODEL` is a custom `operators.User`, set in slice 1 because it must exist before the first migration. Operators use the Django admin. The admin's console, hq, is rebuilt by Coach Ed's ruling of 2026-11-10 (ClickUp task z8uq9mdwdx): Django renders it on its own host, with no script and no external asset. hq and the Django admin both require two-step sign-in; see section 12.
 - Email code: 6 digits, held in the cache with an expiry and an attempt limit, rate-limited per email and per IP.
 - Google: server-side OAuth redirect flow. The callback signs the account in and redirects to the dashboard. Google vouches for the email.
 - Facebook: server-side OAuth redirect flow requesting only `public_profile` and `email`. Facebook does not vouch for the email, and may return none. So the first time a Facebook identity is seen:
@@ -102,9 +102,13 @@ One line per table. Money is stored as integer centavos with a currency code. Le
 
 **operators**
 - `User`: Django staff user.
-- `OperatorAuditEntry`: operator, action, target, reason, at.
+- `OperatorAuditEntry`: operator, action, target, reason, detail, personal values and when they were blanked, at. Rows are never deleted.
+- `AdminIdentity`: user, email (unique), encrypted authenticator secret, last used time step, failed attempts, locked until, credential version, active, enrolled_at.
+- `AdminRecoveryCode`: identity, code hash, used_at.
+- `AdminSignInChallenge`: identity, code HMAC, nonce, expires_at, attempts, consumed_at.
+- `AdminSession`: identity, token hash, stage, credential version, verified_at, expires_at, revoked_at.
 
-Not rebuilt from legacy: launch gate, platform switches, per-account gate exceptions, interim site states, the second admin console, the Santé selection approval table, the unused `Account.mobile`, and the duplicate trial dates on Account.
+Not rebuilt from legacy: launch gate, platform switches, per-account gate exceptions, interim site states, the Santé selection approval table, the unused `Account.mobile`, and the duplicate trial dates on Account.
 
 ## 7. Subscription states and site availability
 
@@ -185,3 +189,10 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
   - A connect and a disconnect each email a security notice to the account's email.
   - `POST account/sessions/sign-out-others/` also returns `signed_in_count`.
   - No model changed. The connected provider's email is not stored or shown.
+- 2026-11-10: admin two-step sign-in and hq, from Coach Ed's rulings of 2026-11-10 on ClickUp task z8uq9mdwdx (the NPC work is rebuilt in this backend; hq is rebuilt) and the design he approved on 2026-11-06. Sections 4 and 6 were updated. Plan: `docs/superpowers/plans/2026-11-10-backend-npc-build6-admin-two-step-hq.md`.
+  - hq sign-in is an emailed 6-digit code, then an authenticator code or one recovery code. Django admin sign-in is the password, then an authenticator code or one recovery code. One check serves both.
+  - Sessions last 12 hours; the email code 10 minutes; five wrong codes pause sign-in on both for 15 minutes and end live sessions; ten one-time recovery codes.
+  - Identities are added, enrolled, reset and disabled only with a terminal command. No browser path exists.
+  - The first hq page shows the verified card, the admin's last 10 sign-in events and Sign out. The health page and settings screens are not in the MVP.
+  - Django admin enforcement sits behind `ADMIN_TWO_STEP_REQUIRED`, off by default. hq answers only on `HQ_HOST`; empty means hq is off.
+  - Until slice 4 adds the worker, the sign-in code and the lockout notice are sent from a background thread of the web service.
