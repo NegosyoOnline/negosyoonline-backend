@@ -12,6 +12,9 @@ This repository is the clean Django API and background-services foundation for N
 - Preserve tenant isolation, authorization, idempotent webhooks, money integrity, and auditability when features are introduced.
 - API errors use one shape, produced by `apps/common/errors.py`. Raise `ApiError`; do not hand-build error responses.
 - Never expose a database primary key through the API. Use `apps.common.ids.new_public_id`.
+- Signed-in endpoints use `auth=signed_in` from `apps/accounts/api.py` (the `SessionCookieAuth` class). Never read the session cookie by hand.
+- Unauthenticated endpoints that change state call `require_allowed_origin(request)` first.
+- Never store or log a sign-in code, a session token, or an email body.
 
 ## Workflow
 
