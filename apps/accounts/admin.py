@@ -10,8 +10,9 @@ from apps.accounts.models import (
     PolicyAcceptance,
     Session,
 )
+from apps.common import masking
 from apps.common.admin import MaskedListAdmin, masked_account
-from apps.common.masking import mask_email, mask_mobile
+from apps.common.masking import mask_email
 
 
 @admin.display(description="Email", ordering="email")
@@ -66,7 +67,7 @@ class ExternalIdentityAdmin(ReadOnlyAdmin):
 
 @admin.display(description="Number", ordering="number")
 def masked_number(row):
-    return mask_mobile(row.number)
+    return masking.mask_mobile(row.number)
 
 
 class MobileAdmin(ReadOnlyAdmin):
