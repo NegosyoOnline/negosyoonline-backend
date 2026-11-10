@@ -1,10 +1,23 @@
+import re
+
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from apps.operators.tests.base import HqAdminMixin, on_hq
+from apps.accounts.models import Account
+from apps.sites.models import Site
 from apps.sites.tests.base import make_account, make_site
+
+COUNTS = "counts_for_sante_site_owner"
+
+
+def column(response, name):
+    """The yes/no values of one list column, in row order."""
+    cells = re.findall(rf'class="field-{name}[^"]*"><img[^>]*alt="(True|False)"', response.content.decode())
+    return [cell == "True" for cell in cells]
 
 
 @on_hq
@@ -53,3 +66,29 @@ class SitesAdminTests(HqAdminMixin, TestCase):
         self.assertEqual(self.hq_post(delete, {"post": "yes"}).status_code, 403)
         self.site.refresh_from_db()
         self.assertEqual(self.site.display_name, "Ana's Store")
+
+    def test_the_sites_list_says_whether_each_site_counts_for_sante_site_owner(self):
+        url = self.admin_url("admin:sites_site_changelist")
+        response = self.hq_get(url)
+        self.assertContains(response, "Counts for Santé Site Owner")
+        self.assertEqual(column(response, COUNTS), [True])
+
+        Site.objects.filter(pk=self.site.pk).update(operator_hold=True)
+        self.assertEqual(column(self.hq_get(url), COUNTS), [False])
+
+        Site.objects.filter(pk=self.site.pk).update(operator_hold=False, deleted_at=timezone.now())
+        self.assertEqual(column(self.hq_get(url), COUNTS), [False])
+
+        Site.objects.filter(pk=self.site.pk).update(deleted_at=None)
+        self.assertEqual(column(self.hq_get(url), COUNTS), [True])
+        Account.objects.filter(pk=self.site.account_id).update(closed_at=timezone.now())
+        self.assertEqual(column(self.hq_get(url), COUNTS), [False])
+
+    def test_the_counts_column_is_display_only(self):
+        url = self.admin_url("admin:sites_site_changelist")
+        response = self.hq_get(url)
+        self.assertNotContains(response, 'name="form-0-')
+        self.hq_post(url, {COUNTS: "False", "operator_hold": "on"})
+        self.site.refresh_from_db()
+        self.assertFalse(self.site.operator_hold)
+        self.assertEqual(column(self.hq_get(url), COUNTS), [True])
