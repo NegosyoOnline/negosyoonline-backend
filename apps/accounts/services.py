@@ -6,12 +6,13 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.accounts import codes
-from apps.accounts.models import Account, AccountAuditEvent, PolicyAcceptance
+from apps.accounts.models import Account, AccountAuditEvent, ExternalIdentity, PolicyAcceptance
 from apps.accounts.sessions import client_ip, revoke_sessions, start_session
 from apps.common.errors import ApiError
 from apps.notifications.services import send_email
 
 SIGNIN = "signin"
+GOOGLE = ExternalIdentity.Provider.GOOGLE
 
 
 def normalise_email(email):
@@ -43,6 +44,30 @@ def _change_purpose(account):
     return f"change:{account.pk}"
 
 
+def _refuse_closed(account):
+    if account.closed_at is not None:
+        raise ApiError("account_closed", "This account is closed.", status=403)
+
+
+def _policies_required():
+    return ApiError(
+        "policies_required", "Accept the terms and privacy policy to create an account."
+    )
+
+
+def _create_account(email, request, *, method, name=""):
+    """A new account whose email is already proven, with its policy acceptance."""
+    account = Account.objects.create(email=email, name=name, email_verified_at=timezone.now())
+    PolicyAcceptance.objects.create(
+        account=account,
+        policy_version=settings.POLICY_VERSION,
+        policies=list(settings.POLICIES),
+        ip=client_ip(request) or None,
+    )
+    record_event(account, "account_created", method=method)
+    return account
+
+
 def request_signin_code(email, ip):
     """Email a sign-in code. Behaves the same whether or not the email has an account."""
     email = normalise_email(email)
@@ -65,31 +90,67 @@ def verify_signin_code(email, code, accept_policies, request):
     if not codes.check_code(email, code, SIGNIN):
         raise _invalid_code()
     account = Account.objects.filter(email=email).first()
-    if account is not None and account.closed_at is not None:
-        raise ApiError("account_closed", "This account is closed.", status=403)
     created = account is None
-    if created and not accept_policies:
-        raise ApiError(
-            "policies_required", "Accept the terms and privacy policy to create an account."
-        )
-    codes.clear_code(email, SIGNIN)
-    now = timezone.now()
     if created:
-        account = Account.objects.create(email=email, email_verified_at=now)
-        PolicyAcceptance.objects.create(
-            account=account,
-            policy_version=settings.POLICY_VERSION,
-            policies=list(settings.POLICIES),
-            ip=client_ip(request) or None,
-        )
-        record_event(account, "account_created", method="email_code")
+        if not accept_policies:
+            raise _policies_required()
+    else:
+        _refuse_closed(account)
+    codes.clear_code(email, SIGNIN)
+    if created:
+        account = _create_account(email, request, method="email_code")
     else:
         if account.email_verified_at is None:
-            account.email_verified_at = now
+            account.email_verified_at = timezone.now()
             account.save(update_fields=["email_verified_at"])
         revoke_sessions(account)
     session, token = start_session(account, request)
     record_event(account, "signed_in", method="email_code", session=session.public_id)
+    return account, session, token, created
+
+
+@transaction.atomic
+def sign_in_with_google(profile, accept_policies, request):
+    """Sign in with a profile from apps.accounts.google. Returns (account, session, token, created).
+
+    The Google user id is matched first, then the email. Other sessions are left signed in.
+    """
+    created = False
+    identity = (
+        ExternalIdentity.objects.select_related("account")
+        .filter(provider=GOOGLE, provider_user_id=profile.user_id)
+        .first()
+    )
+    if identity is not None:
+        account = identity.account
+        _refuse_closed(account)
+    else:
+        if not profile.email_verified:
+            raise ApiError("google_email_unverified", "Google has not verified that email address.")
+        email = normalise_email(profile.email)
+        account = Account.objects.filter(email=email).first()
+        if account is None:
+            if not accept_policies:
+                raise _policies_required()
+            account = _create_account(email, request, method="google", name=profile.name)
+            created = True
+        else:
+            _refuse_closed(account)
+            if account.identities.filter(provider=GOOGLE).exists():
+                raise ApiError(
+                    "google_account_mismatch",
+                    "This email is already linked to a different Google account.",
+                    status=409,
+                )
+            if account.email_verified_at is None:
+                account.email_verified_at = timezone.now()
+                account.save(update_fields=["email_verified_at"])
+        ExternalIdentity.objects.create(
+            account=account, provider=GOOGLE, provider_user_id=profile.user_id
+        )
+        record_event(account, "identity_linked", provider="google")
+    session, token = start_session(account, request)
+    record_event(account, "signed_in", method="google", session=session.public_id)
     return account, session, token, created
 
 
