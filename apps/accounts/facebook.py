@@ -1,0 +1,116 @@
+"""Facebook sign-in (server-side redirect flow) and Meta's signed requests.
+
+Facebook's tokens are used once and never stored.
+"""
+import base64
+import hashlib
+import hmac
+import json
+import logging
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+# Unversioned on purpose: Meta serves these with the app's default Graph API version.
+DIALOG_URL = "https://www.facebook.com/dialog/oauth"
+TOKEN_URL = "https://graph.facebook.com/oauth/access_token"
+ME_URL = "https://graph.facebook.com/me"
+TIMEOUT = 10  # seconds
+
+
+@dataclass(frozen=True)
+class FacebookProfile:
+    user_id: str
+    name: str
+    email: str  # "" when the person shared none; never trusted until confirmed by code
+
+
+class FacebookSignInFailed(Exception):
+    """Facebook refused the code, or answered with something we cannot use."""
+
+
+class BadSignedRequest(Exception):
+    """A request that claims to come from Meta but is not signed with our app secret."""
+
+
+def is_configured():
+    return bool(settings.FACEBOOK_APP_ID and settings.FACEBOOK_APP_SECRET)
+
+
+def authorization_url(redirect_uri, state):
+    query = urllib.parse.urlencode(
+        {
+            "client_id": settings.FACEBOOK_APP_ID,
+            "redirect_uri": redirect_uri,
+            "state": state,
+            "response_type": "code",
+            "scope": "public_profile,email",
+        }
+    )
+    return f"{DIALOG_URL}?{query}"
+
+
+def _get_json(url, params):
+    """The only network call in this module."""
+    with urllib.request.urlopen(f"{url}?{urllib.parse.urlencode(params)}", timeout=TIMEOUT) as response:
+        return json.load(response)
+
+
+def _sign(message):
+    return hmac.new(settings.FACEBOOK_APP_SECRET.encode(), message.encode(), hashlib.sha256)
+
+
+def fetch_profile(code, redirect_uri):
+    """The Facebook user behind this one-time code. Raises FacebookSignInFailed."""
+    try:
+        token = _get_json(
+            TOKEN_URL,
+            {
+                "client_id": settings.FACEBOOK_APP_ID,
+                "client_secret": settings.FACEBOOK_APP_SECRET,
+                "redirect_uri": redirect_uri,
+                "code": code,
+            },
+        )["access_token"]
+        person = _get_json(
+            ME_URL,
+            {
+                "fields": "id,name,email",
+                "access_token": token,
+                "appsecret_proof": _sign(token).hexdigest(),
+            },
+        )
+        if not person["id"]:
+            raise ValueError("no user id")
+        return FacebookProfile(
+            user_id=str(person["id"]),
+            name=str(person.get("name", ""))[:120],
+            email=str(person.get("email", "")),
+        )
+    except (OSError, KeyError, TypeError, ValueError, AttributeError) as error:
+        # Only the kind of failure is logged: the request URLs carry the secret and the token.
+        logger.warning("Facebook sign-in refused (%s)", type(error).__name__)
+        raise FacebookSignInFailed() from None
+
+
+def _b64decode(text):
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def parse_signed_request(signed_request):
+    """The Facebook user id in a request Meta signed with our app secret. Raises BadSignedRequest."""
+    try:
+        signature, payload = signed_request.split(".", 1)
+        if not hmac.compare_digest(_b64decode(signature), _sign(payload).digest()):
+            raise ValueError("signature does not match")
+        data = json.loads(_b64decode(payload))
+        if str(data["algorithm"]).upper() != "HMAC-SHA256" or not data["user_id"]:
+            raise ValueError("unexpected content")
+        return str(data["user_id"])
+    except (KeyError, TypeError, ValueError, AttributeError) as error:
+        logger.warning("Facebook signed request refused (%s)", type(error).__name__)
+        raise BadSignedRequest() from None
