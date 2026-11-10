@@ -7,19 +7,13 @@ from apps.accounts.models import (
     PolicyAcceptance,
     Session,
 )
-from apps.common.admin import MaskedListAdmin
+from apps.common.admin import MaskedListAdmin, masked_account
 from apps.common.masking import mask_email
 
 
 @admin.display(description="Email", ordering="email")
 def masked_email(account):
     return mask_email(account.email)
-
-
-@admin.display(description="Account", ordering="account__email")
-def masked_account(row):
-    """Stands in for the `account` column, which would print the full email."""
-    return mask_email(row.account.email)
 
 
 class ReadOnlyAdmin(MaskedListAdmin):

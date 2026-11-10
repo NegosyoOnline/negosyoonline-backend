@@ -4,6 +4,14 @@ from django.contrib import admin
 from django.contrib.admin import helpers
 from django.utils.safestring import mark_safe
 
+from apps.common.masking import mask_email
+
+
+@admin.display(description="Account", ordering="account__email")
+def masked_account(row):
+    """Stands in for an `account` column, which would print the full email."""
+    return mask_email(row.account.email)
+
 
 class MaskedListAdmin(admin.ModelAdmin):
     """A list whose row checkbox does not repeat the record's name.

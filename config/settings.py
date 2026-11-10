@@ -15,6 +15,8 @@ from pathlib import Path
 
 import dj_database_url
 
+from apps.common.database import require_database_tls
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -133,11 +135,15 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# A PostgreSQL connection must use TLS unless DEBUG is on or the database is on this machine.
 DATABASES = {
-    "default": dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-        conn_max_age=600,
-        conn_health_checks=True,
+    "default": require_database_tls(
+        dj_database_url.config(
+            default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+            conn_max_age=600,
+            conn_health_checks=True,
+        ),
+        debug=DEBUG,
     )
 }
 

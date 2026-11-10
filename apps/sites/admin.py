@@ -2,6 +2,7 @@
 which is a later task, so nothing here can be added, edited or deleted."""
 from django.contrib import admin
 
+from apps.common.admin import masked_account
 from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
 
 
@@ -19,7 +20,7 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 @admin.register(Site)
 class SiteAdmin(ReadOnlyAdmin):
     list_display = (
-        "display_name", "public_id", "account", "template", "operator_hold", "created_at",
+        "display_name", "public_id", masked_account, "template", "operator_hold", "created_at",
         "deleted_at",
     )
     list_filter = ("template", "operator_hold")
@@ -41,5 +42,5 @@ class SiteBusinessProfileAdmin(ReadOnlyAdmin):
 
 @admin.register(Onboarding)
 class OnboardingAdmin(ReadOnlyAdmin):
-    list_display = ("account", "first_site", "started_at", "minimum_completed_at")
+    list_display = (masked_account, "first_site", "started_at", "minimum_completed_at")
     search_fields = ("account__email",)

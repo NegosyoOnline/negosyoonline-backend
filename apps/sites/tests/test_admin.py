@@ -19,6 +19,14 @@ class SitesAdminTests(TestCase):
         url = reverse("admin:sites_site_changelist") + "?q=anas-store"
         self.assertContains(self.client.get(url, secure=True), "Ana&#x27;s Store")
 
+    def test_the_site_and_onboarding_lists_show_the_account_email_masked(self):
+        for model in ("site", "onboarding"):
+            with self.subTest(model=model):
+                url = reverse(f"admin:sites_{model}_changelist")
+                response = self.client.get(url, secure=True)
+                self.assertContains(response, "a***@example.test")
+                self.assertNotContains(response, "ana@example.test")
+
     def test_nothing_can_be_added_changed_or_deleted(self):
         add = reverse("admin:sites_site_add")
         self.assertEqual(self.client.get(add, secure=True).status_code, 403)
