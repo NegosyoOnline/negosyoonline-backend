@@ -2,7 +2,7 @@
 
 ClickUp task: z8uq9md33v "NPC Build 1 — SMS Carrier & Data-Flow Controls" (https://app.clickup.com/t/z8uq9md33v), parent z8uq9mbreu. This is slice 8 "Mobile OTP" of `docs/superpowers/specs/2026-11-10-backend-mvp-scope-design.md`.
 
-Status: **design proposed, every decision settled, not yet approved. Nothing is built.** No code, migration, variable or Railway change exists. D1 to D13 are settled; section 2.1 records each ruling with its source. What remains is Coach Ed's approval of the design as a whole, and then of each migration, the variable and the app's repository when the build reaches them. D14 is open, but it belongs to the add-on. Section 14 is a design for the add-on task; the table it describes is not created in this task. The plan is `docs/superpowers/plans/2026-11-10-backend-npc-build1-sms-gateway.md`.
+Status: **design approved. Nothing is built.** Coach Ed, 2026-11-11, in the coordinator session: "Approve the design", answering "Approve the SMS gateway design so the build can start?" on pull request 42 at `50d4ec6`. The approval covers this design and the five-pull-request delivery order of the plan. It does **not** cover, and each needs his own approval when the build reaches it: creating migration M1, creating migration M2, the Railway variable `SMS_GATEWAY_ENABLED`, creating the Android app's repository, and turning incoming texts on for any phone. No code, migration, variable or Railway change exists. D1 to D13 are settled; section 2.1 records each ruling with its source. D14 is open, but it belongs to the add-on. Section 14 is a design for the add-on task; the table it describes is not created in this task. The plan is `docs/superpowers/plans/2026-11-10-backend-npc-build1-sms-gateway.md`.
 
 ## 1. Sources
 
@@ -44,6 +44,7 @@ Status: **design proposed, every decision settled, not yet approved. Nothing is 
   - Per-site daily limit: 4,000. His words.
   - Platform daily limit: 4,000. **The coordinator's reading, reported to Coach Ed**: it is the coordinator's recommendation, which he did not change. It is not his words.
   - Both numbers live in the one `SmsPolicy` row with the kill switch, edited in the admin and audited (D6 (a), as proposed).
+- **2026-11-11, Coach Ed, in the coordinator session, approving the design:** "Approve the design", answering "Approve the SMS gateway design so the build can start?" on pull request 42 at `50d4ec6`. It covers the design and the five-pull-request delivery order. It does not cover creating migration M1, creating migration M2, the Railway variable `SMS_GATEWAY_ENABLED`, creating the Android app's repository, and turning incoming texts on for any phone.
 - **2026-11-10, the coordinator, as reversible details inside the approved scope:** D3 is (a), the API host under `/gateway/`; D9, the `SmsMessage` field names as proposed; D11, two accounts may verify the same number.
 - **2026-11-11, the coordinator, as reversible details inside the approved scope, reported to Coach Ed:** D5 is (a), the web service starts retention once a day until slice 4's beat exists; D8 is (b), `GET /v1/account/mobile/` is not built; D10, the code text and the error wording as proposed in 7.2, 7.3 and 7.6; and the `status` sending class of section 6.7, after replies and ahead of marketing with no gap, as a reversible ordering detail inside the approved kinds of text.
 
@@ -471,16 +472,18 @@ Not verified:
 
 ## 13. Scope doc changes
 
-Made in this pull request, because they record rulings already given: section 9 item 8, section 11 (the SMS provider decision is answered), and a dated entry in section 12.
+Made with the first version of this design, because they recorded rulings already given: section 9 item 8, section 11 (the SMS provider decision is answered), and a dated entry in section 12.
 
-To be made when this design is approved, and not before:
+Made on 2026-11-11, when this design was approved:
 
 - Section 3, last bullet: SMS sending does not wait for the worker; the phone collects texts from the web service.
 - Section 6, accounts: `AccountMobile` and `MobileOtpChallenge` as in 7.1.
-- Section 6, notifications: `SmsMessage` as in 6.1, plus `SmsDevice` and `SmsPolicy`.
+- Section 6, notifications: `SmsMessage` as in 6.1, plus `SmsDevice` and `SmsPolicy`; and that inbox conversation text will be stored in its own table, created by the add-on.
 - Section 8: the three gateway calls, noted as outside `/v1/`. `GET account/mobile/` is not added (D8).
-- Section 6, notifications, and the dated entry of 2026-11-10 in section 12: "No message body is stored for SMS" is true of `SmsMessage` and stays. A line is added that inbox conversation text will be stored in its own table, created by the add-on (Coach Ed, 2026-11-11).
 - Section 10: SMS send-record retention moves into scope.
+- Section 12: the 2026-11-10 entry is corrected (the text of a sign-in code is never stored; the design is no longer "not yet approved"), and a 2026-11-11 entry records the approval and the rulings.
+
+Not touched: section 4 and the lines about the Django admin's own sign-in, which another build (z8uq9mdxvt) owns.
 
 ## 14. Inbox readiness (design for the add-on; table not created in this task)
 

@@ -2,11 +2,11 @@
 
 Date: 2026-11-10. ClickUp task: z8uq9md33v (https://app.clickup.com/t/z8uq9md33v), parent z8uq9mbreu.
 Design: `docs/superpowers/specs/2026-11-10-sms-gateway-mobile-verification-design.md` ("the Design"; D1 to D14 are its decisions).
-Status: **plan only, every decision settled, not yet approved. Nothing is built.** No code, migration, dependency, variable or repository exists yet. The Design's D1 to D13 are all settled; its section 2.1 holds every ruling with its source. Ruled by Coach Ed: D1, D2, D12 (2026-11-10); D4, D6 (per site 4,000), D7, D13, that inbox conversation text is stored in its own table which the add-on creates, and the sending order (2026-11-11). Settled by the coordinator: D3, D9, D11 (2026-11-10); D5, D8, D10, the platform limit of 4,000 as the coordinator's reading of D6, and the `status` sending class (2026-11-11). **What remains is Coach Ed's approval** of the Design as a whole and of each item in section 6: no migration, variable, repository or pull request of section 3 is approved. D14 (how long inbox text is kept) is open, but belongs to the add-on and does not hold this build up.
+Status: **the Design and this delivery order are approved. Nothing is built.** Coach Ed, 2026-11-11, in the coordinator session: "Approve the design", answering "Approve the SMS gateway design so the build can start?" on pull request 42 at `50d4ec6`. The approval covers the Design and the five pull requests of section 3, in the order of section 11. It does **not** cover, and each needs his own approval when the build reaches it: creating migration M1, creating migration M2, the Railway variable `SMS_GATEWAY_ENABLED`, creating the Android app's repository, and turning incoming texts on for any phone (section 6). No code, migration, dependency, variable or repository exists yet. The Design's D1 to D13 are all settled; its section 2.1 holds every ruling with its source. D14 (how long inbox text is kept) is open, but belongs to the add-on and does not hold this build up.
 
 ## 1. Sources
 
-The Design's section 1. Code state: backend `e85e727`, frontend `ab852d3`. Open pull requests checked on 2026-11-11: backend 42 (this plan's own) and backend 43 (`apps/sites` only, no file in common with this plan); frontend none.
+The Design's section 1. The Design was written against backend `e85e727` and frontend `ab852d3`. As of 2026-11-11, backend `main` is `4adeeed`: pull request 43 merged, which changed `apps/sites` only and nothing this plan touches. Frontend `main` is `48eff85`; the dashboard files named in the Design were not read again at that commit, and the builder re-reads them before PR 3. Open pull requests on 2026-11-11: backend 42 (this plan's own); frontend none.
 
 ## 2. Scope, traced
 
@@ -142,14 +142,16 @@ Already existing and required where the gateway is on: `REDIS_URL`, `DJANGO_SECR
 
 ## 6. Approvals
 
-### 6.1 Before any code is written (Coach Ed, relayed by the coordinator)
+### 6.1 Before the code that needs each one is written (Coach Ed, relayed by the coordinator)
 
-- **A0. The Design as a whole.** No decision is open: D1 to D13 are settled, with sources in the Design's 2.1 (Coach Ed: D1, D2, D4, D6 per site, D7, D12, D13; the coordinator: D3, D5, D8, D9, D10, D11 and the platform half of D6).
+- **A0. The Design as a whole. Approved**, Coach Ed, 2026-11-11: "Approve the design".
 - **A1. Migration M1**: creating the file, and applying it to the builder's local SQLite file for the local check.
 - **A2. Migration M2**: the same, after the coordinator agrees the number and order with the session that owns `apps/accounts` migrations.
 - **A3. Variable `SMS_GATEWAY_ENABLED`**: adding it to the code and `.env.example`, and setting it to `1` in the builder's ignored local `.env`.
 - **A4. Creating the new private repository for the phone app.** That one is needed is ruled (D1, D12); creating it is Coach Ed's own action, and its name is his (the Design suggests `negosyoonline-sms-gateway-android`). PR 5 cannot start before it exists.
-- **A5. Delivery in the five pull requests of section 3.**
+- **A5. Delivery in the five pull requests of section 3. Approved** with A0, the same ruling.
+
+A1 to A4 are **not approved**. PR 1 does not start until A1 and A3 are given; PR 3 waits for A2; PR 5 waits for A4.
 
 ### 6.2 Later, each its own approval
 

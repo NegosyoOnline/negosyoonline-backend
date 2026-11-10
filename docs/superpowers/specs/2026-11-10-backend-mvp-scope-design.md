@@ -24,7 +24,7 @@ Rebuild the NegosyoOnline platform backend in this repository as a clean Django 
 - One HTTP API under `/v1/`, built with Django Ninja. It publishes an OpenAPI description at `/v1/openapi.json`; the frontend generates its client from that file. The description is the contract.
 - An app talks to another app only through that app's service functions, never by writing its tables directly.
 - Django owns identity, tenancy, authorization, money, webhook validation and auditability. The frontend is untrusted.
-- Background work (charging, lifecycle sweeps, statements, SMS and email sending) runs in a worker and a beat service on Railway, built from this repo. They are added with slice 4, not before.
+- Background work (charging, lifecycle sweeps, statements, email sending) runs in a worker and a beat service on Railway, built from this repo. They are added with slice 4, not before. SMS sending does not wait for them: the web service queues a text and NegosyoOnline's phone collects it (section 12, 2026-11-11).
 
 ## 4. Identity and sign-in
 
@@ -68,8 +68,8 @@ One line per table. Money is stored as integer centavos with a currency code. Le
 - `ExternalIdentity`: account, provider (`google`, `facebook`), provider user id (unique per provider), linked_at. One row per account per provider.
 - `Session`: account, token hash, expires_at, revoked_at, device label, masked IP, last_used_at.
 - `PolicyAcceptance`: account, policy version, policies accepted, IP, accepted_at.
-- `AccountMobile`: account (one each), verified mobile number.
-- `MobileOtpChallenge`: account, code hash, expires_at, attempts.
+- `AccountMobile`: account (one each), verified mobile number, verified_at. A row exists only for a verified number; two accounts may hold the same number.
+- `MobileOtpChallenge`: account, the number being verified, code hash, expires_at, attempts, used_at, superseded_at, the id of the send record that carried the code. Deleted 24 hours after expiry.
 - `AccountAuditEvent`: account, what changed, when.
 
 **sites**
@@ -98,7 +98,10 @@ One line per table. Money is stored as integer centavos with a currency code. Le
 - `StatementDelivery`: statement, channel, status, at.
 
 **notifications**
-- `EmailMessage`, `SmsMessage`: recipient, category, status, provider reference. No message body is stored for SMS.
+- `EmailMessage`: recipient, category, status, provider reference.
+- `SmsMessage`: recipient, category, purpose, sending class, status, reason, emailed, site, the phone that took it (in place of a provider reference), and its times. No message body is stored: the text of a code or a status text waits encrypted in the cache for at most 10 minutes.
+- `SmsDevice`: one row per gateway phone: name, token hash, active, forwards incoming texts (off by default), last contact. `SmsPolicy`: one row: sending stopped, the platform daily limit, the per-site daily limit.
+- Inbox conversation text (incoming texts and replies on a subscriber's own line) will be stored, in its own table, created by the Dedicated SMS Line add-on (z8uq9mb19f) and not in the MVP slices here. See section 12, 2026-11-11.
 
 **operators**
 - `User`: Django staff user.
@@ -138,6 +141,8 @@ All paths are under `/v1/`. Errors use one shape: `{"error": {"code": "...", "me
 
 `public/sites/by-host/` is the storefront lookup. It is unauthenticated and cacheable, returns only public branding, template and availability, and answers 404 for unknown, reserved or unavailable hosts.
 
+The SMS gateway phone uses three calls that are outside `/v1/` and are not in the OpenAPI description: `POST /gateway/v1/poll`, `POST /gateway/v1/report` and `POST /gateway/v1/received`. They carry the phone's own token, not a subscriber's session.
+
 Payments and webhooks:
 - Xendit is the provider. Card details are entered on Xendit's hosted page; the API never sees card numbers.
 - Webhooks: body size cap, constant-time check of the callback token, insert into `WebhookEvent`, and a duplicate event answers 200 without reprocessing. Events are matched only by our own reference.
@@ -164,7 +169,7 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
 - Facebook features other than sign-in (pages, posting, catalogue, messaging).
 - Custom domains per subscriber (for example `live4moreonline.store`).
 - Annual billing.
-- Data retention and disposal automation beyond the dates recorded on the subscription.
+- Data retention and disposal automation beyond the dates recorded on the subscription, except the SMS retention job, which is in scope with slice 8: send records are deleted after 1 year and mobile verification challenges 24 hours after expiry.
 - Production deployment.
 
 ## 11. Open decisions
@@ -199,6 +204,14 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
 - 2026-11-10: SMS provider, from Coach Ed's ruling of 2026-11-10 on ClickUp task z8uq9md33v (NPC Build 1). Sections 9 and 11 were updated.
   - NegosyoOnline builds its own gateway: its own phone with a SIM on an ordinary Globe mobile plan. No send endpoint in the legacy system is used and no legacy code is copied.
   - Only sign-in codes and order-status texts are sent. Only the recipient number and the message text leave. No marketing. Globe has no access to the database.
-  - The text of a message is never stored in the database. Send records are kept 1 year, then deleted by a retention job.
+  - The text of a sign-in code or an order-status text is never stored in the database. Send records are kept 1 year, then deleted by a retention job. (Corrected on 2026-11-11: this line first said the text of a message is never stored. Inbox conversation text will be stored; see the 2026-11-11 entry.)
   - The paid Dedicated SMS Line add-on (z8uq9mb19f) is a later task that depends on this one.
-  - The design is proposed in `docs/superpowers/specs/2026-11-10-sms-gateway-mobile-verification-design.md` and is **not yet approved**. Its section 3 lists the decisions still open (the phone app, the hostname, the limits, the mobile-change notice and others), and its section 13 lists the changes to sections 3, 6, 8 and 10 of this document that are made only when it is approved.
+  - The design is `docs/superpowers/specs/2026-11-10-sms-gateway-mobile-verification-design.md`. It was proposed on 2026-11-10 and approved on 2026-11-11; see the next entry.
+- 2026-11-11: SMS gateway and mobile verification design approved, on ClickUp task z8uq9md33v. Coach Ed, 2026-11-11: "Approve the design". Sections 3, 6, 8 and 10 were updated. Design: `docs/superpowers/specs/2026-11-10-sms-gateway-mobile-verification-design.md`; its section 2.1 holds each ruling with its source. Plan: `docs/superpowers/plans/2026-11-10-backend-npc-build1-sms-gateway.md`.
+  - The approval covers the design and the five-pull-request delivery order. It does not cover creating either migration, the Railway variable `SMS_GATEWAY_ENABLED`, creating the Android app's repository, or turning incoming texts on for any phone. Each is approved separately.
+  - The phone runs NegosyoOnline's own small Android app, in its own repository. It asks the API host for waiting texts under `/gateway/v1/`; no Firebase and no third-party service is in the path.
+  - A sign-in code is sent at once. The text of a code or an order-status text waits encrypted in the cache for at most 10 minutes and is never in PostgreSQL.
+  - Inbox conversation text will be stored, in its own table, created by the Dedicated SMS Line add-on (z8uq9mb19f). The app can already pass incoming texts to the server behind a per-phone switch that is off by default and stays off for the system phone; until the add-on's table exists the server stores none. How long inbox text is kept is not settled.
+  - Daily limits: 4,000 per site and 4,000 for the platform, kept with the kill switch in one settings row the admin edits; each change is audited.
+  - The notice for a changed mobile number goes by email only. `GET account/mobile/` is not built.
+  - The NPC filing and policy wording must be checked before any inbox text is stored and before any reply or marketing text is sent. This amendment changes no filing or policy text.
