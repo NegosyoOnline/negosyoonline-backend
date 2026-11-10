@@ -51,12 +51,19 @@ retention.register("sms_messages", sms_messages)
 retention.register("mobile_challenges", mobile_challenges)
 
 
+DAILY_RULES = ("sms_messages", "mobile_challenges")
+
+
+def run_daily_rules():
+    return retention.run_all(only=DAILY_RULES)
+
+
 def start_daily():
-    """Start the day's retention run, once. Called whenever the phone polls, until a beat
-    service exists: the first call of each Manila day takes the lock and runs every registered
-    rule in the background; the others do nothing. A day with no call is a day with no run,
-    and the next run removes everything that is due."""
+    """Start the day's run of the two SMS rules, once. Called whenever the phone polls, until
+    a beat service exists: the first call of each Manila day takes the lock and runs them in
+    the background; the others do nothing. A day with no call is a day with no run, and the
+    next run removes everything that is due. Every other rule stays manual."""
     if cache.add(f"retention:daily:{timezone.localdate():%Y%m%d}", 1, _LOCK_KEPT):
-        background.run_later(retention.run_all)
+        background.run_later(run_daily_rules)
         return True
     return False
