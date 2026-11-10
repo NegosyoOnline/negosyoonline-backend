@@ -13,6 +13,7 @@ from apps.notifications.services import send_email
 
 SIGNIN = "signin"
 GOOGLE = ExternalIdentity.Provider.GOOGLE
+FACEBOOK = ExternalIdentity.Provider.FACEBOOK
 
 
 def normalise_email(email):
@@ -152,6 +153,108 @@ def sign_in_with_google(profile, accept_policies, request):
     session, token = start_session(account, request)
     record_event(account, "signed_in", method="google", session=session.public_id)
     return account, session, token, created
+
+
+def _facebook_purpose(user_id):
+    # A code sent for one Facebook user confirms an email for that user only.
+    return f"facebook:{user_id}"
+
+
+@transaction.atomic
+def sign_in_with_facebook(profile, request):
+    """Sign in a Facebook user we have linked before. Returns (account, session, token).
+
+    Returns None when this Facebook user has never been linked: the caller must then have
+    the person confirm an email with confirm_facebook_email().
+    """
+    identity = (
+        ExternalIdentity.objects.select_related("account")
+        .filter(provider=FACEBOOK, provider_user_id=profile.user_id)
+        .first()
+    )
+    if identity is None:
+        return None
+    account = identity.account
+    _refuse_closed(account)
+    session, token = start_session(account, request)
+    record_event(account, "signed_in", method="facebook", session=session.public_id)
+    return account, session, token
+
+
+def send_facebook_email_code(user_id, email, ip):
+    """Email the code that confirms `email` for this Facebook user. Returns the address used."""
+    email = normalise_email(email)
+    code = codes.issue_code(email, ip, _facebook_purpose(user_id))
+    send_email(
+        to=email,
+        category="facebook_email_code",
+        subject="Confirm your email for NegosyoOnline",
+        body=(
+            f"Your confirmation code is {code}. It expires in 10 minutes.\n\n"
+            "You are seeing this because someone is signing in to NegosyoOnline with Facebook "
+            "using this email. If that was not you, you can ignore this email."
+        ),
+    )
+    return email
+
+
+@transaction.atomic
+def confirm_facebook_email(user_id, name, email, code, accept_policies, request):
+    """First Facebook sign-in: check the emailed code, then link Facebook to the account with
+    that email, creating the account if there is none.
+
+    Returns (account, session, token, created).
+    """
+    email = normalise_email(email)
+    purpose = _facebook_purpose(user_id)
+    if not codes.check_code(email, code, purpose):
+        raise _invalid_code()
+    account = Account.objects.filter(email=email).first()
+    created = account is None
+    if created:
+        if not accept_policies:
+            raise _policies_required()
+    else:
+        _refuse_closed(account)
+        if account.identities.filter(provider=FACEBOOK).exists():
+            raise ApiError(
+                "facebook_account_mismatch",
+                "This email is already linked to a different Facebook account.",
+                status=409,
+            )
+    if ExternalIdentity.objects.filter(provider=FACEBOOK, provider_user_id=user_id).exists():
+        raise ApiError(
+            "facebook_already_linked", "This Facebook account is already linked.", status=409
+        )
+    codes.clear_code(email, purpose)
+    if created:
+        account = _create_account(email, request, method="facebook", name=name[:120])
+    else:
+        if account.email_verified_at is None:
+            account.email_verified_at = timezone.now()
+            account.save(update_fields=["email_verified_at"])
+        revoke_sessions(account)  # an email was just verified by code
+    ExternalIdentity.objects.create(account=account, provider=FACEBOOK, provider_user_id=user_id)
+    record_event(account, "identity_linked", provider="facebook")
+    session, token = start_session(account, request)
+    record_event(account, "signed_in", method="facebook", session=session.public_id)
+    return account, session, token, created
+
+
+@transaction.atomic
+def remove_facebook_identity(user_id):
+    """Meta's data deletion request: unlink this Facebook user. True when there was a link."""
+    identity = (
+        ExternalIdentity.objects.select_related("account")
+        .filter(provider=FACEBOOK, provider_user_id=user_id)
+        .first()
+    )
+    if identity is None:
+        return False
+    account = identity.account
+    identity.delete()
+    record_event(account, "identity_removed", provider="facebook", reason="data_deletion_request")
+    return True
 
 
 def update_account(account, *, name):

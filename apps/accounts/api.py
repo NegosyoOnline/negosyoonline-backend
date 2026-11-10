@@ -2,7 +2,6 @@
 import secrets
 from datetime import datetime
 
-from django.conf import settings
 from django.http import HttpResponse, HttpResponseRedirect
 from ninja import Field, Router, Schema
 
