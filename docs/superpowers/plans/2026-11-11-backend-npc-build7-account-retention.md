@@ -2,7 +2,7 @@
 
 Date: 2026-11-11. ClickUp task: z8uq9mdwdy (https://app.clickup.com/t/z8uq9mdwdy), parent z8uq9mbreu.
 Plan branch: `claude/z8uq9mdwdy-account-retention-0a8a0b`, on `origin/main` at `63db0a4` (PR 46 is merged there). The build branches will be `feat/z8uq9mdwdy-retention-time-rules` and `feat/z8uq9mdwdy-account-disposal`, each cut from the latest `origin/main` when the plan is approved.
-Status: plan only. No application code, test or migration is written. Coach Ed approves the plan before any code.
+Status: approved by Coach Ed on 2026-11-11 with the recommended answers (2.9). PR A is being built on `feat/z8uq9mdwdy-retention-time-rules`.
 
 ## 1. Sources
 
@@ -72,6 +72,11 @@ Each item is separate. The recommended answer is what the rest of the plan assum
 - **D4: the admin audit log's personal values are blanked after 1 year.** `OperatorAuditEntry` has the `personal` and `personal_blanked_at` fields for it, but no build blanks them, and the Task's seven items do not include it.
 - **"Security records 1 year"** (Parent's summary): `AccountAuditEvent` rows and `PolicyAcceptance.ip` have no time rule in this Task. They are blanked only when the account is disposed of.
 - Both are reported to the coordinator so a task can name them. They fit the same registry as one rule each.
+
+### 2.9 Coach Ed's ruling, 2026-11-11
+
+- On the plan, in the builder session: "Approve as recommended". This approved the recommended answer to 2.1 to 2.6: (2.1) disposal also blanks the site's personal fields; (2.2) no migration; (2.3) the send records of a disposed address are deleted at disposal; (2.4) the switch covers on-request disposal, and switching it on also approves the later daily run; (2.5) the guard refuses the placeholder domain; (2.6) the export is a file or printed JSON, sent by hand.
+- Still needing his own approval: setting `RETENTION_ENABLED` in any shared environment, any command run against staging data, and any ClickUp write.
 
 ## 3. Scope, traced
 
