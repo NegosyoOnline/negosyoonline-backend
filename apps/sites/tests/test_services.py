@@ -149,12 +149,11 @@ class UpdateSiteTests(TestCase):
         self.account = make_account()
         self.site = make_site(self.account)
 
-    def test_update_site_normalises_contacts_colour_and_links(self):
+    def test_update_site_normalises_contacts_and_links(self):
         site = services.update_site(self.account, self.site, {
             "display_name": "  New Name ",
             "contact_email": " Hello@Example.Test ",
             "contact_mobile": "0917 123 4567",
-            "accent_color": "#173db8",
             "instagram_url": "https://www.instagram.com/anas",
             "tiktok_url": "https://tiktok.com/@anas",
         })
@@ -164,7 +163,6 @@ class UpdateSiteTests(TestCase):
         self.assertEqual(site.display_name, "New Name")
         self.assertEqual(site.contact_email, "hello@example.test")
         self.assertEqual(site.contact_mobile, "+639171234567")
-        self.assertEqual(site.accent_color, "#173DB8")
         self.assertEqual(site.instagram_url, "https://www.instagram.com/anas")
         self.assertEqual(site.tiktok_url, "https://tiktok.com/@anas")
 
@@ -175,10 +173,58 @@ class UpdateSiteTests(TestCase):
         self.assertEqual(self.site.contact_email, "a@example.test")
         self.assertEqual(self.site.display_name, "Ana's Store")
 
-        services.update_site(self.account, self.site, {"contact_email": None, "accent_color": " "})
+        services.update_site(self.account, self.site, {
+            "instagram_url": "https://instagram.com/anas", "tiktok_url": "https://tiktok.com/@anas",
+        })
+        services.update_site(self.account, self.site, {"instagram_url": None, "tiktok_url": " "})
         self.site.refresh_from_db()
-        self.assertEqual(self.site.contact_email, "")
+        self.assertEqual((self.site.instagram_url, self.site.tiktok_url), ("", ""))
+        self.assertEqual(self.site.contact_email, "a@example.test")
         self.assertEqual(self.site.contact_mobile, "+639171234567")
+
+    def test_a_blank_store_email_or_mobile_is_refused_and_nothing_in_the_request_saves(self):
+        services.update_site(
+            self.account, self.site,
+            {"contact_email": "a@example.test", "contact_mobile": "09171234567"},
+        )
+        messages = {
+            "contact_email": "Enter your store email.",
+            "contact_mobile": "Enter your store mobile.",
+        }
+        for name, message in messages.items():
+            for value in ("", "   ", None):
+                with self.subTest(name=name, value=value):
+                    with self.assertRaises(ApiError) as raised:
+                        services.update_site(self.account, self.site, {
+                            "display_name": "Changed",
+                            "instagram_url": "https://instagram.com/anas",
+                            name: value,
+                        })
+                    self.assertEqual(
+                        (raised.exception.code, raised.exception.status), ("invalid_request", 400)
+                    )
+                    self.assertEqual(raised.exception.fields, {name: [message]})
+        self.site.refresh_from_db()
+        self.assertEqual(self.site.display_name, "Ana's Store")
+        self.assertEqual(self.site.instagram_url, "")
+        self.assertEqual(self.site.contact_email, "a@example.test")
+        self.assertEqual(self.site.contact_mobile, "+639171234567")
+        self.assertEqual(AccountAuditEvent.objects.filter(event="site_updated").count(), 1)
+
+    def test_an_accent_colour_is_refused_and_the_stored_value_is_unchanged(self):
+        Site.objects.filter(pk=self.site.pk).update(accent_color="#173DB8")
+        for value in ("#000000", "", None):
+            with self.subTest(value=value):
+                with self.assertRaises(ApiError) as raised:
+                    services.update_site(
+                        self.account, self.site, {"display_name": "Changed", "accent_color": value}
+                    )
+                self.assertEqual(
+                    raised.exception.fields, {"accent_color": ["This cannot be changed here."]}
+                )
+        self.site.refresh_from_db()
+        self.assertEqual(self.site.accent_color, "#173DB8")
+        self.assertEqual(self.site.display_name, "Ana's Store")
 
     def test_update_site_reports_every_invalid_field_in_one_error_and_saves_nothing(self):
         with self.assertRaises(ApiError) as raised:
@@ -186,7 +232,7 @@ class UpdateSiteTests(TestCase):
                 "display_name": "Good Name",
                 "contact_email": "not-an-email",
                 "contact_mobile": "12345",
-                "accent_color": "blue",
+                "tiktok_url": "tiktok.com/@anas",
             })
 
         error = raised.exception
@@ -194,7 +240,7 @@ class UpdateSiteTests(TestCase):
         self.assertEqual(error.fields, {
             "contact_email": ["Enter a valid email address."],
             "contact_mobile": ["Enter a valid Philippine mobile number."],
-            "accent_color": ["Use a color like #173DB8."],
+            "tiktok_url": ["Enter the full https link to your TikTok page."],
         })
         self.site.refresh_from_db()
         self.assertEqual(self.site.display_name, "Ana's Store")
@@ -310,6 +356,22 @@ class UpdateBusinessProfileTests(TestCase):
 
         self.assertEqual(profile.tin, "")
         self.assertEqual(profile.shipping_luzon_estimate, "")
+
+    def test_a_blank_business_name_is_refused_and_nothing_in_the_request_saves(self):
+        self.update(business_name="Ana Trading")
+        for value in ("", "   ", None):
+            with self.subTest(value=value):
+                with self.assertRaises(ApiError) as raised:
+                    self.update(business_name=value, business_address="1 Rizal St, Manila")
+                self.assertEqual(
+                    (raised.exception.code, raised.exception.status), ("invalid_request", 400)
+                )
+                self.assertEqual(
+                    raised.exception.fields, {"business_name": ["Enter your business name."]}
+                )
+        profile = SiteBusinessProfile.objects.get(site=self.site)
+        self.assertEqual(profile.business_name, "Ana Trading")
+        self.assertEqual(profile.business_address, "")
 
     def test_business_name_is_160_at_most(self):
         self.assertEqual(self.update(business_name="x" * 160).business_name, "x" * 160)

@@ -61,7 +61,12 @@ class SetupApiTests(SitesApiTestCase):
         self.assertEqual(done["started_at"], after_create["started_at"])
         self.assertIsNotNone(done["minimum_completed_at"])
 
-        self.patch(path, {"contact_mobile": ""})
+        # The API refuses to blank a required contact, so a finished site stays finished.
+        self.assertEqual(self.patch(path, {"contact_mobile": ""}).status_code, 400)
+        self.assertEqual(self.setup(), done)
+
+        # The state is still derived from what is stored, and the stamp is never cleared.
+        Site.objects.filter(public_id=site["id"]).update(contact_mobile="")
         cleared = self.setup()
         self.assertEqual(cleared["state"], "in_progress")
         self.assertEqual(cleared["missing"], ["public_contact"])
