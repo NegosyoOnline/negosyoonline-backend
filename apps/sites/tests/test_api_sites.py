@@ -5,7 +5,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from apps.accounts.models import Account
-from apps.sites.models import Onboarding, Site, Subdomain
+from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
 from apps.sites.tests.api_base import OTHER_EMAIL, SitesApiTestCase
 from apps.sites.tests.base import make_site
 
@@ -264,8 +264,7 @@ class DetailAndPatchTests(SitesApiTestCase):
     def test_detail_and_patch(self):
         patched = self.patch(self.path, {
             "display_name": " New Name ", "contact_email": "Hello@Example.Test",
-            "contact_mobile": "0917 123 4567", "accent_color": "#173db8",
-            "instagram_url": "https://instagram.com/anas",
+            "contact_mobile": "0917 123 4567", "instagram_url": "https://instagram.com/anas",
         })
         fetched = self.get(self.path)
 
@@ -276,16 +275,78 @@ class DetailAndPatchTests(SitesApiTestCase):
         self.assertEqual(body["display_name"], "New Name")
         self.assertEqual(body["contact_email"], "hello@example.test")
         self.assertEqual(body["contact_mobile"], "+639171234567")
-        self.assertEqual(body["accent_color"], "#173DB8")
+        self.assertEqual(body["accent_color"], "")
         self.assertEqual(body["subdomain"], "anas-store")
 
     def test_a_null_clears_a_field_and_an_unsent_field_is_kept(self):
-        self.patch(self.path, {"contact_email": "a@example.test", "contact_mobile": "09171234567"})
+        self.patch(self.path, {
+            "instagram_url": "https://instagram.com/anas", "contact_mobile": "09171234567",
+        })
 
-        body = self.patch(self.path, {"contact_email": None}).json()
+        body = self.patch(self.path, {"instagram_url": None}).json()
 
-        self.assertEqual(body["contact_email"], "")
+        self.assertEqual(body["instagram_url"], "")
         self.assertEqual(body["contact_mobile"], "+639171234567")
+
+    def test_a_blank_store_email_or_mobile_is_400_and_nothing_in_the_request_saves(self):
+        self.patch(self.path, {"contact_email": "a@example.test", "contact_mobile": "09171234567"})
+        before = self.get(self.path).json()
+
+        for key, message in (
+            ("contact_email", "Enter your store email."),
+            ("contact_mobile", "Enter your store mobile."),
+        ):
+            for value in ("", "  ", None):
+                with self.subTest(key=key, value=value):
+                    response = self.patch(self.path, {
+                        "display_name": "Changed", "tiktok_url": "https://tiktok.com/@anas",
+                        key: value,
+                    })
+                    self.assertEqual(
+                        self.error(response, 400, "invalid_request")["fields"], {key: [message]}
+                    )
+
+        self.assertEqual(self.get(self.path).json(), before)
+
+    def test_an_accent_colour_is_refused_and_the_stored_value_is_unchanged(self):
+        Site.objects.update(accent_color="#173DB8")
+
+        for value in ("#000000", "", None):
+            with self.subTest(value=value):
+                response = self.patch(self.path, {"display_name": "Changed", "accent_color": value})
+                self.assertIn("accent_color", self.error(response, 400, "invalid_request")["fields"])
+        alone = self.patch(self.path, {"accent_color": "#000000"})
+
+        self.assertIn("accent_color", self.error(alone, 400, "invalid_request")["fields"])
+        body = self.get(self.path).json()
+        self.assertEqual((body["accent_color"], body["display_name"]), ("#173DB8", "Ana's Store"))
+        self.assertEqual(Site.objects.get().accent_color, "#173DB8")
+
+    def test_server_owned_keys_are_refused_on_both_patch_routes(self):
+        owned = {
+            "account": "acc_00000000000000000000", "template": "standard",
+            "subdomain": "new-name", "operator_hold": True,
+            "public_id": "site_00000000000000000000", "deleted_at": "2026-01-01T00:00:00Z",
+        }
+
+        def rows():
+            return (
+                list(Site.objects.values()), list(Subdomain.objects.values()),
+                list(SiteBusinessProfile.objects.values()),
+            )
+
+        before = rows()
+
+        for path, allowed in (
+            (self.path, {"display_name": "Changed"}),
+            (self.path + "business-profile/", {"business_address": "1 Rizal St, Manila"}),
+        ):
+            for key, value in owned.items():
+                with self.subTest(path=path, key=key):
+                    response = self.patch(path, {**allowed, key: value})
+                    self.assertIn(key, self.error(response, 400, "invalid_request")["fields"])
+
+        self.assertEqual(rows(), before)
 
     def test_patch_refuses_template_subdomain_and_unknown_keys(self):
         for key, value in (
@@ -386,6 +447,22 @@ class BusinessProfileTests(SitesApiTestCase):
         self.assertIn("seal_key", self.error(response, 400, "invalid_request")["fields"])
 
         self.assertEqual(self.get(self.path).json()["business_name"], "")
+
+    def test_a_blank_business_name_is_400_and_nothing_in_the_request_saves(self):
+        self.patch(self.path, {"business_name": "Ana Trading"})
+        before = self.get(self.path).json()
+
+        for value in ("", "  ", None):
+            with self.subTest(value=value):
+                response = self.patch(
+                    self.path, {"business_name": value, "business_address": "1 Rizal St, Manila"}
+                )
+                self.assertEqual(
+                    self.error(response, 400, "invalid_request")["fields"],
+                    {"business_name": ["Enter your business name."]},
+                )
+
+        self.assertEqual(self.get(self.path).json(), before)
 
 
 class OpenApiTests(SitesApiTestCase):

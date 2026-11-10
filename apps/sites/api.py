@@ -47,7 +47,6 @@ class SitePatch(StrictSchema):
     display_name: str | None = None
     contact_email: str | None = None
     contact_mobile: str | None = None
-    accent_color: str | None = None
     instagram_url: str | None = None
     tiktok_url: str | None = None
 

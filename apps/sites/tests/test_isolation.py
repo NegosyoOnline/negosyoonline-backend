@@ -1,14 +1,44 @@
 """Tenant isolation over HTTP: Ana and Ben each have a site; neither can reach the other's."""
 from django.utils import timezone
 
-from apps.accounts.models import Account
+from apps.accounts.models import Account, AccountAuditEvent
 from apps.accounts.tests.base import EMAIL
+from apps.sites import services
 from apps.sites.api import router
 from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
 from apps.sites.tests.api_base import SitesApiTestCase
 from apps.sites.tests.base import make_site
 
 MISSING_ID = "site_00000000000000000000"
+# Every field a subscriber may edit, with a valid value that differs from a new site's.
+SITE_BODY = {
+    "display_name": "Taken Over",
+    "contact_email": "taken@example.test",
+    "contact_mobile": "09181234567",
+    "instagram_url": "https://instagram.com/taken",
+    "tiktok_url": "https://tiktok.com/@taken",
+}
+PROFILE_BODY = {
+    "business_name": "Taken Over Trading",
+    "registered_name": "Taken Over Inc.",
+    "tin": "987654321",
+    "dti_business_number": "7654321",
+    "bir_rsn": "113RC20260000017598",
+    "business_address": "9 Taken St, Cebu",
+    "complaints_contact_name": "Taken Office",
+    "privacy_contact_email": "privacy-taken@example.test",
+    "shipping_processing_time": "9 days",
+    "shipping_metro_manila_estimate": "9 days",
+    "shipping_luzon_estimate": "9 days",
+    "shipping_visayas_estimate": "9 days",
+    "shipping_mindanao_estimate": "9 days",
+    "shipping_other_areas_estimate": "9 days",
+    "shipping_estimates_confirmed": True,
+}
+
+
+def body_for(path):
+    return PROFILE_BODY if "business-profile" in path else SITE_BODY
 
 
 def site_routes():
@@ -42,9 +72,25 @@ class IsolationTests(SitesApiTestCase):
     def call(self, method, path, client=None):
         if method == "GET":
             return self.get(path, client=client)
-        # Send a field the route accepts, so the only reason to refuse is the site itself.
-        key = "business_name" if "business-profile" in path else "display_name"
-        return self.send(method.lower(), path, {key: "Taken Over"}, client=client)
+        # Send every field the route accepts, so the only reason to refuse is the site itself.
+        return self.send(method.lower(), path, body_for(path), client=client)
+
+    def rows_of(self, site_id):
+        """Every stored row that belongs to one site and its account."""
+        site = Site.objects.get(public_id=site_id)
+        return (
+            list(Site.objects.filter(pk=site.pk).values()),
+            list(SiteBusinessProfile.objects.filter(site=site).values()),
+            list(Subdomain.objects.filter(site=site).values()),
+            list(Onboarding.objects.filter(account=site.account).values()),
+        )
+
+    def test_the_bodies_cover_every_editable_field(self):
+        self.assertEqual(
+            (sorted(SITE_BODY), sorted(PROFILE_BODY)),
+            (sorted(services.SITE_FIELDS), sorted(services.PROFILE_FIELDS)),
+            "An editable field was added or removed: keep the isolation bodies in step.",
+        )
 
     def test_every_site_route_is_covered(self):
         self.assertEqual(
@@ -87,17 +133,59 @@ class IsolationTests(SitesApiTestCase):
     def test_a_patch_by_another_account_changes_nothing(self):
         before = snapshot()
 
-        self.patch(
-            f"/v1/sites/{self.mine['id']}/",
-            {"display_name": "Taken Over", "contact_email": "ben@example.test"},
-            client=self.ben,
-        )
-        self.patch(
-            f"/v1/sites/{self.mine['id']}/business-profile/",
-            {"business_name": "Taken Over"}, client=self.ben,
-        )
+        site_path = f"/v1/sites/{self.mine['id']}/"
+        for path in (site_path, site_path + "business-profile/"):
+            whole = self.patch(path, body_for(path), client=self.ben)
+            self.assertEqual(whole.status_code, 404, whole.content)
+            for key, value in body_for(path).items():
+                with self.subTest(path=path, key=key):
+                    response = self.patch(path, {key: value}, client=self.ben)
+                    self.assertEqual(response.status_code, 404, response.content)
 
         self.assertEqual(snapshot(), before)
+        self.assertFalse(AccountAuditEvent.objects.filter(
+            event__in=("site_updated", "business_profile_updated")
+        ).exists())
+
+    def test_each_patch_on_my_site_changes_only_my_rows(self):
+        theirs = self.rows_of(self.theirs["id"])
+        deleted = self.rows_of(self.deleted_id)[:3]
+        mine = Site.objects.get(public_id=self.mine["id"])
+
+        for path, row in (
+            (f"/v1/sites/{self.mine['id']}/", lambda: Site.objects.get(pk=mine.pk)),
+            (f"/v1/sites/{self.mine['id']}/business-profile/",
+             lambda: SiteBusinessProfile.objects.get(site=mine)),
+        ):
+            for key, value in body_for(path).items():
+                with self.subTest(path=path, key=key):
+                    was = getattr(row(), key)
+                    response = self.patch(path, {key: value})
+                    self.assertEqual(response.status_code, 200, response.content)
+                    self.assertNotEqual(getattr(row(), key), was)
+                    self.assertEqual(self.rows_of(self.theirs["id"]), theirs)
+                    self.assertEqual(self.rows_of(self.deleted_id)[:3], deleted)
+
+    def test_the_audit_event_for_each_save_names_my_account_and_my_site_only(self):
+        ben = Account.objects.get(email="ben@example.test")
+        AccountAuditEvent.objects.all().delete()
+
+        for path, event in (
+            (f"/v1/sites/{self.mine['id']}/", "site_updated"),
+            (f"/v1/sites/{self.mine['id']}/business-profile/", "business_profile_updated"),
+        ):
+            for key, value in body_for(path).items():
+                with self.subTest(path=path, key=key):
+                    self.assertEqual(self.patch(path, {key: value}).status_code, 200)
+                    saved = AccountAuditEvent.objects.order_by("-pk").first()
+                    self.assertEqual((saved.account_id, saved.event), (self.account.pk, event))
+                    self.assertEqual(saved.detail, {"site": self.mine["id"], "fields": [key]})
+
+        self.assertEqual(AccountAuditEvent.objects.count(), len(SITE_BODY) + len(PROFILE_BODY))
+        self.assertFalse(AccountAuditEvent.objects.filter(account=ben).exists())
+        for saved in AccountAuditEvent.objects.all():
+            self.assertNotIn(self.theirs["id"], str(saved.detail))
+            self.assertNotIn(ben.public_id, str(saved.detail))
 
     def test_the_list_never_contains_another_accounts_site(self):
         mine = [site["id"] for site in self.get("/v1/sites/").json()["items"]]
