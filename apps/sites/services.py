@@ -13,16 +13,13 @@ from apps.common.phones import normalise_ph_mobile
 from apps.sites import onboarding, subdomains, templates
 from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
 
-ACCENT = re.compile(r"^#[0-9A-Fa-f]{6}$")
 BIR_SERIAL = re.compile(r"^\d{3}[A-Z]{2}\d{14}$")  # e.g. 113RC20260000017598
 SOCIAL_HOSTS = {
     "instagram_url": ("Instagram", {"instagram.com", "www.instagram.com"}),
     "tiktok_url": ("TikTok", {"tiktok.com", "www.tiktok.com"}),
 }
-SITE_FIELDS = (
-    "display_name", "contact_email", "contact_mobile", "accent_color", "instagram_url",
-    "tiktok_url",
-)
+# accent_color is stored but not editable here: no colour control while ruling R3 stands.
+SITE_FIELDS = ("display_name", "contact_email", "contact_mobile", "instagram_url", "tiktok_url")
 SHIPPING_FIELDS = (
     "shipping_processing_time", "shipping_metro_manila_estimate", "shipping_luzon_estimate",
     "shipping_visayas_estimate", "shipping_mindanao_estimate", "shipping_other_areas_estimate",
@@ -37,6 +34,12 @@ MAX_LENGTHS = {
     "business_address": 255, **{name: 60 for name in SHIPPING_FIELDS},
 }
 NOT_EDITABLE = "This cannot be changed here."
+# The onboarding minimum. Once set, a blank value would put the site back into setup.
+REQUIRED = {
+    "business_name": "Enter your business name.",
+    "contact_email": "Enter your store email.",
+    "contact_mobile": "Enter your store mobile.",
+}
 
 
 def _invalid(fields):
@@ -140,7 +143,8 @@ def _clean_site(data):
             if not 1 <= len(value) <= 80:
                 errors[name] = "Use 1 to 80 characters."
         elif not value:
-            pass  # every other field may be cleared
+            if name in REQUIRED:
+                errors[name] = REQUIRED[name]  # the social links may be cleared
         elif name == "contact_email":
             value = value.lower()
             if not _is_email(value):
@@ -150,11 +154,6 @@ def _clean_site(data):
                 value = normalise_ph_mobile(value)
             except ValueError as exc:
                 errors[name] = str(exc)
-        elif name == "accent_color":
-            if ACCENT.fullmatch(value):
-                value = value.upper()
-            else:
-                errors[name] = "Use a color like #173DB8."
         else:
             label, hosts = SOCIAL_HOSTS[name]
             parts = urlsplit(value)
@@ -191,7 +190,8 @@ def _clean_profile(data):
         value = " ".join((raw or "").split())
         try:
             if not value:
-                pass  # a blank value clears the field
+                if name in REQUIRED:
+                    raise ValueError(REQUIRED[name])  # any other blank value clears the field
             elif name in MAX_LENGTHS:
                 if len(value) > MAX_LENGTHS[name]:
                     raise ValueError(f"Use up to {MAX_LENGTHS[name]} characters.")
