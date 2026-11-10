@@ -20,7 +20,7 @@ class RulesTests(SimpleTestCase):
                 self.assertFalse(subdomains.is_valid_format(name))
 
     def test_every_infrastructure_label_is_reserved(self):
-        self.assertEqual(len(subdomains.INFRA_LABELS), 16)
+        self.assertEqual(len(subdomains.INFRA_LABELS), 18)
         for name in subdomains.INFRA_LABELS:
             with self.subTest(name=name):
                 self.assertTrue(subdomains.is_reserved(name))
@@ -36,6 +36,15 @@ class RulesTests(SimpleTestCase):
                      "w-w-w", "api2", "sante-1", "negosyo-online"):
             with self.subTest(name=name):
                 self.assertTrue(subdomains.is_reserved(name))
+
+    def test_the_sms_gateway_labels_are_reserved(self):
+        for name in ("sms", "gateway", "s-m-s", "sms1", "gateway2", "gate-way"):
+            with self.subTest(name=name):
+                self.assertTrue(subdomains.is_reserved(name))
+                self.assertEqual(subdomains.check(name), (name, subdomains.RESERVED))
+        for name in ("sms-store", "mygateway"):
+            with self.subTest(name=name):
+                self.assertFalse(subdomains.is_reserved(name))
 
     def test_ordinary_names_are_not_reserved(self):
         for name in ("anas-store", "mysantestore", "barley-shop", "santeria", "apiary"):
