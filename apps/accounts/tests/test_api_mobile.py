@@ -91,6 +91,16 @@ class MobileStartTests(MobileCase):
         self.assertEqual(SmsMessage.objects.count(), 0)
         self.assertEqual(MobileOtpChallenge.objects.count(), 0)
 
+    def test_2_an_oversized_number_is_refused_by_the_schema(self):
+        self.assertEqual(self.start("+63 (917) 123-4567").status_code, 200)  # 18 characters
+
+        response = self.start("0917" + "1" * 17)  # 21 characters
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.error(response)["code"], "invalid_request")
+        self.assertIn("mobile", self.error(response)["fields"])
+        self.assertEqual(SmsMessage.objects.count(), 1)
+
     def test_2_the_accounts_own_verified_number_answers_mobile_unchanged(self):
         self.verified()
 
@@ -330,6 +340,16 @@ class MobileVerifyTests(MobileCase):
 
         self.assertEqual(again.status_code, 400)
         self.assertEqual(self.error(again)["code"], "code_expired")
+
+    def test_7_an_oversized_code_is_refused_by_the_schema(self):
+        self.start()
+
+        response = self.verify("1" * 21)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.error(response)["code"], "invalid_request")
+        self.assertIn("code", self.error(response)["fields"])
+        self.assertEqual(MobileOtpChallenge.objects.get().attempts, 0)  # it used no try
 
     def test_7_no_code_was_asked_for(self):
         response = self.verify("123456")

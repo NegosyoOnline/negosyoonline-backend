@@ -97,11 +97,11 @@ class AccountPatch(Schema):
 
 
 class MobileStartIn(Schema):
-    mobile: str
+    mobile: str = Field(max_length=20)
 
 
 class MobileCodeIn(Schema):
-    code: str
+    code: str = Field(max_length=20)
 
 
 class QueuedOut(Schema):
