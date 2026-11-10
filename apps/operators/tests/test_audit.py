@@ -8,6 +8,8 @@ from apps.operators.models import OperatorAuditEntry
 from apps.operators.tests.base import TwoStepTestCase
 
 APP = Path(__file__).resolve().parent.parent
+# Other apps that write operator audit rows through audit.record().
+CALLERS = (APP, APP.parent / "notifications")
 
 
 class AuditTests(TwoStepTestCase):
@@ -43,7 +45,7 @@ class AuditTests(TwoStepTestCase):
         """A call to record() or _audit() or _record() names its action as a plain string."""
         positions = {"record": 1, "_audit": 1, "_record": 1}
         seen = set()
-        for path in APP.rglob("*.py"):
+        for path in (path for folder in CALLERS for path in folder.rglob("*.py")):
             if "tests" in path.parts or "migrations" in path.parts:
                 continue
             for node in ast.walk(ast.parse(path.read_text())):

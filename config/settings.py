@@ -88,6 +88,9 @@ ADMIN_SECRETS_KEY = os.environ.get("ADMIN_SECRETS_KEY", "").strip()
 HQ_HOST = os.environ.get("HQ_HOST", "").strip().lower()
 if HQ_HOST and HQ_HOST not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(HQ_HOST)
+# The SMS gateway. "1" turns on the send function and the admin's SMS lists. Off, no text is
+# queued and the gateway's tables are not read or written.
+SMS_GATEWAY_ENABLED = os.environ.get("SMS_GATEWAY_ENABLED", "").strip() == "1"
 
 
 # Application definition
