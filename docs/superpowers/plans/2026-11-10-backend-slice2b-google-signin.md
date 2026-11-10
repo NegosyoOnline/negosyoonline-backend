@@ -19,11 +19,11 @@
 
 ## Decisions (approved by Coach Ed on 2026-11-10)
 
-Coach Ed approved each recommendation below as written. The landing paths in decision 3 must still be confirmed with the coordinator session before PR B.
+Coach Ed approved each recommendation below. Decision 3 was amended the same day after the coordinator session checked the frontend; the amendment is recorded in it.
 
 1. **Other sessions stay signed in.** The spec says an email-code sign-in revokes the account's earlier sessions. It does not say so for Google. Recommended: a Google sign-in leaves other sessions alone, so a subscriber can use a phone and a laptop. (Changing this is one line in Task 3.)
-2. **Accepting the policies.** A new account must accept the terms and privacy policy. Recommended: the dashboard's "Continue with Google" link carries `?accept_policies=true` when the box is ticked. If Google returns a person with no account and the box was not ticked, no account is created and the browser returns to the dashboard with `error=policies_required`.
-3. **Where the browser lands.** Recommended: success goes to `<DASHBOARD_URL>/`; failure goes to `<DASHBOARD_URL>/sign-in?error=<code>`. `DASHBOARD_URL` is a new Railway variable (staging: `https://dash-staging.negosyonline.com`). The two paths are a contract with the frontend, so the coordinator session must confirm them before PR B.
+2. **Accepting the policies.** A new account must accept the terms and privacy policy. Recommended: the dashboard's "Continue with Google" link carries `?accept_policies=true` when the box is ticked. If Google returns a person with no account and the box was not ticked, no account is created and the browser returns to the public site with `error=policies_required`. The popup's "Login" mode has no box, so a first-time Google visitor arriving that way gets this error.
+3. **Where the browser lands.** Success goes to `<DASHBOARD_URL>/`. Failure goes to `<SITE_URL>/?signin=1&error=<code>`, which opens the sign-in popup on the public site. `DASHBOARD_URL` and `SITE_URL` are new Railway variables. Amended on 2026-11-10: the first version sent failures to `<DASHBOARD_URL>/sign-in`, but the coordinator session confirmed the dashboard has no sign-in page and none is planned, and Coach Ed approved the public site popup instead.
 4. **Linking by email.** Per the spec: when Google says the email is verified and an account with that email exists, Google is linked to it and the person is signed in. If that account is already linked to a different Google user, the sign-in is refused (`google_account_mismatch`). A Google email that Google has not verified is refused (`google_email_unverified`).
 5. **No new dependency.** The token exchange is one HTTPS `POST`, done with the standard library. The ID token is read without checking its signature, which Google's OpenID Connect guide allows when the token comes straight from Google's token endpoint over TLS; issuer, audience and expiry are still checked.
 6. **The Google OAuth client is created by Coach Ed** in Google Cloud (type "Web application", scopes `openid email profile`). The client secret is entered by him in Railway and never pasted into a chat or a file.
@@ -750,7 +750,7 @@ Endpoints: `GET /v1/auth/google/start/`, `GET /v1/auth/google/callback/`. Both a
 
 The callback is a `GET` that signs someone in. It is safe from forged requests because it does nothing unless `state` matches the signed cookie that only `start` sets.
 
-Error codes the dashboard receives in `?error=`: `google_state_invalid` (flow not started here, or older than 10 minutes), `google_cancelled` (the person backed out at Google), `google_failed` (Google refused the code), plus the service's `policies_required`, `google_email_unverified`, `google_account_mismatch`, `account_closed`.
+Error codes the public site receives in `?error=`: `google_state_invalid` (flow not started here, or older than 10 minutes), `google_cancelled` (the person backed out at Google), `google_failed` (Google refused the code), plus the service's `policies_required`, `google_email_unverified`, `google_account_mismatch`, `account_closed`.
 
 **Files:**
 - Create: `apps/accounts/tests/test_api_google.py`
@@ -758,7 +758,7 @@ Error codes the dashboard receives in `?error=`: `google_state_invalid` (flow no
 
 - [ ] **Step 1: Create the branch and write the failing test**
 
-Confirm Task 4 Step 6 has been done, and that the coordinator session has confirmed the two landing paths in decision 3.
+Confirm Task 4 Step 6 has been done.
 
 ```bash
 git fetch origin && git checkout -b feat/google-signin-api origin/main
@@ -778,12 +778,16 @@ from apps.accounts.models import Account
 from apps.accounts.tests.base import EMAIL, ApiTestCase
 
 DASH = "https://dash.example.test"
+SITE = "https://site.example.test"
 CALLBACK = "https://testserver/v1/auth/google/callback/"
 PROFILE = GoogleProfile(user_id="g-123", email=EMAIL, email_verified=True, name="Ana Reyes")
 
 
 @override_settings(
-    GOOGLE_CLIENT_ID="client-id", GOOGLE_CLIENT_SECRET="client-secret", DASHBOARD_URL=DASH
+    GOOGLE_CLIENT_ID="client-id",
+    GOOGLE_CLIENT_SECRET="client-secret",
+    DASHBOARD_URL=DASH,
+    SITE_URL=SITE,
 )
 class GoogleApiTests(ApiTestCase):
     def start(self, query=""):
@@ -826,12 +830,12 @@ class GoogleApiTests(ApiTestCase):
         self.assertEqual(response.cookies["no_google_state"].value, "")
         self.assertEqual(self.get("/v1/me/").json()["account"]["email"], EMAIL)
 
-    def test_new_account_without_accepting_policies_is_sent_back(self):
+    def test_new_account_without_accepting_policies_is_sent_to_the_site_popup(self):
         state = self.start()
 
         response, _call = self.callback(state)
 
-        self.assertEqual(response["Location"], f"{DASH}/sign-in?error=policies_required")
+        self.assertEqual(response["Location"], f"{SITE}/?signin=1&error=policies_required")
         self.assertNotIn("no_session", response.cookies)
         self.assertFalse(Account.objects.exists())
 
@@ -841,7 +845,7 @@ class GoogleApiTests(ApiTestCase):
         wrong_state, second_call = self.callback("made-up-state")
 
         for response in (without_cookie, wrong_state):
-            self.assertEqual(response["Location"], f"{DASH}/sign-in?error=google_state_invalid")
+            self.assertEqual(response["Location"], f"{SITE}/?signin=1&error=google_state_invalid")
         first_call.assert_not_called()
         second_call.assert_not_called()
         self.assertEqual(self.get("/v1/me/").status_code, 401)
@@ -851,7 +855,7 @@ class GoogleApiTests(ApiTestCase):
 
         response, call = self.callback(state, code="")
 
-        self.assertEqual(response["Location"], f"{DASH}/sign-in?error=google_cancelled")
+        self.assertEqual(response["Location"], f"{SITE}/?signin=1&error=google_cancelled")
         call.assert_not_called()
 
     def test_a_code_google_refuses_is_sent_back(self):
@@ -859,7 +863,7 @@ class GoogleApiTests(ApiTestCase):
 
         response, _call = self.callback(state, side_effect=google.GoogleSignInFailed())
 
-        self.assertEqual(response["Location"], f"{DASH}/sign-in?error=google_failed")
+        self.assertEqual(response["Location"], f"{SITE}/?signin=1&error=google_failed")
         self.assertEqual(self.get("/v1/me/").status_code, 401)
 
     @override_settings(GOOGLE_CLIENT_ID="")
@@ -880,14 +884,17 @@ Expected: FAIL: `AttributeError` on `apps.accounts.api.google` in the callback t
 In `config/settings.py`, directly below the `GOOGLE_CLIENT_SECRET = ...` line, add:
 
 ```python
-# Where the browser lands after a Google sign-in. No trailing slash.
+# Where the browser lands after a Google sign-in: the dashboard when it worked, the public
+# site's sign-in popup when it did not. No trailing slashes.
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3001").rstrip("/")
+SITE_URL = os.environ.get("SITE_URL", "http://localhost:3000").rstrip("/")
 ```
 
 In `.env.example`, add:
 
 ```
 DASHBOARD_URL=http://localhost:3001
+SITE_URL=http://localhost:3000
 ```
 
 In `apps/accounts/api.py`:
@@ -938,10 +945,13 @@ def _google_callback_url(request):
     return request.build_absolute_uri("/v1/auth/google/callback/")
 
 
-def _to_dashboard(error=None):
-    """Send the browser back to the dashboard and end the Google flow."""
-    path = f"/sign-in?error={error}" if error else "/"
-    response = HttpResponseRedirect(settings.DASHBOARD_URL + path)
+def _end_google_flow(error=None):
+    """Send the browser on: to the dashboard, or with an error to the site's sign-in popup."""
+    if error:
+        url = f"{settings.SITE_URL}/?signin=1&error={error}"
+    else:
+        url = f"{settings.DASHBOARD_URL}/"
+    response = HttpResponseRedirect(url)
     response.delete_cookie(GOOGLE_STATE_COOKIE, path=GOOGLE_STATE_PATH, samesite="Lax")
     return response
 
@@ -978,21 +988,21 @@ def google_callback(request, code: str = "", state: str = "", error: str = ""):
             max_age=GOOGLE_STATE_SECONDS,
         )
     except signing.BadSignature:  # missing, altered or older than ten minutes
-        return _to_dashboard("google_state_invalid")
+        return _end_google_flow("google_state_invalid")
     if not hmac.compare_digest(started["state"].encode(), state.encode()):
-        return _to_dashboard("google_state_invalid")
+        return _end_google_flow("google_state_invalid")
     if error or not code:
-        return _to_dashboard("google_cancelled")
+        return _end_google_flow("google_cancelled")
     try:
         profile = google.fetch_profile(code, _google_callback_url(request))
         _account, _session, token, _created = services.sign_in_with_google(
             profile, started["accept_policies"], request
         )
     except google.GoogleSignInFailed:
-        return _to_dashboard("google_failed")
+        return _end_google_flow("google_failed")
     except ApiError as refused:
-        return _to_dashboard(refused.code)
-    response = _to_dashboard()
+        return _end_google_flow(refused.code)
+    response = _end_google_flow()
     set_session_cookie(response, token)
     return response
 ```
@@ -1038,7 +1048,7 @@ and add to the Railway variables list:
 
 ```markdown
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: the Google OAuth client for this environment. Without them the Google sign-in endpoints answer 404.
-- `DASHBOARD_URL`: where the browser lands after a Google sign-in, with no trailing slash.
+- `DASHBOARD_URL` and `SITE_URL`: where the browser lands after a Google sign-in that worked (the dashboard) or did not (the public site's sign-in popup). No trailing slashes.
 ```
 
 Add to the Safety list in `AGENTS.md`:
@@ -1077,7 +1087,7 @@ Expected: `OK:` with the merge commit; `['/v1/auth/google/callback/', '/v1/auth/
 
 Before this step Coach Ed creates the OAuth client in Google Cloud: type "Web application", authorised redirect URI exactly `https://api-staging.negosyonline.com/v1/auth/google/callback/`, scopes `openid`, `email`, `profile`. While the consent screen is in "Testing", only the test users he lists can sign in.
 
-With Coach Ed's approval, these variables are set on the staging `api` service (it redeploys): `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `DASHBOARD_URL=https://dash-staging.negosyonline.com`. The client secret is entered by Coach Ed in Railway, never pasted into a chat or a file. Then:
+With Coach Ed's approval, these variables are set on the staging `api` service (it redeploys): `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `DASHBOARD_URL` (the staging dashboard origin) and `SITE_URL` (the staging public site origin). Ask the coordinator session for the two staging origins; do not guess them. The client secret is entered by Coach Ed in Railway, never pasted into a chat or a file. Then:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" https://api-staging.negosyonline.com/v1/auth/google/start/ | sed 's/state=[^&]*/state=<hidden>/'
@@ -1093,11 +1103,11 @@ With Coach Ed's approval, Coach Ed (not an agent) opens this in his own browser 
 https://api-staging.negosyonline.com/v1/auth/google/start/?accept_policies=true
 ```
 
-Expected: Google's account chooser, then a redirect to `https://dash-staging.negosyonline.com/`. Whatever that page shows, he then opens `https://api-staging.negosyonline.com/v1/me/` in the same browser and sees his account as JSON. This creates one real account on staging, or links Google to the account that already has that email.
+Expected: Google's account chooser, then a redirect to the staging dashboard. Whatever that page shows, he then opens `https://api-staging.negosyonline.com/v1/me/` in the same browser and sees his account as JSON. This creates one real account on staging, or links Google to the account that already has that email.
 
 - [ ] **Step 6: Tell the coordinator**
 
-Tell the coordinator session for ClickUp task `z8uq9mach5` that Google sign-in is live on staging, with the two endpoints, the `accept_policies` parameter, the two landing paths and the list of `error` codes from Task 5.
+Tell the coordinator session for ClickUp task `z8uq9mach5` that Google sign-in is live on staging, with the two endpoints, the `accept_policies` parameter, the success and failure landing URLs and the list of `error` codes from Task 5.
 
 ---
 
@@ -1120,4 +1130,4 @@ Tell the coordinator session for ClickUp task `z8uq9mach5` that Google sign-in i
 - Section 6, `ExternalIdentity`: account, provider (`google`, `facebook`), provider user id (unique per provider), linked_at, one row per account per provider: Task 1.
 - Section 8, `GET auth/google/start/`, `GET auth/google/callback/`: Task 5.
 - Not in this plan by design: Facebook, `auth/facebook/*` and the data deletion webhook (2c).
-- Not decided by the spec and so listed under "Decisions for Coach Ed": whether Google sign-in revokes other sessions, how policies are accepted, and the dashboard landing paths.
+- Not decided by the spec and so listed under "Decisions for Coach Ed": whether Google sign-in revokes other sessions, how policies are accepted, and the landing URLs (the last was amended; see decision 3).
