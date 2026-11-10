@@ -127,7 +127,7 @@ All paths are under `/v1/`. Errors use one shape: `{"error": {"code": "...", "me
 |---|---|
 | Public | `GET plan/`, `GET referrals/{code}/`, `GET public/sites/by-host/?host=` |
 | Sign-in | `POST auth/email-code/request/`, `POST auth/email-code/verify/`, `GET auth/google/start/`, `GET auth/google/callback/`, `GET auth/facebook/start/`, `GET auth/facebook/callback/`, `POST auth/facebook/confirm-email/`, `POST auth/logout/` |
-| Account | `GET me/`, `GET PATCH account/`, `POST account/email/start/`, `POST account/email/confirm/`, `GET account/sessions/`, `POST account/sessions/sign-out-others/`, `POST account/mobile/start/`, `POST account/mobile/verify/`, `GET account/referrals/` |
+| Account | `GET me/`, `GET account/setup/`, `GET PATCH account/`, `POST account/email/start/`, `POST account/email/confirm/`, `GET account/sessions/`, `POST account/sessions/sign-out-others/`, `POST account/mobile/start/`, `POST account/mobile/verify/`, `GET account/referrals/` |
 | Sites | `GET POST sites/`, `POST sites/subdomain-check/`, `GET PATCH sites/{site_id}/`, `GET PATCH sites/{site_id}/business-profile/` |
 | Billing | `GET sites/{site_id}/billing/`, `PUT sites/{site_id}/billing/profile/`, `POST sites/{site_id}/billing/payment-method/setup/`, `POST sites/{site_id}/billing/cancel/`, `POST sites/{site_id}/billing/reactivate/`, `GET sites/{site_id}/billing/usage/`, `GET sites/{site_id}/billing/statements/`, `GET sites/{site_id}/billing/statements/{number}/`, `GET sites/{site_id}/billing/statements/{number}/pdf/` |
 | Webhooks | `POST webhooks/xendit/`, `POST webhooks/facebook/data-deletion/` |
@@ -172,3 +172,9 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
 ## 12. Amendments
 
 - 2026-11-10: Facebook sign-in moved from out of scope into the MVP after the Meta app review approved `public_profile` and `email`. `GoogleIdentity` became `ExternalIdentity` so one table serves both providers. Sections 2, 4, 6, 8, 9 and 10 were updated. The Meta app id and secret are Railway variables added when slice 2 is built.
+- 2026-11-10: slice 3 decisions, approved by Coach Ed with the plan `docs/superpowers/plans/2026-11-10-backend-slice3-sites-onboarding.md`:
+  - Section 8 gains `GET account/setup/`: the onboarding state, derived on each read from persisted fields. It is served by the sites app.
+  - Section 6, `sites`: `SiteBusinessProfile` also holds the registered name, BIR serial number, complaints contact name, privacy contact email and a "shipping estimates confirmed" flag; the social links on `Site` are an Instagram link and a TikTok link. A new table, `Onboarding`, holds one row per account: the first site, when setup started, and when the minimum was first completed.
+  - Section 7: slice 3 creates the Site, its Subdomain and its business profile in one transaction but no Subscription. Slice 4 adds the Subscription to that transaction and creates one for each site made before it, with trial dates taken from the account's creation date, as this section already says.
+  - Section 9 item 3: "trial subscription start" and "public host lookup" move to slice 4, because storefront availability depends on the subscription state.
+  - Operator actions on the subdomain ledger (rename, release, reserve a name) are not in slice 3; they need `OperatorAuditEntry`.
