@@ -7,3 +7,4 @@ class OperatorsConfig(AppConfig):
 
     def ready(self):
         from apps.operators import checks  # noqa: F401  registers the HQ_HOST check
+        from apps.operators import retention  # noqa: F401  registers the retention rules
