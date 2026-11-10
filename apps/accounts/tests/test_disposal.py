@@ -10,19 +10,22 @@ from apps.accounts import retention as rules
 from apps.accounts.models import (
     Account,
     AccountAuditEvent,
+    AccountMobile,
     ExternalIdentity,
+    MobileOtpChallenge,
     PolicyAcceptance,
     Session,
 )
 from apps.accounts.tests.disposal_base import (
     EMAIL,
+    MOBILE,
     OTHER_EMAIL,
     DisposalTestCase,
     full_account,
     snapshot,
 )
 from apps.common import retention
-from apps.notifications.models import EmailMessage
+from apps.notifications.models import EmailMessage, SmsMessage
 from apps.operators.models import OperatorAuditEntry
 from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
 
@@ -32,6 +35,8 @@ COUNTS = {
     "sign_in_identities": 1,
     "policy_acceptances": 1,
     "account_audit_events": 1,
+    "mobile_numbers": 1,
+    "mobile_challenges": 2,
     "sites": 1,
     "business_profiles": 1,
     "web_addresses_retired": 1,
@@ -74,6 +79,36 @@ class DisposeAccountTests(DisposalTestCase):
         self.dispose()
         self.assertFalse(Session.objects.filter(account=self.account).exists())
         self.assertFalse(ExternalIdentity.objects.filter(account=self.account).exists())
+
+    def test_its_mobile_number_and_verification_challenges_are_removed(self):
+        self.dispose()
+        self.assertFalse(AccountMobile.objects.filter(account=self.account).exists())
+        self.assertFalse(MobileOtpChallenge.objects.filter(account=self.account).exists())
+
+    def test_another_account_holding_the_same_number_keeps_its_own_rows(self):
+        self.dispose()
+        self.assertEqual(AccountMobile.objects.get(account=self.other).number, MOBILE)
+        self.assertEqual(MobileOtpChallenge.objects.filter(account=self.other).count(), 2)
+
+    def test_an_account_without_a_mobile_number_is_disposed_of(self):
+        AccountMobile.objects.filter(account=self.account).delete()
+        MobileOtpChallenge.objects.filter(account=self.account).delete()
+        counts = self.dispose()
+        self.assertEqual((counts["mobile_numbers"], counts["mobile_challenges"]), (0, 0))
+
+    def test_sms_send_records_are_not_touched(self):
+        SmsMessage.objects.create(
+            recipient=MOBILE, category="code", purpose="mobile_verify", priority=10,
+            expires_at=self.now,
+        )
+        before = list(SmsMessage.objects.values())
+        self.dispose()
+        self.assertEqual(list(SmsMessage.objects.values()), before)
+
+    def test_the_mobile_audit_events_hold_no_number_and_are_kept(self):
+        self.dispose()
+        event = AccountAuditEvent.objects.get(account=self.account, event="mobile_verified")
+        self.assertEqual(event.detail, {})
 
     def test_the_policy_acceptance_stays_without_its_ip(self):
         before = PolicyAcceptance.objects.filter(account=self.account).values(
@@ -150,6 +185,7 @@ class DisposeAccountTests(DisposalTestCase):
         self.assertEqual(entry.detail["blanked"]["account"], ["email", "name"])
         self.assertIn("tin", entry.detail["blanked"]["site_business_profile"])
         self.assertEqual(entry.personal, {})
+        self.assertNotIn("account_mobile", entry.detail["blanked"])  # deleted, not blanked
         self.assert_no_personal_value(json.dumps([entry.reason, entry.detail]))
 
     def test_another_account_is_untouched(self):

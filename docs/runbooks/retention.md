@@ -9,6 +9,10 @@ Nothing here runs by itself today. Every rule is run by hand with `manage.py run
 - Setting `RETENTION_ENABLED=1`. It starts nothing by itself: these rules run only by the commands below until slice 4 adds a schedule. The SMS build's once-a-day start runs only the SMS rules, never these.
 - Running any command below against staging or production data. This includes the dry run and the export.
 
+## Before any command here
+
+Migration `accounts.0003` (the mobile number tables) must be applied in an environment before any retention, disposal or export command runs there. Disposal and export read those tables directly, whether or not texts are switched on, so that a number is never left behind; without the tables the command fails and changes nothing.
+
 ## The rules
 
 | Rule | Deletes | When |
@@ -55,6 +59,7 @@ One account at a time, in one transaction. The rows stay; the personal values go
 |---|---|---|
 | Account | Email becomes `deleted-<row number>@deleted.invalid`, name becomes empty, the closing date is set | The row, its public id, dates, referral code and referrer |
 | Sessions, Google and Facebook links | Deleted | |
+| Verified mobile number and mobile verification challenges | Deleted | |
 | Policy acceptance | The IP address | The row, the version, the policies, the date |
 | Account audit events | The detail of `email_changed` events (old and new address) | Every row and every other detail |
 | Sites of the account | Store email and mobile, social links; the name becomes `Deleted site #<row number>`; the site is closed | The row, template, dates |
@@ -90,11 +95,11 @@ The request reaches the DPO mailbox. Confirm who is asking before anything else.
 
 5. Running it again answers "already disposed of" and changes nothing.
 
-Not handled here yet, so check by hand before disposing: whether the subscriber still owes a final bill (ruling R-3; billing arrives with slice 4), and any mobile number the SMS build stores for the account once its tables exist.
+Not handled here yet, so check by hand before disposing: whether the subscriber still owes a final bill (ruling R-3; billing arrives with slice 4). SMS send records are not touched by a disposal: they hold the number a text went to and follow the SMS build's own 1-year rule.
 
 ## An export request
 
-The export holds the account (email, name, dates, referral code), its policy acceptances, linked sign-in providers, sessions (device, masked IP, dates), account audit events, the send records for its address, and each site with its web addresses, business profile and onboarding dates. It never holds a session token, a provider's user id, or anything of another account. It writes one audit entry, action `account_exported`, with counts only.
+The export holds the account (email, name, dates, referral code), its policy acceptances, linked sign-in providers, sessions (device, masked IP, dates), its verified mobile number and mobile verification challenges (never the code), account audit events, the send records for its address, and each site with its web addresses, business profile and onboarding dates. It never holds a session token, a provider's user id, or anything of another account. It writes one audit entry, action `account_exported`, with counts only.
 
 The service's disk is lost on every restart, so print the JSON and save it on your own computer through the ssh call:
 

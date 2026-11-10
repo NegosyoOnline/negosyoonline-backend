@@ -11,7 +11,9 @@ from django.db.models import Q
 from apps.accounts.models import (
     Account,
     AccountAuditEvent,
+    AccountMobile,
     ExternalIdentity,
+    MobileOtpChallenge,
     PolicyAcceptance,
     Session,
 )
@@ -73,7 +75,8 @@ def _checked_ref(request_ref):
 
 def dispose_account(account, *, now, rule, actor=None, request_ref="", dry_run=False):
     """Blank the account's personal fields, remove its sign-in identities and sessions, and keep
-    the row. Its sites are blanked and closed and its send records deleted with it.
+    the row. Its mobile number and verification challenges are deleted, its sites are blanked
+    and closed, and its email send records deleted with it.
 
     Returns the count per table, or None when the account is already disposed of. A dry run
     returns the same counts and changes nothing. A real run needs RETENTION_ENABLED and writes
@@ -92,11 +95,16 @@ def dispose_account(account, *, now, rule, actor=None, request_ref="", dry_run=F
         identities = ExternalIdentity.objects.filter(account=account)
         acceptances = PolicyAcceptance.objects.filter(account=account, ip__isnull=False)
         email_changes = AccountAuditEvent.objects.filter(account=account, event="email_changed")
+        # Read directly, never behind sms_on(): a skipped table would leave the number behind.
+        mobiles = AccountMobile.objects.filter(account=account)
+        mobile_challenges = MobileOtpChallenge.objects.filter(account=account)
         counts = {
             "sessions": sessions.count(),
             "sign_in_identities": identities.count(),
             "policy_acceptances": acceptances.count(),
             "account_audit_events": email_changes.count(),
+            "mobile_numbers": mobiles.count(),
+            "mobile_challenges": mobile_challenges.count(),
             # Takes the lock every site write of this account takes, then blanks its sites.
             **site_retention.blank_sites_of(account, now, dry_run),
             "email_send_records": email_records.delete_records_for(address, dry_run),
@@ -105,6 +113,8 @@ def dispose_account(account, *, now, rule, actor=None, request_ref="", dry_run=F
             return counts
         sessions.delete()
         identities.delete()
+        mobiles.delete()
+        mobile_challenges.delete()
         acceptances.update(ip=None)
         email_changes.update(detail={})
         Account.objects.filter(pk=account.pk).update(
@@ -147,6 +157,7 @@ def export_account_data(account, *, actor, request_ref):
     request_ref = _checked_ref(request_ref)
     if is_disposed(account):
         raise AlreadyDisposed()
+    mobile = AccountMobile.objects.filter(account=account).first()  # never behind sms_on()
     data = {
         "account": {
             "public_id": account.public_id,
@@ -185,20 +196,35 @@ def export_account_data(account, *, actor, request_ref):
             {"event": row.event, "detail": row.detail, "created_at": _iso(row.created_at)}
             for row in account.audit_events.order_by("pk")
         ],
+        "mobile": None
+        if mobile is None
+        else {"number": mobile.number, "verified_at": _iso(mobile.verified_at)},
+        "mobile_challenges": [
+            {
+                "number": row.number,
+                "expires_at": _iso(row.expires_at),
+                "used_at": _iso(row.used_at),
+                "superseded_at": _iso(row.superseded_at),
+                "created_at": _iso(row.created_at),
+            }
+            for row in account.mobile_challenges.order_by("pk")
+        ],
         "email_send_records": email_records.export_records_for(account.email),
         **site_retention.export_sites_of(account),
     }
     lists = (
         "policy_acceptances", "sign_in_providers", "sessions", "audit_events",
-        "email_send_records", "sites",
+        "mobile_challenges", "email_send_records", "sites",
     )
+    counts = {name: len(data[name]) for name in lists}
+    counts["mobile_numbers"] = 0 if mobile is None else 1
     audit.record(
         actor,
         "account_exported",
         target_type=TARGET,
         target_id=account.public_id,
         reason=request_ref,
-        detail={"counts": {name: len(data[name]) for name in lists}},
+        detail={"counts": counts},
     )
     return data
 

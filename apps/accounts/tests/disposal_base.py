@@ -8,7 +8,9 @@ from django.utils import timezone
 from apps.accounts.models import (
     Account,
     AccountAuditEvent,
+    AccountMobile,
     ExternalIdentity,
+    MobileOtpChallenge,
     PolicyAcceptance,
     Session,
 )
@@ -19,8 +21,10 @@ from apps.sites.tests.base import make_site
 
 EMAIL = "ana@example.test"
 OTHER_EMAIL = "ben@example.test"
+MOBILE = "+639171234567"  # both test accounts hold this same number
 TABLES = (
     Account, Session, ExternalIdentity, PolicyAcceptance, AccountAuditEvent,
+    AccountMobile, MobileOtpChallenge,
     Site, SiteBusinessProfile, Subdomain, Onboarding, EmailMessage, OperatorAuditEntry,
 )
 # Every personal value `full_account("ana@example.test", "ana")` writes. None may survive a
@@ -61,6 +65,13 @@ def full_account(email, slug, *, now, verified=True, with_site=True):
     AccountAuditEvent.objects.create(
         account=account, event="email_changed", detail={"old": f"old-{email}", "new": email}
     )
+    AccountAuditEvent.objects.create(account=account, event="mobile_verified")
+    AccountMobile.objects.create(account=account, number=MOBILE, verified_at=now)
+    for label in ("first", "second"):
+        MobileOtpChallenge.objects.create(
+            account=account, number=MOBILE, code_hash=f"{slug}-{label}-code-hash",
+            expires_at=now + timedelta(minutes=10), sms_public_id=f"sms_{slug}_{label}",
+        )
     for category in ("signin_code", "admin_signin_code"):
         EmailMessage.objects.create(recipient=email, category=category)
     if with_site:
@@ -102,6 +113,8 @@ class DisposalTestCase(TestCase):
             "account": list(Account.objects.filter(pk=other.pk).values()),
             "sessions": list(Session.objects.filter(account=other).values()),
             "identities": list(ExternalIdentity.objects.filter(account=other).values()),
+            "mobile": list(AccountMobile.objects.filter(account=other).values()),
+            "challenges": list(MobileOtpChallenge.objects.filter(account=other).values()),
             "acceptances": list(PolicyAcceptance.objects.filter(account=other).values()),
             "events": list(AccountAuditEvent.objects.filter(account=other).values()),
             "sites": list(Site.objects.filter(account=other).values()),
