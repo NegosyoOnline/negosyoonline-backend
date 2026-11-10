@@ -237,18 +237,54 @@ def refusal(message):
     return ""
 
 
+# --- Texts whose time passed ---------------------------------------------------------------
+
+SWEEP = 200  # texts ended in one pass; the rest wait for the next one
+
+
+def sweep(now, unsent):
+    """End the texts whose time passed while waiting, and the texts the phone took and never
+    reported. `unsent(message, reason)` is called for each: it emails the fallback. Runs when
+    the phone polls and when a text is sent, so it does not depend on the phone being there."""
+    Status = SmsMessage.Status
+    expired = SmsMessage.objects.filter(status=Status.QUEUED, expires_at__lte=now)
+    for message in expired.order_by("pk")[:SWEEP]:
+        if SmsMessage.objects.filter(pk=message.pk, status=Status.QUEUED).update(
+            status=Status.EXPIRED
+        ):
+            take_text(message)
+            unsent(message, "expired")
+    silent_since = now - timedelta(seconds=NO_REPORT_AFTER)
+    unreported = SmsMessage.objects.filter(
+        status=Status.DISPATCHED, dispatched_at__lte=silent_since
+    )
+    for message in unreported.order_by("pk")[:SWEEP]:
+        if SmsMessage.objects.filter(pk=message.pk, status=Status.DISPATCHED).update(
+            status=Status.FAILED, reason="no_report"
+        ):
+            unsent(message, "no_report")
+
+
 # --- The phone -----------------------------------------------------------------------------
 
 
+def token_hash(token):
+    """What is stored of a phone's token. The token itself is shown once and never kept."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def pick_device():
-    """The phone that sends a text. Today there is one: the system phone."""
-    return SmsDevice.objects.filter(is_active=True).order_by("-last_contact_at", "pk").first()
+    """The phone that sends a text. Today there is one, the system phone: the first phone
+    added that is still active. A second phone is handed nothing."""
+    return SmsDevice.objects.filter(is_active=True).order_by("pk").first()
 
 
 def gateway_online():
-    """A phone asked for texts in the last minute."""
-    recently = timezone.now() - ONLINE_WITHIN
-    return SmsDevice.objects.filter(is_active=True, last_contact_at__gte=recently).exists()
+    """The phone asked for texts in the last minute."""
+    device = pick_device()
+    if device is None or device.last_contact_at is None:
+        return False
+    return device.last_contact_at >= timezone.now() - ONLINE_WITHIN
 
 
 def log_not_sent(reason, purpose, *, email_failed=False):

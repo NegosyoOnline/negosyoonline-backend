@@ -18,6 +18,10 @@ ACTIONS = {
     "admin_identity_reset": KEPT,
     "admin_identity_disable": KEPT,
     "sms_policy_change": KEPT,
+    "sms_device_add": KEPT,
+    "sms_device_rotate": KEPT,
+    "sms_device_disable": KEPT,
+    "sms_device_incoming": KEPT,
     "retention_run": KEPT,
 }
 SIGN_IN_ACTIONS = ("admin_sign_in_ok", "admin_sign_in_failed", "admin_locked", "admin_sign_out")

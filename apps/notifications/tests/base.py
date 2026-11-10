@@ -22,6 +22,12 @@ def online_phone(name="system", **fields):
     return SmsDevice.objects.create(name=name, token_hash=name.ljust(64, "0"), **fields)
 
 
+def make_phone(name, token, **fields):
+    """A phone that holds `token` and polled just now."""
+    fields.setdefault("last_contact_at", timezone.now())
+    return SmsDevice.objects.create(name=name, token_hash=sms.token_hash(token), **fields)
+
+
 def set_policy(**fields):
     SmsPolicy.objects.update_or_create(pk=1, defaults=fields)
 
