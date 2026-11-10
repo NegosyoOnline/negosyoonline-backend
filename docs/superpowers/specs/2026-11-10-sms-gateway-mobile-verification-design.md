@@ -2,7 +2,7 @@
 
 ClickUp task: z8uq9md33v "NPC Build 1 — SMS Carrier & Data-Flow Controls" (https://app.clickup.com/t/z8uq9md33v), parent z8uq9mbreu. This is slice 8 "Mobile OTP" of `docs/superpowers/specs/2026-11-10-backend-mvp-scope-design.md`.
 
-Status: **design proposed, mostly ruled. Nothing is built.** No code, migration, variable or Railway change exists. Section 2.1 records the rulings given so far. One decision is still open, the numbers in D6 (section 3), and the design as a whole, its migrations, its variable and the app's repository are not approved. Section 14 is a design for the add-on task; the table it describes is not created in this task. The plan is `docs/superpowers/plans/2026-11-10-backend-npc-build1-sms-gateway.md`.
+Status: **design proposed, every decision settled, not yet approved. Nothing is built.** No code, migration, variable or Railway change exists. D1 to D13 are settled; section 2.1 records each ruling with its source. What remains is Coach Ed's approval of the design as a whole, and then of each migration, the variable and the app's repository when the build reaches them. D14 is open, but it belongs to the add-on. Section 14 is a design for the add-on task; the table it describes is not created in this task. The plan is `docs/superpowers/plans/2026-11-10-backend-npc-build1-sms-gateway.md`.
 
 ## 1. Sources
 
@@ -40,12 +40,16 @@ Status: **design proposed, mostly ruled. Nothing is built.** No code, migration,
   - Inbox text will be stored, in its own table, separate from `SmsMessage`. This task designs that storage (section 14) and makes the gateway ready (sections 5.6 and 6.7). This task does not create the table, turn the switch on for the system phone, or build the inbox screens, replies, broadcasts or billing.
 - **2026-11-11, Coach Ed, in the coordinator session, on the mobile-change notice:** "Yes, email only", answering "Send the mobile-change notice by email only?". D7 is (a).
 - **2026-11-11, Coach Ed, in the coordinator session, on the sending order:** "1. priority: otp will be send right away 2. inbox messages: will be first in the queuing if there a lot of marketing messages 3. marketing messages: it will have random 18-25 sec random interval". Section 6.7 applies it. Item 1 applies to this task. Items 2 and 3 are readiness for the add-on: this task sends no inbox reply and no marketing text.
+- **2026-11-11, Coach Ed, in the coordinator session, on the daily limits (D6).** The coordinator recommended 4,000 a day for the platform (one SIM's daily capacity at the average 21.5-second pace of section 6.7) and 100 a day per site. His answer: "all site is at 4000".
+  - Per-site daily limit: 4,000. His words.
+  - Platform daily limit: 4,000. **The coordinator's reading, reported to Coach Ed**: it is the coordinator's recommendation, which he did not change. It is not his words.
+  - Both numbers live in the one `SmsPolicy` row with the kill switch, edited in the admin and audited (D6 (a), as proposed).
 - **2026-11-10, the coordinator, as reversible details inside the approved scope:** D3 is (a), the API host under `/gateway/`; D9, the `SmsMessage` field names as proposed; D11, two accounts may verify the same number.
-- **2026-11-11, the coordinator, as reversible details inside the approved scope, reported to Coach Ed:** D5 is (a), the web service starts retention once a day until slice 4's beat exists; D8 is (b), `GET /v1/account/mobile/` is not built; D10, the code text and the error wording as proposed in 7.2, 7.3 and 7.6.
+- **2026-11-11, the coordinator, as reversible details inside the approved scope, reported to Coach Ed:** D5 is (a), the web service starts retention once a day until slice 4's beat exists; D8 is (b), `GET /v1/account/mobile/` is not built; D10, the code text and the error wording as proposed in 7.2, 7.3 and 7.6; and the `status` sending class of section 6.7, after replies and ahead of marketing with no gap, as a reversible ordering detail inside the approved kinds of text.
 
 ## 3. Decisions that need Coach Ed
 
-Rows marked **Settled** are ruled (section 2.1) and are kept for the record. Two rows are open and **need Coach Ed**: the numbers in D6, which this task needs, and D14, which belongs to the add-on and does not hold this task up. The detail and the evidence are in the section named.
+Rows marked **Settled** are ruled (section 2.1) and are kept for the record. D1 to D13 are all settled. One row is open and **needs Coach Ed**: D14, which belongs to the add-on and does not hold this task up. The detail and the evidence are in the section named.
 
 | # | Decision | Options | Recommended | Consequence of the recommendation |
 |---|---|---|---|---|
@@ -54,7 +58,7 @@ Rows marked **Settled** are ruled (section 2.1) and are kept for the record. Two
 | D3 | Which hostname the phone uses (section 5.2) — **Settled**: (a), the coordinator, 2026-11-10 | (a) the API host, under `/gateway/`; (b) a dedicated host such as `sms.negosyoonline.com` | (a) | No new domain, DNS record or Railway custom domain. The phone's address is not in the published API description |
 | D4 | Where the text waits for the phone (section 6.3) — **Settled**: (a), Coach Ed, 2026-11-11 | (a) the cache, encrypted, for at most 10 minutes; (b) written only at pickup, from the record | (a) | The text exists only in Redis, as ciphertext, until the phone takes it or it expires. It is never in PostgreSQL |
 | D5 | What starts the retention job before slice 4 adds beat (section 9.3) — **Settled**: (a), the coordinator, 2026-11-11 | (a) the web service, once a day; (b) a Railway cron service; (c) by hand | (a) | No new Railway service. If the web service gets no gateway traffic for a day, that day's run is skipped and the next run catches up. Build 7 can reuse it or choose (b) |
-| D6 | The daily limits and where they are kept (section 8.1). **The numbers are open and need Coach Ed**; the coordinator is asking him whether the platform limit follows from the sending pace in 6.7. The place, (a), is kept as proposed | Numbers: carried from legacy, 500 a day for the platform and 100 a day per site, or Coach Ed's own. Kept in: (a) one settings row the admin edits in the Django admin; (b) Railway variables | 500 and 100, in (a) | The admin can change a limit or stop all sending in seconds, without a deploy. Each change is audited. One more small table |
+| D6 | The daily limits and where they are kept (section 8.1) — **Settled**, 2026-11-11: per site 4,000 (Coach Ed: "all site is at 4000"); platform 4,000 (the coordinator's reading, reported to Coach Ed); kept in (a) | Numbers: carried from legacy, 500 a day for the platform and 100 a day per site, or Coach Ed's own. Kept in: (a) one settings row the admin edits in the Django admin; (b) Railway variables | First draft: 500 and 100, in (a). Ruled: 4,000 and 4,000, in (a) | The admin can change a limit or stop all sending in seconds, without a deploy. Each change is audited. One more small table. With both numbers equal, one site could use the whole platform allowance in a day (section 8.1) |
 | D7 | The notice when a subscriber changes mobile (section 7.5) — **Settled**: (a), Coach Ed, 2026-11-11 | (a) email only; (b) also a text to the old number | (a) | Stays inside the ruling "only sign-in codes and order-status texts". The dashboard sentence "we send a notice to your old number and your email" must change, in a frontend task |
 | D8 | `GET /v1/account/mobile/` (section 7.4) — **Settled**: (b), the coordinator, 2026-11-11 | (a) serve it; (b) leave it out | (b) | `earnings.js` calls it; the Task and the scope doc list only `start/` and `verify/`. It is one read-only route if a later task asks for it. See 7.4 |
 | D9 | `SmsMessage` field names (section 6.1) — **Settled**: as recommended, the coordinator, 2026-11-10 | The Task says number, purpose, status, time. The scope doc says recipient, category, status, provider reference | `recipient`, `category`, `purpose`, `status`, `created_at`; a link to the sending phone instead of a provider reference | Both documents are satisfied. The scope doc line is amended |
@@ -289,7 +293,7 @@ His words: "1. priority: otp will be send right away 2. inbox messages: will be 
 |---|---|---|---|---|
 | `code` | Sign-in and verification codes | First | 0: sent at once | Yes, `mobile_verify` |
 | `reply` | A one-to-one inbox reply on a site's line | After codes, ahead of all marketing | 0 | No. The add-on declares it |
-| `status` | Order-status texts | After replies, ahead of marketing (**proposed; his ruling names three classes and does not place this one**) | 0 (proposed) | No sender yet; the tests declare one |
+| `status` | Order-status texts | After replies, ahead of marketing (**settled by the coordinator, reported to Coach Ed; his ruling names three classes and does not place this one**) | 0 (the same source) | No sender yet; the tests declare one |
 | `marketing` | A site's broadcast | Last | A random 18 to 25 seconds, chosen by the server for each text | No. The add-on declares it |
 
 **How the order is kept.** `poll` hands out waiting texts by class in the order above, and oldest first inside a class. A code queued after a hundred marketing texts is in the next `poll` answer.
@@ -300,13 +304,13 @@ His words: "1. priority: otp will be send right away 2. inbox messages: will be 
 
 **Item 1, checked against this design.** A code is handed over on the phone's next `poll`, at most about 5 seconds after it is queued, and sent at once. The fixed 2-second wait of an earlier draft is removed (section 5.1). What still spaces out a burst of codes: the phone sends one text at a time; a `poll` answer holds at most 5; and the request limits in 7.2 and the platform daily limit in 8.1 bound how many codes can be queued at all. None of these delays a single code.
 
-**The marketing pace, as arithmetic.** A random 18 to 25 seconds averages 21.5 seconds: about 167 texts an hour and about 4,018 a day for one SIM sending around the clock. Whether the platform daily limit (D6) should follow from this is being asked of Coach Ed; the numbers in 8.1 stay open.
+**The marketing pace, as arithmetic.** A random 18 to 25 seconds averages 21.5 seconds: about 167 texts an hour and about 4,018 a day for one SIM sending around the clock. The platform daily limit of 4,000 (D6, section 8.1) is this figure rounded down.
 
 **Differences from the add-on task's text, reported and not resolved here.** Coach Ed's words of 2026-11-11 are later than the add-on's description and win; the add-on's own design should restate them.
 
-- The add-on says broadcasts are paced at "a randomized 20–25 seconds per actual SMS page". He now says 18 to 25 seconds. Whether the interval is per text or per page is not in his words; this design carries one gap per text handed out, and a per-page rule is the server choosing a longer gap for a longer text, with no change to the app.
+- The add-on says broadcasts are paced at "a randomized 20–25 seconds per actual SMS page". He now says 18 to 25 seconds. Whether the interval is per text or per page is not in his words and **stays open for the add-on**; this design carries one gap per text handed out, and a per-page rule is the server choosing a longer gap for a longer text, with no change to the app.
 - The add-on says a CRM reply goes "outside the paced queue". He now says inbox messages are "first in the queuing" when there are many marketing messages. This design reads the two as the same thing: a reply is ahead of every marketing text and carries no gap.
-- The add-on places order and service notifications from a site's line in "the next available paced slot ahead of broadcasts". His ruling does not name that class. Proposed above as `status`; the add-on decides whether it carries a gap.
+- The add-on places order and service notifications from a site's line in "the next available paced slot ahead of broadcasts". His ruling does not name that class. It is `status` above, placed by the coordinator; the add-on decides whether it carries a gap on a site's line.
 - The add-on describes "a TWC-owned GSM module" holding the subscriber's SIM and "a durable Celery queue". This design's gateway is an Android phone running our app, and its queue is the send records. Which hardware a dedicated line uses is the add-on's decision.
 
 ## 7. Mobile verification (A2)
@@ -365,15 +369,17 @@ The dashboard says: "Changing your mobile sends a notice to your old number and 
 
 ## 8. Controls (A3)
 
-### 8.1 Daily limits (D6; the numbers are open)
+### 8.1 Daily limits (D6; settled, 2026-11-11)
 
-- **Per site:** `status` texts for one site in one Manila day. Proposed: 100.
-- **Platform:** every text in one Manila day. Proposed: 500. Both numbers are legacy's defaults; they need Coach Ed, because the right ceiling is whatever an ordinary Globe plan tolerates. Globe's fair-use terms for unlimited texts were looked for and not found (section 12).
+- **Per site:** `status` texts for one site in one Manila day. **4,000** (Coach Ed, 2026-11-11: "all site is at 4000").
+- **Platform:** every text in one Manila day. **4,000**. This half is the coordinator's reading, reported to Coach Ed: the coordinator recommended 4,000 as one SIM's daily capacity at the average 21.5-second pace (section 6.7), and he did not change it. The first draft carried legacy's defaults, 500 and 100.
+- **The consequence, stated plainly.** With both limits at 4,000 and one system phone, a single site could use the whole platform allowance in a day, and every other site's texts, and every code, would then be refused until the Manila day ends. The per-site limit becomes a real, separate ceiling only when sites have their own lines in the add-on. Until then the platform limit is the one that binds, and the admin can lower either number in seconds.
+- Not verified: what an ordinary Globe plan tolerates. Globe's fair-use terms for unlimited texts were looked for and not found (section 12). 4,000 is what one SIM can physically send at the marketing pace, not a figure from Globe.
 - The counts are kept in the cache with an atomic add, so two requests cannot both take the last slot, and are started from a count of the day's records if the cache was emptied. The records stay the source of truth.
 - A `code` text has no site, so it counts against the platform limit only. The per-site limit has no real sender until order-status texts exist; it is built and tested now.
 - Risk accepted: a flood of code requests could use up the platform limit for everyone that day. The per-account, per-number and per-IP limits in 7.2 bound it, and only a signed-in account can ask.
 
-**Where the numbers and the kill switch live.** Kept as proposed, (a), while the numbers are open. (a) One `SmsPolicy` row, edited in the Django admin (which requires two-step sign-in), each change written to `OperatorAuditEntry` with the before and after values. Recommended: stopping all sending takes seconds and no deploy. (b) Railway variables: no table, but every change is a redeploy and a variable approval, which is slow for a kill switch.
+**Where the numbers and the kill switch live.** Settled: (a), so either number can be changed without a deploy. (a) One `SmsPolicy` row, edited in the Django admin (which requires two-step sign-in), each change written to `OperatorAuditEntry` with the before and after values. Stopping all sending takes seconds and no deploy. (b) Railway variables, not chosen: no table, but every change is a redeploy and a variable approval, which is slow for a kill switch.
 
 ### 8.2 Kill switch
 
