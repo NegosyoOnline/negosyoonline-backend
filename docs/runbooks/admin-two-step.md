@@ -1,6 +1,8 @@
 # Admin Two-Step Sign-In Runbook
 
-Two-step sign-in protects hq and the Django admin. An admin identity holds the second step: an authenticator secret and ten recovery codes. Identities are managed only with `manage.py admin_identity`, from a terminal. No browser page can add, enrol, reset or disable one.
+hq is the only admin door. Signing in to hq takes two steps: a code emailed to the admin address, then an authenticator code or one recovery code. The admin lists (the Django admin) are served only on the hq host, at `/admin/`, and open only for an hq session that passed both steps. There is no username-and-password sign-in, and no other host serves `/admin/`.
+
+An admin identity holds the second step: an authenticator secret and ten recovery codes. Identities are managed only with `manage.py admin_identity`, from a terminal. No browser page can add, enrol, reset or disable one.
 
 Every step below that touches staging or production needs Coach Ed's approval for that step. Nothing here is approved by this document.
 
@@ -9,8 +11,9 @@ Every step below that touches staging or production needs Coach Ed's approval fo
 | Name | Meaning |
 |---|---|
 | `ADMIN_SECRETS_KEY` | Fernet key that encrypts authenticator secrets. Empty: nobody can be enrolled and no second step can succeed. Changing it makes every stored secret unreadable, so every identity must be reset and enrolled again. |
-| `ADMIN_TWO_STEP_REQUIRED` | `1` makes the Django admin ask for the second step. Anything else is off. |
-| `HQ_HOST` | The one host that serves hq. Empty: hq is off. |
+| `HQ_HOST` | The one host that serves hq and the admin lists. Empty: hq is off and the lists are served nowhere. |
+
+`ADMIN_TWO_STEP_REQUIRED` is no longer read by the code. See "Release order" for when it may be deleted.
 
 Create a key on your own computer and put it straight into the variable. Never paste it into chat, a ticket or a commit:
 
@@ -20,12 +23,20 @@ uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_
 
 ## Release order
 
-1. Deploy and migrate with `ADMIN_TWO_STEP_REQUIRED` unset. Nothing changes for anyone.
-2. Set `ADMIN_SECRETS_KEY`. Add and enrol every staff user who must keep using the Django admin (below). `admin_identity list` names the staff users who are not covered yet.
-3. Set `ADMIN_TWO_STEP_REQUIRED=1`.
-4. Check: the Django admin asks for the code after the password, and hq signs in.
+For a new environment:
 
-To go back, unset `ADMIN_TWO_STEP_REQUIRED`. The Django admin stops asking at once and the identities stay. `admin_identity list` then warns that an identity is enrolled while the switch is off; that warning is expected.
+1. Deploy and migrate.
+2. Set `ADMIN_SECRETS_KEY`. Add and enrol every staff user who needs the admin lists (below). `admin_identity list` names the staff users who are not covered yet.
+3. Set `HQ_HOST`.
+4. Check: hq signs in with both steps, "Open admin lists" opens the lists, and `/admin/` on the API host answers 404.
+
+For an environment that ran the earlier build, where the Django admin had its own sign-in behind `ADMIN_TWO_STEP_REQUIRED=1`:
+
+1. Before the release, confirm an admin can sign in to hq and has recovery codes at hand. Leave `ADMIN_TWO_STEP_REQUIRED=1` in place.
+2. Deploy. One build removes the admin from the API host and opens the lists behind hq. No migration and no variable change is needed.
+3. Check as in step 4 above.
+4. To go back, redeploy the previous build. Because the variable is still `1`, the old admin returns with its second step, never with the password alone.
+5. Only after the release is accepted, delete `ADMIN_TWO_STEP_REQUIRED`. Never unset it while the earlier build could still be redeployed.
 
 ## Commands
 
@@ -43,19 +54,43 @@ uv run python manage.py admin_identity list
 - In the authenticator app choose "enter a setup key", type the key, and keep the defaults (time-based, 6 digits).
 - `reset` removes the secret and the recovery codes and ends that admin's sessions. Run `enrol` again afterwards.
 - `disable` ends that admin's sessions and keeps the row. The same address cannot be added again.
-- `list` changes nothing and writes no audit record.
+- `list` changes nothing and writes no audit record. It names the staff users with no enrolled identity: they cannot open the admin lists.
 
 Every action except `list` writes an `OperatorAuditEntry` and one error-level log line starting `admin-identity-change:`.
 
-## Lost phone
+### Commands on staging
 
-- Recovery codes at hand: sign in with one, then run `reset` and `enrol` from the terminal.
+The interactive staging shell has no `uv` and no `python` on its path. These fail there:
+
+```bash
+uv run python manage.py admin_identity list
+python manage.py admin_identity list
+```
+
+Use the service's own interpreter instead:
+
+```bash
+/app/.venv/bin/python manage.py admin_identity list
+/app/.venv/bin/python manage.py admin_identity enrol EMAIL --actor USERNAME
+```
+
+The same holds for every other `manage.py` command in that shell.
+
+## Lost phone, or hq sign-in does not work
+
+There is no password to fall back on. The ways in are:
+
+- Recovery codes at hand: sign in to hq with one, then run `reset` and `enrol` from the terminal.
 - No recovery codes: run `reset` then `enrol` from the terminal.
-- Nobody can reach a terminal with a working second step and the Django admin is needed now: unset `ADMIN_TWO_STEP_REQUIRED`, then reset and enrol.
+- The sign-in email does not arrive: check the email service and the `EmailMessage` rows from the terminal. Until it is fixed, data can be read from the Django shell in the terminal.
+- Straight after a release from the earlier build: redeploy the previous build (see "Release order").
 
 ## What the logs say
 
 - `admin-secrets-key-empty:` the key is empty, invalid, or not the key the secrets were stored with. Logged at most once an hour. No second step can succeed until it is fixed.
 - `admin-identity-change:` an identity was added, enrolled, reset or disabled.
+- `hq-host-refused:` `HQ_HOST` is malformed or clashes with another host. hq and the admin lists stay off until it is fixed.
 
-Five wrong codes pause that admin's sign-in on hq and the Django admin for 15 minutes, end their live sessions and send them an email. The pause ends by itself; `reset` also clears it.
+Five wrong codes pause that admin's sign-in for 15 minutes, end their live sessions (the admin lists close with them) and send them an email. The pause ends by itself; `reset` also clears it.
+
+Sign-ins, wrong codes, pauses and sign-outs are written to `OperatorAuditEntry`. "Sign out" on an admin list is the hq sign-out and is recorded the same way.

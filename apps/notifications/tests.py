@@ -4,6 +4,7 @@ from django.core import mail
 from django.test import TestCase
 
 from apps.notifications.models import EmailMessage
+from apps.operators.tests.base import HqAdminMixin, on_hq
 from apps.notifications.services import EmailNotSent, send_email
 
 
@@ -65,17 +66,17 @@ class EmailHeaderSafetyTests(TestCase):
         self.assertEqual(headers["To"], "ana@example.test")
 
 
-class NotificationsAdminMaskingTests(TestCase):
+@on_hq
+class NotificationsAdminMaskingTests(HqAdminMixin, TestCase):
     def test_the_email_list_shows_the_recipient_masked(self):
         from django.contrib.auth import get_user_model
-        from django.urls import reverse
 
         operator = get_user_model().objects.create_superuser("op", "op@operators.test", "pw")
-        self.client.force_login(operator)
+        self.open_hq_session(operator)
         EmailMessage.objects.create(recipient="ana.reyes@example.test", category="signin_code")
 
-        url = reverse("admin:notifications_emailmessage_changelist")
-        response = self.client.get(url, secure=True)
+        url = self.admin_url("admin:notifications_emailmessage_changelist")
+        response = self.hq_get(url)
 
         self.assertContains(response, "a***@example.test")
         self.assertNotContains(response, "ana.reyes@example.test")
