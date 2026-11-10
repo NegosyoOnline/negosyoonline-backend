@@ -969,7 +969,7 @@ git add apps/sites && git commit -m "feat: add the onboarding state endpoint and
 
 - [ ] **Step 3: APPROVAL. `SITE_PARENT_HOST` on staging**
 
-A Railway variable change. Needs Coach Ed's explicit approval and the value (Decision 6). Until it is set, `host` is `null` and `site_host_suffix` is empty; everything else works.
+A Railway variable change. Needs Coach Ed's explicit approval. The value is `storefronts-staging.negosyonline.com` (Decision 6). Until it is set, `host` is `null` and `site_host_suffix` is empty; everything else works.
 
 - [ ] **Step 4: Verify on staging**
 
@@ -987,7 +987,9 @@ After the deploy: `/healthz/` shows the merge commit; `/v1/openapi.json` lists t
 
 Only what the task, the spec and the rulings do not settle. Each has a recommendation.
 
-1. **Where the trial start lands before billing exists.** Spec section 7 says creating the first site also creates its `Subscription`, with trial dates copied from `Account.created_at`. Billing has no owner and no tables.
+Status on 2026-11-10: decisions 2, 4, 5, 6 and 7 are settled by the coordinator, as noted under each. Decisions 1 and 3 are with Coach Ed, because they change the approved spec or an accepted screen.
+
+1. **Where the trial start lands before billing exists.** *Open: with Coach Ed.* Spec section 7 says creating the first site also creates its `Subscription`, with trial dates copied from `Account.created_at`. Billing has no owner and no tables.
    - **Recommended: record nothing in slice 3.** The trial dates are fully determined by `Account.created_at` (14 days), which already exists. Slice 4 adds `Subscription`, a call inside `create_first_site`'s transaction, and a one-time backfill for sites created before it, computed from the same dates. No information is lost, and billing's table is designed by whoever owns billing.
    - Alternative: create a minimal `apps/billing` with `Subscription` now. It commits the billing schema before the billing values in spec section 7 are confirmed, and puts unowned code in this slice.
    - Consequence of the recommendation: until slice 4, the API cannot say "trial active" or "trial ended", and site creation is not limited by the trial (which matches spec section 7).
@@ -996,25 +998,30 @@ Only what the task, the spec and the rulings do not settle. Each has a recommend
    - **Recommended: a new `GET /v1/account/setup/`**, served by the sites app, with the `Setup` shape above; it also replaces legacy's `GET /platform/eligibility/`. It keeps the path the dashboard already calls.
    - Alternative: fold it into `GET /v1/me/`. That makes the accounts app, owned by the other session, read site tables on every page load.
    - Needs a one-line amendment to spec section 8.
+   - **Settled by the coordinator, 2026-11-10: yes.** `GET /v1/account/setup/` is served by the sites app, with the spec section 8 amendment in Task 9 Step 1. Source: task `z8uq9mach6` requires a persisted, resumable onboarding state; the dashboard already calls this path; `/me/` belongs to the staging proof session.
 
-3. **`GET /v1/dashboard/`.** Its legacy payload is `trial`, `referral` and `kpis`: billing, referrals and commerce figures, none of which exist here.
+3. **`GET /v1/dashboard/`.** *Open: with Coach Ed.* Its legacy payload is `trial`, `referral` and `kpis`: billing, referrals and commerce figures, none of which exist here.
    - **Recommended: do not build it in slice 3.** The Overview decides its mode from `GET /account/setup/` and takes the site label from it. The trial strip returns with slice 4 (`GET sites/{site_id}/billing/`), the referral link with slice 7, sales figures with commerce.
    - Consequence: until slice 4 the Overview shows no trial strip.
 
 4. **Where the business name is written.** The spec's data model puts it in `SiteBusinessProfile`. The dashboard's Step 3 saves business name and both contacts in one call.
    - **Recommended: keep it in `SiteBusinessProfile`**, written only through `PATCH sites/{site_id}/business-profile/`, and returned read-only on `Site`. Step 3 makes two calls (it already makes two on the Business Settings page). One writer per field, as the spec's model says.
    - Alternative: let `PATCH sites/{site_id}/` also accept `business_name`. One call for Step 3, but two endpoints write one field.
+   - **Settled by the coordinator, 2026-11-10: the recommendation.** `business_name` is written only through `PATCH sites/{site_id}/business-profile/` and is read-only on `Site`, as the spec's data model says. The frontend builder makes Step 3 two calls.
 
 5. **Fields the dashboard needs that the spec's data model lacks.** The spec lists `SiteBusinessProfile` as "business name, TIN, DTI number, address, shipping estimates" and `Site` social links without naming them. The copied Business Settings page (`business.js`) also reads and writes `registered_name`, `bir_rsn`, `complaints_contact_name`, `privacy_contact_email` and `shipping_estimates_confirmed`.
    - **Recommended: carry all of them now**, as in the model above, with `instagram_url` and `tiktok_url` as the two social links. They are in one new table, so adding them later would cost a second migration and approval.
    - Not carried either way: the BIR seal image (needs private storage).
    - Also new and not in the spec: the `Onboarding` table (first site and two timestamps per account). It is what makes resumed and concurrent creation safe without touching `apps/accounts`.
+   - **Settled by the coordinator, 2026-11-10: carry them.** The extra business profile fields, `instagram_url` and `tiktok_url`, and the `Onboarding` table are in. Reason: the Business Settings screen is accepted work that already uses them, and one migration is better than two. They remain part of the migration Coach Ed approves with this plan. The BIR seal image stays out.
 
 6. **The staging value of `SITE_PARENT_HOST`.** The builder brief gives `negosyotest.com` for local testing. No document names the parent host for subscriber sites on staging or production.
    - **Recommended: Coach Ed names it when Task 9 Step 3 comes up.** Nothing in the code depends on the value.
+   - **Settled by the coordinator, 2026-11-10: the staging value is `storefronts-staging.negosyonline.com`.** Source: the `negosyoonline-frontend` README, "Storefronts staging domains" (the `*.storefronts-staging.negosyonline.com` wildcard has a valid certificate). Setting the Railway variable still needs Coach Ed's approval at Task 9 Step 3. Local stays `negosyotest.com`. Production is not set.
 
 7. **Operator actions on the ledger** (rename a site's subdomain, release a retired name, assign a brand-reserved name). Spec section 5 requires an audit entry for a release, and `OperatorAuditEntry` has not been built.
    - **Recommended: a separate small task after this slice.** This plan leaves the admin read-only, so no name can be released or reissued by accident.
+   - **Settled by the coordinator, 2026-11-10: out of this plan.** The admin stays read-only. The coordinator raises the follow-up task with Coach Ed.
 
 ## Self-review against the spec
 
