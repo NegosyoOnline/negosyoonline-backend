@@ -13,6 +13,7 @@ from apps.notifications.models import SmsDevice, SmsMessage
 from apps.notifications.tests.base import (
     CODE_TEXT, MOBILE, STATUS_TEXT, SmsTestCase, fallback, make_phone, set_policy,
 )
+from apps.operators.models import OperatorAuditEntry
 from apps.operators.tests.base import run_now
 
 P = SmsMessage.Priority
@@ -277,6 +278,19 @@ class PollTests(GatewayCase):
             (self.phone.app_version, self.phone.battery_percent, self.phone.is_charging),
             ("1.2.0", 87, True),
         )
+
+    def test_poll_starts_the_days_retention_run_once(self):
+        for _ in range(3):
+            self.poll()
+
+        self.assertEqual(OperatorAuditEntry.objects.filter(action="retention_run").count(), 1)
+
+    def test_a_refused_poll_starts_no_retention_run(self):
+        self.assertEqual(self.call("poll", token="wrong").status_code, 401)
+        with override_settings(SMS_GATEWAY_ENABLED=False):
+            self.assertEqual(self.call("poll").status_code, 404)
+
+        self.assertFalse(OperatorAuditEntry.objects.filter(action="retention_run").exists())
 
     def test_14_odd_values_from_the_phone_are_not_stored(self):
         self.poll(body={"app_version": "x" * 200, "battery": 900, "charging": "yes"})

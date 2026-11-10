@@ -34,7 +34,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from apps.accounts.sessions import client_ip
 from apps.common.errors import error_body
-from apps.notifications import services, sms
+from apps.notifications import retention, services, sms
 from apps.notifications.models import SmsDevice, SmsMessage
 
 logger = logging.getLogger(__name__)
@@ -175,6 +175,7 @@ def poll(request, device):
     now = timezone.now()
     _note_contact(device, body, now)
     sms.sweep(now, services.unsent)
+    retention.start_daily()
     answer = {"messages": [], "wait": WAIT, "incoming": device.forwards_incoming}
     if sms.policy().sending_stopped:
         answer["wait"] = WAIT_STOPPED
