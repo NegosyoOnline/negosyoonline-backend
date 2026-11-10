@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status: approved by Coach Ed on 2026-11-10, as written, with the seven decisions below as recommended. Decision 6 is the one exception: his approval left open whether the Meta app is shared with the legacy sign-in in TWCinc, so the data deletion URL does not move (Task 6 Step 6 is not done) until he answers. The three APPROVAL steps in Task 6 still need his approval at the time.**
+**Status: complete on staging, 2026-11-10. Approved by Coach Ed that day, as written, with the seven decisions below as recommended. PR A (#32) and PR B (#34) are merged and deployed. Task 6 Steps 4 and 5 were done with his approval: the Facebook variables are set on staging, and he signed in once with Facebook, confirmed an email by code (Facebook returned no email for his account, so he typed one), and on a second visit went straight to the dashboard. Task 6 Step 6 is deferred to cutover: he confirmed the Meta app is shared with the legacy sign-in in TWCinc, so its data deletion URL stays on legacy until then. Moving it needs his approval at the time.**
 
 **Goal:** A subscriber can sign up and sign in with Facebook. The first time a Facebook user is seen they confirm an email address with a 6-digit code; after that, Facebook alone signs them in. Meta's data deletion callback removes the Facebook link.
 
@@ -36,7 +36,7 @@ Each has a recommendation. The plan is written to the recommendations; a differe
 3. **The email cannot be changed when Facebook supplies one.** Per the spec, the subscriber types an email only when Facebook returned none. Either way it must be confirmed by code, even when it matches an existing account (already decided on 2026-11-10).
 4. **Data deletion removes the Facebook link only.** The account, its sites and its sessions stay; the person can still sign in by email code. An audit event is recorded. (Task 5.)
 5. **The status URL is one small API endpoint not in the spec's table:** `GET /v1/webhooks/facebook/data-deletion/{code}/`, answering `{"status": "completed"}`. The deletion happens during Meta's call, so there is nothing to track and no new table: the confirmation code is a value signed by this API, and the status endpoint only checks that signature. (Task 5.)
-6. **Which Meta app, and when its data deletion URL moves.** Recommended: use the approved Meta app; Coach Ed enters its app id and secret in Railway himself. A Meta app has exactly one data deletion URL. If the legacy sign-in in TWCinc uses the same app, that URL stays on legacy until cutover, and Task 6 Step 6 is skipped for now. Coach Ed decides. (2026-11-10: the recommendation is approved; whether the app is shared with legacy is not yet answered, so Step 6 waits.)
+6. **Which Meta app, and when its data deletion URL moves.** Recommended: use the approved Meta app; Coach Ed enters its app id and secret in Railway himself. A Meta app has exactly one data deletion URL. If the legacy sign-in in TWCinc uses the same app, that URL stays on legacy until cutover, and Task 6 Step 6 is skipped for now. Coach Ed decides. (2026-11-10: approved. Coach Ed confirmed the app is shared with legacy, so the URL stays on legacy until cutover and Step 6 is deferred.)
 7. **No Graph API version is pinned and no dependency is added.** The calls use Facebook's unversioned URLs, which Meta serves with the app's default version. This avoids hard-coding a version that Meta retires. If Meta's dashboard shows a deprecation warning for the app, pin the version it names in `apps/accounts/facebook.py`.
 
 ## Rules for whoever executes this
@@ -1481,11 +1481,11 @@ git add README.md AGENTS.md
 git commit -m "docs: record Facebook sign-in"
 ```
 
-- [ ] **Step 2: Open PR B**
+- [x] **Step 2: Open PR B**
 
 Push and open the pull request "feat: Facebook sign-in endpoints and the data deletion callback". Say in the description that it adds no migration and that every new endpoint answers 404 until the Facebook variables are set. Enable auto-merge.
 
-- [ ] **Step 3: Verify the deploy on staging**
+- [x] **Step 3: Verify the deploy on staging**
 
 ```bash
 scripts/wait_railway_deploy.sh <before-deployment-id>
@@ -1496,7 +1496,7 @@ curl -s -o /dev/null -w "%{http_code}\n" https://api-staging.negosyonline.com/v1
 
 Expected: `OK:` with the merge commit; the five paths `/v1/auth/facebook/callback/`, `/v1/auth/facebook/confirm-email/`, `/v1/auth/facebook/start/`, `/v1/webhooks/facebook/data-deletion/` and `/v1/webhooks/facebook/data-deletion/{code}/`; then `404` (no Facebook variables yet).
 
-- [ ] **Step 4: APPROVAL. Facebook variables on staging**
+- [x] **Step 4: APPROVAL. Facebook variables on staging**
 
 Before this step Coach Ed adds `https://api-staging.negosyonline.com/v1/auth/facebook/callback/` to the Meta app's "Valid OAuth Redirect URIs" (Facebook Login settings).
 
@@ -1509,7 +1509,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST -d 'signed_request=not.signed' 
 
 Expected: `302 https://www.facebook.com/dialog/oauth?client_id=...&redirect_uri=https%3A%2F%2Fapi-staging.negosyonline.com%2Fv1%2Fauth%2Ffacebook%2Fcallback%2F&...&scope=public_profile%2Cemail`, then `400` (an unsigned deletion request is refused). If `redirect_uri` shows `http` or another host, stop.
 
-- [ ] **Step 5: APPROVAL. One real Facebook sign-in on staging**
+- [x] **Step 5: APPROVAL. One real Facebook sign-in on staging**
 
 With Coach Ed's approval, Coach Ed (not an agent) opens this in his own browser and continues with a Facebook account he chooses:
 
@@ -1528,11 +1528,11 @@ await (await fetch("https://api-staging.negosyonline.com/v1/auth/facebook/confir
 
 Expected: `{email: "..."}` naming where the code went, then `{account: {...}, created: ...}`. He then opens `https://api-staging.negosyonline.com/v1/me/` in the same browser and sees his account. This creates one real account on staging, or links Facebook to the account that already has that email. A second visit to the `start` link then goes straight to the dashboard with no code.
 
-- [ ] **Step 6: APPROVAL. Meta's data deletion URL**
+- [ ] **Step 6: APPROVAL. Meta's data deletion URL** (deferred to cutover, 2026-11-10)
 
 Only when Coach Ed has decided decision 6 in favour of it: he sets the Meta app's "Data Deletion Request URL" to `https://api-staging.negosyonline.com/v1/webhooks/facebook/data-deletion/`. Meta's dashboard offers a test send; the expected result there is a confirmation code and a status URL that opens to `{"status": "completed"}`. If the legacy sign-in still uses this Meta app, skip this step and record that it is deferred to cutover.
 
-- [ ] **Step 7: Tell the coordinator**
+- [x] **Step 7: Tell the coordinator**
 
 Tell the coordinator session for ClickUp task `z8uq9mach5` that Facebook sign-in is live on staging, with the three sign-in endpoints, the `confirm-email` table and the error codes from Task 4.
 
