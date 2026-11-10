@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status: proposed. Not approved. No code, migration or staging change may start until Coach Ed approves this plan and answers the decisions below.**
+**Status: approved by Coach Ed on 2026-11-10, as written, with the six decisions below as recommended. The three staging steps marked APPROVAL still need his approval at the time.**
 
 **Goal:** A subscriber can sign up and sign in with their Google account: the dashboard sends the browser to the API, the API sends it to Google, and Google sends it back to the API, which signs the account in and returns the browser to the dashboard.
 
@@ -17,9 +17,9 @@
 - **In:** `ExternalIdentity`, the Google redirect flow, signing in or creating an account from it, linking Google to an existing account with the same email.
 - **Not in:** Facebook and Meta's data deletion callback (2c), unlinking Google from an account, showing linked providers in account settings, any frontend work, anything from slice 3 onward.
 
-## Decisions for Coach Ed
+## Decisions (approved by Coach Ed on 2026-11-10)
 
-Each has a recommendation. The plan below is written to the recommendations; a different answer changes only the step named.
+Coach Ed approved each recommendation below as written. The landing paths in decision 3 must still be confirmed with the coordinator session before PR B.
 
 1. **Other sessions stay signed in.** The spec says an email-code sign-in revokes the account's earlier sessions. It does not say so for Google. Recommended: a Google sign-in leaves other sessions alone, so a subscriber can use a phone and a laptop. (Changing this is one line in Task 3.)
 2. **Accepting the policies.** A new account must accept the terms and privacy policy. Recommended: the dashboard's "Continue with Google" link carries `?accept_policies=true` when the box is ticked. If Google returns a person with no account and the box was not ticked, no account is created and the browser returns to the dashboard with `error=policies_required`.
