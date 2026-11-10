@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status: proposed. Not approved. No code or staging change may start until Coach Ed approves this plan and answers the decisions below.**
+**Status: approved by Coach Ed on 2026-11-10, as written, with the seven decisions below as recommended. Decision 6 is the one exception: his approval left open whether the Meta app is shared with the legacy sign-in in TWCinc, so the data deletion URL does not move (Task 6 Step 6 is not done) until he answers. The three APPROVAL steps in Task 6 still need his approval at the time.**
 
 **Goal:** A subscriber can sign up and sign in with Facebook. The first time a Facebook user is seen they confirm an email address with a 6-digit code; after that, Facebook alone signs them in. Meta's data deletion callback removes the Facebook link.
 
@@ -36,7 +36,7 @@ Each has a recommendation. The plan is written to the recommendations; a differe
 3. **The email cannot be changed when Facebook supplies one.** Per the spec, the subscriber types an email only when Facebook returned none. Either way it must be confirmed by code, even when it matches an existing account (already decided on 2026-11-10).
 4. **Data deletion removes the Facebook link only.** The account, its sites and its sessions stay; the person can still sign in by email code. An audit event is recorded. (Task 5.)
 5. **The status URL is one small API endpoint not in the spec's table:** `GET /v1/webhooks/facebook/data-deletion/{code}/`, answering `{"status": "completed"}`. The deletion happens during Meta's call, so there is nothing to track and no new table: the confirmation code is a value signed by this API, and the status endpoint only checks that signature. (Task 5.)
-6. **Which Meta app, and when its data deletion URL moves.** Recommended: use the approved Meta app; Coach Ed enters its app id and secret in Railway himself. A Meta app has exactly one data deletion URL. If the legacy sign-in in TWCinc uses the same app, that URL stays on legacy until cutover, and Task 6 Step 6 is skipped for now. Coach Ed decides.
+6. **Which Meta app, and when its data deletion URL moves.** Recommended: use the approved Meta app; Coach Ed enters its app id and secret in Railway himself. A Meta app has exactly one data deletion URL. If the legacy sign-in in TWCinc uses the same app, that URL stays on legacy until cutover, and Task 6 Step 6 is skipped for now. Coach Ed decides. (2026-11-10: the recommendation is approved; whether the app is shared with legacy is not yet answered, so Step 6 waits.)
 7. **No Graph API version is pinned and no dependency is added.** The calls use Facebook's unversioned URLs, which Meta serves with the app's default version. This avoids hard-coding a version that Meta retires. If Meta's dashboard shows a deprecation warning for the app, pin the version it names in `apps/accounts/facebook.py`.
 
 ## Rules for whoever executes this
