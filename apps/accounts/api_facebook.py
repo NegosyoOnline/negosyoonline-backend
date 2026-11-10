@@ -2,6 +2,7 @@
 import secrets
 
 from django.conf import settings
+from django.core import signing
 from django.http import HttpResponse, HttpResponseRedirect
 from ninja import Router, Schema
 
@@ -142,3 +143,44 @@ def facebook_confirm_email(request, response: HttpResponse, payload: FacebookCon
     set_session_cookie(response, token)
     clear_flow_cookie(response, PENDING_COOKIE, COOKIE_PATH)
     return 200, {"account": account_out(account), "created": created}
+
+
+# Meta's data deletion callback. Meta's servers call it; the signature is the proof.
+DELETION_PATH = "/v1/webhooks/facebook/data-deletion/"
+DELETION_SALT = "accounts.facebook.data-deletion"
+DELETION_MAX_BYTES = 16_384
+
+
+class DeletionOut(Schema):
+    url: str
+    confirmation_code: str
+
+
+class DeletionStatusOut(Schema):
+    status: str
+
+
+@router.post("/webhooks/facebook/data-deletion/", response=DeletionOut)
+def facebook_data_deletion(request):
+    _require_facebook()
+    if len(request.body) > DELETION_MAX_BYTES:
+        raise ApiError("payload_too_large", "The request is too large.", status=413)
+    try:
+        user_id = facebook.parse_signed_request(request.POST.get("signed_request", ""))
+    except facebook.BadSignedRequest:
+        raise ApiError("invalid_signature", "The request is not signed by Meta.") from None
+    # The same answer whether or not we knew this Facebook user, so the call reveals nothing.
+    services.remove_facebook_identity(user_id)
+    # The unlink is already done, so there is nothing to track: the code is a value we signed,
+    # and the status endpoint only has to recognise its own signature.
+    code = signing.dumps(secrets.token_hex(8), salt=DELETION_SALT)
+    return {"url": request.build_absolute_uri(f"{DELETION_PATH}{code}/"), "confirmation_code": code}
+
+
+@router.get("/webhooks/facebook/data-deletion/{code}/", response=DeletionStatusOut)
+def facebook_data_deletion_status(request, code: str):
+    try:
+        signing.loads(code, salt=DELETION_SALT)
+    except signing.BadSignature:
+        raise ApiError("not_found", "No such request.", status=404) from None
+    return {"status": "completed"}
