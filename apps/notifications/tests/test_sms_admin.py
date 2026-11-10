@@ -52,6 +52,10 @@ class SmsAdminTests(SmsAdminCase):
         self.assertContains(found, f'name="q" value="{MOBILE}"')
         missing = self.hq_get(self.url("smsmessage") + "?q=%2B639990000000")
         self.assertNotContains(missing, MASKED)
+        for fragment in ("4567", "%2B63917", "9171234567"):
+            with self.subTest(fragment=fragment):
+                response = self.hq_get(self.url("smsmessage") + f"?q={fragment}")
+                self.assertNotContains(response, MASKED)
 
     def test_2_the_detail_page_shows_the_number_masked(self):
         response = self.hq_get(self.url("smsmessage", "change", self.message.pk))

@@ -57,7 +57,7 @@ class SmsMessageAdmin(GatewayAdmin, MaskedListAdmin):
         "sent_at",
     )
     list_filter = ("category", "status", "reason")
-    search_fields = ("recipient",)  # matches a full number typed by the admin
+    search_fields = ("=recipient",)  # a full number typed by the admin, never a fragment
     list_select_related = ("site", "device")
     # The detail page lists its fields by name, so the full number is never one of them.
     fields = (

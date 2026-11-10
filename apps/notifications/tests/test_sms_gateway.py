@@ -149,6 +149,17 @@ class PollTests(GatewayCase):
         self.assertEqual(len(self.poll()["messages"]), 1)
         self.assertEqual(self.poll()["messages"], [])
 
+    def test_4_a_second_claim_of_the_same_record_gets_nothing(self):
+        message = self.queue()
+        now = timezone.now()
+        with mock.patch.object(gateway, "_waiting", return_value=[message]):
+            first = gateway._hand_out(self.phone, now)
+            second = gateway._hand_out(self.phone, now)  # as a poll that read the queue too early
+
+        self.assertEqual([m["id"] for m in first], [message.public_id])
+        self.assertEqual(second, [])
+        self.assertEqual(self.state(message), (S.DISPATCHED, ""))
+
     def test_5_the_text_is_gone_from_the_cache_after_handout(self):
         message = self.queue()
         self.poll()
