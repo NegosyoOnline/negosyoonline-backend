@@ -48,7 +48,7 @@ Each item is separate. The recommended answer is what the rest of the plan assum
 - **Checked.** The Task says each rule runs "behind a switch that is off by default" and "with the switch off, no rule deletes or blanks anything". It does not say whether one account disposed of on a person's request counts as a rule.
 - **Recommended.** The switch covers everything that deletes or blanks, on-request disposal included. With the switch off, `dispose_account` refuses and only its dry run works. The export is not covered by the switch: it changes nothing.
 - **Consequence.** A deletion request cannot be carried out in an environment until Coach Ed approves switching retention on there.
-- **What the switch will mean later.** This build has no schedule, so today switching it on starts nothing. The SMS build will later add a once-a-day start that runs every registered rule (agreed between the two coordinators). From that release on, an environment with the switch on runs this build's rules every day without a command. Switching it on is therefore also the approval of that daily run.
+- **What the switch will mean later.** (Corrected on 2026-11-11, after the SMS coordinator stated how its daily start works; this paragraph first said that switching the rules on also approved a daily run of them.) This build has no schedule, so switching it on starts nothing. The rules of this build run only by the manual commands until slice 4 adds the schedule. The SMS build's once-a-day start runs only the SMS rules (`sms_messages` and `mobile_challenges`) and never starts a rule of this build. Switching `RETENTION_ENABLED` on is therefore the approval of the manual commands in that environment, not of any automatic run.
 
 ### 2.5 The send guard
 

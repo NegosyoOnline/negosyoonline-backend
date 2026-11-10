@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.utils import timezone
 
+from apps.common.disposal import is_disposed_address
 from apps.common.errors import ApiError
 from apps.common.phones import normalise_ph_mobile
 from apps.notifications import sms
@@ -23,6 +24,9 @@ class EmailNotSent(ApiError):
 
 
 def send_email(*, to, category, subject, body):
+    if is_disposed_address(to):  # a disposed contact is never emailed, and no record is kept
+        logger.warning("Email refused: the recipient is a disposed account (category=%s)", category)
+        raise EmailNotSent()
     message = EmailMessage.objects.create(recipient=to, category=category)
     try:
         send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [to])
