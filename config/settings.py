@@ -64,6 +64,9 @@ DEFAULT_FROM_EMAIL = os.environ.get(
 ACCOUNT_SESSION_COOKIE = "no_session"
 POLICY_VERSION = "2026-11-10"
 POLICIES = ["terms", "privacy"]
+# Google sign-in. With no client id and secret the Google endpoints answer 404.
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
 
 # Application definition
