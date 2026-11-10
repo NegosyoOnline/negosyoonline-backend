@@ -2,7 +2,6 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import (
@@ -13,16 +12,19 @@ from apps.accounts.models import (
     Session,
 )
 
+from apps.operators.tests.base import HqAdminMixin, on_hq
+
 EMAIL = "ana.reyes@example.test"
 MASKED = "a***@example.test"
 
 
-class AccountsAdminMaskingTests(TestCase):
+@on_hq
+class AccountsAdminMaskingTests(HqAdminMixin, TestCase):
     """The admin lists show a subscriber's email masked, never in full."""
 
     def setUp(self):
         operator = get_user_model().objects.create_superuser("op", "op@operators.test", "pw")
-        self.client.force_login(operator)
+        self.open_hq_session(operator)
         now = timezone.now()
         self.account = Account.objects.create(email=EMAIL, name="Ana")
         Session.objects.create(
@@ -41,14 +43,14 @@ class AccountsAdminMaskingTests(TestCase):
         for model in ("account", "session", "policyacceptance", "accountauditevent",
                       "externalidentity"):
             with self.subTest(model=model):
-                url = reverse(f"admin:accounts_{model}_changelist")
-                response = self.client.get(url, secure=True)
+                url = self.admin_url(f"admin:accounts_{model}_changelist")
+                response = self.hq_get(url)
                 self.assertContains(response, MASKED)
                 self.assertNotContains(response, EMAIL)
 
     def test_search_by_full_email_still_finds_the_account_and_stays_masked(self):
-        url = reverse("admin:accounts_account_changelist")
-        response = self.client.get(url, {"q": EMAIL}, secure=True)
+        url = self.admin_url("admin:accounts_account_changelist")
+        response = self.hq_get(url, {"q": EMAIL})
         self.assertContains(response, MASKED)
         self.assertContains(response, self.account.public_id)
         # The search box echoes what the operator typed; the result rows must not repeat it.
@@ -56,7 +58,7 @@ class AccountsAdminMaskingTests(TestCase):
 
     def test_the_masked_columns_sort_by_the_real_email(self):
         Account.objects.create(email="zed@example.test")
-        url = reverse("admin:accounts_account_changelist")
-        response = self.client.get(url, {"o": "1"}, secure=True)
+        url = self.admin_url("admin:accounts_account_changelist")
+        response = self.hq_get(url, {"o": "1"})
         body = response.content.decode()
         self.assertLess(body.index(MASKED), body.index("z***@example.test"))

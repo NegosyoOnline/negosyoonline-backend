@@ -11,7 +11,6 @@
 import logging
 import sys
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
@@ -160,14 +159,7 @@ class Command(BaseCommand):
         )
         if uncovered:
             self.stdout.write(
-                "\nStaff users with no enrolled identity (they cannot open the Django admin "
-                "once two-step sign-in is required):"
+                "\nStaff users with no enrolled identity (they cannot open the admin lists):"
             )
             for user in uncovered:
                 self.stdout.write(f"  {user.username}")
-        required = settings.ADMIN_TWO_STEP_REQUIRED
-        self.stdout.write(f"\nADMIN_TWO_STEP_REQUIRED is {'on' if required else 'off'}.")
-        if not required and covered:
-            self.stdout.write(self.style.WARNING(
-                "Warning: an identity is enrolled but the Django admin does not ask for the second step."
-            ))

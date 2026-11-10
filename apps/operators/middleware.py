@@ -1,4 +1,5 @@
 """Requests for the hq host see only the hq pages, and are never cached or indexed."""
+from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import DisallowedHost
 from django.http.request import split_domain_port
 
@@ -33,3 +34,21 @@ class HqHostMiddleware:
             return split_domain_port(request.get_host())[0]
         except DisallowedHost:
             return ""
+
+
+class HqUserMiddleware:
+    """On the hq host the user is the one the hq session names, and nobody else.
+
+    Runs after Django's AuthenticationMiddleware and replaces what it set, so a Django password
+    session opens nothing on hq. `request.hq_session` is the live hq session at any stage.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if getattr(request, "urlconf", None) == HQ_URLCONF:
+            session = hq_views.load_session(request)
+            request.hq_session = session
+            request.user = session.identity.user if hq_views.is_verified(session) else AnonymousUser()
+        return self.get_response(request)

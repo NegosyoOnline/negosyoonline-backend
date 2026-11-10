@@ -2,5 +2,5 @@
 from django.contrib.admin.apps import AdminConfig
 
 
-class TwoStepAdminConfig(AdminConfig):
-    default_site = "apps.operators.admin_site.TwoStepAdminSite"
+class HqAdminConfig(AdminConfig):
+    default_site = "apps.operators.admin_site.HqAdminSite"

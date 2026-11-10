@@ -1,12 +1,15 @@
 """The hq pages: sign-in by emailed code, the second step, the signed-in page and sign-out."""
 import logging
 import secrets
+from pathlib import Path
 
 from django.conf import settings
+from django.contrib import admin
 from django.core import signing
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.template.loader import render_to_string
 from django.utils import timezone
+from django.views import static
 from django.views.decorators.http import require_http_methods, require_POST
 
 from apps.accounts.sessions import client_ip
@@ -19,6 +22,7 @@ logger = logging.getLogger(__name__)
 PRE_SALT = "hq-pre"
 PRE_SECONDS = 600
 SIGN_IN, CODE, VERIFY, HOME = "/sign-in/", "/code/", "/verify/", "/"
+ADMIN_STATIC = Path(admin.__file__).resolve().parent / "static" / "admin"
 
 EVENT_LABELS = {
     "admin_sign_in_ok": "Signed in",
@@ -52,12 +56,20 @@ def _drop_cookies(response, *names):
     return response
 
 
-def _session(request):
+def load_session(request):
     return hq_auth.load_session(request.COOKIES.get(_cookie_names()[0]))
 
 
-def _is_verified(session):
+def _session(request):
+    """The session HqUserMiddleware read for this request."""
+    if hasattr(request, "hq_session"):
+        return request.hq_session
+    return load_session(request)
+
+
+def is_verified(session):
     return session is not None and session.stage == AdminSession.Stage.VERIFIED
+
 
 
 def _pre(request):
@@ -72,7 +84,7 @@ def _pre(request):
 
 @require_http_methods(["GET", "POST"])
 def sign_in(request):
-    if _is_verified(_session(request)):
+    if is_verified(_session(request)):
         return SeeOther(HOME)
     if request.method == "GET":
         return page(request, "hq/sign_in.html")
@@ -96,7 +108,7 @@ def sign_in(request):
 
 @require_http_methods(["GET", "POST"])
 def code(request):
-    if _is_verified(_session(request)):
+    if is_verified(_session(request)):
         return SeeOther(HOME)
     pre = _pre(request)
     if pre is None:
@@ -121,7 +133,7 @@ def verify(request):
     session = _session(request)
     if session is None:
         return SeeOther(SIGN_IN)
-    if _is_verified(session):
+    if is_verified(session):
         return SeeOther(HOME)
     context = {"recovery": request.GET.get("method") == "recovery"}
     if request.method == "GET":
@@ -130,7 +142,7 @@ def verify(request):
         session.identity_id, request.POST.get("code", ""), surface=two_step.SURFACE_HQ
     )
     if result.locked:
-        return _drop_cookies(page(request, "hq/paused.html", {"hq": True}), *_cookie_names())
+        return _drop_cookies(page(request, "hq/paused.html"), *_cookie_names())
     if not result.ok:
         return page(request, "hq/verify.html", {**context, "error": True})
     token = hq_auth.mark_verified(session, result.credential_version)
@@ -159,7 +171,7 @@ def home(request):
     session = _session(request)
     if session is None:
         return SeeOther(SIGN_IN)
-    if not _is_verified(session):
+    if not is_verified(session):
         return SeeOther(VERIFY)
     return page(request, "hq/home.html", {
         "email": session.identity.email,
@@ -175,6 +187,17 @@ def sign_out(request):
     if session is not None:
         hq_auth.sign_out(session)
     return _drop_cookies(SeeOther(SIGN_IN), *_cookie_names())
+
+
+@require_http_methods(["GET"])
+def admin_static(request, path):
+    """The Django admin's own CSS and script, for a session that passed both steps."""
+    if not is_verified(_session(request)):
+        return not_found(request)
+    try:
+        return static.serve(request, path, document_root=ADMIN_STATIC)
+    except Http404:
+        return not_found(request)
 
 
 def _neutral(status, title, message):

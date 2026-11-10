@@ -55,3 +55,49 @@ class TwoStepTestCase(TestCase):
     def committed(self):
         with self.captureOnCommitCallbacks(execute=True):
             yield
+
+
+HQ = "hq.example.test"
+OTHER = "api.example.test"
+HQ_URLCONF = "apps.operators.hq_urls"
+on_hq = override_settings(HQ_HOST=HQ, ALLOWED_HOSTS=[HQ, OTHER, "testserver"])
+
+
+class HqAdminMixin:
+    """For other apps' admin tests: the lists open only on the hq host, for a verified hq session.
+
+    Decorate the test class with `@on_hq`. The sign-in pages themselves are tested in
+    `test_hq.py` and `test_hq_admin.py`; this makes the session they would leave behind.
+    """
+
+    def open_hq_session(self, user):
+        import hashlib
+        import secrets
+        from datetime import timedelta
+
+        from apps.operators.models import AdminSession
+
+        now = timezone.now()
+        identity = AdminIdentity.objects.create(
+            user=user, email=f"{user.username}@operators.test", enrolled_at=now,
+            totp_secret_ciphertext="set",
+        )
+        token = secrets.token_urlsafe(32)
+        AdminSession.objects.create(
+            identity=identity, token_hash=hashlib.sha256(token.encode()).hexdigest(),
+            credential_version=identity.credential_version, stage=AdminSession.Stage.VERIFIED,
+            verified_at=now, expires_at=now + timedelta(hours=12),
+        )
+        self.client.cookies["__Host-no_hq"] = token
+        return identity
+
+    def admin_url(self, name, *args):
+        from django.urls import reverse
+
+        return reverse(name, args=args, urlconf=HQ_URLCONF)
+
+    def hq_get(self, url, data=None):
+        return self.client.get(url, data, secure=True, HTTP_HOST=HQ)
+
+    def hq_post(self, url, data=None):
+        return self.client.post(url, data or {}, secure=True, HTTP_HOST=HQ)
