@@ -2,7 +2,7 @@
 
 Date: 2026-11-11. ClickUp task: z8uq9mdxvt (https://app.clickup.com/t/z8uq9mdxvt), parent z8uq9mbreu.
 Plan branch: `docs/z8uq9mdxvt-hq-only-admin-door`, cut from `origin/main` at `e85e727`. The build branch will be `feat/z8uq9mdxvt-hq-only-admin-door`, cut from the latest `origin/main` when the plan is approved.
-Status: **plan only. Nothing here is approved.** No code, migration, dependency, variable or ClickUp change exists. Section 3 lists what Coach Ed must decide.
+Status: approved by Coach Ed on 2026-11-11 and built on `feat/z8uq9mdxvt-hq-only-admin-door`; see 3.9 and 3.10 for what was decided and what still needs approval.
 
 ## 1. Sources
 
@@ -125,6 +125,12 @@ Reversible details within scope; Coach Ed's decision on 3.1 to 3.5 and 3.7 is st
 - `hq.negosyotest.com` resolves to `127.0.0.1` on Coach Ed's computer; the local check uses `http://hq.negosyotest.com:8013`.
 - Scope doc and PR 42 (3.8): whichever PR merges second merges `main` first and keeps both changes. The builder still tells the coordinator before opening the PR.
 - The 3.5 finding was confirmed by the coordinator: `/static/admin/css/base.css` on api-staging answers 404.
+
+### 3.10 Coach Ed's rulings, 2026-11-11
+
+- On the plan: "Approve as recommended". This approved 3.1, 3.2, the words in 3.3 and 3.4, option A in 3.5 and the release order in 3.7, including the loss of the "unset the switch" emergency route.
+- On the local check of commit `51d1271` at `http://hq.negosyotest.com:8013` (S5 at desktop and narrow width, and the lists index): "local passed".
+- Still needing his own approval: the staging release (merging the PR deploys to staging) and deleting `ADMIN_TWO_STEP_REQUIRED` on staging.
 
 ## 4. Design
 
