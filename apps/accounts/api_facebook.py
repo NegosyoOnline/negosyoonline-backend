@@ -7,7 +7,7 @@ from django.http import HttpResponse, HttpResponseRedirect
 from ninja import Router, Schema
 
 from apps.accounts import facebook, services
-from apps.accounts.api import VerifyOut, account_out
+from apps.accounts.api import VerifyOut, account_out, finish_connect
 from apps.accounts.flow import (
     clear_flow_cookie,
     finish_redirect,
@@ -81,6 +81,19 @@ def facebook_start(request, accept_policies: bool = False):
 def facebook_callback(request, code: str = "", state: str = "", error: str = ""):
     _require_facebook()
     started = read_flow_cookie(request, STATE_COOKIE, STATE_SECONDS)
+    if started is not None and started.get("mode") == "connect":
+
+        def facebook_user_id():
+            try:
+                return facebook.fetch_profile(code, _callback_url(request)).user_id
+            except facebook.FacebookSignInFailed:
+                return None
+
+        response = finish_connect(
+            request, started, "facebook", state, code, error, facebook_user_id
+        )
+        clear_flow_cookie(response, STATE_COOKIE, COOKIE_PATH)
+        return response
     if started is None or not same_state(started["state"], state):
         return _end_flow("facebook_state_invalid")
     if error or not code:
