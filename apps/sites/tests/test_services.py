@@ -347,6 +347,10 @@ class UpdateBusinessProfileTests(TestCase):
             ["bir_rsn", "dti_business_number", "privacy_contact_email",
              "shipping_estimates_confirmed", "shipping_luzon_estimate", "tin"],
         )
+        self.assertEqual(
+            raised.exception.fields["bir_rsn"],
+            ["Enter your BIR Official Control Number (OCN), like 113RC20260000017598."],
+        )
         self.assertEqual(self.site.business_profile.business_name, "")
 
     def test_a_blank_value_clears_a_profile_field(self):

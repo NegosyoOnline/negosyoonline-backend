@@ -209,7 +209,7 @@ def _clean_profile(data):
                 value = re.sub(r"\s", "", value).upper()
                 if not BIR_SERIAL.fullmatch(value):
                     raise ValueError(
-                        "Enter the serial number printed on your BIR seal, "
+                        "Enter your BIR Official Control Number (OCN), "
                         "like 113RC20260000017598."
                     )
         except ValueError as exc:
