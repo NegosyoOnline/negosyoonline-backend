@@ -253,6 +253,15 @@ class HqEmailCodeTests(HqTestCase):
         self.post("/sign-in/", {"email": EMAIL}, client=other)  # replaces the code
         self.assertGenericError(self.post("/code/", {"code": code}))
 
+    def test_the_code_page_shows_the_address_as_typed(self):
+        self.enrolled()
+        self.request_code("  Admin@Example.TEST ")
+        self.assertEqual(mail.outbox[-1].to, [EMAIL])
+        self.assertContains(self.get("/code/"), "Code sent to Admin@Example.TEST.")
+        error = self.post("/code/", {"code": self.wrong_email_code()})
+        self.assertContains(error, "Code sent to Admin@Example.TEST.")
+        self.assertGoesTo(self.post("/code/", {"code": self.emailed_code()}), "/verify/")
+
     def test_an_unknown_address_gets_the_same_error(self):
         self.request_code("nobody@example.test")
         self.assertEqual(mail.outbox, [])

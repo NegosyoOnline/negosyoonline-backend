@@ -61,7 +61,7 @@ def _is_verified(session):
 
 
 def _pre(request):
-    """The {email, nonce} this browser asked a code for in the last 10 minutes, or None."""
+    """The {email, nonce, typed} this browser asked a code for in the last 10 minutes, or None."""
     try:
         return signing.loads(
             request.COOKIES.get(_cookie_names()[1], ""), salt=PRE_SALT, max_age=PRE_SECONDS
@@ -88,7 +88,8 @@ def sign_in(request):
         except Exception:
             logger.exception("hq sign-in code could not be handed over")
     response = SeeOther(CODE)
-    value = signing.dumps({"email": email, "nonce": nonce}, salt=PRE_SALT)
+    # "typed" is only shown back on the code page. The lookup, limits and code use "email".
+    value = signing.dumps({"email": email, "nonce": nonce, "typed": typed.strip()}, salt=PRE_SALT)
     _set_cookie(response, _cookie_names()[1], value, PRE_SECONDS)
     return response
 
@@ -100,14 +101,15 @@ def code(request):
     pre = _pre(request)
     if pre is None:
         return SeeOther(SIGN_IN)
+    shown = pre.get("typed") or pre["email"]
     if request.method == "GET":
-        return page(request, "hq/code.html", {"email": pre["email"], "notice": True})
+        return page(request, "hq/code.html", {"email": shown, "notice": True})
     typed = "".join(request.POST.get("code", "").split())
     token = None
     if len(typed) == 6 and typed.isdigit():
         token = hq_auth.check_email_code(pre["email"], pre["nonce"], typed)
     if token is None:
-        return page(request, "hq/code.html", {"email": pre["email"], "error": True})
+        return page(request, "hq/code.html", {"email": shown, "error": True})
     session_name, pre_name = _cookie_names()
     response = _drop_cookies(SeeOther(VERIFY), pre_name)
     _set_cookie(response, session_name, token, hq_auth.SESSION_HOURS * 3600)
