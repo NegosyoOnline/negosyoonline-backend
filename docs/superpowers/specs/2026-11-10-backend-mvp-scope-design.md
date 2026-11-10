@@ -1,6 +1,6 @@
 # Backend MVP scope and design (2026-11-10)
 
-Status: design approved by Coach Ed on 2026-11-10. This document is the written MVP scope that `CLAUDE.md` requires before features, models or integrations are built. It contains no code. Each slice in section 9 gets its own implementation plan and approval before work starts.
+Status: design approved by Coach Ed on 2026-11-10. Amended the same day to add Facebook sign-in (see section 12). This document is the written MVP scope that `CLAUDE.md` requires before features, models or integrations are built. It contains no code. Each slice in section 9 gets its own implementation plan and approval before work starts.
 
 ## 1. Purpose
 
@@ -13,7 +13,7 @@ Rebuild the NegosyoOnline platform backend in this repository as a clean Django 
 | Signup | 14-day free trial starts at signup. No payment at signup. |
 | Subdomain | Chosen by the subscriber during onboarding, after signup, when the first site is created. |
 | Sites per account | One site per account in the MVP. The schema allows several without a rebuild. |
-| Subscriber sign-in | Passwordless email code, plus Google. Facebook sign-in and Facebook features are deferred. |
+| Subscriber sign-in | Passwordless email code, plus Google and Facebook. Other Facebook features are deferred. |
 | In the MVP | Referral codes and credit, usage overage charges, PDF billing statements, mobile number OTP. |
 | Production | Railway production services are built only when the MVP is complete. API host: `api.negosyoonline.com`. |
 
@@ -32,6 +32,14 @@ Rebuild the NegosyoOnline platform backend in this repository as a clean Django 
 - Operators are Django staff users. `AUTH_USER_MODEL` is a custom `operators.User`, set in slice 1 because it must exist before the first migration. Operators use one Django admin; the legacy second console is not rebuilt.
 - Email code: 6 digits, held in the cache with an expiry and an attempt limit, rate-limited per email and per IP.
 - Google: server-side OAuth redirect flow. The callback signs the account in and redirects to the dashboard. Google vouches for the email.
+- Facebook: server-side OAuth redirect flow requesting only `public_profile` and `email`. Facebook does not vouch for the email, and may return none. So the first time a Facebook identity is seen:
+  - the email is the one Facebook returned, or one the subscriber enters if Facebook returned none;
+  - the subscriber confirms that email with the email code;
+  - only then is the identity linked to the existing account with that email, or a new account created.
+  Later sign-ins with the same Facebook identity need no code.
+- Google and Facebook sign-ins are matched first by the provider's own user id, then by email. An account can hold one identity per provider.
+- Meta requires a data deletion callback. The API verifies the signed request with the app secret, removes that account's Facebook identity, records an audit event and answers with a confirmation code and status URL.
+- Provider access tokens are used only during the callback and are never stored.
 - Session: on sign-in the API sets a cookie holding an opaque random token. Only the token's SHA-256 is stored, with expiry (30 days), revocation time, device label and masked IP.
   - The cookie is `HttpOnly`, `Secure`, `SameSite=Lax` and host-only on the API host, so it is never sent to subscriber storefront hosts.
   - The dashboard and site call the API from the browser with credentials included.
@@ -57,7 +65,7 @@ One line per table. Money is stored as integer centavos with a currency code. Le
 
 **accounts**
 - `Account`: email (unique), name, email_verified_at, referral_code (unique), referred_by, closed_at.
-- `GoogleIdentity`: account, Google subject id (unique).
+- `ExternalIdentity`: account, provider (`google`, `facebook`), provider user id (unique per provider), linked_at. One row per account per provider.
 - `Session`: account, token hash, expires_at, revoked_at, device label, masked IP, last_used_at.
 - `PolicyAcceptance`: account, policy version, policies accepted, IP, accepted_at.
 - `AccountMobile`: account (one each), verified mobile number.
@@ -118,11 +126,11 @@ All paths are under `/v1/`. Errors use one shape: `{"error": {"code": "...", "me
 | Area | Endpoints |
 |---|---|
 | Public | `GET plan/`, `GET referrals/{code}/`, `GET public/sites/by-host/?host=` |
-| Sign-in | `POST auth/email-code/request/`, `POST auth/email-code/verify/`, `GET auth/google/start/`, `GET auth/google/callback/`, `POST auth/logout/` |
+| Sign-in | `POST auth/email-code/request/`, `POST auth/email-code/verify/`, `GET auth/google/start/`, `GET auth/google/callback/`, `GET auth/facebook/start/`, `GET auth/facebook/callback/`, `POST auth/facebook/confirm-email/`, `POST auth/logout/` |
 | Account | `GET me/`, `GET PATCH account/`, `POST account/email/start/`, `POST account/email/confirm/`, `GET account/sessions/`, `POST account/sessions/sign-out-others/`, `POST account/mobile/start/`, `POST account/mobile/verify/`, `GET account/referrals/` |
 | Sites | `GET POST sites/`, `POST sites/subdomain-check/`, `GET PATCH sites/{site_id}/`, `GET PATCH sites/{site_id}/business-profile/` |
 | Billing | `GET sites/{site_id}/billing/`, `PUT sites/{site_id}/billing/profile/`, `POST sites/{site_id}/billing/payment-method/setup/`, `POST sites/{site_id}/billing/cancel/`, `POST sites/{site_id}/billing/reactivate/`, `GET sites/{site_id}/billing/usage/`, `GET sites/{site_id}/billing/statements/`, `GET sites/{site_id}/billing/statements/{number}/`, `GET sites/{site_id}/billing/statements/{number}/pdf/` |
-| Webhooks | `POST webhooks/xendit/` |
+| Webhooks | `POST webhooks/xendit/`, `POST webhooks/facebook/data-deletion/` |
 
 `public/sites/by-host/` is the storefront lookup. It is unauthenticated and cacheable, returns only public branding, template and availability, and answers 404 for unknown, reserved or unavailable hosts.
 
@@ -136,7 +144,7 @@ Payments and webhooks:
 Each slice has its own plan, tests and approval. Migrations are a reviewed release step per `docs/runbooks/migrations.md`.
 
 1. **Foundation.** App layout, custom `operators.User`, Django Ninja, error shape, public ids, settings for origins, test tooling, OpenAPI published.
-2. **Accounts and sign-in.** Account, email code, sessions, policy acceptance, account settings, then Google.
+2. **Accounts and sign-in.** Account, email code, sessions, policy acceptance, account settings, then Google, then Facebook.
 3. **Sites and subdomains.** Site, Subdomain ledger, trial subscription start, subdomain check, site creation and settings, business profile, public host lookup.
 4. **Billing core.** Xendit customer and card setup, webhook inbox, cycles, charging and retries, state transitions, cancel and reactivate. Adds the worker and beat services and the task queue dependency.
 5. **Usage and overage.** Usage entries and overage charge lines.
@@ -149,7 +157,7 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
 ## 10. Out of scope
 
 - Commerce: products, orders, buyer checkout, buyer payments, members, payouts, the Santé pack, media library. These live in other legacy apps that have not been mapped; they need their own scope after this one. The usage figures in slice 5 depend on orders and media, so slice 5 ships its ledger and charging first and is fed real numbers when commerce exists.
-- Facebook sign-in and Facebook features.
+- Facebook features other than sign-in (pages, posting, catalogue, messaging).
 - Custom domains per subscriber (for example `live4moreonline.store`).
 - Annual billing.
 - Data retention and disposal automation beyond the dates recorded on the subscription.
@@ -160,3 +168,7 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
 - SMS provider for mobile OTP (blocks slice 8 only).
 - Confirmation of the billing values in section 7 (blocks slice 4 only).
 - Where statement PDFs are stored (blocks slice 6 only).
+
+## 12. Amendments
+
+- 2026-11-10: Facebook sign-in moved from out of scope into the MVP after the Meta app review approved `public_profile` and `email`. `GoogleIdentity` became `ExternalIdentity` so one table serves both providers. Sections 2, 4, 6, 8, 9 and 10 were updated. The Meta app id and secret are Railway variables added when slice 2 is built.
