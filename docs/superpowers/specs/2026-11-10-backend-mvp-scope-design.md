@@ -154,7 +154,7 @@ Each slice has its own plan, tests and approval. Migrations are a reviewed relea
 5. **Usage and overage.** Usage entries and overage charge lines.
 6. **Statements.** Numbered statements, PDF, email delivery.
 7. **Referrals.** Referrer lookup at signup, credit ledger applied to the base charge.
-8. **Mobile OTP.** Needs an SMS provider decision first; legacy has only a stub.
+8. **Mobile OTP.** Texts go through NegosyoOnline's own phone gateway on a Globe SIM (see section 12). Design: `docs/superpowers/specs/2026-11-10-sms-gateway-mobile-verification-design.md`. This slice does not wait for slices 4 to 7.
 
 The frontend can start against slice 2 as soon as its OpenAPI description is published on staging.
 
@@ -169,7 +169,7 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
 
 ## 11. Open decisions
 
-- SMS provider for mobile OTP (blocks slice 8 only).
+- ~~SMS provider for mobile OTP (blocks slice 8 only).~~ Answered on 2026-11-10: NegosyoOnline's own phone gateway on a Globe SIM. See section 12.
 - Confirmation of the billing values in section 7 (blocks slice 4 only).
 - Where statement PDFs are stored (blocks slice 6 only).
 
@@ -196,3 +196,9 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
   - The first hq page shows the verified card, the admin's last 10 sign-in events and Sign out. The health page and settings screens are not in the MVP.
   - Django admin enforcement sits behind `ADMIN_TWO_STEP_REQUIRED`, off by default. hq answers only on `HQ_HOST`; empty means hq is off.
   - Until slice 4 adds the worker, the sign-in code and the lockout notice are sent from a background thread of the web service.
+- 2026-11-10: SMS provider, from Coach Ed's ruling of 2026-11-10 on ClickUp task z8uq9md33v (NPC Build 1). Sections 9 and 11 were updated.
+  - NegosyoOnline builds its own gateway: its own phone with a SIM on an ordinary Globe mobile plan. No send endpoint in the legacy system is used and no legacy code is copied.
+  - Only sign-in codes and order-status texts are sent. Only the recipient number and the message text leave. No marketing. Globe has no access to the database.
+  - The text of a message is never stored in the database. Send records are kept 1 year, then deleted by a retention job.
+  - The paid Dedicated SMS Line add-on (z8uq9mb19f) is a later task that depends on this one.
+  - The design is proposed in `docs/superpowers/specs/2026-11-10-sms-gateway-mobile-verification-design.md` and is **not yet approved**. Its section 3 lists the decisions still open (the phone app, the hostname, the limits, the mobile-change notice and others), and its section 13 lists the changes to sections 3, 6, 8 and 10 of this document that are made only when it is approved.
