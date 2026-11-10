@@ -67,6 +67,10 @@ POLICIES = ["terms", "privacy"]
 # Google sign-in. With no client id and secret the Google endpoints answer 404.
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+# Where the browser lands after a Google sign-in: the dashboard when it worked, the public
+# site's sign-in popup when it did not. No trailing slashes.
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3001").rstrip("/")
+SITE_URL = os.environ.get("SITE_URL", "http://localhost:3000").rstrip("/")
 
 
 # Application definition

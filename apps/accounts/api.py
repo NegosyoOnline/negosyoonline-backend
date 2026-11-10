@@ -1,10 +1,14 @@
 """Sign-in and account endpoints. Shapes here are the contract the frontend builds against."""
+import hmac
+import secrets
 from datetime import datetime
 
-from django.http import HttpResponse
+from django.conf import settings
+from django.core import signing
+from django.http import HttpResponse, HttpResponseRedirect
 from ninja import Field, Router, Schema
 
-from apps.accounts import services
+from apps.accounts import google, services
 from apps.accounts.auth import SessionCookieAuth
 from apps.accounts.models import Session
 from apps.accounts.sessions import (
@@ -14,6 +18,7 @@ from apps.accounts.sessions import (
     revoke_sessions,
     set_session_cookie,
 )
+from apps.common.errors import ApiError
 from apps.common.middleware import require_allowed_origin
 
 router = Router(tags=["accounts"])
@@ -161,3 +166,81 @@ def session_list(request):
 @router.post("/account/sessions/sign-out-others/", response=RevokedOut, auth=signed_in)
 def sign_out_others(request):
     return {"revoked": revoke_sessions(request.account, keep=request.account_session)}
+
+
+# Google sign-in. These two are browser navigations: they answer with redirects, not JSON.
+GOOGLE_STATE_COOKIE = "no_google_state"
+GOOGLE_STATE_PATH = "/v1/auth/google/"
+GOOGLE_STATE_SALT = "accounts.google.state"
+GOOGLE_STATE_SECONDS = 600
+
+
+def _require_google():
+    if not google.is_configured():
+        raise ApiError("not_found", "No such endpoint.", status=404)
+
+
+def _google_callback_url(request):
+    return request.build_absolute_uri("/v1/auth/google/callback/")
+
+
+def _end_google_flow(error=None):
+    """Send the browser on: to the dashboard, or with an error to the site's sign-in popup."""
+    if error:
+        url = f"{settings.SITE_URL}/?signin=1&error={error}"
+    else:
+        url = f"{settings.DASHBOARD_URL}/"
+    response = HttpResponseRedirect(url)
+    response.delete_cookie(GOOGLE_STATE_COOKIE, path=GOOGLE_STATE_PATH, samesite="Lax")
+    return response
+
+
+@router.get("/auth/google/start/", response={302: None})
+def google_start(request, accept_policies: bool = False):
+    _require_google()
+    state = secrets.token_urlsafe(32)
+    response = HttpResponseRedirect(google.authorization_url(_google_callback_url(request), state))
+    # The cookie ties the flow to this browser. It is signed and expires with the flow.
+    response.set_cookie(
+        GOOGLE_STATE_COOKIE,
+        signing.dumps(
+            {"state": state, "accept_policies": accept_policies},
+            salt=GOOGLE_STATE_SALT,
+            compress=True,
+        ),
+        max_age=GOOGLE_STATE_SECONDS,
+        httponly=True,
+        secure=not settings.DEBUG,
+        samesite="Lax",
+        path=GOOGLE_STATE_PATH,
+    )
+    return response
+
+
+@router.get("/auth/google/callback/", response={302: None})
+def google_callback(request, code: str = "", state: str = "", error: str = ""):
+    _require_google()
+    try:
+        started = signing.loads(
+            request.COOKIES.get(GOOGLE_STATE_COOKIE, ""),
+            salt=GOOGLE_STATE_SALT,
+            max_age=GOOGLE_STATE_SECONDS,
+        )
+    except signing.BadSignature:  # missing, altered or older than ten minutes
+        return _end_google_flow("google_state_invalid")
+    if not hmac.compare_digest(started["state"].encode(), state.encode()):
+        return _end_google_flow("google_state_invalid")
+    if error or not code:
+        return _end_google_flow("google_cancelled")
+    try:
+        profile = google.fetch_profile(code, _google_callback_url(request))
+        _account, _session, token, _created = services.sign_in_with_google(
+            profile, started["accept_policies"], request
+        )
+    except google.GoogleSignInFailed:
+        return _end_google_flow("google_failed")
+    except ApiError as refused:
+        return _end_google_flow(refused.code)
+    response = _end_google_flow()
+    set_session_cookie(response, token)
+    return response
