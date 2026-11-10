@@ -10,6 +10,8 @@ This repository is the clean Django API and background-services foundation for N
 - PostgreSQL and Redis are Railway-managed services. Do not run migrations, seed data, or change production variables without explicit approval.
 - Default local development uses SQLite only until a developer intentionally supplies `DATABASE_URL`.
 - Preserve tenant isolation, authorization, idempotent webhooks, money integrity, and auditability when features are introduced.
+- API errors use one shape, produced by `apps/common/errors.py`. Raise `ApiError`; do not hand-build error responses.
+- Never expose a database primary key through the API. Use `apps.common.ids.new_public_id`.
 
 ## Workflow
 

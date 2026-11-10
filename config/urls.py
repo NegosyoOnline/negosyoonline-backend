@@ -17,7 +17,9 @@ Including another URLconf
 from django.conf import settings
 from django.contrib import admin
 from django.http import JsonResponse
-from django.urls import path
+from django.urls import path, re_path
+
+from config.api import api, api_not_found
 
 
 def healthz(_request):
@@ -26,4 +28,6 @@ def healthz(_request):
 urlpatterns = [
     path('admin/', admin.site.urls),
     path("healthz/", healthz, name="healthz"),
+    path("v1/", api.urls),
+    re_path(r"^v1/", api_not_found),
 ]

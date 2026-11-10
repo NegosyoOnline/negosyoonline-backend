@@ -36,6 +36,15 @@ CSRF_TRUSTED_ORIGINS = [
     for origin in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
     if origin.strip()
 ]
+# Browser origins that may call the API with credentials (the site and the dashboard).
+# Subscriber storefront origins must never be listed here.
+API_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "API_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001"
+    ).split(",")
+    if origin.strip()
+]
 
 
 # Application definition
@@ -47,11 +56,16 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'apps.common',
+    'apps.operators',
     'apps.health',
 ]
 
+AUTH_USER_MODEL = "operators.User"
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'apps.common.middleware.ApiOriginMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
