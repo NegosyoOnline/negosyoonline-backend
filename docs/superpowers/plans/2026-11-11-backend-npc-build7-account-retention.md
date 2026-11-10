@@ -47,7 +47,8 @@ Each item is separate. The recommended answer is what the rest of the plan assum
 
 - **Checked.** The Task says each rule runs "behind a switch that is off by default" and "with the switch off, no rule deletes or blanks anything". It does not say whether one account disposed of on a person's request counts as a rule.
 - **Recommended.** The switch covers everything that deletes or blanks, on-request disposal included. With the switch off, `dispose_account` refuses and only its dry run works. The export is not covered by the switch: it changes nothing.
-- **Consequence.** A deletion request cannot be carried out in an environment until Coach Ed approves switching retention on there. Nothing runs by itself when the switch is on: this build has no schedule.
+- **Consequence.** A deletion request cannot be carried out in an environment until Coach Ed approves switching retention on there.
+- **What the switch will mean later.** This build has no schedule, so today switching it on starts nothing. The SMS build will later add a once-a-day start that runs every registered rule (agreed between the two coordinators). From that release on, an environment with the switch on runs this build's rules every day without a command. Switching it on is therefore also the approval of that daily run.
 
 ### 2.5 The send guard
 
@@ -80,11 +81,11 @@ Each item is separate. The recommended answer is what the rest of the plan assum
 |---|---|---|---|
 | 1 | Never-verified accounts disposed of 30 days after sign-up | Rule `never_verified_accounts` (4.2) | B |
 | 2 | Account disposal: personal fields blanked, sign-in identities and sessions removed, the row kept; every blanking logged (R-2) | `apps/accounts/retention.py: dispose_account` (4.3), one audit row per account | B |
-| 3 | Expired sessions, one-time codes and sign-in tokens deleted 30 days after they expire | Rules `expired_subscriber_sessions`, `expired_admin_sign_in`, `expired_django_sessions` (4.2) | A |
+| 3 | Expired sessions, one-time codes and sign-in tokens deleted 30 days after they expire | Rules `expired_subscriber_sessions`, `expired_admin_sign_in_codes`, `expired_admin_sessions`, `expired_django_sessions` (4.2) | A |
 | 4 | Email send records deleted after 2 years | Rule `email_messages` (4.2) | A |
 | 5 | Account and site export on request, as a command | `manage.py export_account` (4.5) | B |
 | 6 | Send guard: a disposed contact is never emailed | A check at the top of `send_email` (4.4) | B |
-| 7 | Each rule as a manual command with a dry run and a run log with counts, behind a switch that is off by default | `manage.py run_retention`, `manage.py dispose_account`, the `retention_run` audit row, `RETENTION_ENABLED` (4.1) | A, B |
+| 7 | Each rule as a manual command with a dry run and a run log with counts, behind a switch that is off by default | `manage.py run_retention`, `manage.py dispose_account`, the `retention_run` audit row, `RETENTION_ENABLED` checked inside every rule of this build (4.1) | A, B |
 
 ### 3.2 What the code has, where it differs from the Task's words
 
@@ -100,16 +101,20 @@ Later builds must join this one, and the plan leaves the place for them: slice 4
 
 ## 4. Design
 
-### 4.1 The shared mechanism (the one the SMS design, section 9.3, names; this build creates it)
+### 4.1 The shared mechanism (SMS design, section 9.3; this build creates it, in that shape and with those names)
 
-- **`apps/common/retention.py`**: a registry. `register(name, fn)` where `fn(now, dry_run)` returns counts as `{model label: number}`: the rows it removed or blanked, or would. `run(names, now, dry_run)` runs each named rule in its own transaction, so one failing rule never stops the others, and returns counts and errors per rule. Each app registers its rules from its own `retention.py`, loaded in its `AppConfig.ready()`.
-- **The switch**: `RETENTION_ENABLED` in `config/settings.py`, read from the environment; only `1` turns it on; **off by default**. Off, nothing in this build deletes or blanks.
-- **`manage.py run_retention [--dry-run] [--only NAME ...] --actor USERNAME`**
-  - `--dry-run` counts and prints; it writes nothing, not even a log row. It works with the switch off.
-  - A real run needs the switch on and `--actor` (an active staff user, as `admin_identity` requires). With the switch off it stops with an error and changes nothing.
-  - Output: one line per rule with its counts. Never an email, a name or a number.
-- **The run log**: a real run writes one `OperatorAuditEntry`, action `retention_run`, the actor as operator, `detail` = rule names with their counts and any error names. No new table.
-- **No automatic start.** Nothing in this build calls the registry except the command. The SMS build's once-a-day trigger (its PR 4, not yet opened) must name its own two rules and must not start this build's rules; agreed through the coordinator.
+Agreed between the two coordinators, 2026-11-11: this build creates the shared piece, and the SMS build later only registers its own two rules and adds its once-a-day start. This build builds neither of those.
+
+- **`apps/common/retention.py`**: a registry. A rule has a name and a function taking "now" and "dry run" and returning the count: the rows it removed or blanked, or would. `run_all(now, dry_run, only=None)` runs every registered rule, or only the named ones, each in its own transaction, so one failing rule never stops the others, and returns the count per rule and the name of any error. A name that is not registered is refused. Each app registers its rules from its own `retention.py`, loaded in its `AppConfig.ready()`.
+- **The switch**: `RETENTION_ENABLED` in `config/settings.py`, read from the environment; only `1` turns it on; **off by default**.
+- **Where the switch is checked: inside the rules.** Every rule this build registers goes through one wrapper. With the switch off, a real run of the rule touches nothing and returns 0, whoever called it: the command, or the SMS build's later daily start. The dry run still counts, because it changes nothing. The registry itself has no switch, so the SMS build's rules are not affected by this one.
+- **`manage.py run_retention [--dry-run] [--only NAME]`**
+  - `--dry-run` counts and prints; it writes nothing, not even a log row.
+  - A real run prints the count per rule. For a rule held back by the switch it prints "switched off" instead of a count.
+  - Output never holds an email, a name or a number.
+- **The run log**: a real run writes one `OperatorAuditEntry`, action `retention_run`, no operator, `detail` = the count per rule, the rules that were switched off and any error names.
+- **How R-2's blanking log relates to it.** `retention_run` says a run happened and how many rows each rule took. It does not name an account. Every blanking of an account writes its own `account_disposed` entry (4.3), inside the same transaction as the blanking, so a blanking can never exist without its entry. A run of `never_verified_accounts` that disposes of three accounts therefore leaves three `account_disposed` entries and one `retention_run` entry whose count for that rule is 3. Deleting expired rows is not a blanking and is logged by the count only.
+- **No automatic start in this build.** Nothing here calls `run_all` except the command.
 
 ### 4.2 The time rules: exactly which rows each one deletes
 
@@ -118,11 +123,13 @@ Later builds must join this one, and the plan leaves the place for them: slice 4
 | Rule | Rows | Deleted when |
 |---|---|---|
 | `expired_subscriber_sessions` | `accounts.Session` | `expires_at` or `revoked_at` is 30 days old or more |
-| `expired_admin_sign_in` | `operators.AdminSignInChallenge` | `expires_at` is 30 days old or more |
-| | `operators.AdminSession` | `expires_at` or `revoked_at` is 30 days old or more |
+| `expired_admin_sign_in_codes` | `operators.AdminSignInChallenge` | `expires_at` is 30 days old or more |
+| `expired_admin_sessions` | `operators.AdminSession` | `expires_at` or `revoked_at` is 30 days old or more |
 | `expired_django_sessions` | `django.contrib.sessions` rows (they carry notices on the admin lists, never a sign-in) | `expire_date` is 30 days old or more |
 | `email_messages` | `notifications.EmailMessage` | `created_at` is 730 days old or more |
 | `never_verified_accounts` | `accounts.Account` with no `email_verified_at`, not yet disposed of | `created_at` is 30 days old or more: disposed of as in 4.3, not deleted |
+
+The count a rule returns is its rows; for `never_verified_accounts` it is the accounts disposed of. Every rule is behind the switch (4.1).
 
 Not touched by any rule: `AdminRecoveryCode` (no expiry), `AdminIdentity`, `OperatorAuditEntry`, `PolicyAcceptance`, `AccountAuditEvent`, `Subdomain`, every SMS table.
 
@@ -143,7 +150,7 @@ One function, `apps/accounts/retention.py: dispose_account(account, *, now, rule
 | `Subdomain` (2.1) | The active name becomes `retired` with `retired_at` | Every row; the name stays taken |
 | `EmailMessage` (2.3) | Rows whose recipient is the account's address are deleted, except the two admin categories | |
 
-- **The audit record (R-2).** In the same transaction, one `OperatorAuditEntry`, action `account_disposed`: the actor (empty for a rule run by nobody, which this build does not have), target the account's `public_id`, `reason` the rule (`never_verified` or `request`) and the request reference, `detail` the counts per table and the names of the blanked fields. No personal value is written to it.
+- **The audit record (R-2).** In the same transaction, one `OperatorAuditEntry`, action `account_disposed`: the operator (the `--actor` of `dispose_account`; none when the never-verified rule did it), target the account's `public_id`, `reason` the rule (`never_verified` or `request`) and the request reference, `detail` the counts per table and the names of the blanked fields. No personal value is written to it.
 - **On request.** `manage.py dispose_account ACCOUNT --actor USERNAME --request-ref REF [--dry-run]`, where `ACCOUNT` is the account's public id or its email. It needs the switch on (2.4). The dry run prints what would be blanked and deleted, as counts, and changes nothing. Output is counts and the public id only.
 - **Afterwards.** Sign-in is refused (`account_closed`, existing check). A second run answers "already disposed of" and writes nothing.
 
@@ -163,10 +170,10 @@ The JSON holds, for that account: the account (public id, email, name, dates, re
 
 | File | Change |
 |---|---|
-| `apps/common/retention.py` (new) | The registry and `run` |
+| `apps/common/retention.py` (new) | The registry, `run_all` and the switch wrapper |
 | `apps/common/management/commands/run_retention.py` (new, with the two `__init__.py`) | The command |
 | `apps/accounts/retention.py` (new), `apps/accounts/apps.py` | Rule `expired_subscriber_sessions`; `ready()` loads the rules |
-| `apps/operators/retention.py` (new), `apps/operators/apps.py` | Rules `expired_admin_sign_in`, `expired_django_sessions` |
+| `apps/operators/retention.py` (new), `apps/operators/apps.py` | Rules `expired_admin_sign_in_codes`, `expired_admin_sessions`, `expired_django_sessions` |
 | `apps/notifications/retention.py` (new), `apps/notifications/apps.py` | Rule `email_messages`; one added line in `ready()` |
 | `apps/operators/audit.py` | Declares `retention_run` (`KEPT`) |
 | `config/settings.py`, `.env.example`, `README.md` | `RETENTION_ENABLED`, off by default |
@@ -199,7 +206,11 @@ No migration in `apps/notifications`, `apps/sites`, `apps/operators` or `apps/co
 
 ### 4.8 Files other sessions also edit
 
-No pull request is open at `63db0a4`, and PR 46 is merged, so nothing overlaps today. The SMS build's next PRs will edit `apps/notifications/services.py`, `apps/notifications/apps.py`, `apps/operators/audit.py`, `config/settings.py`, `.env.example`, `README.md` and the scope doc, and its PR 4 plans to create `apps/common/retention.py` and `run_retention` if this build has not. This build adds lines and never edits or removes that session's lines. Before each PR the open PRs are listed again and any shared file is reported to the coordinator first.
+No pull request is open at `63db0a4`, and PR 46 is merged, so nothing overlaps today. `apps/notifications/migrations/0002_sms_gateway.py` is on `main`; this plan adds no `apps/notifications` migration and does not assume `0002` is applied on staging (no rule of this build reads an SMS table).
+
+The SMS build's planned PRs, none open yet: PR 2 touches `apps/notifications`, a new action in `apps/operators/audit.py` and `config/urls.py`; PR 3 adds `apps/accounts` migration `0003` (`AccountMobile`, `MobileOtpChallenge`); PR 4 registers its two rules in the registry this build creates and adds the daily start. This build adds lines and never edits or removes that session's lines. Whichever PR merges second merges `main` first and keeps both. Before each PR the open PRs are listed again and any shared file is reported to the coordinator first.
+
+Not built here: the SMS rules (send records after 365 days, the 24-hour challenge clean-up) and the daily start.
 
 ## 5. The amendment to the scope doc
 
@@ -222,8 +233,8 @@ Run with `uv run python manage.py test`, then `manage.py check`, `makemigrations
 | Accepted when | Tests |
 |---|---|
 | A dry run on test data reports the expected counts and changes nothing | **T-DRY** For every rule and for `dispose_account`: build rows on both sides of each limit, run the dry run, compare the printed counts with the expected ones, then compare every table's rows with a copy taken before (equal), and check that no audit row was written |
-| With the switch off, no rule deletes or blanks anything | **T-OFF** With `RETENTION_ENABLED` unset: `run_retention` and `dispose_account` without `--dry-run` stop with an error; every table is unchanged; no audit row. The switch reads only `1` as on |
-| With the switch on, each rule removes exactly its own rows, and the run log records the counts | **T-RULE**, one per rule: a row of 30 days is removed and one of 29 days stays (730 and 729 for email); a revoked session is counted from `revoked_at`; a live session, a verified account, a recovery code and every table of the other rules are untouched. `--only` runs one rule alone. **T-LOG** one `retention_run` row with the counts, the actor and no personal value; a rule that raises is recorded by name and the other rules still run. **T-DISP** after disposal each field in 4.3 is blank or placeholder, sessions and identities are gone, every kept column is equal to before, the site is closed and its name retired, the `account_disposed` row holds counts and field names only; a second run changes nothing; the never-verified rule disposes of an unverified account of 30 days and leaves one of 29 days and a verified one |
+| With the switch off, no rule deletes or blanks anything | **T-OFF** With `RETENTION_ENABLED` unset: `run_all` called directly, as an automatic start would, returns 0 for every rule of this build and every table is unchanged; `run_retention` prints "switched off" for each; a test rule registered without the wrapper still runs, which proves the gate is in the rules and not in the registry; `dispose_account` without `--dry-run` stops with an error. The switch reads only `1` as on |
+| With the switch on, each rule removes exactly its own rows, and the run log records the counts | **T-RULE**, one per rule: a row of 30 days is removed and one of 29 days stays (730 and 729 for email); a revoked session is counted from `revoked_at`; a live session, a verified account, a recovery code and every table of the other rules are untouched. `--only` runs one rule alone. **T-LOG** one `retention_run` row with no operator, the count per rule and no personal value; three never-verified accounts leave three `account_disposed` rows and a count of 3; a name that is not registered is refused; a rule that raises is recorded by name and the other rules still run. **T-DISP** after disposal each field in 4.3 is blank or placeholder, sessions and identities are gone, every kept column is equal to before, the site is closed and its name retired, the `account_disposed` row holds counts and field names only; a second run changes nothing; the never-verified rule disposes of an unverified account of 30 days and leaves one of 29 days and a verified one |
 | A disposed contact cannot be emailed; a test proves it | **T-GUARD** after disposal, `send_email` to the account's address raises `EmailNotSent`, the outbox is empty and no `EmailMessage` row is written; sign-in with the old session is refused; asking for a sign-in code for the placeholder address sends nothing; a new sign-up with the original address is emailed normally |
 | Tests pass in CI | The CI run on each PR; the plan adds no CI step |
 | (deliverable 5) | **T-EXPORT** the JSON holds the account's rows and its site's, no token hash and nothing of a second account; the file is owner-only and is not overwritten; one `account_exported` row; a disposed account is refused |
