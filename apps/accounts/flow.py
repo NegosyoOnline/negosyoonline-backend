@@ -44,3 +44,10 @@ def finish_redirect(error=None):
     if error:
         return HttpResponseRedirect(f"{settings.SITE_URL}/?signin=1&error={error}")
     return HttpResponseRedirect(f"{settings.DASHBOARD_URL}/")
+
+
+def connect_redirect(provider, result):
+    """Where a connect started in Account Settings ends. The page reads the fragment once."""
+    return HttpResponseRedirect(
+        f"{settings.DASHBOARD_URL}/account/#connect={provider}&result={result}"
+    )

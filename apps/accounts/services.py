@@ -1,17 +1,21 @@
 """Account sign-in and settings. Other apps call these functions, never the tables."""
+from datetime import timedelta
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.accounts import codes
 from apps.accounts.models import Account, AccountAuditEvent, ExternalIdentity, PolicyAcceptance
 from apps.accounts.sessions import client_ip, revoke_sessions, start_session
 from apps.common.errors import ApiError
-from apps.notifications.services import send_email
+from apps.notifications.services import EmailNotSent, send_email
 
 SIGNIN = "signin"
+EMAIL_CHANGE_PAUSE = timedelta(hours=24)
+SUPPORT_EMAIL = "support@negosyoonline.com"  # the address Account Settings shows
 GOOGLE = ExternalIdentity.Provider.GOOGLE
 FACEBOOK = ExternalIdentity.Provider.FACEBOOK
 
@@ -264,8 +268,31 @@ def update_account(account, *, name):
     return account
 
 
+def email_change_pause(account):
+    """(changed_at, available_at) while the pause after an email change runs, else (None, None)."""
+    changed_at = (
+        account.audit_events.filter(event="email_changed")
+        .order_by("-created_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )
+    if changed_at is None or changed_at + EMAIL_CHANGE_PAUSE <= timezone.now():
+        return None, None
+    return changed_at, changed_at + EMAIL_CHANGE_PAUSE
+
+
+def _refuse_paused(account):
+    if email_change_pause(account)[1] is not None:
+        raise ApiError(
+            "email_change_cooldown",
+            "Your email was changed recently. You can change it again 24 hours after that change.",
+            status=409,
+        )
+
+
 def start_email_change(account, new_email, ip):
     """Email a code to the new address. The email changes only when that code is confirmed."""
+    _refuse_paused(account)
     new_email = normalise_email(new_email)
     if new_email == account.email:
         raise ApiError("email_unchanged", "That is already your email.")
@@ -283,8 +310,29 @@ def start_email_change(account, new_email, ip):
     )
 
 
-@transaction.atomic
 def confirm_email_change(account, new_email, code, current_session):
+    """Change the email, sign out the other devices, start the pause and tell the old address."""
+    old_email = _apply_email_change(account, new_email, code, current_session)
+    try:
+        # The new address is left out: this email goes to whoever holds the old mailbox.
+        send_email(
+            to=old_email,
+            category="email_changed_notice",
+            subject="Your NegosyoOnline email was changed",
+            body=(
+                "The email address of your NegosyoOnline account was just changed, so this "
+                "address can no longer be used to sign in. Every other device was signed out.\n\n"
+                f"If you did not make this change, contact {SUPPORT_EMAIL} right away."
+            ),
+        )
+    except EmailNotSent:
+        pass  # already logged and recorded as failed; the change itself stands
+    return account
+
+
+@transaction.atomic
+def _apply_email_change(account, new_email, code, current_session):
+    _refuse_paused(account)
     new_email = normalise_email(new_email)
     purpose = _change_purpose(account)
     if not codes.check_code(new_email, code, purpose):
@@ -298,4 +346,61 @@ def confirm_email_change(account, new_email, code, current_session):
     account.save(update_fields=["email", "email_verified_at"])
     revoke_sessions(account, keep=current_session)
     record_event(account, "email_changed", old=old_email, new=new_email)
-    return account
+    return old_email
+
+
+def connect_identity(account, provider, provider_user_id):
+    """Link a provider user to this account from Account Settings. Returns the result slug.
+
+    Nothing is matched by email and nobody is signed in: the caller has already checked that
+    `account` is the one signed in on this browser.
+    """
+    linked = ExternalIdentity.objects.filter(
+        provider=provider, provider_user_id=provider_user_id
+    ).first()
+    if linked is not None:
+        return "already_connected" if linked.account_id == account.pk else "in_use"
+    if account.identities.filter(provider=provider).exists():
+        return "already_connected"
+    try:
+        with transaction.atomic():
+            ExternalIdentity.objects.create(
+                account=account, provider=provider, provider_user_id=provider_user_id
+            )
+            record_event(account, "identity_linked", provider=str(provider), via="settings")
+    except IntegrityError:  # another request linked it between the checks and the insert
+        return "failed"
+    _notify_connection_change(account, provider, connected=True)
+    return "connected"
+
+
+def disconnect_identity(account, provider):
+    """Remove this account's link to a provider. True when there was one."""
+    with transaction.atomic():
+        removed, _ = account.identities.filter(provider=provider).delete()
+        if removed:
+            record_event(account, "identity_removed", provider=str(provider), reason="owner")
+    if removed:
+        _notify_connection_change(account, provider, connected=False)
+    return bool(removed)
+
+
+def _notify_connection_change(account, provider, *, connected):
+    """The security alert for a connect or a disconnect made in Account Settings."""
+    label = ExternalIdentity.Provider(provider).label
+    when = timezone.localtime(timezone.now()).strftime("%B %d, %Y at %I:%M %p %Z")
+    if connected:
+        subject = f"{label} was connected to your NegosyoOnline account"
+        change = f"A {label} account was connected to your NegosyoOnline account on {when}. It can now be used to sign in."
+    else:
+        subject = f"{label} was disconnected from your NegosyoOnline account"
+        change = f"{label} sign-in was removed from your NegosyoOnline account on {when}. You can still sign in with a code sent to this email."
+    try:
+        send_email(
+            to=account.email,
+            category="connection_changed_notice",
+            subject=subject,
+            body=f"{change}\n\nIf you did not make this change, contact {SUPPORT_EMAIL} right away.",
+        )
+    except EmailNotSent:
+        pass  # already logged and recorded as failed; the change itself stands
