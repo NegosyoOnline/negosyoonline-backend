@@ -356,9 +356,7 @@ Listed for approval in the plan. None is created by this document.
 
 | Kind | Item | Notes |
 |---|---|---|
-| Railway variable | `SMS_GATEWAY_ENABLED` | `1` turns the gateway on. Off by default. The only new variable with the recommended answers |
-| Railway variable (only if D2 is b) | A Firebase service-account secret | Not needed with polling |
-| Railway variable (only if D3 is b) | A gateway host name | Not needed on the API host |
+| Railway variable | `SMS_GATEWAY_ENABLED` | `1` turns the gateway on. Off by default. The only new variable: D2 (polling) and D3 (the API host) are ruled, so no Firebase secret and no host variable |
 | Migration | `apps/notifications`: `SmsMessage`, `SmsDevice`, `SmsPolicy` | Additive. Next free number in that app (`0002` as of `e85e727`) |
 | Migration | `apps/accounts`: `AccountMobile`, `MobileOtpChallenge` | Additive. Next free number in that app (`0003` as of `e85e727`); another session owns this app's migrations, so the number and the order are agreed through the coordinator. It does not depend on the notifications migration |
 | Dependency | None | Encryption uses `cryptography`, already in `pyproject.toml` |
