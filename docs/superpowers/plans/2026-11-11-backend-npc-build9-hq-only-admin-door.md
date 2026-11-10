@@ -116,6 +116,16 @@ What changes for emergencies: the old fallback "unset the switch and use the pas
 
 The scope doc needs three sentences corrected and one dated entry added. Open PR 42 (another coordinator's builder) edits the same file. Recommended: the coordinator agrees the order with that session before this build's PR opens; this builder then merges `main` and keeps both changes.
 
+### 3.9 Settled by the coordinator, 2026-11-11
+
+Reversible details within scope; Coach Ed's decision on 3.1 to 3.5 and 3.7 is still open.
+
+- After hq sign-in the admin lands on S5; the page first asked for is not remembered (3.1): accepted.
+- The lists live at `/admin/` on the hq host only (3.6): accepted.
+- `hq.negosyotest.com` resolves to `127.0.0.1` on Coach Ed's computer; the local check uses `http://hq.negosyotest.com:8013`.
+- Scope doc and PR 42 (3.8): whichever PR merges second merges `main` first and keeps both changes. The builder still tells the coordinator before opening the PR.
+- The 3.5 finding was confirmed by the coordinator: `/static/admin/css/base.css` on api-staging answers 404.
+
 ## 4. Design
 
 ### 4.1 Files
