@@ -370,13 +370,37 @@ def connect_identity(account, provider, provider_user_id):
             record_event(account, "identity_linked", provider=str(provider), via="settings")
     except IntegrityError:  # another request linked it between the checks and the insert
         return "failed"
+    _notify_connection_change(account, provider, connected=True)
     return "connected"
 
 
-@transaction.atomic
 def disconnect_identity(account, provider):
     """Remove this account's link to a provider. True when there was one."""
-    removed, _ = account.identities.filter(provider=provider).delete()
+    with transaction.atomic():
+        removed, _ = account.identities.filter(provider=provider).delete()
+        if removed:
+            record_event(account, "identity_removed", provider=str(provider), reason="owner")
     if removed:
-        record_event(account, "identity_removed", provider=str(provider), reason="owner")
+        _notify_connection_change(account, provider, connected=False)
     return bool(removed)
+
+
+def _notify_connection_change(account, provider, *, connected):
+    """The security alert for a connect or a disconnect made in Account Settings."""
+    label = ExternalIdentity.Provider(provider).label
+    when = timezone.localtime(timezone.now()).strftime("%B %d, %Y at %I:%M %p %Z")
+    if connected:
+        subject = f"{label} was connected to your NegosyoOnline account"
+        change = f"A {label} account was connected to your NegosyoOnline account on {when}. It can now be used to sign in."
+    else:
+        subject = f"{label} was disconnected from your NegosyoOnline account"
+        change = f"{label} sign-in was removed from your NegosyoOnline account on {when}. You can still sign in with a code sent to this email."
+    try:
+        send_email(
+            to=account.email,
+            category="connection_changed_notice",
+            subject=subject,
+            body=f"{change}\n\nIf you did not make this change, contact {SUPPORT_EMAIL} right away.",
+        )
+    except EmailNotSent:
+        pass  # already logged and recorded as failed; the change itself stands

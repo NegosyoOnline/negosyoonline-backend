@@ -1,6 +1,7 @@
 from unittest import mock
 from urllib.parse import parse_qs, urlencode, urlsplit
 
+from django.core import mail
 from django.test import Client, override_settings
 
 from apps.accounts import facebook, google
@@ -281,3 +282,52 @@ class ConnectionTests(ApiTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIs(response.json()["created"], False)
+
+    def test_a_connect_and_a_disconnect_each_send_one_security_notice(self):
+        for provider, label in (("google", "Google"), ("facebook", "Facebook")):
+            _, state = self.start(provider)
+            mail.outbox.clear()
+
+            self.callback(provider, state)
+
+            self.assertEqual(len(mail.outbox), 1)
+            self.assertEqual(mail.outbox[0].to, [EMAIL])
+            self.assertEqual(mail.outbox[0].subject, f"{label} was connected to your NegosyoOnline account")
+            self.assertIn("contact support@negosyoonline.com", mail.outbox[0].body)
+            self.assertNotIn(PROFILES[provider].user_id, mail.outbox[0].body)
+            mail.outbox.clear()
+
+            self.post(f"/v1/account/connections/{provider}/disconnect/")
+
+            self.assertEqual(len(mail.outbox), 1)
+            self.assertEqual(mail.outbox[0].to, [EMAIL])
+            self.assertEqual(
+                mail.outbox[0].subject, f"{label} was disconnected from your NegosyoOnline account"
+            )
+            self.assertNotIn(PROFILES[provider].user_id, mail.outbox[0].body)
+
+    def test_nothing_is_sent_when_nothing_changed(self):
+        other, stranger = self.stranger()
+        ExternalIdentity.objects.create(
+            account=stranger, provider="google", provider_user_id=PROFILES["google"].user_id
+        )
+        _, in_use = self.start("google")
+        _, cancelled = self.start("facebook")
+        mail.outbox.clear()
+
+        self.callback("google", in_use)
+        self.callback("facebook", cancelled, error="access_denied")
+        self.post("/v1/account/connections/facebook/disconnect/")
+
+        self.assertEqual(mail.outbox, [])
+
+    def test_the_change_stands_when_the_notice_cannot_be_sent(self):
+        _, state = self.start("google")
+
+        with mock.patch("apps.notifications.services.send_mail", side_effect=OSError("smtp down")):
+            response, _ = self.callback("google", state)
+            disconnected = self.post("/v1/account/connections/google/disconnect/")
+
+        self.assertEqual(response["Location"], self.result("google", "connected"))
+        self.assertEqual(disconnected.status_code, 200)
+        self.assertFalse(self.account.identities.exists())
