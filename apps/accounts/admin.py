@@ -1,12 +1,16 @@
+from django.conf import settings
 from django.contrib import admin
 
 from apps.accounts.models import (
     Account,
     AccountAuditEvent,
+    AccountMobile,
     ExternalIdentity,
+    MobileOtpChallenge,
     PolicyAcceptance,
     Session,
 )
+from apps.common import masking
 from apps.common.admin import MaskedListAdmin, masked_account
 from apps.common.masking import mask_email
 from apps.sites import labels
@@ -87,3 +91,44 @@ class ExternalIdentityAdmin(ReadOnlyAdmin):
     list_display = (masked_account, "provider", "linked_at")
     list_select_related = ("account",)
     list_filter = ("provider",)
+
+
+@admin.display(description="Number", ordering="number")
+def masked_number(row):
+    return masking.mask_mobile(row.number)
+
+
+class MobileAdmin(ReadOnlyAdmin):
+    """A mobile verification list. Closed while SMS_GATEWAY_ENABLED is off: the code is
+    released before its tables are created, and a closed list never reads them."""
+
+    list_select_related = ("account",)
+
+    def has_module_permission(self, request):
+        return settings.SMS_GATEWAY_ENABLED and super().has_module_permission(request)
+
+    def has_view_permission(self, request, obj=None):
+        return settings.SMS_GATEWAY_ENABLED and super().has_view_permission(request, obj)
+
+
+@admin.register(AccountMobile)
+class AccountMobileAdmin(MobileAdmin):
+    list_display = (masked_account, masked_number, "verified_at", "updated_at")
+    search_fields = ("=number",)  # a full number typed by the admin, never a fragment
+    # The detail page lists its fields by name, so the full number and email are never there.
+    fields = (masked_account, masked_number, "verified_at", "created_at", "updated_at")
+    readonly_fields = (masked_account, masked_number)
+
+
+@admin.register(MobileOtpChallenge)
+class MobileOtpChallengeAdmin(MobileAdmin):
+    list_display = (
+        masked_account, masked_number, "attempts", "created_at", "expires_at", "used_at",
+        "superseded_at",
+    )
+    # The code hash is not one of them.
+    fields = (
+        masked_account, masked_number, "attempts", "sms_public_id", "created_at", "expires_at",
+        "used_at", "superseded_at",
+    )
+    readonly_fields = (masked_account, masked_number)

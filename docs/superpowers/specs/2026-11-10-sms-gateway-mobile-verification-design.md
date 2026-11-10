@@ -364,7 +364,7 @@ The dashboard says: "Changing your mobile sends a notice to your old number and 
 
 ### 7.6 Wording (D10; settled as proposed, the coordinator, 2026-11-11)
 
-- The text: "Your NegosyoOnline code is 123456. It expires in 10 minutes. Do not share it." (79 characters, one SMS, no link).
+- The text: "Your NegosyoOnline code is 123456. It expires in 10 minutes. Do not share it." (77 characters, one SMS, no link).
 - The change notice email. Subject: "Your NegosyoOnline mobile number changed". Body: "The mobile number on your NegosyoOnline account was changed to the number ending in 4567. If you did not make this change, sign in and update it."
 - The error messages in 7.2 and 7.3.
 
