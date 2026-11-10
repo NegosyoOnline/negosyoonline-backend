@@ -91,6 +91,9 @@ if HQ_HOST and HQ_HOST not in ALLOWED_HOSTS:
 # The SMS gateway. "1" turns on the send function and the admin's SMS lists. Off, no text is
 # queued and the gateway's tables are not read or written.
 SMS_GATEWAY_ENABLED = os.environ.get("SMS_GATEWAY_ENABLED", "").strip() == "1"
+# Account-side retention. "1" lets its rules delete and blank. Off, a run of them touches
+# nothing; only the dry run counts.
+RETENTION_ENABLED = os.environ.get("RETENTION_ENABLED", "").strip() == "1"
 
 
 # Application definition

@@ -7,3 +7,4 @@ class NotificationsConfig(AppConfig):
 
     def ready(self):
         from apps.notifications import checks  # noqa: F401  registers the gateway's check
+        from apps.notifications import retention  # noqa: F401  registers the retention rules
