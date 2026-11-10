@@ -167,6 +167,36 @@ class IsolationTests(SitesApiTestCase):
                     self.assertEqual(self.rows_of(self.theirs["id"]), theirs)
                     self.assertEqual(self.rows_of(self.deleted_id)[:3], deleted)
 
+    def test_a_patch_to_my_second_site_leaves_my_first_site_unchanged(self):
+        # The service caps creation at one site, so the second live site is written directly.
+        second = make_site(
+            self.account, name="anas-second", display_name="Ana's Second", first=False
+        )
+        first = self.rows_of(self.mine["id"])
+        theirs = self.rows_of(self.theirs["id"])
+
+        for path, row in (
+            (f"/v1/sites/{second.public_id}/", lambda: Site.objects.get(pk=second.pk)),
+            (f"/v1/sites/{second.public_id}/business-profile/",
+             lambda: SiteBusinessProfile.objects.get(site=second)),
+        ):
+            for key, value in body_for(path).items():
+                with self.subTest(path=path, key=key):
+                    was = getattr(row(), key)
+                    response = self.patch(path, {key: value})
+                    self.assertEqual(response.status_code, 200, response.content)
+                    self.assertNotEqual(getattr(row(), key), was)
+                    self.assertEqual(self.rows_of(self.mine["id"]), first)
+                    self.assertEqual(self.rows_of(self.theirs["id"]), theirs)
+
+        # Each read of the first site still answers its own values, not the second site's.
+        self.assertEqual(self.get(f"/v1/sites/{self.mine['id']}/").json()["display_name"],
+                         self.mine["display_name"])
+        self.assertNotEqual(
+            self.get(f"/v1/sites/{self.mine['id']}/business-profile/").json()["business_name"],
+            PROFILE_BODY["business_name"],
+        )
+
     def test_the_audit_event_for_each_save_names_my_account_and_my_site_only(self):
         ben = Account.objects.get(email="ben@example.test")
         AccountAuditEvent.objects.all().delete()

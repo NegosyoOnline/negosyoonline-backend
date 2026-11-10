@@ -267,6 +267,7 @@ def session_list(request):
 @router.post("/account/sessions/sign-out-others/", response=RevokedOut, auth=signed_in)
 def sign_out_others(request):
     revoked = revoke_sessions(request.account, keep=request.account_session)
+    services.record_event(request.account, "sessions_revoked", count=revoked)
     return {"revoked": revoked, "signed_in_count": _live_sessions(request.account).count()}
 
 
