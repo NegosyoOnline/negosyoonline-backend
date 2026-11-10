@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** draft for Coach Ed's approval. Nothing in it is built. The "Decisions needed" section must be answered first.
+**Status:** approved by Coach Ed on 2026-11-10 ("Approve plan"), as written, including generating `sites.0001_initial`. Applying that migration on staging and setting `SITE_PARENT_HOST` on staging each still need his approval at the time.
 
 **ClickUp:** `z8uq9mach6` "Phase 1: Foundation — Account, Site, Onboarding State & Authorization" (https://app.clickup.com/t/z8uq9mach6), child of `z8uq9mach5`. This is a port: the behaviour was built and accepted in TWCinc, and is rewritten here in this repository's design.
 
@@ -983,13 +983,13 @@ After the deploy: `/healthz/` shows the merge commit; `/v1/openapi.json` lists t
 - `sites.0001_initial` is applied on staging with Coach Ed's approval and recorded in the runbook.
 - No file under `apps/accounts/` changed.
 
-## Decisions needed
+## Decisions (all settled on 2026-11-10)
 
 Only what the task, the spec and the rulings do not settle. Each has a recommendation.
 
-Status on 2026-11-10: decisions 2, 4, 5, 6 and 7 are settled by the coordinator, as noted under each. Decisions 1 and 3 are with Coach Ed, because they change the approved spec or an accepted screen.
+Status on 2026-11-10: decisions 2, 4, 5, 6 and 7 are settled by the coordinator, as noted under each. Decisions 1 and 3 were approved by Coach Ed on 2026-11-10 as recommended.
 
-1. **Where the trial start lands before billing exists.** *Open: with Coach Ed.* Spec section 7 says creating the first site also creates its `Subscription`, with trial dates copied from `Account.created_at`. Billing has no owner and no tables.
+1. **Where the trial start lands before billing exists.** *Approved by Coach Ed, 2026-11-10: the recommendation. No Subscription or trial record in slice 3; `public/sites/by-host/` is deferred to slice 4.* Spec section 7 says creating the first site also creates its `Subscription`, with trial dates copied from `Account.created_at`. Billing has no owner and no tables.
    - **Recommended: record nothing in slice 3.** The trial dates are fully determined by `Account.created_at` (14 days), which already exists. Slice 4 adds `Subscription`, a call inside `create_first_site`'s transaction, and a one-time backfill for sites created before it, computed from the same dates. No information is lost, and billing's table is designed by whoever owns billing.
    - Alternative: create a minimal `apps/billing` with `Subscription` now. It commits the billing schema before the billing values in spec section 7 are confirmed, and puts unowned code in this slice.
    - Consequence of the recommendation: until slice 4, the API cannot say "trial active" or "trial ended", and site creation is not limited by the trial (which matches spec section 7).
@@ -1000,7 +1000,7 @@ Status on 2026-11-10: decisions 2, 4, 5, 6 and 7 are settled by the coordinator,
    - Needs a one-line amendment to spec section 8.
    - **Settled by the coordinator, 2026-11-10: yes.** `GET /v1/account/setup/` is served by the sites app, with the spec section 8 amendment in Task 9 Step 1. Source: task `z8uq9mach6` requires a persisted, resumable onboarding state; the dashboard already calls this path; `/me/` belongs to the staging proof session.
 
-3. **`GET /v1/dashboard/`.** *Open: with Coach Ed.* Its legacy payload is `trial`, `referral` and `kpis`: billing, referrals and commerce figures, none of which exist here.
+3. **`GET /v1/dashboard/`.** *Approved by Coach Ed, 2026-11-10: the recommendation. Not built in slice 3.* Its legacy payload is `trial`, `referral` and `kpis`: billing, referrals and commerce figures, none of which exist here.
    - **Recommended: do not build it in slice 3.** The Overview decides its mode from `GET /account/setup/` and takes the site label from it. The trial strip returns with slice 4 (`GET sites/{site_id}/billing/`), the referral link with slice 7, sales figures with commerce.
    - Consequence: until slice 4 the Overview shows no trial strip.
 
