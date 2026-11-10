@@ -9,7 +9,7 @@ FORMAT = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 # Never assignable.
 INFRA_LABELS = frozenset({
     "www", "dash", "hq", "api", "admin", "app", "mail", "static", "notify", "billing",
-    "login", "support", "help", "status", "ggwp", "webhook",
+    "login", "support", "help", "status", "ggwp", "webhook", "sms", "gateway",
 })
 # Reserved for the brand; a subscriber cannot choose them.
 BRAND_NAMES = frozenset({"sante", "santebarley", "santebarleyph", "official", "negosyoonline"})
