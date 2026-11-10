@@ -14,8 +14,8 @@ Every step below that touches staging or production needs Coach Ed's approval fo
 ## Release order
 
 1. Deploy. The code is dark while `SMS_GATEWAY_ENABLED` is unset.
-2. Apply the `apps/notifications` SMS migration (`docs/runbooks/migrations.md`).
-3. Confirm `REDIS_URL` is set, then set `SMS_GATEWAY_ENABLED=1`. Never before step 2: the send function and the lists would fail on the missing tables.
+2. Apply the `apps/notifications` SMS migration and the `apps/accounts` mobile migration, `accounts.0003_accountmobile_mobileotpchallenge` (`docs/runbooks/migrations.md`). Each run is its own approval. Until `accounts.0003` is applied, deleting a subscriber account in the admin fails, because the delete looks for that account's rows in the two mobile tables.
+3. Confirm `REDIS_URL` is set, then set `SMS_GATEWAY_ENABLED=1`. Never before step 2: the send function, mobile verification and the lists would fail on the missing tables.
 4. Add the phone (below) and enter its token in the app.
 5. Check: `sms_device list` shows a recent `last_contact`, and the admin's SMS phones list shows the phone.
 

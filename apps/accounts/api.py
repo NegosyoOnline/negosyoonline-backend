@@ -7,7 +7,7 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.utils import timezone
 from ninja import Field, Router, Schema
 
-from apps.accounts import google, services
+from apps.accounts import google, mobile, services
 from apps.accounts.auth import SessionCookieAuth
 from apps.accounts.flow import (
     clear_flow_cookie,
@@ -64,6 +64,13 @@ class DeviceOut(Schema):
     ip: str
 
 
+class MobileOut(Schema):
+    """The account's verified mobile. The full number is never returned."""
+
+    verified: bool
+    mobile_masked: str
+
+
 class AccountSettingsOut(AccountOut):
     """What the Account Settings page reads. Every write on that page answers with it."""
 
@@ -73,7 +80,7 @@ class AccountSettingsOut(AccountOut):
     providers: list[ProviderOut]
     devices: list[DeviceOut]
     signed_in_count: int
-    mobile: dict | None
+    mobile: MobileOut
 
 
 class VerifyOut(Schema):
@@ -87,6 +94,18 @@ class MeOut(Schema):
 
 class AccountPatch(Schema):
     name: str = Field(max_length=120)
+
+
+class MobileStartIn(Schema):
+    mobile: str
+
+
+class MobileCodeIn(Schema):
+    code: str
+
+
+class QueuedOut(Schema):
+    queued: bool
 
 
 class EmailConfirmIn(Schema):
@@ -155,7 +174,7 @@ def settings_out(request):
         ],
         "devices": devices,
         "signed_in_count": len(devices),
-        "mobile": None,  # mobile verification is not built yet
+        "mobile": mobile.mobile_out(account),
     }
 
 
@@ -211,6 +230,17 @@ def email_change_confirm(request, payload: EmailConfirmIn):
         request.account, payload.email, payload.code, request.account_session
     )
     return settings_out(request)
+
+
+@router.post("/account/mobile/start/", response=QueuedOut, auth=signed_in)
+def mobile_start(request, payload: MobileStartIn):
+    mobile.start(request.account, payload.mobile, client_ip(request))
+    return {"queued": True}
+
+
+@router.post("/account/mobile/verify/", response=MobileOut, auth=signed_in)
+def mobile_verify(request, payload: MobileCodeIn):
+    return mobile.verify(request.account, payload.code)
 
 
 @router.get("/account/sessions/", response=SessionListOut, auth=signed_in)

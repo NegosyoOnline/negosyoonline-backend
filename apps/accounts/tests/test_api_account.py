@@ -112,7 +112,7 @@ class AccountSettingsReadTests(ApiTestCase):
         self.assertIs(body["writes_open"], True)
         self.assertIsNone(body["email_changed_at"])
         self.assertIsNone(body["email_change_available_at"])
-        self.assertIsNone(body["mobile"])
+        self.assertEqual(body["mobile"], {"verified": False, "mobile_masked": ""})
         self.assertEqual(
             body["providers"],
             [
