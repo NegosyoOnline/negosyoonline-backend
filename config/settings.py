@@ -45,6 +45,10 @@ API_ALLOWED_ORIGINS = [
     ).split(",")
     if origin.strip()
 ]
+# The host under which subscriber sites live, for example negosyotest.com. Empty hides the host.
+SITE_PARENT_HOST = os.environ.get("SITE_PARENT_HOST", "").strip().lower().strip(".")
+SITES_PER_ACCOUNT_LIMIT = 1  # MVP: onboarding creates the first site only. The schema allows many.
+
 # Email. With no EMAIL_HOST the message is printed to the service log instead of sent.
 EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
 EMAIL_BACKEND = (
@@ -85,6 +89,7 @@ INSTALLED_APPS = [
     'apps.common',
     'apps.operators',
     'apps.accounts',
+    'apps.sites',
     'apps.notifications',
     'apps.health',
 ]
