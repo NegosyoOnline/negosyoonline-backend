@@ -6,7 +6,7 @@ Nothing here runs by itself today. Every rule is run by hand with `manage.py run
 
 ## What needs Coach Ed's approval, each time and per environment
 
-- Setting `RETENTION_ENABLED=1`. Once the SMS build adds its once-a-day start, an environment with the switch on runs these rules every day without a command, so switching it on also approves that daily run.
+- Setting `RETENTION_ENABLED=1`. It starts nothing by itself: these rules run only by the commands below until slice 4 adds a schedule. The SMS build's once-a-day start runs only the SMS rules, never these.
 - Running any command below against staging or production data. This includes the dry run and the export.
 
 ## The rules
