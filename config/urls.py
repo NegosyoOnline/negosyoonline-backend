@@ -16,9 +16,10 @@ Including another URLconf
 """
 from django.conf import settings
 from django.http import JsonResponse
-from django.urls import path, re_path
+from django.urls import include, path, re_path
 
 from apps.notifications import gateway
+from apps.storefront import api as storefront
 from config.api import api, api_not_found
 
 
@@ -32,6 +33,8 @@ urlpatterns = [
     path("gateway/v1/poll", gateway.poll),
     path("gateway/v1/report", gateway.report),
     path("gateway/v1/received", gateway.received),
+    # The storefronts server's calls. Outside /v1/, so they are not in the published API.
+    path("storefront/v1/", include(storefront.urlpatterns, namespace=storefront.namespace)),
     path("v1/", api.urls),
     re_path(r"^v1/", api_not_found),
 ]
