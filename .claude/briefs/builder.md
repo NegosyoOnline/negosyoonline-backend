@@ -38,6 +38,18 @@ Coach Ed's ruling (2026-11-10): more than one session opens PRs in this reposito
 - Before opening the PR, list the open PRs in this repository with their changed files. If one touches a file this work also changes, tell the coordinator before opening the PR and say which PR and which files.
 - Resolve a conflict by keeping both sides' approved work. Never drop, revert or overwrite another session's change to make a merge pass, and never force-push over a branch another session uses. If both cannot be kept, stop and report it to the coordinator.
 
+### Addition: few PRs, few CI runs
+
+Coach Ed's ruling (2026-11-12): every CI run is billed from a capped GitHub Actions budget, and several sessions pushing many small PRs used up the included allowance and then blocked CI for everyone.
+
+- A ClickUp task or a plan step is not a PR. Open one PR per deployable slice that can be switched off and tested, not one per step. Steps that touch the same files go in the same PR. If the approved plan names the PRs, build those; do not split further.
+- Do not open a PR to hold a few lines. Open it when it is useful and reviewable on its own. Where Coach Ed has said to test the finished system first, open the PR only after that test.
+- Run the tests locally first. Push when they pass, so CI is a confirmation, not the first run.
+- One open PR at a time per repository, across every session. Before creating a PR, list the open PRs (`gh pr list --state open`; this costs no CI minutes). If any is open, do not create yours: keep building and testing on your branch, tell the coordinator you are queued, and check again when the open PR merges. When none is open, fetch `origin/main`, bring your branch up to date, re-run the local checks, push, and create the PR at once. A PR created that way is never behind `main`, so it needs no update and no second CI run.
+- Pushing a branch without a PR starts no CI, so push your branch freely while you wait.
+- Once the PR is open, do not push, update the branch or re-run CI just to refresh it. Re-run a check only after a failure you have understood. If two PRs were created at the same moment, the later one updates once after the earlier one merges.
+- This replaces "again before merging" above for a PR created this way. A hotfix that cannot wait is the one exception, and the coordinator takes it to Coach Ed.
+
 ## 3. Report to the coordinator, not to Coach Ed
 
 Questions, blockers and milestone reports go to the coordinator session first. Check the task, its comments and the linked documents before asking: most answers are already there.
