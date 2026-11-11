@@ -393,17 +393,21 @@ class NothingStoredTests(ContactTestCase):
             self.assertEqual(self.post().status_code, 429)
             with mock.patch.object(mail.EmailMessage, "send", side_effect=OSError("down")):
                 self.assertEqual(self.post(visitor_ip="203.0.113.51").status_code, 503)
+            self.assertEqual(self.post("nobody-here.negosyotest.com").status_code, 404)
+            self.assertEqual(self.post(secret="wrong").status_code, 401)
+            Site.objects.filter(pk=self.site.pk).update(contact_email="")
+            self.assertEqual(self.post(visitor_ip="203.0.113.52").status_code, 409)
 
         written = [
             query["sql"] for query in queries.captured_queries
             if query["sql"].lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
         ]
         self.assertTrue(written)  # the email record was written, so the search means something
-        for sql in written:
+        for sql in written[:-1]:  # the last is this test's own change to the site
             self.assertIn("notifications_emailmessage", sql)
         self.assertTrue(records.lines)
         for text in written + records.lines:
-            for private in (*PRIVATE, VISITOR):
+            for private in (*PRIVATE, VISITOR, "203.0.113.51", "203.0.113.52"):
                 self.assertNotIn(private, text)
 
     def test_the_email_record_holds_the_store_address_the_category_and_the_status_only(self):
