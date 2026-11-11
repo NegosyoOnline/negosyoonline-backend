@@ -23,26 +23,38 @@ logger = logging.getLogger(__name__)
 
 Priority = SmsMessage.Priority
 CODE, STATUS = SmsMessage.Category.CODE.value, SmsMessage.Category.STATUS.value
+INBOX = SmsMessage.Category.INBOX.value
 QUEUED, EMAILED, REFUSED = "queued", "emailed", "refused"
 
 DEFAULT_LIFETIME = 600  # seconds a text is worth sending: a code's 10 minutes
 ONLINE_WITHIN = timedelta(seconds=60)
 NO_REPORT_AFTER = 600  # seconds the gateway waits for the phone's report on a text it took
 _COUNT_KEPT = 2 * 24 * 3600
+STAFF_TEXT_LIFETIME = 3600  # seconds a staff text waits for the phone
+# Of the day's texts, this many are for codes only (Coach Ed, "Hold back 300"). A staff text
+# is refused once the day's count reaches the limit less this. Changing it is his ruling.
+RESERVED_FOR_CODES = 300
 
 
 @dataclass(frozen=True)
 class Purpose:
     category: str
     priority: int
+    paced: bool = False  # sent no sooner than the gap after the last paced text
 
 
 # The closed list of what may be sent. A text of any other kind cannot be sent without a
-# reviewed change to this list: sign-in and verification codes and order-status texts only,
-# no reply and no marketing text.
+# reviewed change to this list: codes, order-status texts, and a text an HQ staff member
+# writes to one number from the inbox. Marketing has no purpose here and cannot be sent.
 PURPOSES = {
     "mobile_verify": Purpose(category=CODE, priority=Priority.CODE),
+    "inbox_reply": Purpose(category=INBOX, priority=Priority.REPLY, paced=True),
+    "inbox_compose": Purpose(category=INBOX, priority=Priority.REPLY, paced=True),
 }
+
+
+def paced_purposes():
+    return [name for name, declared in PURPOSES.items() if declared.paced]
 
 
 @dataclass(frozen=True)
@@ -234,10 +246,13 @@ def refusal(message):
         of_site = _counted(message).filter(site=message.site, category=STATUS)
         if not _claim(site_key, rules.site_daily_limit, of_site.count):
             return "site_limit"
-    if not _claim(_platform_key(), rules.platform_daily_limit, _counted(message).count):
+    limit, reason = rules.platform_daily_limit, "platform_limit"
+    if message.category == INBOX:
+        limit, reason = max(limit - RESERVED_FOR_CODES, 0), "staff_limit"
+    if not _claim(_platform_key(), limit, _counted(message).count):
         if site_key:
             _release(site_key)
-        return "platform_limit"
+        return reason
     if not gateway_online():
         _release(_platform_key())
         if site_key:

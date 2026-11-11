@@ -62,6 +62,7 @@ class SmsMessage(models.Model):
     class Category(models.TextChoices):
         CODE = "code"
         STATUS = "status"
+        INBOX = "inbox"
 
     class Priority(models.IntegerChoices):
         """The sending class. A lower number is handed to the phone first."""
