@@ -77,6 +77,26 @@ For each escalation, state:
 
 Ask one focused decision at a time. Include related points together when they form one decision. Do not forward raw sub-session questions.
 
+### Addition: decide routine details and record them in ClickUp
+
+Coach Ed's marching order (2026-11-11), given to every coordinator: do not interrupt him with routine implementation or design questions that can be answered from the approved mockups, rulings, spec, plan, current codebase or existing tests.
+
+Make the smallest safe decision yourself, document it in ClickUp as a comment on the task, and continue when:
+- the answer is already in the codebase or approved task artifacts;
+- it is a reversible implementation detail;
+- it does not change customer promises, payment, accounting, access control, privacy, legal terms, external integrations or approved visual design.
+
+Ask him only when:
+- the answer is not available from the codebase or approved artifacts;
+- it changes business scope, customer-facing promises, legal or compliance position, payments, accounting, commissions, credentials, privacy or security;
+- it requires an external fact, owner decision, production access, third-party setting, brand approval, or approval to change an already approved mockup;
+- two valid options have materially different customer, financial or security outcomes.
+
+How it applies here:
+- Pass the order to every builder. A builder decides the same way, lists each choice in its next report (what, why, source), and the coordinator writes the ClickUp comment.
+- The ClickUp comment that records such a decision needs no approval. Every other ClickUp write still does (section 10).
+- A migration that an approved plan specifies is routine: see the third standing approval in section 10.
+
 ## 6. Keep the project focused
 
 NegosyoOnline’s current MVP supports Sante Site Type only. Basic Site and general Ecom Store development are deferred to Q1 2027. Preserve all shared systems needed for Sante.
@@ -228,9 +248,9 @@ Follow supported approval and write processes. Do not bypass permission denials 
 
 When approval is genuinely required, finish all authorized preparation first and bring me a concrete, reviewable action. Explain the exact source of the approval requirement and whether existing authorization covers any part of it.
 
-### Addition: two standing approvals for every coordinator
+### Addition: three standing approvals for every coordinator
 
-Coach Ed's ruling (2026-11-11), given as a standing command to all coordinator sessions: do these two things automatically, without asking him each time.
+Coach Ed's ruling (2026-11-11), given as a standing command to all coordinator sessions: do these three things automatically, without asking him each time.
 
 1. **Merge when CI is green.** Merge a pull request of your own hierarchy once every required check has passed on its head commit. Before merging:
    - The PR belongs to a plan or task Coach Ed approved, and you have read its diff against that plan. A diff that goes beyond the plan is not covered: stop and tell him.
@@ -242,7 +262,14 @@ Coach Ed's ruling (2026-11-11), given as a standing command to all coordinator s
    - No other live session shares that worktree. If one does, leave it and say so.
    - Copy anything a later session still needs (for example the builder's state file) first.
 
-These two approvals cover nothing else. Still Coach Ed's, each time: approving a plan, accepting a build, any ClickUp write, any migration, seed data, Railway variable, deploy or production action, turning on a switch in a shared environment, and any command against staging or production data. Merging a PR that contains a migration does not approve running it.
+3. **Write and run on staging a migration the approved plan specifies.** Coach Ed's ruling (2026-11-11, "Write and run on staging"), added because he was approving obvious migration prompts one by one.
+   - Writing: a builder writes the migration file that its approved plan specifies, without asking. A migration the plan does not specify is a scope question: stop and tell him.
+   - Running on staging: after the migration's PR is merged and the staging deploy is verified, run it on `staging` by `docs/runbooks/migrations.md`, without asking. Read `migrate --plan` first. Run only when it lists exactly the migrations of that approved plan.
+   - Stop and ask instead when: the plan output lists anything else; the migration drops or rewrites existing data (a removed table or column, a data migration over existing rows); the code that is running would break on the new schema; or Coach Ed has said to hold that step.
+   - Afterwards confirm nothing is pending, check `/healthz/`, record the run in the runbook's log and in the PR, and report it in one message.
+   - Production is not covered. A migration on `production` is Coach Ed's approval each time.
+
+These three approvals cover nothing else. Still Coach Ed's, each time: approving a plan, accepting a build, any ClickUp write other than the comment that records a routine decision (section 5), any migration outside the third approval, seed data, Railway variable, deploy or production action, turning on a switch in a shared environment, and any other command against staging or production data. Merging a PR that contains a migration does not approve running it on production.
 
 ## 11. Maintain continuity and report clearly
 

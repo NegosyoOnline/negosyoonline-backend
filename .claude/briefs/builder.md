@@ -87,7 +87,7 @@ A domain name alone does not prove which environment answered. State the protoco
 
 ## 8. Keep the required controls
 
-This brief authorizes building within the task's approved scope. It does not approve migrations, seed data, variable changes, deployments, production actions, spending, credentials or destructive actions. Follow the repository's `CLAUDE.md` or `AGENTS.md` and the supported approval steps. Do not work around a permission denial with another tool.
+This brief authorizes building within the task's approved scope. It covers writing the migration file that the task's approved plan specifies (Coach Ed's ruling, 2026-11-11); a migration the plan does not specify is a question for the coordinator. It does not approve running a migration anywhere (the coordinator runs an approved one on staging), seed data, variable changes, deployments, production actions, spending, credentials or destructive actions. Follow the repository's `CLAUDE.md` or `AGENTS.md` and the supported approval steps. Do not work around a permission denial with another tool.
 
 When approval is needed, finish everything already authorized first, then bring one concrete, reviewable action.
 
