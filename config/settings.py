@@ -106,6 +106,9 @@ BILLING_ENABLED = os.environ.get("BILLING_ENABLED", "").strip() == "1"
 # only while BILLING_ENABLED is on, a receiving account is set and a proof store is available.
 # Off, its routes answer 404 and its tables are not read or written.
 BILLING_BANK_TRANSFER_ENABLED = os.environ.get("BILLING_BANK_TRANSFER_ENABLED", "").strip() == "1"
+# The six-month Launch Promo (PHP 4,999.00 once). "1" offers it, to a site that never had a
+# paid cycle, wherever paying by bank transfer is on.
+BILLING_LAUNCH_PROMO_ENABLED = os.environ.get("BILLING_LAUNCH_PROMO_ENABLED", "").strip() == "1"
 # The accounts Subscribers send their payment to, as a JSON list of objects with `kind`
 # ("bank" or "ewallet"), `provider_name`, `account_name` and `account_number`. Never in code.
 BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").strip()

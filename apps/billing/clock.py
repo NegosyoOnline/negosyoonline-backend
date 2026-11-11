@@ -19,13 +19,15 @@ def anchor_day(instant):
     return instant.astimezone(MANILA).day
 
 
-def cycle_end(start_at, anchor):
-    """3:00 PM Manila on the anchor day of the month after the one the cycle starts in.
+def cycle_end(start_at, anchor, months=1):
+    """3:00 PM Manila on the anchor day of the month `months` after the one the cycle starts in.
 
     A month without that day ends the cycle on its last day. The shortening does not carry
-    forward: anchor 31 gives 28 February, then 31 March.
+    forward: anchor 31 gives 28 February, then 31 March. A cycle of six months ends on the
+    calendar date six months on, never after 180 days.
     """
     start = start_at.astimezone(MANILA)
-    year, month = (start.year + 1, 1) if start.month == 12 else (start.year, start.month + 1)
+    year, month = divmod(start.year * 12 + start.month - 1 + months, 12)
+    month += 1
     day = min(anchor, calendar.monthrange(year, month)[1])
     return datetime.combine(datetime(year, month, day), CUTOFF, tzinfo=MANILA)

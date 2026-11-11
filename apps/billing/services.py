@@ -425,14 +425,15 @@ def _clear_service_end(subscription):
     subscription.deletion_due_at = None
 
 
-def _open_cycle(subscription, start_at, settlement, *, paid_at=None, reference=""):
-    """The next paid cycle, from `start_at` to 3:00 PM Manila on the anchor day a month on."""
+def _open_cycle(subscription, start_at, settlement, *, paid_at=None, reference="", months=1):
+    """The next paid cycle, from `start_at` to 3:00 PM Manila on the anchor day `months`
+    months on."""
     return BillingCycle.objects.create(
         subscription=subscription,
         sequence=_latest_cycle(subscription).sequence + 1,
         kind=Kind.PAID,
         start_at=start_at,
-        end_at=clock.cycle_end(start_at, subscription.anchor_day),
+        end_at=clock.cycle_end(start_at, subscription.anchor_day, months),
         settlement=settlement,
         paid_at=paid_at,
         payment_reference=reference,
@@ -591,7 +592,9 @@ def _paid_detail(cycle, reference, detail=None):
     return {"cycle": cycle.sequence, "reference": reference, **(detail or {})}
 
 
-def first_payment_succeeded(subscription, *, paid_at, reference, early=False, detail=None):
+def first_payment_succeeded(
+    subscription, *, paid_at, reference, early=False, detail=None, months=1
+):
     """`early` allows a payment before the trial ends: cycle 1 still starts at the trial end,
     so the trial days are kept."""
     def change(subscription, key):
@@ -599,7 +602,7 @@ def first_payment_succeeded(subscription, *, paid_at, reference, early=False, de
         if paid_at < subscription.trial_end_at and not early:
             raise _not_due()
         cycle = _open_first_cycle(
-            subscription, Settlement.PAID, paid_at=paid_at, reference=reference
+            subscription, Settlement.PAID, paid_at=paid_at, reference=reference, months=months
         )
         return _apply(
             subscription, "first_payment_succeeded", State.ACTIVE, key,
@@ -625,7 +628,7 @@ def first_payment_failed(subscription, *, at):
     return _write(subscription, at, change, key=f"failed:{subscription.pk}:1")
 
 
-def renewed(subscription, *, paid_at, reference, early=False, detail=None):
+def renewed(subscription, *, paid_at, reference, early=False, detail=None, months=1):
     """`early` allows a payment before the due date: the next cycle still starts at it."""
     def change(subscription, key):
         _require(subscription, "renewed")
@@ -633,7 +636,8 @@ def renewed(subscription, *, paid_at, reference, early=False, detail=None):
         if paid_at < due_at and not early:
             raise _not_due()
         cycle = _open_cycle(
-            subscription, due_at, Settlement.PAID, paid_at=paid_at, reference=reference
+            subscription, due_at, Settlement.PAID, paid_at=paid_at, reference=reference,
+            months=months,
         )
         return _apply(
             subscription, "renewed", State.ACTIVE, key, min(paid_at, due_at), Actor.PAYMENT,
@@ -665,12 +669,14 @@ def renewal_failed(subscription, *, at):
     return _write(subscription, at, change, key=key)
 
 
-def recovered(subscription, *, paid_at, reference, detail=None):
+def recovered(subscription, *, paid_at, reference, detail=None, months=1):
     """A payment during the 7 days of attention. At or after them the site is suspended."""
     def change(subscription, key):
         _require(subscription, "recovered")
         cycle = subscription.cycles.get(settlement=Settlement.PENDING)
         cycle.settlement, cycle.paid_at, cycle.payment_reference = Settlement.PAID, paid_at, reference
+        if months != 1:  # the pending cycle was opened for one month
+            cycle.end_at = clock.cycle_end(cycle.start_at, subscription.anchor_day, months)
         cycle.save()
         subscription.attention_started_at = None
         return _apply(
@@ -681,7 +687,7 @@ def recovered(subscription, *, paid_at, reference, detail=None):
     return _write(subscription, paid_at, change, key=_paid_key(reference))
 
 
-def reactivated(subscription, *, paid_at, reference, detail=None):
+def reactivated(subscription, *, paid_at, reference, detail=None, months=1):
     """A payment on a suspended or ended subscription: a new paid cycle from the payment time.
 
     Refused at or after the deletion date, which is the last date to pay.
@@ -699,7 +705,8 @@ def reactivated(subscription, *, paid_at, reference, detail=None):
         subscription.attention_started_at = None
         subscription.anchor_day = clock.anchor_day(paid_at)
         cycle = _open_cycle(
-            subscription, paid_at, Settlement.PAID, paid_at=paid_at, reference=reference
+            subscription, paid_at, Settlement.PAID, paid_at=paid_at, reference=reference,
+            months=months,
         )
         return _apply(
             subscription, "reactivated", State.ACTIVE, key, paid_at, Actor.PAYMENT,
@@ -841,10 +848,16 @@ def submit_transfer(
 def _settle_transfer(subscription, payment, at):
     """Settle exactly one cycle with a confirmed payment, by the state at `at`. Returns the
     transition. The caller holds the subscription's row lock and `catch_up` has run."""
+    bought = plan.PLANS[payment.plan_code]
+    if bought is plan.LAUNCH_PROMO and not plan.never_paid(subscription):
+        # The promo is bought once. A proof sent while it was still offered is not settled
+        # after another payment was; the operator rejects it.
+        raise _conflict("plan_not_offered", "This plan can no longer be bought for this site.")
     paid = {
         "paid_at": at,
         "reference": payment.reference,
         "detail": {"plan": payment.plan_code, "amount_centavos": payment.amount_centavos},
+        "months": bought.months,
     }
     state = subscription.state
     if state == State.CANCELLED and at < subscription.service_ended_at:
@@ -981,6 +994,7 @@ def payment_options(subscription, at=None):
         elif state == State.PAYMENT_REQUIRES_ATTENTION:
             start_at, anchor = latest.start_at, subscription.anchor_day
         for offered in plan.offers(subscription, now):
+            end_at = clock.cycle_end(start_at, anchor, offered.months) if start_at else None
             offers.append({
                 "plan": offered.code,
                 "name": offered.name,
@@ -988,9 +1002,15 @@ def payment_options(subscription, at=None):
                 "currency": plan.CURRENCY,
                 "months": offered.months,
                 "period_start_at": start_at,
-                "period_end_at": clock.cycle_end(start_at, anchor) if start_at else None,
+                "period_end_at": end_at,
                 "starts_at_confirmation": start_at is None,
-                "then": None,
+                # After the promo's one term, the price is the Monthly one.
+                "then": None if offered is plan.MONTHLY else {
+                    "plan": plan.MONTHLY.code,
+                    "amount_centavos": plan.MONTHLY.price_centavos,
+                    "interval": "month",
+                    "first_due_at": end_at,
+                },
             })
     transfers = subscription.transfers.select_related("cycle")
     return {
