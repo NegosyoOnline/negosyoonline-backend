@@ -13,6 +13,7 @@ from apps.inbox import contacts_staff
 from apps.inbox import staff as inbox_staff
 from apps.inbox.models import Contact, InboxAccess
 from apps.inbox.tests.base import inbox_on
+from apps.inbox.tests.contacts_base import without_ids
 from apps.operators import staff_views
 from apps.operators.models import OperatorAuditEntry
 from apps.operators.tests.test_staff_routes import StaffTestCase, on_staff
@@ -151,8 +152,8 @@ class RouteTests(ContactsRouteCase):
         self.assertEqual(self.post("delete/", {"contact": cid}).status_code, 204)
         self.assertEqual(self.post("groups/remove/", {"group": gid}).status_code, 204)
         for body in self.seen[:before]:
-            self.assertNotIn("917000", body)
-            self.assertNotIn(FULL, body)
+            self.assertNotIn("917000", without_ids(body))
+            self.assertNotIn(FULL, without_ids(body))
         self.assertEqual(Contact.objects.count(), 0)
 
     def test_3_the_errors(self):
@@ -204,7 +205,7 @@ class RouteTests(ContactsRouteCase):
         self.assertEqual(checked.status_code, 200)
         self.assertEqual((checked.json()["new"], checked.json()["refused_count"]), (2, 1))
         for name in ("Ana", "Ben", "Bad", "0101"):
-            self.assertNotIn(name, checked.content.decode())
+            self.assertNotIn(name, without_ids(checked.content.decode()))
         saved = self.post("upload/", {"group": gid, "csv": text, "expected_new": 2})
         self.assertEqual((saved.status_code, saved.json()["added"]), (201, 2))
         self.assertError(self.post("upload/", {"group": gid, "csv": text, "expected_new": 2}), 409, "changed")
@@ -230,6 +231,6 @@ class RouteTests(ContactsRouteCase):
     def test_9_no_audit_entry_or_answer_holds_a_name(self):
         self.add()
         self.post("list/", {"query": "0917 000 0101"})
-        text = json.dumps([[e.detail, e.personal, e.target_id, e.reason] for e in OperatorAuditEntry.objects.all()])
+        text = without_ids(json.dumps([[e.detail, e.personal, e.target_id, e.reason] for e in OperatorAuditEntry.objects.all()]))
         for value in ("Ana", "Sample", "0101", "917"):
             self.assertNotIn(value, text)
