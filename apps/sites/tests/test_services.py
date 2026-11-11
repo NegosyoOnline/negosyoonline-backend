@@ -1,9 +1,12 @@
 from unittest import mock
 
-from django.test import TestCase
+from datetime import timedelta
+
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.accounts.models import Account, AccountAuditEvent
+from apps.billing.models import BillingCycle, Subscription, SubscriptionTransition
 from apps.common.errors import ApiError
 from apps.sites import onboarding, services, templates
 from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
@@ -144,6 +147,70 @@ class CreateFirstSiteTests(TestCase):
             self.assert_refused("subdomain_taken", 409)
 
         self.assertFalse(Site.objects.filter(account=self.account).exists())
+
+
+@override_settings(BILLING_ENABLED=True)
+class CreateFirstSiteBillingTests(TestCase):
+    """With billing on, the site and its subscription are created together or not at all."""
+
+    def setUp(self):
+        self.account = make_account()
+
+    def test_create_makes_the_subscription_with_a_trial_from_the_accounts_creation(self):
+        site = create(self.account)
+
+        subscription = Subscription.objects.get(site=site)
+        start = self.account.created_at
+        self.assertEqual(subscription.state, "trial_active")
+        self.assertEqual(
+            (subscription.trial_start_at, subscription.trial_end_at),
+            (start, start + timedelta(days=14)),
+        )
+        cycle = subscription.cycles.get()
+        self.assertEqual(
+            (cycle.sequence, cycle.kind, cycle.settlement, cycle.start_at, cycle.end_at),
+            (0, "trial", "not_billable", start, start + timedelta(days=14)),
+        )
+        transition = subscription.transitions.get()
+        self.assertEqual(
+            (transition.code, transition.actor, transition.effective_at),
+            ("trial_started", "site_creation", start),
+        )
+
+    def test_a_site_created_after_the_14_days_joins_with_its_trial_already_ended(self):
+        start = timezone.now() - timedelta(days=20)
+        Account.objects.filter(pk=self.account.pk).update(created_at=start)
+        self.account.refresh_from_db()
+
+        site = create(self.account)
+
+        subscription = Subscription.objects.get(site=site)
+        self.assertEqual(subscription.state, "cancelled_no_payment_method")
+        # Service ended at the trial end, not when the site was created.
+        self.assertEqual(subscription.service_ended_at, start + timedelta(days=14))
+        self.assertEqual(
+            list(subscription.transitions.order_by("pk").values_list("code", "actor")),
+            [("trial_started", "site_creation"), ("trial_ended_no_method", "site_creation")],
+        )
+
+    def test_a_failure_while_creating_the_subscription_rolls_the_site_back(self):
+        with mock.patch.object(BillingCycle.objects, "create", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                create(self.account)
+
+        for model in (Site, Subdomain, SiteBusinessProfile, Onboarding, Subscription,
+                      BillingCycle, SubscriptionTransition):
+            self.assertFalse(model.objects.exists(), model.__name__)
+        self.assertFalse(AccountAuditEvent.objects.filter(event="site_created").exists())
+
+    @override_settings(BILLING_ENABLED=False)
+    def test_switched_off_the_site_is_created_as_before_with_no_subscription(self):
+        site = create(self.account)
+
+        self.assertEqual(Onboarding.objects.get(account=self.account).first_site, site)
+        self.assertEqual(services.active_subdomain(site), "anas-store")
+        self.assertFalse(Subscription.objects.exists())
+        self.assertFalse(SubscriptionTransition.objects.exists())
 
 
 class SiteForTests(TestCase):

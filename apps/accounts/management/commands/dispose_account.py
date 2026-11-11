@@ -19,7 +19,7 @@ from apps.accounts.management.commands import _shared
 def _reason(reason):
     return (
         f"Site {reason['site']} is inside a paid term that runs until "
-        f"{reason['until'].isoformat()} ({reason['reason']})."
+        f"{timezone.localtime(reason['until']).isoformat()} ({reason['reason']})."
     )
 
 

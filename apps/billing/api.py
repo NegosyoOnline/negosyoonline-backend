@@ -5,10 +5,10 @@ missing site, a removed site and another account's site answer the same 404 befo
 billing row is read. A site with no subscription, and every site while BILLING_ENABLED is
 off, answers that 404 too.
 """
+import json
 from datetime import datetime
 
 from ninja import Router, Schema
-from pydantic import ConfigDict
 
 from apps.accounts.api import signed_in
 from apps.accounts.services import record_event
@@ -20,12 +20,6 @@ from apps.sites.services import site_for
 router = Router(tags=["billing"], auth=signed_in)
 
 WRITE_LIMIT, WRITE_WINDOW = 20, 3600  # cancels and reactivations per account per hour
-
-
-class NoBody(Schema):
-    """A request with nothing to send. An unknown key is refused."""
-
-    model_config = ConfigDict(extra="forbid")
 
 
 class PlanOut(Schema):
@@ -65,6 +59,22 @@ class BillingOut(Schema):
     can_reactivate: bool
 
 
+def _nothing_sent(request):
+    """A cancel and a reactivation carry nothing: no body, or `{}`. Anything else is refused."""
+    raw = request.body.strip()
+    if not raw:
+        return
+    try:
+        sent = json.loads(raw)
+    except ValueError:
+        sent = None
+    if sent != {}:
+        raise ApiError(
+            "invalid_request", "Some values are missing or invalid.",
+            fields={"request": ["This request takes no values."]},
+        )
+
+
 def _subscription_for(request, site_id):
     site = site_for(request.account, site_id)
     subscription = services.subscription_of(site)
@@ -80,8 +90,9 @@ def billing_detail(request, site_id: str):
 
 
 @router.post("/sites/{site_id}/billing/cancel/", response=BillingOut)
-def billing_cancel(request, site_id: str, payload: NoBody):
+def billing_cancel(request, site_id: str):
     site, subscription = _subscription_for(request, site_id)
+    _nothing_sent(request)
     hit("billing-write", request.account.pk, limit=WRITE_LIMIT, window=WRITE_WINDOW)
     services.cancel(subscription)
     record_event(request.account, "subscription_cancelled", site=site.public_id)
@@ -89,8 +100,9 @@ def billing_cancel(request, site_id: str, payload: NoBody):
 
 
 @router.post("/sites/{site_id}/billing/reactivate/", response=BillingOut)
-def billing_reactivate(request, site_id: str, payload: NoBody):
+def billing_reactivate(request, site_id: str):
     site, subscription = _subscription_for(request, site_id)
+    _nothing_sent(request)
     hit("billing-write", request.account.pk, limit=WRITE_LIMIT, window=WRITE_WINDOW)
     services.withdraw_cancellation(subscription)
     record_event(request.account, "subscription_cancellation_withdrawn", site=site.public_id)

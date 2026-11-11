@@ -1,8 +1,12 @@
 """Tenant isolation over HTTP: Ana and Ben each have a site; neither can reach the other's."""
+from django.test import override_settings
 from django.utils import timezone
 
 from apps.accounts.models import Account, AccountAuditEvent
 from apps.accounts.tests.base import EMAIL
+from apps.billing import services as billing
+from apps.billing.api import router as billing_router
+from apps.billing.models import BillingCycle, Subscription, SubscriptionTransition
 from apps.sites import services
 from apps.sites.api import router
 from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
@@ -42,14 +46,22 @@ def body_for(path):
     return PROFILE_BODY if "business-profile" in path else SITE_BODY
 
 
-def site_routes():
-    """(method, path template) for every route registered under a {site_id}."""
+def routes_under_a_site(a_router):
+    """(method, path template) for every route a router registers under a {site_id}."""
     routes = []
-    for path, view in router.path_operations.items():
+    for path, view in a_router.path_operations.items():
         if "{site_id}" in path:
             for operation in view.operations:
                 routes.extend((method, path) for method in operation.methods)
     return routes
+
+
+def site_routes():
+    return routes_under_a_site(router)
+
+
+def billing_routes():
+    return routes_under_a_site(billing_router)
 
 
 def snapshot():
@@ -265,3 +277,106 @@ class IsolationTests(SitesApiTestCase):
             "subdomain": "anas-store", "status": "taken",
             "message": "That name is already taken. Please choose another.",
         })
+
+
+BILLING_EVENTS = ("subscription_cancelled", "subscription_cancellation_withdrawn")
+
+
+def billing_snapshot():
+    return (
+        list(Subscription.objects.order_by("pk").values()),
+        list(SubscriptionTransition.objects.order_by("pk").values()),
+        list(BillingCycle.objects.order_by("pk").values()),
+    )
+
+
+@override_settings(BILLING_ENABLED=True)
+class BillingIsolationTests(SitesApiTestCase):
+    """The billing routes: another account's site, a missing one and a removed one are 404."""
+
+    def setUp(self):
+        super().setUp()
+        self.mine = self.create_site()
+        self.ben = self.other_client()
+        self.theirs = self.create_site(client=self.ben, subdomain="bens-store", display_name="Ben's")
+        # A removed site that still has its subscription: the 404 comes before any billing read.
+        deleted = make_site(self.account, name="old-store", first=False)
+        billing.start_subscription(deleted, self.account)
+        Site.objects.filter(pk=deleted.pk).update(deleted_at=timezone.now())
+        self.deleted_id = deleted.public_id
+
+    def call(self, method, path, client=None):
+        return self.get(path, client=client) if method == "GET" else self.post(path, client=client)
+
+    def test_every_billing_route_is_covered(self):
+        self.assertEqual(
+            sorted(billing_routes()),
+            [
+                ("GET", "/sites/{site_id}/billing/"),
+                ("POST", "/sites/{site_id}/billing/cancel/"),
+                ("POST", "/sites/{site_id}/billing/reactivate/"),
+            ],
+            "A billing route was added or removed: add it to the isolation tests.",
+        )
+        self.assertEqual(len(billing_router.path_operations), 3, "every billing route is under a site")
+
+    def test_another_accounts_site_is_404_on_every_billing_route_and_changes_nothing(self):
+        before = billing_snapshot()
+
+        for method, template in billing_routes():
+            answers = set()
+            for site_id in (self.theirs["id"], MISSING_ID, self.deleted_id):
+                path = "/v1" + template.replace("{site_id}", site_id)
+                response = self.call(method, path)
+                self.assertEqual(response.status_code, 404, (method, path, response.content))
+                answers.add(response.content)
+            with self.subTest(method=method, template=template):
+                # Foreign, missing and removed answer byte for byte the same.
+                self.assertEqual(len(answers), 1)
+                self.assertEqual(
+                    self.error(response, 404, "not_found"),
+                    {"code": "not_found", "message": "Not found."},
+                )
+
+        self.assertEqual(billing_snapshot(), before)
+        self.assertFalse(AccountAuditEvent.objects.filter(event__in=BILLING_EVENTS).exists())
+
+    def test_a_site_id_in_the_body_or_query_is_never_authorization(self):
+        before = billing_snapshot()
+        path = f"/v1/sites/{self.mine['id']}/billing/"
+
+        read = self.get(f"{path}?site_id={self.theirs['id']}", client=self.ben)
+        cancel = self.post(f"{path}cancel/", {"site_id": self.theirs["id"]}, client=self.ben)
+
+        self.error(read, 404, "not_found")
+        self.error(cancel, 404, "not_found")  # the site is checked before the body is read
+        self.assertEqual(billing_snapshot(), before)
+
+    def test_the_owner_reaches_their_own_site_on_every_billing_route(self):
+        for method, template in billing_routes():
+            path = "/v1" + template.replace("{site_id}", self.theirs["id"])
+            with self.subTest(method=method, template=template):
+                # Reactivate on a running trial is refused by the rule, not by the site.
+                expected = 409 if template.endswith("reactivate/") else 200
+                response = self.call(method, path, client=self.ben)
+                self.assertEqual(response.status_code, expected, response.content)
+
+    def test_a_cancel_on_my_site_changes_only_my_subscription(self):
+        ben = Account.objects.get(email="ben@example.test")
+        theirs = Subscription.objects.filter(site__public_id=self.theirs["id"])
+        removed = Subscription.objects.filter(site__public_id=self.deleted_id)
+        before = (list(theirs.values()), list(removed.values()))
+
+        response = self.post(f"/v1/sites/{self.mine['id']}/billing/cancel/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["state"], "cancelled")
+        self.assertEqual((list(theirs.values()), list(removed.values())), before)
+        self.assertEqual(
+            list(theirs.get().transitions.values_list("code", flat=True)), ["trial_started"]
+        )
+        event = AccountAuditEvent.objects.get(event="subscription_cancelled")
+        self.assertEqual((event.account_id, event.detail), (self.account.pk, {"site": self.mine["id"]}))
+        self.assertFalse(AccountAuditEvent.objects.filter(account=ben, event__in=BILLING_EVENTS).exists())
+        mine = self.get(f"/v1/sites/{self.theirs['id']}/billing/", client=self.ben).json()
+        self.assertEqual(mine["state"], "trial_active")

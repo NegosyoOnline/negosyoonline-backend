@@ -6,12 +6,17 @@ from unittest import skipUnless
 from django.db import IntegrityError, connection, transaction
 from django.test import TransactionTestCase, override_settings
 
+from apps.accounts import retention as rules
+from apps.accounts.models import Account
 from apps.billing import services
 from apps.billing.models import Subscription, SubscriptionTransition
 from apps.billing.tests.base import (
     CYCLE_1_END, SECOND, T0, TRIAL_END, days, fresh, make_active, make_attention, make_subscription,
 )
 from apps.common.errors import ApiError
+from apps.sites.models import Site
+from apps.sites.tests.base import make_account
+from apps.sites.tests.test_concurrency import create as create_site
 from apps.sites.tests.test_concurrency import run_together
 
 State = Subscription.State
@@ -128,6 +133,51 @@ class ConcurrencyTests(TransactionTestCase):
 
         self.assertEqual({r.pk for r in results}, {results[0].pk}, results)
         self.assertEqual(subscription.cycles.count(), 3)
+
+    def test_two_site_creations_at_once_make_one_site_and_one_subscription(self):
+        account = make_account()
+
+        results = run_together(
+            create_site(account.pk, "store-one"), create_site(account.pk, "store-two")
+        )
+
+        sites = [result for result in results if isinstance(result, Site)]
+        self.assertEqual(len(sites), 1, results)
+        self.assertEqual(Site.objects.count(), 1)
+        subscription = Subscription.objects.get()
+        self.assertEqual(subscription.site, sites[0])
+        self.assertEqual(codes(subscription), ["trial_started"])
+        self.assertEqual(subscription.cycles.count(), 1)
+
+    @override_settings(RETENTION_ENABLED=True)
+    def test_a_disposal_racing_a_cancel_writes_one_cancellation_and_leaves_none_running(self):
+        for attempt in range(5):
+            subscription = make_subscription(f"u{attempt}@example.test", f"store-{attempt}")
+            account_pk = subscription.site.account_id
+            at = T0 + days(1)
+
+            results = run_together(
+                lambda: rules.dispose_account(
+                    Account.objects.get(pk=account_pk), now=at, rule="request",
+                    request_ref="DPO-1",
+                ),
+                lambda: services.cancel(subscription, now=at),
+            )
+
+            self.assertIsInstance(results[0], dict, results)
+            self.assertTrue(rules.is_disposed(Account.objects.get(pk=account_pk)))
+            subscription = fresh(subscription)
+            # Never a blanked account with a running subscription, whichever went first.
+            self.assertEqual(
+                (subscription.state, subscription.service_ended_at), (State.CANCELLED, at)
+            )
+            self.assertEqual(subscription.transitions.filter(code="cancelled").count(), 1)
+            if isinstance(results[1], ApiError):  # the disposal cancelled it first
+                self.assertEqual(results[1].code, "already_cancelled")
+                self.assertEqual(results[0]["subscriptions_cancelled"], 1)
+            else:  # the owner's cancel went first; the disposal found it ended
+                self.assertIsInstance(results[1], SubscriptionTransition, results)
+                self.assertNotIn("subscriptions_cancelled", results[0])
 
     def test_the_database_refuses_a_second_row_with_the_same_key(self):
         subscription = make_subscription()

@@ -243,7 +243,10 @@ class BillingApiTests(SitesApiTestCase):
         self.assertEqual(self.events(), [])
 
     def test_a_cancel_with_no_body_at_all_is_accepted(self):
-        response = self.client.post(self.path + "cancel/", secure=True, HTTP_ORIGIN=ORIGIN)
+        response = self.client.post(
+            self.path + "cancel/", data="", content_type="application/json", secure=True,
+            HTTP_ORIGIN=ORIGIN,
+        )
 
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["state"], "cancelled")
