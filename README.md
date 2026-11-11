@@ -22,7 +22,7 @@ Railway staging owns PostgreSQL and Redis. Its credentials must be configured la
 
 ## Railway staging
 
-`railway.toml` deliberately starts Gunicorn without running database migrations. Migrations stay an explicit reviewed release action.
+The `api` service's start command is set in its Railway Settings and recorded in `docs/runbooks/billing.md`. It starts Gunicorn and deliberately does not run database migrations. Migrations stay an explicit reviewed release action.
 
 Before a staging deploy, configure these Railway variables through the service UI:
 
