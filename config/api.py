@@ -10,6 +10,7 @@ from apps.accounts.api_connections import router as connections_router
 from apps.accounts.api_facebook import router as facebook_router
 from apps.billing.api import router as billing_router
 from apps.catalog.api import router as catalog_router
+from apps.payments.api import router as payments_router
 from apps.sante.api import router as sante_router
 from apps.sites.api import router as sites_router
 from apps.sites.api_public import router as public_sites_router
@@ -30,6 +31,7 @@ api.add_router("", billing_router)
 api.add_router("", public_sites_router)
 api.add_router("", sante_router)
 api.add_router("", catalog_router)
+api.add_router("", payments_router)
 
 
 @csrf_exempt  # so a write to an unknown path gets this JSON 404, not Django's HTML CSRF page
