@@ -21,6 +21,7 @@ None of these is set anywhere. Setting any of them in a shared environment needs
 | Name | Meaning |
 |---|---|
 | `BILLING_BANK_TRANSFER_ENABLED` | `1` lets a Subscriber pay by bank transfer with proof, and only while `BILLING_ENABLED` is on, `BILLING_TRANSFER_ACCOUNTS` holds a complete account and a proof store is available. Unset, or with any of those missing: nothing can be submitted, confirmed or rejected, and the three tables of `billing.0002_bank_transfer` are not read or written. |
+| `BILLING_LAUNCH_PROMO_ENABLED` | `1` offers the six-month Launch Promo (PHP 4,999.00 once, then PHP 2,499.00 monthly) beside Monthly, to a site that never had a paid cycle, and only where paying by bank transfer works. Unset: only Monthly is offered; a promo proof already sent can still be confirmed. The promo's end date is not named yet and none is in code: to end the promo, unset this. |
 | `BILLING_TRANSFER_ACCOUNTS` | The account or accounts Subscribers pay to, as a JSON list of objects with exactly `kind` (`bank` or `ewallet`), `provider_name`, `account_name` and `account_number`. Coach Ed supplies the values; none is in code. A value that is not such a list counts as empty and is logged as an error. |
 | `BILLING_PROOF_DIR` | A local folder for proof files, used only while `DJANGO_DEBUG` is on. It is for a developer's machine. A shared environment needs the approved private store, which is not built yet, so the switch cannot work on staging or production today. |
 
@@ -166,5 +167,5 @@ To go back, remove the two services. Nothing else depends on them.
 
 ## Not in this runbook yet
 
-- The Launch Promo, the operator's review list in the Django admin, and the emails: later pull requests of B2a.
+- The operator's review screen and the emails: later pull requests of B2a.
 - Card payments, reminders by a gateway and statements: B2 and later.

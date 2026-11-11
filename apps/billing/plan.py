@@ -33,15 +33,34 @@ class Plan:
 
 
 MONTHLY = Plan("monthly", PLAN_NAME, PRICE_CENTAVOS, 1)
-PLANS = {MONTHLY.code: MONTHLY}
+# The Launch Promo: PHP 4,999.00 once for six months. It buys one cycle and has no renewal:
+# after it the only plan that can be bought is Monthly.
+LAUNCH_PROMO = Plan("launch_promo", "NegosyoOnline Launch Promo (6 Months)", 499_900, 6)
+PLANS = {p.code: p for p in (MONTHLY, LAUNCH_PROMO)}
 
 ACCOUNT_KINDS = ("bank", "ewallet")
 ACCOUNT_FIELDS = ("kind", "provider_name", "account_name", "account_number")
 
 
 def offers(subscription, now):
-    """The plans this subscription can buy at `now`, in the order the page shows them."""
-    return [MONTHLY]
+    """The plans this subscription can buy at `now`, in the order the page shows them.
+
+    Monthly is always offered. The Launch Promo is offered while its switch is on, and only to
+    a subscription that has never had a paid cycle, so it is bought at most once. Its end
+    date is not named yet; none is in code.
+    """
+    offered = [MONTHLY]
+    if promo_open(subscription):
+        offered.insert(0, LAUNCH_PROMO)
+    return offered
+
+
+def promo_open(subscription):
+    return bool(settings.BILLING_LAUNCH_PROMO_ENABLED) and never_paid(subscription)
+
+
+def never_paid(subscription):
+    return not subscription.cycles.filter(settlement="paid").exists()
 
 
 def transfer_accounts():
