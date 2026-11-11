@@ -125,6 +125,16 @@ def staff_send_records(to):
     return SmsMessage.objects.filter(recipient=to, purpose__in=STAFF_PURPOSES)
 
 
+def sms_statuses(public_ids):
+    """{public id: (status, reason)} of these send records, in one query. A record that is
+    gone is missing from the answer. Reads nothing for an empty list."""
+    public_ids = [p for p in public_ids if p]
+    if not public_ids:
+        return {}
+    rows = SmsMessage.objects.filter(public_id__in=public_ids).values_list("public_id", "status", "reason")
+    return {public_id: (status, reason) for public_id, status, reason in rows}
+
+
 def forget_sms(message):
     """Drop a waiting text, so a deleted record's text is never handed to the phone."""
     sms.forget(message)
