@@ -61,7 +61,7 @@
         <ul class="list">
           <li class="batch">
             <div class="batch-main">
-              <span class="batch-title">Today, 9:12 AM<span class="chip chip-info"><span class="dot"></span>Still sending</span></span>
+              <span class="batch-title">Today, 9:12 AM · Launch list A, Launch list B<span class="chip chip-info"><span class="dot"></span>Still sending</span></span>
               <span class="item-sub">396 of 1,786 sent, 16 not sent, 1,374 waiting. About 8 hours left. Started by sample.staff.</span>
               <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="1786" aria-valuenow="412" aria-label="412 of 1,786 handled"><span style="width:23%"></span></div>
             </div>
@@ -69,14 +69,14 @@
           </li>
           <li class="batch">
             <div class="batch-main">
-              <span class="batch-title">Yesterday, 8:40 AM<span class="chip chip-ok">Finished</span></span>
+              <span class="batch-title">Yesterday, 8:40 AM · CSV file<span class="chip chip-ok">Finished</span></span>
               <span class="item-sub">1,902 of 1,902 handled: 1,889 sent, 13 not sent. Started by sample.staff.</span>
             </div>
             <div class="batch-end"><a class="no-btn no-btn-ghost" href="#">View</a></div>
           </li>
           <li class="batch">
             <div class="batch-main">
-              <span class="batch-title">9 Nov, 2:05 PM<span class="chip chip-neutral">Stopped</span></span>
+              <span class="batch-title">9 Nov, 2:05 PM · Pasted numbers<span class="chip chip-neutral">Stopped</span></span>
               <span class="item-sub">Stopped at 240 of 1,500 by sample.staff: 236 sent, 4 not sent, 1,260 never sent.</span>
             </div>
             <div class="batch-end"><a class="no-btn no-btn-ghost" href="#">View</a></div>
@@ -85,7 +85,7 @@
       </section>
       <div class="cols">
         <form class="dash-card form-card" action="#" onsubmit="return false" aria-labelledby="b1-h">
-          <h2 id="b1-h"><span class="step">1</span>New batch: write the text and add the numbers</h2>
+          <h2 id="b1-h"><span class="step">1</span>New batch: write the text and choose who gets it</h2>
           <div class="field">
             <label for="b-text">Message</label>
             <textarea class="textarea" id="b-text" maxlength="400" data-count="b-count" data-extra="22" aria-describedby="b-text-hint">Sample announcement text for the mockup. The same text goes to every number.</textarea>
@@ -93,21 +93,31 @@
             <p class="hint" id="b-text-hint">One text for every number. One SMS of at most 160 plain characters, counting the opt-out line (22 characters). No web links.</p>
             <span class="counter" id="b-count" aria-live="polite">0 / 160</span>
           </div>
-          <div class="field">
-            <label for="b-file">Mobile numbers: upload a CSV file</label>
-            <div class="upload">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 16V5M7.5 9.5L12 5l4.5 4.5M5 19h14"/></svg>
-              <input class="file" id="b-file" type="file" accept=".csv,text/csv" aria-describedby="b-file-hint">
+          <fieldset class="field sendto">
+            <legend>Send to</legend>
+            <div class="opt on">
+              <label class="opt-head"><input type="radio" name="to" checked> Groups from Contacts</label>
+              <div class="checks">
+                <label><input type="checkbox" checked> Launch list A <span class="small">1,600 contacts</span></label>
+                <label><input type="checkbox" checked> Launch list B <span class="small">748 contacts</span></label>
+                <label><input type="checkbox"> Resellers <span class="small">64 contacts</span></label>
+              </div>
+              <p class="hint">2,348 contacts chosen. A contact in two groups gets one text. Contacts who replied STOP are skipped.</p>
             </div>
-            <p class="hint" id="b-file-hint">A CSV file with one mobile number per row, in the first column. A header row is fine. Other columns are ignored and not kept. Up to 1 MB. The file is read once and is not stored.</p>
-          </div>
-          <div class="field">
-            <label for="b-list">Or paste the numbers</label>
-            <textarea class="textarea" id="b-list" aria-describedby="b-list-hint" placeholder="Paste one Philippine mobile number per line">0900 000 0101
-0900 000 0102
-+63 900 000 0103</textarea>
-            <p class="hint" id="b-list-hint">One number per line. The list Coach Ed supplies for this batch.</p>
-          </div>
+            <div class="opt">
+              <label class="opt-head" for="b-to-file"><input type="radio" name="to" id="b-to-file"> A CSV file of mobile numbers</label>
+              <div class="upload">
+                <span class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 16V5M7.5 9.5L12 5l4.5 4.5M5 19h14"/></svg></span>
+                <span class="upload-text"><strong>Upload a CSV file</strong><span class="small">One mobile number per row. Up to 1 MB.</span></span>
+                <input class="file" id="b-file" type="file" accept=".csv,text/csv" aria-label="CSV file of mobile numbers" aria-describedby="b-file-hint">
+              </div>
+              <p class="hint" id="b-file-hint">The number is read from the first column. A header row is fine. Other columns are ignored and not kept. The file is read once and is not stored.</p>
+            </div>
+            <div class="opt">
+              <label class="opt-head" for="b-to-paste"><input type="radio" name="to" id="b-to-paste"> Pasted numbers</label>
+              <textarea class="textarea short" id="b-list" aria-label="Pasted mobile numbers" placeholder="Paste one Philippine mobile number per line"></textarea>
+            </div>
+          </fieldset>
           <div class="form-foot">
             <span class="small">Nothing is sent at this step.</span>
             <button class="no-btn no-btn-ghost" type="submit">Check the list</button>
@@ -130,24 +140,26 @@
       </div>
       <section class="dash-card form-card wide" aria-labelledby="b2-h">
         <h2 id="b2-h"><span class="step">2</span>Check and confirm</h2>
-        <dl class="facts">
-          <div><dt>Numbers in your list</dt><dd>2,293</dd></div>
+        <dl class="facts six">
+          <div><dt>Contacts in the 2 groups</dt><dd>2,348</dd></div>
+          <div><dt>After duplicates</dt><dd>2,330</dd></div>
+          <div><dt>After opt-outs</dt><dd>2,293</dd></div>
           <div><dt>Texts left today</dt><dd>1,786</dd></div>
           <div><dt>This batch</dt><dd>1,786</dd></div>
           <div><dt>For a later batch</dt><dd>507</dd></div>
         </dl>
         <div class="banner">
-          <h2>Your list does not fit in today's texts</h2>
-          <p class="dash-copy">This batch is cut to the first <strong>1,786</strong> numbers, all the texts left today (214 of 2,000 are used). The other <strong>507</strong> are not sent; download them for a later batch.</p>
+          <h2>These groups do not fit in today's texts</h2>
+          <p class="dash-copy">This batch is cut to the first <strong>1,786</strong> numbers, all the texts left today (214 of 2,000 are used). The other <strong>507</strong> are not sent; download them as a CSV file for a later batch.</p>
         </div>
-        <p class="dash-copy">About <strong>10 to 11 hours</strong> to send, at one text every 18 to 25 seconds. 2,400 lines were read: 52 duplicates were removed, 18 lines are not a Philippine mobile, and <strong>37 numbers were skipped</strong> because they replied STOP.</p>
+        <p class="dash-copy">About <strong>10 to 11 hours</strong> to send, at one text every 18 to 25 seconds. Launch list A and Launch list B hold 2,348 contacts: 18 are in both groups and get one text, and <strong>37 were skipped</strong> because they replied STOP.</p>
         <p class="mock-note"><strong>Open point.</strong> As drawn, this batch leaves no texts for sign-in codes today. How many to keep back for codes is not decided.</p>
         <div class="field">
           <label for="b-confirm">Type 1786 to confirm</label>
           <input class="input narrow" id="b-confirm" inputmode="numeric" autocomplete="off">
         </div>
         <div class="form-foot">
-          <span class="status-actions"><a class="no-btn no-btn-ghost" href="#">Download the 507 not in this batch</a><a class="no-btn no-btn-ghost" href="#">Download the 18 refused lines</a></span>
+          <span class="status-actions"><a class="no-btn no-btn-ghost" href="#">Download the 507 not in this batch</a></span>
           <button class="no-btn no-btn-primary" type="button">Send this batch of 1,786</button>
         </div>
       </section>

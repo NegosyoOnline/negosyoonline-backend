@@ -2,7 +2,7 @@
 
 ClickUp task: z8uq9me128 "SMS inbox, reply and compose (HQ)" (https://app.clickup.com/t/z8uq9me128), a subtask of z8uq9md33v "NPC Build 1 — SMS Carrier & Data-Flow Controls".
 
-Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. One decision is open and is his: where the screens are served (section 3). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. After approval comes a plan, also for approval, before any code.
+Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. One decision is open and is his: where the screens are served (section 3). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. Contacts and groups (section 19) were added by R16 to R19, so the scope is now three parts: the inbox, Bulk SMS and contacts. After approval comes a plan, also for approval, before any code.
 
 ## 1. Sources
 
@@ -40,8 +40,12 @@ The coordinator's readings recorded with those rulings, which this design confir
 | R13 | The announcement lets people opt out by replying STOP, kept on a do-not-text list | "Yes, add STOP" |
 | R14 | Bulk texts use the same SIM as the codes; the risk of a carrier block is accepted | "Same SIM, accept risk" |
 | R15 | Bulk SMS has an input for uploading a CSV file of mobile numbers, and a list of bulk sends that shows a batch is still sending and lets him stop it | "Number one is there a input where we can upload a CSV file for the mobile numbers? Then number two, for the list of the bulk SMS, there should be a list that is informing me that it is still sending, and I have the capability to stop it." |
+| R16 | Contacts are added: a menu where staff enter a first name, a last name and a mobile number, with groups, and Bulk SMS can send by group | "I think we need to include also the kind of like contacts for this one. Where it can be selected during the bulk sending. So there should be a menu for contacts where you can input name, last name, and their mobile numbers. And during the bulk sending, we will be able to send it by group. So in the contacts, we can put grouping there. So that through through bulk sending, we will be able to send a SMS based on their grouping." |
+| R17 | A contact is kept until HQ staff delete it. No automatic deletion. Texts stay on the 365-day rule | "Until staff delete" |
+| R18 | Contacts and groups are seen and edited by the same HQ staff who hold the SMS inbox permission. No separate contacts permission | "Same inbox staff" |
+| R19 | Staff may upload a CSV file of contacts (first name, last name, mobile number) into a chosen group | "Yes, allow CSV" |
 
-R9 to R15 are each a comment on the Task, re-read there on 2026-11-11. Section 18 applies R10 to R15.
+R9 to R19 are each a comment on the Task, re-read there on 2026-11-11. Section 18 applies R10 to R15; section 19 applies R16 to R19.
 
 ### 2.1 What R7 and R8 change in this design
 
@@ -361,7 +365,7 @@ So both new buttons work, as links, without script and without any new record. T
 
 They follow the Subscriber dashboard: the Manrope typeface, the blue `#173DB8` primary, the dark navy sidebar on desktop, the top bar and bottom tab bar on phones, the eyebrow and heading at the top of each view, cards with a 10-pixel radius, pill chips, 44-pixel buttons, and the dashboard's dark theme with its light theme when the device prefers light.
 
-**Mockup:** `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/`: `index.html` (the SMS list), `conversation.html`, `compose.html`, `platform.html` (the "not yet available" state; `?p=instagram` and the like pick the name shown), `bulk.html` (Bulk SMS, section 18: the list of bulk sends and the three steps of a batch, drawn on one page), one shared `mockup.css`. Static files, made-up data only: no real number and no real text. To open it:
+**Mockup:** `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/`: `index.html` (the SMS list), `conversation.html`, `compose.html`, `platform.html` (the "not yet available" state; `?p=instagram` and the like pick the name shown), `bulk.html` (Bulk SMS, section 18: the list of bulk sends and the three steps of a batch, drawn on one page), `contacts.html`, `contact.html` (add or edit a contact), `groups.html` and `import.html` (upload contacts from a CSV file), all section 19, one shared `mockup.css`. Static files, made-up data only: no real number and no real text. To open it:
 
 ```bash
 python3 -m http.server 8765 --bind 127.0.0.1 --directory docs/superpowers/specs/mockups/2026-11-11-sms-inbox
@@ -401,6 +405,8 @@ Input for Coach Ed's wording. This is not wording, and this design edits no fili
 13. **Opting out (R13).** Every bulk text says "Reply STOP to opt out". A number that replies STOP is kept on a do-not-text list and is skipped by later bulk texts. **That list is kept past 365 days**, until the person asks otherwise, because deleting it would start the texts again. This is a second retention period beside point 6.
 14. **What a bulk send keeps.** The one text and its counts for 365 days; the list of numbers only until the batch ends; a send record per number for 365 days, as for every text.
 15. **The documents the Parent names:** register row 6; filing-store-sms; filing-subscriber-accounts-billing; filing-subscriber-stores; PIA 5; privacy manual s8; the Terms and Privacy provider list. This session did not read them.
+16. **Contacts (R16, R17).** For the first time a person's first and last name is stored together with their mobile number, with the groups staff put them in. Where the names and numbers come from (typed by staff, or a CSV file Coach Ed supplies; no link to TWCinc), what they are used for (choosing who gets a bulk text), and that **a contact is kept until HQ staff delete it**, with no automatic deletion. This is a third retention period beside points 6 and 13. No contact is stored in any environment before this wording is amended.
+17. **A contact's rights.** How a person asks to see, correct or delete their contact record. Staff can edit and delete a contact on the screen; deleting it does not remove their number from the do-not-text list.
 
 ## 15. Tests the build would write
 
@@ -427,6 +433,7 @@ Input for Coach Ed's wording. This is not wording, and this design edits no fili
 - Showing a full number; deleting a conversation or a message by hand; exporting conversations.
 - Fixed templates, saved replies, attachments, MMS, texts longer than one SMS, sending to more than one number outside Bulk SMS (section 18).
 - Delivery receipts; notifications to staff when a text arrives; automatic refresh.
+- For contacts (section 19): any import from or sync with TWCinc, custom fields on a contact, putting a contact's name into a text (name merge), merging two contacts, exporting contacts, and showing a contact's name in the inbox beside a conversation.
 - A second phone, SIM or line, for bulk texts included (R14); adding or removing a do-not-text number by hand; a link of any kind to TWCinc; order-status texts.
 - The privacy page and the NPC documents themselves.
 - Anything on staging or production.
@@ -444,7 +451,8 @@ Not verified:
 - The platform menu and the top-right buttons against the running dashboard side by side. Their rules were copied from the dashboard's stylesheet and the mockup was read; the two were not opened next to each other.
 - Section 18's numbers (time to send, the size of a batch) are arithmetic on the existing cap and gap. The carrier's behaviour toward a SIM that sends one text to many numbers is not known; that risk is accepted (R14).
 - Whether the phone's poll can feed a batch to the queue without a new worker (section 18.3) was not checked against the code.
-- The CSV upload is drawn with the browser's own file button, which shows no chosen file in the mockup; reading a real file was not tried.
+- The CSV uploads (Bulk SMS and contacts) are drawn as an upload area around the browser's own file button, which shows no chosen file in the mockup; reading a real file was not tried.
+- The "Send to" choice is drawn with all three options open at once so a screenshot shows each; switching between them was not built.
 
 - Nothing was run against the backend. This stage wrote documents and a static mockup only.
 - The phone app's behaviour with the switch on, on a real phone with a real SIM: the permission prompt, texts in several parts, two SIMs.
@@ -466,8 +474,8 @@ A "Bulk SMS" button on the SMS list, beside "New SMS", shown only to a staff use
 
 1. **One text.** The same text for every number, under the SMS rules: one SMS of at most 160 plain characters, no web link.
 2. **The opt-out line (R13).** Every bulk text ends with "Reply STOP to opt out". The server adds it; the staff user cannot remove or change it. With the space before it, it takes 22 of the 160 characters, so 138 are left for the announcement, and the screen's counter counts it.
-3. **The numbers (R12, R15).** The list Coach Ed supplies for the batch. The first input is a CSV file upload; pasting the numbers one per line is the second way. The file's shape is in 18.2.2. Each line is checked with `normalise_ph_mobile`; duplicates are removed; lines that are not a Philippine mobile are set aside and can be downloaded; numbers on the do-not-text list are skipped and counted. Nothing is sent at this step.
-4. **The check.** Lines read, duplicates removed, lines refused, numbers skipped because they replied STOP, numbers in the list, texts left today, the size of this batch, and how long it will take at one text every 18 to 25 seconds.
+3. **Send to (R12, R15, R16).** One choice of three for a batch: groups from Contacts (one or more, section 19.5), a CSV file of mobile numbers, or pasted numbers one per line. The file's shape is in 18.2.2. Each line is checked with `normalise_ph_mobile`; duplicates are removed; lines that are not a Philippine mobile are set aside and can be downloaded; numbers on the do-not-text list are skipped and counted. Nothing is sent at this step.
+4. **The check.** What was read (the contacts in the chosen groups, or the lines of the file or pasted list), the count after duplicates are removed, the count after opted-out numbers are removed, lines refused (a file or pasted list only), texts left today, the size of this batch, what is left for a later batch, and how long it will take at one text every 18 to 25 seconds.
 5. **Confirm.** The staff user types the batch's count.
 6. **Progress and results.** Sent, waiting and not sent, with a result per number, masked. No full number is shown after the check.
 7. **Stop.** Stopping keeps what was sent and sends nothing more. The button is on the batch's row in the list and on its progress.
@@ -494,7 +502,7 @@ At the top of the Bulk SMS page, newest first. One row per batch: when it was co
 - Other columns are ignored: they are not read into any record, not shown and not kept. So a file exported with names beside the numbers can be used as it is, and the names go nowhere.
 - At most 1 MB. A larger file, or one that is not text, is refused with a plain message and nothing is read.
 - The file is read once, in memory, and is never stored as a file (18.4). Only the numbers that pass the check become the batch's list.
-- A file and a pasted list given together are read as one list.
+- A batch has one source: groups, a file, or a pasted list (18.2 step 3). They are not combined.
 
 ### 18.3 Batches (R10)
 
@@ -540,7 +548,7 @@ What limits the risk without new scope: codes first, the cap, the gap, one batch
 
 | Action | When | `detail` (kept) |
 |---|---|---|
-| `sms_inbox_bulk` | A batch is confirmed | The platform, the batch's id, lines read, duplicates, lines refused, numbers skipped as opted out, the batch's size, numbers left for a later batch, the text's length |
+| `sms_inbox_bulk` | A batch is confirmed | The platform, the batch's id, the source (groups, file or pasted) and for groups their ids and how many, never their names, lines read, duplicates, lines refused, numbers skipped as opted out, the batch's size, numbers left for a later batch, the text's length |
 | `sms_inbox_bulk_stop` | A batch is stopped | The batch's id, how many were sent, waiting and not sent |
 
 Both are declared `KEPT`: they hold no personal value.
@@ -551,7 +559,7 @@ To the list in section 12, all in the new app and each needing the same approval
 
 | Item | Notes |
 |---|---|
-| `BulkBatch` | Platform `sms`, owner `hq`, the staff user, the one text, the counts, the times, the state |
+| `BulkBatch` | Platform `sms`, owner `hq`, the staff user, the one text, the source and any chosen groups, the counts, the times, the state |
 | `BulkRecipient` | The batch, the number, the send record's id. Deleted when the batch ends (18.4) |
 | `DoNotText` | Platform `sms`, the number, when, and the incoming message that caused it. Not covered by the 365-day rule |
 | `InboxAccess.can_bulk` | 18.7 |
@@ -577,3 +585,99 @@ Tests the build would add to section 15: the opt-out line is always present and 
 ### 18.10 Still open
 
 One point, raised by this design and not ruled on: **how many texts a day are kept back for sign-in codes.** As drawn, a batch may use every text left that day, and a code asked for afterwards is refused until the next day. Should a batch stop short of the cap, and by how many?
+
+## 19. Contacts and groups (R16 to R19)
+
+Added by R16, with R17 (kept until staff delete), R18 (the same inbox staff) and R19 (CSV upload into a group). Like the rest of this document it is for Coach Ed's approval and nothing is built. The mockup pages are `contacts.html`, `contact.html`, `groups.html` and `import.html`. With this the Task has three parts: the inbox, Bulk SMS and contacts.
+
+### 19.1 What it is for
+
+A list of people HQ staff may send a bulk text to, sorted into groups, so a batch is sent to a group instead of a file each time. **Contacts are the first place in this tool, and in the SMS records, where a name is stored together with a mobile number.** The NPC and privacy wording must cover that before any contact is stored in any environment (section 14 points 16 and 17), the same "amend first" order as R1 and R11.
+
+### 19.2 The screens
+
+A "Contacts" button on the SMS list, beside "Bulk SMS" and "New SMS". The Contacts page has two views, Contacts and Groups.
+
+- **Contacts.** One row per contact: first and last name, the mobile number masked as everywhere else (section 9), the groups, and "Opted out of bulk SMS" when the number is on the do-not-text list. Find by name or by a full number; filter by group. Buttons: "Add contact" and "Upload a CSV file".
+- **Add or edit a contact.** First name, last name, mobile number, groups. The number is checked with `normalise_ph_mobile`; one contact per number, so a number already in contacts is refused with a link to that contact. The edit form shows the full number, because staff cannot correct what they cannot see; opening it is audited. "Delete contact" asks once.
+- **Groups.** One row per group: its name and how many contacts it holds. Add a group, rename it, remove it. Removing a group keeps its contacts; a contact can be in several groups or none.
+- **Upload contacts (R19).** Step 1: a CSV file and the group to add them to. Step 2, the check, before anything is saved: lines read, new contacts, numbers already in contacts, refused lines with their line numbers and the reason, and how many of the new numbers are on the do-not-text list. Then "Add 748 contacts".
+
+### 19.3 The contacts CSV file (R19)
+
+- Three columns in this order: first name, last name, mobile number. A first row whose third column is not a number is taken as a header and skipped. Other columns are ignored: not read into any record, not shown, not kept.
+- At most 1 MB, as for the Bulk SMS file (18.2.2). The file is read once, in memory, and never stored as a file.
+- A number already in contacts is not added again. That contact is put in the chosen group and keeps the name it has; the file's name for it is dropped.
+- A line whose number is not a Philippine mobile, or that has no number, is refused and listed, and can be downloaded.
+- A number on the do-not-text list is added and stays marked opted out.
+- The file is Coach Ed's own. There is no link to TWCinc and no sync (R12 stands).
+
+### 19.4 The do-not-text list applies to contacts
+
+- The list is kept by number (18.5), so it covers a contact whether the STOP came before or after the contact was added.
+- An opted-out contact is marked in the list and on its form, stays in its groups, and is skipped by every bulk batch.
+- Deleting a contact does not remove its number from the do-not-text list. Adding the number again later brings back the mark.
+- Staff cannot clear the mark (18.5: no screen to add or remove a listed number by hand).
+
+### 19.5 Sending to groups
+
+- On the Bulk SMS form, "Send to" is one of: groups from Contacts, a CSV file of mobile numbers, or pasted numbers (18.2 step 3).
+- With groups, staff tick one or more. The check shows the contacts in the chosen groups, the count after a contact in two groups is counted once, and the count after opted-out contacts are removed. That last count is the list; the cut to today's texts (18.3) applies to it.
+- The batch takes a copy of the numbers at the moment it is confirmed. A contact added, changed or deleted afterwards does not change a batch that is waiting or sending. The copy is the batch's recipient rows, deleted when the batch ends (18.4).
+- The text is the same for everyone. A contact's name is never put into the text and never leaves the server.
+- When the groups do not fit in today's texts, the numbers left out are offered as a CSV download for a later batch, as for a file (18.3). A way to continue the same groups the next day without the download is not designed here.
+
+### 19.6 Who may use it (R18)
+
+The same HQ staff who hold the SMS inbox permission, behind the two-step HQ sign-in, through the one access check of section 7.2. There is no separate contacts permission. This design reads R18 with the two existing levels: a staff user with read access sees contacts and groups; adding, editing, deleting and uploading need `can_send`, as every other change does. Sending to a group still needs `can_bulk` (18.7). Whether read-only staff should also edit is the coordinator's to confirm.
+
+### 19.7 Retention (R17)
+
+- A contact is kept until HQ staff delete it. No job deletes contacts, and the 365-day rule does not apply to them.
+- Texts, send records and batches stay on the 365-day rule (R2). The do-not-text list keeps its own rule (18.5).
+- Deleting a contact removes its name, number and group memberships at once. It does not remove send records or a conversation with that number, which go at 365 days.
+
+### 19.8 The audit record
+
+Through the operator audit record. An entry holds who, when, ids and counts. It never holds a first or last name, a group's name, or a full number.
+
+| Action | When | `detail` (kept) |
+|---|---|---|
+| `sms_contact_open` | A contact's form is opened (the full number is shown) | The contact's id |
+| `sms_contact_add`, `sms_contact_edit`, `sms_contact_delete` | A contact is added, changed or deleted | The contact's id, which fields changed (their names, not their values), how many groups it is in |
+| `sms_contact_upload` | An upload is saved | The group's id, lines read, contacts added, already in contacts, lines refused, opted out |
+| `sms_group_add`, `sms_group_rename`, `sms_group_remove` | A group is added, renamed or removed | The group's id, how many contacts it held |
+
+All are declared `KEPT`: they hold no personal value.
+
+### 19.9 Records and what the build would need
+
+To the lists in sections 12 and 18.8, in the same new app, each needing the same approvals:
+
+| Item | Notes |
+|---|---|
+| `Contact` | Platform `sms`, owner `hq` (R0: a Site or Subscriber later), first name, last name, the normalised number (one per owner), who added it, the times |
+| `ContactGroup` | Platform `sms`, owner `hq`, the name (one per owner), the times. A contact belongs to any number of groups |
+| `BulkBatch` | Gains its source and the chosen groups (18.8) |
+| Masking | A contact's number is masked in every list; the full number appears only on the contact's own form |
+| Export | Contacts are not in the account export in this build |
+
+Tests the build would add: a contact needs a Philippine mobile and is unique by number; the list shows masked numbers only; an opted-out contact is marked and skipped by a batch to its group; a contact in two chosen groups gets one text; a batch keeps its numbers when a contact is deleted while it sends; the upload adds nothing before the check is confirmed, does not duplicate a number, drops other columns, and lists refused lines; removing a group keeps its contacts; deleting a contact keeps the do-not-text mark; a user without the inbox permission reaches none of it, and one with read only cannot change anything; no audit entry or log line holds a name or a full number.
+
+### 19.10 What this changes in the earlier sections
+
+| Earlier | Now |
+|---|---|
+| The whole design: no name is stored | A contact holds a first and last name with a number |
+| Section 11 and 18.5: two retention periods (365 days, and the do-not-text list) | A third: a contact is kept until staff delete it (R17) |
+| Section 14: points 1 to 15 | Points 16 and 17 |
+| 18.2: the numbers come from a file or a pasted list | Or from groups of contacts; one source per batch |
+| Section 16 | Lists what contacts leave out |
+
+### 19.11 Left out
+
+No import from or sync with TWCinc. No custom fields: a contact is a first name, a last name, a number and groups. No name merge: a text never carries a contact's name. Also not here: merging two contacts, exporting contacts, and showing a contact's name beside a conversation in the inbox.
+
+### 19.12 Still open
+
+Nothing in this section is open for Coach Ed: R17, R18 and R19 answered the three questions it raised. The one open point of the design is still 18.10, how many texts a day are kept back for sign-in codes.
