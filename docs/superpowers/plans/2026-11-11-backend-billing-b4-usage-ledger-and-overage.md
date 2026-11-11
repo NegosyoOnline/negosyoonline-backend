@@ -210,7 +210,7 @@ Signed in, through `site_for` (another account's or a removed site answers 404 b
 | Migration | Adds | Safe before it runs? |
 |---|---|---|
 | `0003_usage_ledger` (depends on `0002_bank_transfer`) | `UsageEntry`, `ChargeLine`, `UsageEvent`, their constraints | Yes. It only adds tables, and no code reads them while `BILLING_USAGE_ENABLED` is off |
-| `0004_transfer_usage` (depends on 0003) | `BankTransferPayment.usage_centavos` (default 0), `usage_line_max_id` (default 0), and the replaced `billing_transfer_confirmed_in_full` constraint (U3, section 7). | Yes for the columns. The constraint swap is validated against existing rows, which satisfy both forms (confirmed rows all have a cycle) |
+| `0004_transfer_usage` (depends on 0003) | `BankTransferPayment.usage_centavos` (default 0), `usage_line_max_id` (default 0), and the replaced `billing_transfer_confirmed_in_full` constraint (section 7). | Yes for the columns. The constraint swap is validated against existing rows, which satisfy both forms (confirmed rows all have a cycle) |
 
 Two migrations because the first only adds tables and the second touches a B2a table that staging already holds rows in; each can be run, and checked, on its own. If question 3 is answered "not in B4", `0004` loses the constraint swap and the `usage_only` plan. **Numbers are placeholders:** B3 and B5 also add `apps/billing` migrations; whichever merges second renames its file and its `dependencies` (section 11). Run on staging by the coordinator under the standing approval, never in production.
 
@@ -238,7 +238,7 @@ Changed in B4's pull requests, **shared with other builds**:
 
 **Pull requests** (each cut from the latest `origin/main`, small, dark behind `BILLING_USAGE_ENABLED`):
 
-1. **Ledger and order intake.** Tables, migration `0003`, `plan` constants, `allowance_periods`, `record_order`, `release_held`, the amendment. Tests: sections 12 (orders, routes).
+1. **Ledger and order intake.** Tables, migration `0003`, `plan` constants, `allowance_periods`, `record_order`, `release_held`, the amendment. Tests: section 12 (orders).
 2. **Storage intake.** `record_storage_snapshot`, `STORAGE_METERED`. Tests: storage.
 3. **Collections.** Migration `0004`, the amounts in B2a's functions, the `usage_only` payment (if question 3 says so), the write-offs, `outstanding_centavos`.
 4. **Review routes and the owner's read.** Staff routes, the two audit actions, `GET billing/usage/`, runbook.
