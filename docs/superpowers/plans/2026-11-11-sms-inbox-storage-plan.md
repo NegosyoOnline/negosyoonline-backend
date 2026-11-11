@@ -1041,7 +1041,7 @@ Building tasks 1 to 10 on a build branch, including writing `inbox.0001_initial`
 ## 7. Review, overlap and order
 
 - **Review:** the NPC coordinator, before this plan goes to Coach Ed and again on the build PR. `config/settings.py` is edited (two lines); design 22.5 asks that the NPC coordinator be told first.
-- **Open backend PRs when this plan was written:** none (`gh pr list`, 2026-11-11, `main` at `bef2f89`).
+- **Open backend PRs when this plan's PR was opened** (`gh pr list`, 2026-11-11, `main` at `bef2f89`): PR 91 (z8uq9me5qe, the storefront contact call), which changes `apps/notifications/services.py`, `apps/notifications/tests/test_email.py`, four files under `apps/storefront` and `docs/runbooks/storefront.md`. No file of section 2.3 is among them. Plan 4 (reply and compose) will edit `apps/notifications/services.py`; that is for plan 4's overlap check.
 - **Known coming work:** the Finance routes build (plan merged as PR 90) adds lines to `apps/operators/staff_views.py` and works in `apps/billing`. This plan touches neither. It adds two lines to `apps/operators/audit.py`, a file B2a also added lines to; if both are open at once, the first ready merges first and the other updates from `main` and keeps both sides' lines.
 - **Order on an environment** (design 12): deploy dark; apply `inbox.0001`; set `SMS_INBOX_ENABLED`; grant access; and only after the wording is amended, the phone's switch.
 
