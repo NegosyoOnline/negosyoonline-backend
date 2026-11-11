@@ -11,6 +11,7 @@ from django.db import transaction
 
 from apps.members import messaging
 from apps.notifications.services import send_email
+from apps.pack import access
 from apps.pack.models import PackOrder, PackProofSubmission
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,11 @@ RECEIVED = (
     "after the payment is verified. You can follow your order in your dashboard: {url}\n\nPlease also add your Santé "
     "membership details in your dashboard so the store can register your membership." + _SIGN,
 )
+ACCESS_EMAIL = (
+    "Your secure link to continue your order",
+    _HI + "Use this secure link to continue your order: {url}\n\nIt works once and expires in 7 days." + _SIGN,
+)
+ACCESS_LINK_NOTE = "\n(This secure link works once and expires in 7 days.)"
 REVIEW = (
     "New payment proof to review: {no} ({store})",
     "{who} submitted a payment proof for Membership Pack order {no} on {store}. Review it in your NegosyoOnline "
@@ -61,6 +67,31 @@ def dashboard_url(site):
     return f"https://{subdomain.name}.{settings.SITE_PARENT_HOST}/dashboard/"
 
 
+def host_for(site):
+    """The host a buyer reaches this store on, or "" when it has none."""
+    subdomain = site.subdomains.filter(state="active").order_by("pk").first()
+    if subdomain is None or not settings.SITE_PARENT_HOST:
+        return ""
+    return f"{subdomain.name}.{settings.SITE_PARENT_HOST}"
+
+
+def access_link(member, *, limited=True):
+    """A new link, to the checkout email only, never to an address the request supplies. The buyer
+    asked for it (limited), or a Subscriber's recovery sends it (limited=False)."""
+    access.renew(member, limited=limited)
+    site, host = member.site, host_for(member.site)
+    if not host:
+        return None
+    link = access.link_for(member, host)
+    subject, body = ACCESS_EMAIL
+    values = {"name": messaging.store_name(site), "first": _first_name(member), "url": link}
+    from_name, reply_to = messaging.sender(site)
+    return send_email(
+        to=member.email, category="pack_access_link", subject=subject.format(**values),
+        body=body.format(**values), sender_name=from_name, reply_to=reply_to,
+    )
+
+
 def order_received(order_pk):
     order = PackOrder.objects.select_related("site__account", "member").get(pk=order_pk)
     site, member = order.site, order.member
@@ -71,6 +102,10 @@ def order_received(order_pk):
         "name": messaging.store_name(site), "first": _first_name(member), "no": order.order_number,
         "url": dashboard_url(site),
     }
+    if access.applies(member):  # an unconfirmed mobile cannot sign in: the email carries the way back
+        host = host_for(site)
+        if host:
+            values["url"] = access.link_for(member, host) + ACCESS_LINK_NOTE
     from_name, reply_to = messaging.sender(site)
     return send_email(
         to=member.email, category="pack_order_received", subject=subject.format(**values),

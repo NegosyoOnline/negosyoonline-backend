@@ -19,7 +19,7 @@ from apps.members import contacts, services as members
 from apps.members.models import MemberOtpChallenge
 from apps.members.otp import binding_hash
 from apps.payments import services as payments
-from apps.pack import checkout, constants as C, notices, proofs, records
+from apps.pack import checkout, constants as C, notices, proofs, records, registration
 from apps.pack.models import CheckoutToken, PackOrder
 from apps.sites.models import Site
 
@@ -123,6 +123,7 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
                 actor_ref=member.pk, actor_label=contacts.mask("mobile", member.mobile),
             )
             records.write_acceptance(order, version, accepted_at)
+            registration.activate(order, now)  # T1
             records.write_enrollment(order, enrolled_at)
             tok.order_ref, tok.pending_contact = order.pk, {}  # cleared after placement
             tok.save(update_fields=["order_ref", "pending_contact"])
