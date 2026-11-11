@@ -225,7 +225,7 @@ class DailyStartTests(TestCase):
         self.assertEqual(started, [True, False, False, False, False])
         self.run_later.assert_called_once_with(notifications_retention.run_daily_rules)
 
-    def test_6_it_runs_the_three_sms_rules_and_no_other_registered_rule(self):
+    def test_6_it_runs_the_sms_rules_and_no_other_registered_rule(self):
         ran = []
         other = mock.patch.dict(
             retention._rules, {"another_builds_rule": lambda now, dry_run: ran.append(1) or 0}
@@ -234,10 +234,10 @@ class DailyStartTests(TestCase):
             self.assertIn("another_builds_rule", retention.names())
             report = notifications_retention.run_daily_rules()
 
-        self.assertEqual(sorted(report.counts), ["inbox_messages", "mobile_challenges", "sms_messages"])
+        self.assertEqual(sorted(report.counts), ["bulk_batches", "inbox_messages", "mobile_challenges", "sms_messages"])
         self.assertEqual(ran, [])
         entry = OperatorAuditEntry.objects.get(action="retention_run")
-        self.assertEqual(sorted(entry.detail["counts"]), ["inbox_messages", "mobile_challenges", "sms_messages"])
+        self.assertEqual(sorted(entry.detail["counts"]), ["bulk_batches", "inbox_messages", "mobile_challenges", "sms_messages"])
         self.assertEqual(entry.detail["switched_off"], [])
 
     def test_6_it_runs_again_the_next_manila_day(self):

@@ -18,8 +18,8 @@ from apps.common.ids import is_public_id
 from apps.common.masking import mask_mobile
 from apps.common.pagination import page
 from apps.common.phones import normalise_ph_mobile
-from apps.inbox.models import Contact, ContactGroup, InboxAccess
-from apps.inbox.switch import SMS, contacts_on, contacts_tables_exist, inbox_on
+from apps.inbox.models import Contact, ContactGroup, DoNotText, InboxAccess
+from apps.inbox.switch import SMS, contacts_on, contacts_tables_exist, dnt_tables_exist, inbox_on
 from apps.operators import audit
 
 NAME_MAX = 80
@@ -55,14 +55,16 @@ def contact_scope(actor):
         return None
     if actor is None or not (actor.is_authenticated and actor.is_active and actor.is_staff):
         return None
-    row = InboxAccess.objects.filter(operator=actor, platform=SMS).first()
-    if row is None:
+    # Only can_send is read: a model query would select can_bulk, a column that exists only
+    # once inbox.0003 is applied, and the code is released before it.
+    can_send = InboxAccess.objects.filter(operator=actor, platform=SMS).values_list("can_send", flat=True).first()
+    if can_send is None:
         return None
     return ContactScope(
         actor=actor,
         contacts=Contact.objects.filter(owner_kind="hq"),
         groups=ContactGroup.objects.filter(owner_kind="hq"),
-        can_change=row.can_send,
+        can_change=can_send,
     )
 
 
@@ -90,7 +92,22 @@ def _text(value, *, maximum, required):
     return value
 
 
-def _row(contact, *, full=False):
+def _opted_out(numbers):
+    """The numbers among `numbers` on the do-not-text list. Empty, with no query, while the
+    table does not exist (inbox.0003 not applied)."""
+    numbers = list(numbers)
+    if not numbers or not dnt_tables_exist():
+        return set()
+    found = set()
+    for start in range(0, len(numbers), CHUNK):
+        found.update(
+            DoNotText.objects.filter(platform=SMS, mobile__in=numbers[start:start + CHUNK])
+            .values_list("mobile", flat=True)
+        )
+    return found
+
+
+def _row(contact, *, full=False, opted_out=()):
     groups = sorted(contact.groups.all(), key=lambda group: group.name.lower())
     return {
         "id": contact.public_id,
@@ -98,6 +115,7 @@ def _row(contact, *, full=False):
         "last_name": contact.last_name,
         "mobile": contact.mobile if full else mask_mobile(contact.mobile),
         "groups": [{"id": group.public_id, "name": group.name} for group in groups],
+        "opted_out": contact.mobile in opted_out,
     }
 
 
@@ -175,7 +193,8 @@ def list_contacts(scope, *, group=None, query=None, cursor=None, limit=None):
         )
         if number:
             audit.record(scope.actor, "contact_find", target_type=CONTACT, detail={"found": len(items)})
-    return [_row(contact) for contact in items], following
+    listed = _opted_out(contact.mobile for contact in items)
+    return [_row(contact, opted_out=listed) for contact in items], following
 
 
 def open_contact(scope, contact_id):
@@ -186,7 +205,7 @@ def open_contact(scope, contact_id):
     if contact is None:
         return None
     audit.record(scope.actor, "contact_open", target_type=CONTACT, target_id=contact.public_id)
-    return _row(contact, full=True)
+    return _row(contact, full=True, opted_out=_opted_out([contact.mobile]))
 
 
 def add_contact(scope, data):
@@ -209,7 +228,8 @@ def add_contact(scope, data):
             scope.actor, "contact_add", target_type=CONTACT, target_id=contact.public_id,
             detail={"groups": len(groups)},
         )
-    return _row(Contact.objects.prefetch_related("groups").get(pk=contact.pk))
+    saved = Contact.objects.prefetch_related("groups").get(pk=contact.pk)
+    return _row(saved, opted_out=_opted_out([saved.mobile]))
 
 
 def edit_contact(scope, contact_id, data):
@@ -248,7 +268,8 @@ def edit_contact(scope, contact_id, data):
                 scope.actor, "contact_edit", target_type=CONTACT, target_id=contact.public_id,
                 detail={"changed": changed, "groups": len(groups)},
             )
-    return _row(Contact.objects.prefetch_related("groups").get(pk=contact.pk))
+    saved = Contact.objects.prefetch_related("groups").get(pk=contact.pk)
+    return _row(saved, opted_out=_opted_out([saved.mobile]))
 
 
 def delete_contact(scope, contact_id):
@@ -412,6 +433,7 @@ def check_upload(scope, text, group_id):
         "lines": lines,
         "new": len(people) - len(existing),
         "existing": len(existing),
+        "already_opted_out": len(_opted_out(people)),
         "repeated": repeated,
         "refused": [{"line": number, "reason": reason} for number, reason in refused[:MAX_REFUSED_SHOWN]],
         "refused_count": len(refused),

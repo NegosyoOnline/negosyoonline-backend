@@ -82,7 +82,7 @@ class ReadingTests(ReadingCase):
         conversation = self.receive()
         self.receive(body="Hello again")
         answer = reading.open_conversation(self.scope, conversation.public_id)
-        self.assertEqual(set(answer), {"id", "platform", "contact", "can_reply", "messages", "next"})
+        self.assertEqual(set(answer), {"id", "platform", "contact", "can_reply", "opted_out", "messages", "next"})
         self.assertEqual((answer["id"], answer["contact"], answer["can_reply"]), (conversation.public_id, MASKED, True))
         self.assertEqual([m["body"] for m in answer["messages"]], ["Is my order ready?", "Hello again"])
         for message in answer["messages"]:

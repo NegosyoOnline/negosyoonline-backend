@@ -37,7 +37,8 @@ from django.views.decorators.csrf import csrf_exempt
 
 from apps.accounts.sessions import client_ip
 from apps.common.errors import error_body
-from apps.inbox import storing
+from apps.inbox import bulk, storing
+from apps.inbox.switch import bulk_on
 from apps.notifications import retention, services, sms
 from apps.notifications.models import SmsDevice, SmsMessage
 
@@ -187,6 +188,8 @@ def poll(request, device):
     if sms.policy().sending_stopped:
         answer["wait"] = WAIT_STOPPED
     elif device == sms.pick_device():
+        if bulk_on():
+            bulk.feed(now)
         answer["messages"] = _hand_out(device, now)
         if len(answer["messages"]) == BATCH:
             answer["wait"] = 0  # more may be waiting: ask again as soon as these are sent

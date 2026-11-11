@@ -112,12 +112,14 @@ class InboxAccess(models.Model):
     operator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="inbox_access")
     platform = models.CharField(max_length=16, choices=Platform.choices)
     can_send = models.BooleanField(default=False)
+    can_bulk = models.BooleanField(default=False)
     granted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
     granted_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(name="inbox_access_one_per_operator_platform", fields=["operator", "platform"]),
+            models.CheckConstraint(name="inbox_access_bulk_needs_send", condition=Q(can_bulk=False) | Q(can_send=True)),
         ]
 
 
@@ -175,3 +177,100 @@ class Contact(models.Model):
 
     def __str__(self):
         return self.public_id
+
+
+def new_batch_id():
+    return new_public_id("bulk")
+
+
+class BulkBatch(models.Model):
+    """One announcement to a list of numbers. Its text and counts are kept 365 days; its
+    numbers are rows of `BulkRecipient` only while it runs."""
+
+    class State(models.TextChoices):
+        WAITING = "waiting"
+        SENDING = "sending"
+        STOPPED = "stopped"
+        FINISHED = "finished"
+
+    class Source(models.TextChoices):
+        GROUPS = "groups"
+        FILE = "file"
+        PASTED = "pasted"
+
+    ACTIVE = ("waiting", "sending")
+
+    public_id = models.CharField(max_length=40, unique=True, default=new_batch_id, editable=False)
+    platform = models.CharField(max_length=16, choices=Platform.choices, default=SMS)
+    owner_kind = models.CharField(max_length=8, default="hq")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    stopped_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    request_id = models.CharField(max_length=64)
+    text = models.CharField(max_length=160)  # as typed, without the opt-out line
+    source = models.CharField(max_length=8, choices=Source.choices)
+    group_count = models.PositiveSmallIntegerField(default=0)  # how many groups, never which
+    state = models.CharField(max_length=8, choices=State.choices, default=State.WAITING)
+    local_day = models.DateField()  # the Manila day it was confirmed
+    lines_read = models.PositiveIntegerField()
+    duplicates = models.PositiveIntegerField()
+    refused = models.PositiveIntegerField()
+    opted_out = models.PositiveIntegerField()
+    size = models.PositiveIntegerField()
+    left_out = models.PositiveIntegerField()
+    sent = models.PositiveIntegerField(default=0)
+    failed = models.PositiveIntegerField(default=0)
+    not_sent = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    stopped_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(name="inbox_bulk_platform", condition=Q(platform=SMS)),
+            models.CheckConstraint(name="inbox_bulk_owner", condition=Q(owner_kind="hq")),
+            models.UniqueConstraint(
+                name="inbox_bulk_one_running", fields=["platform"], condition=Q(state__in=["waiting", "sending"]),
+            ),
+            models.UniqueConstraint(name="inbox_bulk_one_request", fields=["created_by", "request_id"]),
+        ]
+
+    def __str__(self):
+        return self.public_id
+
+
+class BulkRecipient(models.Model):
+    """A number of a running batch. Deleted once the batch is over."""
+
+    class State(models.TextChoices):
+        WAITING = "waiting"
+        QUEUED = "queued"  # a send record exists; the phone has not reported
+        SENT = "sent"
+        FAILED = "failed"
+        NOT_SENT = "not_sent"
+
+    batch = models.ForeignKey(BulkBatch, on_delete=models.CASCADE, related_name="recipients")
+    position = models.PositiveIntegerField()
+    mobile = models.CharField(max_length=13)
+    state = models.CharField(max_length=8, choices=State.choices, default=State.WAITING)
+    reason = models.CharField(max_length=40, blank=True)
+    send_record = models.CharField(max_length=40, blank=True)  # the SmsMessage public id
+
+    class Meta:
+        constraints = [models.UniqueConstraint(name="inbox_bulk_one_position", fields=["batch", "position"])]
+        indexes = [models.Index(fields=["mobile"], name="inbox_bulk_recipient_mobile")]
+
+
+class DoNotText(models.Model):
+    """A number that replied STOP. A full number with no name, kept until the person asks
+    otherwise; no job and no command removes it."""
+
+    platform = models.CharField(max_length=16, choices=Platform.choices, default=SMS)
+    mobile = models.CharField(max_length=13)
+    message = models.ForeignKey(ConversationMessage, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(name="inbox_dnt_platform", condition=Q(platform=SMS)),
+            models.UniqueConstraint(name="inbox_dnt_one_number", fields=["platform", "mobile"]),
+        ]
