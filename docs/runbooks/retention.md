@@ -1,6 +1,6 @@
 # Retention Runbook
 
-Account-side retention (NPC Build 7, ClickUp z8uq9mdwdy). Plan: `docs/superpowers/plans/2026-11-11-backend-npc-build7-account-retention.md`.
+Account-side retention (NPC Build 7, ClickUp z8uq9mdwdy, and NPC Build 10, ClickUp z8uq9mdzve). Plans: `docs/superpowers/plans/2026-11-11-backend-npc-build7-account-retention.md` and `docs/superpowers/plans/2026-11-11-backend-npc-build10-retention-gaps.md`.
 
 Nothing here runs by itself today. Every rule is run by hand with `manage.py run_retention`, and one account is disposed of on request with `manage.py dispose_account`. Every rule of this build and the on-request disposal are behind `RETENTION_ENABLED`, which is off unless it is set to `1`. The export (`manage.py export_account`) changes nothing and does not need the switch.
 
@@ -15,17 +15,18 @@ Migration `accounts.0003` (the mobile number tables) must be applied in an envir
 
 ## The rules
 
-| Rule | Deletes | When |
+| Rule | Deletes or blanks | When |
 |---|---|---|
 | `expired_subscriber_sessions` | Subscriber sessions | 30 days after they expired or were revoked |
 | `expired_admin_sign_in_codes` | Emailed hq sign-in codes | 30 days after they expired |
 | `expired_admin_sessions` | hq sessions | 30 days after they expired or were revoked |
 | `expired_django_sessions` | Django's session rows (admin list notices; never a sign-in) | 30 days after they expired |
 | `email_messages` | Email send records | 2 years after they were written |
+| `admin_audit_personal_values` | Deletes nothing: it blanks the personal values of admin sign-in audit entries (signed in, failed, locked, signed out) and stamps each row with the time. The row and everything else on it stay (ruling D4) | 1 year after the entry was written |
 | `never_verified_accounts` | Nothing: it disposes of accounts whose email was never verified, as in "What disposal does" below | 30 days after sign-up |
 | `account_audit_events` | An account's audit events (sign-ins, sign-outs of other devices, linked sign-in providers, email and mobile changes, and the account and site history events) | 1 year after they were written. An `email_changed` event is kept 2 years: see "Security records" below |
 
-No rule touches a billing or tax record, an SMS record, a recovery code or the audit record. Only `never_verified_accounts` touches an account or a site.
+No rule touches a billing or tax record, an SMS record or a recovery code. No rule deletes an audit entry: `admin_audit_personal_values` only blanks the personal values of the admin sign-in entries, and every other entry is kept whole. Only `never_verified_accounts` touches an account or a site.
 
 ## Security records
 
@@ -59,6 +60,8 @@ Replace `<env>` with `staging` or `production`. The identifiers are in `docs/run
 ## What the output and the log hold
 
 Rule names and counts only. Never an email address, a name or a number. Each real run writes one audit entry, action `retention_run`, with no operator and the count per rule, the rules held back by the switch, and the name of any rule that failed. A failed rule keeps none of its own changes and does not stop the others; the command then ends with an error.
+
+The count of `admin_audit_personal_values` in that entry is the log of the blanking, and each blanked row carries the time it was blanked. A second run counts zero for rows already blanked.
 
 ## What disposal does
 

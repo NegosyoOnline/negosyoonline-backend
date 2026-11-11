@@ -1,8 +1,9 @@
 """The only way to write an OperatorAuditEntry.
 
 Every action name is declared here with its class. PERSONAL rows may hold personal values in
-`personal` and are the ones a retention job blanks; KEPT rows are kept whole. `record()` refuses
-a name that is not declared, so a new action cannot skip this decision.
+`personal` and are the ones the retention rule `admin_audit_personal_values` blanks after a year;
+KEPT rows are kept whole and may not hold one. `record()` refuses a name that is not declared,
+so a new action cannot skip this decision.
 """
 from apps.operators.models import OperatorAuditEntry
 
@@ -33,6 +34,8 @@ IDENTITY_TARGET = "admin_identity"
 def record(operator, action, *, target_type="", target_id="", reason="", detail=None, personal=None):
     if action not in ACTIONS:
         raise ValueError(f"Audit action {action!r} is not declared in apps.operators.audit.ACTIONS.")
+    if personal and ACTIONS[action] != PERSONAL:
+        raise ValueError(f"Audit action {action!r} is kept whole: it cannot hold a personal value.")
     return OperatorAuditEntry.objects.create(
         operator=operator,
         action=action,

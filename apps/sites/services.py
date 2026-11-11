@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
 
+from apps.accounts.models import Account
 from apps.accounts.services import record_event
 from apps.common.errors import ApiError
 from apps.common.phones import normalise_ph_mobile
@@ -108,6 +109,9 @@ def create_first_site(account, *, template, subdomain, display_name):
     if account.email_verified_at is None:
         raise ApiError("email_not_verified", "Confirm your email to continue.", status=403)
     record = _locked_record(account)
+    # Read again under the lock a disposal also takes: the caller's object may be stale.
+    if Account.objects.filter(pk=account.pk, closed_at__isnull=False).exists():
+        raise ApiError("account_closed", "This account is closed.", status=403)
     if record.first_site is not None and record.first_site.deleted_at is not None:
         raise ApiError(
             "first_site_removed", "This site was removed. Please contact support.", status=409
