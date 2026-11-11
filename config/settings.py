@@ -254,6 +254,8 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+# Railway's health check calls /healthz/ over plain HTTP. Only this exact path skips the redirect.
+SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]
 if not DEBUG:
     if SECRET_KEY == "development-only-not-for-deployment":
         raise RuntimeError("DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is false.")
