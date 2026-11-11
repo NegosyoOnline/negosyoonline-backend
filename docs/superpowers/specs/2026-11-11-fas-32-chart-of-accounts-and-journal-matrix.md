@@ -60,9 +60,9 @@ Status: **L** = needed at launch; **Later** = real, add when the event first occ
 | 1130 | Other Tax Credits | Dropped | No source. |
 | 1200 | Prepaid Hosting / Subscriptions | Later | When an annual vendor bill is paid ahead (domains, an annual tool). |
 | 1210 | Other Prepaid Expenses | Dropped | Merged into 1200. |
-| 1300 | Computer & Office Equipment | Later | Owner's laptop, if capitalised (policy question for FAS-02). |
+| 1300 | Computer & Office Equipment | Later | Added when the first asset above the capitalisation threshold is bought (FAS-02 P-11; placeholder PHP 15,000, CPA to set). Below it, expense. |
 | 1310 | Accumulated Depreciation — Equipment | Later | Contra, credit balance. |
-| 1320 / 1330 | Capitalised software and its amortisation | **Held** | Needs a CPA policy; default is to expense. |
+| 1320 / 1330 | Capitalised software and its amortisation | **Held** | Held, matching FAS-02 P-15: software is expensed. |
 
 **Liabilities (credit)**
 
@@ -77,7 +77,7 @@ Status: **L** = needed at launch; **Later** = real, add when the event first occ
 | 2060 / 2061 | Loans Payable current / long term | Later | |
 | 2070 | Payroll & Statutory Payables | Later | No employees stated. |
 | 2080 | Other Taxes / Withholding Payable | Later | |
-| 2090 | Due to Owner | **new, Later** | Optional alternative to crediting capital when the owner pays a business cost personally (§7 Q8). |
+| 2090 | Due to Owner | **new, Later** | For a cost the owner paid personally and means to be repaid (§7 Q8, FAS-02 P-18). Added when first needed. |
 
 **Equity (credit, except drawings)**
 
@@ -87,7 +87,7 @@ Status: **L** = needed at launch; **Later** = real, add when the event first occ
 | 3020 | Owner Drawings | **L** | Debit, contra-equity. Not an expense. |
 | 3030 | Accumulated Earnings (prior years) | **L** | Receives each closed year's result. How the year is closed is FAS-03/FAS-06. |
 | 3040 | Current Year Earnings | **L, derived** | A report line, not an account that takes postings (assumption, §8). |
-| 3050 | Opening Balance Equity | **new, L if FAS-02 needs it** | The offset for opening entries; FAS-02 decides whether it exists. |
+| 3050 | Opening Balance Equity | **new, L** | Carries the owner's opening equity on its own line in FAS-02's opening journal. |
 
 **Revenue (credit)**
 
@@ -146,7 +146,7 @@ Why revenue is split by plan: the owner's task asked for it, and the plan code i
 | 7020 | Interest Expense | Later | Debit. |
 | 7030 | Foreign Exchange Gain / Loss | **Held** | Hosting is billed in USD but the expense is the pesos actually charged, so no gain or loss arises on a card or bank debit. |
 
-Launch needs 20 postable accounts (21 with 3050, if FAS-02 wants it): 1020, 1021, 2030, 3010, 3020, 3030, 4010, 4015, 5010, 5020, 5030, 5040, 6030, 6050, 6060, 6080, 6090, 6150, 6190 and 7010. Accounts marked "Later → after PR" are added by the build that introduces the event.
+Launch needs 21 postable accounts: 1020, 1021, 2030, 3010, 3020, 3030, 3050, 4010, 4015, 5010, 5020, 5030, 5040, 6030, 6050, 6060, 6080, 6090, 6150, 6190 and 7010. Accounts marked "Later → after PR" are added by the build that introduces the event.
 
 ### 2.3 Tax stance built into the chart
 
@@ -242,6 +242,7 @@ All three rows below wait for [PR 108]; nothing exists in `main`.
 - **Lines:** Dr 2030 `released` / Cr 4010, 4015 or 4020 by `plan_code`. `released` = cumulative earned at month end − already released.
 - **Cumulative earned, in whole centavos:** days elapsed counted in Manila calendar days from the date of `start_at` (included) to the date of `end_at` (excluded), over total days in the cycle. `earned(d) = round_half_up(amount × days(d) / total_days)`, and the last month releases whatever remains, so a cycle always totals exactly its amount. The 3:00 PM cutoff (`clock.py`) is ignored: a cycle's first and last calendar dates are whole service days, which reproduces the owner's examples.
 - **Monthly worked example:** 8 Nov to 8 Dec 2026, 30 days, 249,900. November 23 days: 191,590. December 7 days: 58,310.
+- **Early end of service [proposed, FAS-02 P-03]:** if service ends before the cycle's `end_at` with no refund, the unreleased remainder is released on the date service ends. Under [PR 106] a cancellation keeps service to the term end, so this does not trigger there; it applies only if some later rule ends service early.
 - **Catch-up:** if the schedule's earlier months are already closed, the catch-up posts into the first open month (a closed-month rule is FAS-06's).
 - **Trial and not-billable cycles** have no payment and no schedule.
 - A cycle whose `end_at` changes after payment (the pending cycle in `recovered()` can be re-ended, `services.py:676-680`) is read at posting time, in the same transaction that created the payment's journal, so the schedule is built from the final cycle.
@@ -271,7 +272,7 @@ Entered by the owner (the only role, FAS-03), each with a date, a memo, an attac
 |---|---|---|---|
 | M1 | Capital paid into the business bank | 1020 (or 1021) | 3010 |
 | M2 | Expense paid from the business bank | the expense: 5010, 5020, 5030, 5040, 6030, 6050, 6060, 6080, 6090 or 6190 | 1020 (or 1021) |
-| M3 | Expense the owner paid personally | the expense | 3010 (default; or 2090 Due to Owner, Q8) |
+| M3 | Expense the owner paid personally | the expense | 3010 if the owner does not want it repaid; 2090 Due to Owner if it is to be repaid, by the owner's statement at the time (Q8) |
 | M4 | Owner draw / personal withdrawal | 3020 | 1020 (or 1021) |
 | M5 | Bank or transfer charge | 6150 | 1020 (or 1021) |
 | M6 | Bank interest received | 1020 | 7010 |
@@ -299,11 +300,11 @@ Each has a recommended default. None is decided here.
 | Q5 | **Overage timing and write-offs.** Revenue when the line is created (accrue, with 1100 and 6140) or when the payment is confirmed? | When confirmed (§4.5). No receivable is ever booked; a write-off posts nothing. The CPA may prefer accrual. |
 | Q6 | **8% income tax election and non-VAT status.** Is the chart right to have no tax accounts? Who pays the 8% and from what? | No tax accounts and no computation in the ledger. Gross receipts are the base for a separate FAS-20 schedule. 8% paid from business funds is a draw (M7). Registration status and thresholds are verified by the CPA and the COR. |
 | Q7 | **Cash versus accrual basis.** Management books are accrual (deferral); the 8% base is gross receipts, which is cash-like. | Keep both: the ledger is accrual, and the tax schedule reads confirmed payment dates. |
-| Q8 | **Owner-paid business costs.** Credit capital (3010), or a payable to the owner (2090)? | 3010: simplest for a sole proprietor; a draw later returns it. |
+| Q8 | **Owner-paid business costs.** Credit capital (3010), or a payable to the owner (2090)? | By the owner's statement at the time of payment (FAS-02 P-18): capital (3010) if not to be repaid, a payable to the owner (2090) if to be repaid. 2090 stays Later. |
 | Q9 | **Revenue by plan or one account.** Three revenue accounts for plans, or one with a tag? | Separate accounts (4010, 4015, 4020), as the owner proposed. |
 | Q10 | **Account naming and numbering.** The task's codes kept; 1020 and 1021 changed meaning; 6150 and 3050 added; 5070 and 5071 held. | As in §2.2. Since nothing is posted yet, renumbering now is free; after launch it is not. |
 | Q11 | **Refunds.** The code refuses to refund; if one is ever paid outside the system, how is it booked? | A manual M10 reversal journal with a reason, plus 4090 added when a refund feature exists. |
-| Q12 | **Capitalise software and equipment?** | Expense everything at launch; 1300 and 1320 stay Later. |
+| Q12 | **Capitalise software and equipment?** | Capitalise an item above a threshold (placeholder PHP 15,000, CPA to set) and expense below it (FAS-02 P-11); 1300, 1310 and 6110 stay Later, added when the first asset is bought. Capitalised software (1320, 1330) stays held (FAS-02 P-15). |
 | Q13 | **Foreign-currency vendors.** USD-billed hosting. | Book the pesos actually debited; no 7030. |
 | Q14 | **Payment mismatches and the out-of-system settlement.** Posting only exactly-matched confirmed payments. | As §4.8. Anything else is a manual journal. |
 
@@ -322,7 +323,7 @@ I stayed inside this document. Where my rows lean on the other two builders' top
 
 **About FAS-02 (accounting policy matrix, opening balances):**
 1. The policy answers in §7 (Q1–Q3, Q5, Q6, Q8, Q12) come from FAS-02's matrix. If FAS-02's recommendation differs, the matrix rows follow the policy, not the other way round.
-2. Books start from zero on the first live confirmed payment. Anything earlier (capital, equipment, prior sales) enters as reviewed opening entries against 3050 or 3030; FAS-02 decides which account and whether 3050 exists.
+2. Books start on the first day of the month of the first live confirmed payment (FAS-02 P-02), with one opening journal (kind opening, unique marker) dated that day. Anything earlier (capital, equipment) enters in it, with the owner's opening equity on its own line against 3050.
 3. No staging or test payment is back-filled into the books.
 4. The first book date, the calendar fiscal year and who may close a period are FAS-02's.
 
