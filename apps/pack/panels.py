@@ -55,6 +55,11 @@ def latest_order(member):
     return PackOrder.objects.filter(member=member).order_by("-created_at", "-pk").first()
 
 
+def _has_address(member):
+    from apps.pack import registration
+    return registration.has_delivery_address(member)
+
+
 def registration_panel(member):
     """The member's registration card, or None when there is no registration."""
     reg = SanteRegistration.objects.filter(member=member).first()
@@ -65,6 +70,11 @@ def registration_panel(member):
         "line": member_reg_line(reg), "tone": REG_TONES.get(reg.status, "rev"),
         "details_form": reg.status in DETAILS_OPEN, "details_erased": details_erased(reg),
         "state_version": reg.state_version,
+        # TWCinc shows the Santé member ID on the "registered" card. The Subscriber registration
+        # workflow that records it is a later slice, so it is always "" here (no such column yet).
+        "sante_member_id": "",
+        # The details form asks for the delivery address while the member has none.
+        "needs_address": reg.status in DETAILS_OPEN and not _has_address(member),
     }
 
 

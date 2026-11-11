@@ -7,7 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.common.errors import ApiError
-from apps.members import contacts
+from apps.members import contacts, services as member_services
 from apps.pack import address_zip, constants as C, registration_rules as rules
 from apps.pack.models import PackOrder, SanteRegistration, SanteRegistrationEvent
 
@@ -218,13 +218,42 @@ def _terms_note(order):
     )
 
 
-def submit_details(site, member, *, date_of_birth, desired_username, alternate_username="", terms_accepted=None):
-    """The funnel's Santé form. The mobile is confirmed first. `terms_accepted` is the tick; a
-    missing one is refused. The note names the Membership Terms version the buyer agreed to at
-    checkout, read from the order's own acceptance record, and the delivery ZIP is checked on the
-    server."""
+def _derive_home_address(raw):
+    """The dashboard card's five-key address, its ZIP derived on the server from the barangay
+    through the pack's own dataset, as the funnel's delivery step does it: a typed ZIP counts only
+    where the dataset cannot say. Refuses a missing line, city or province, an unknown province
+    and a ZIP nothing can give."""
+    cleaned = member_services.clean_address(raw or {})
+    derived = address_zip.derive_address_fields(
+        cleaned["province"], cleaned["city"], cleaned["barangay"], cleaned["zip"]
+    )
+    if not derived.ok:
+        field = "zip" if derived.error_field == "postal_code" else derived.error_field
+        message = HOME_PROVINCE_ERROR if field == "province" else derived.error_message
+        raise ApiError("invalid_address", message, status=422, fields={field: [message]})
+    return {**cleaned, "zip": derived.zip_code}
+
+
+def _store_address(member, cleaned):
+    member.delivery_address = cleaned
+    member.save(update_fields=["delivery_address"])
+    for order in PackOrder.objects.filter(member=member):
+        if not order.delivery_address:
+            order.delivery_address = cleaned
+            order.save(update_fields=["delivery_address"])
+
+
+def submit_details(site, member, *, date_of_birth, desired_username, alternate_username="",
+                   delivery_address=None, terms_accepted=None):
+    """The Santé details form. The mobile is confirmed first. `terms_accepted` is None where no
+    tick is asked (the dashboard card); the funnel's form passes the tick and a missing one is
+    refused. The note names the Membership Terms version the buyer agreed to at checkout, read
+    from the order's own acceptance record. The dashboard card asks for the delivery address while
+    the member has none (or when one is posted); the ZIP is derived and checked on the server."""
     if member.mobile_state == "pending":
         raise ApiError("mobile_not_verified", MOBILE_FIRST, status=409)
+    posted = bool(delivery_address and any(str(v or "").strip() for v in delivery_address.values()))
+    address = _derive_home_address(delivery_address) if posted or not has_delivery_address(member) else None
     try:
         cleaned, fields = rules.clean_details(
             date_of_birth=date_of_birth, desired_username=desired_username,
@@ -253,11 +282,14 @@ def submit_details(site, member, *, date_of_birth, desired_username, alternate_u
         _require_open_details(reg)  # a wrong status answers first
         order = reg.pack_order
         note = _terms_note(order)
-        _confirm_stored_zip(order, member)
+        if address is None:
+            _confirm_stored_zip(order, member)
         _apply_details(
             reg, cleaned, actor=("member", member.pk, contacts.mask("mobile", member.mobile)),
             reason_code="buyer", note=note,
         )
+        if address is not None:
+            _store_address(member, address)
     return reg
 
 

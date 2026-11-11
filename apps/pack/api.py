@@ -27,7 +27,7 @@ from ninja.files import UploadedFile
 from apps.common import private_files, throttle
 from apps.common.errors import ApiError
 from apps.pack import (
-    access, address_zip, checkout, constants as C, interfaces, notices, onboarding, panels, placement, policies, records,
+    access, address_zip, checkout, constants as C, dashboard, interfaces, notices, onboarding, panels, placement, policies, records,
     registration, registration_rules, review,
 )
 from apps.members import sessions
@@ -524,6 +524,29 @@ def member_pack(request, body: MemberIn):
     }
 
 
+class HomeOut(Schema):
+    summary: dict
+    order_monitor: dict
+
+
+class OrdersOut(Schema):
+    cards: list[dict]
+
+
+@router.post("/member/home/", response=HomeOut)
+def member_home(request, body: MemberIn):
+    """The Dashboard tiles (`summary`) and Order Monitoring card over the member's pack orders."""
+    _, member = _member(body.host, body.token)
+    return dashboard.home(member)
+
+
+@router.post("/member/orders/", response=OrdersOut)
+def member_orders(request, body: MemberIn):
+    """My Orders: one card per pack order, newest first."""
+    _, member = _member(body.host, body.token)
+    return dashboard.my_orders(member)
+
+
 class MemberProofIn(MemberIn):
     proof_id: str = ""
 
@@ -588,6 +611,8 @@ class MemberRegIn(MemberIn):
     desired_username: str = ""
     alternate_username: str = ""
     terms: bool = False
+    date_of_birth: str = ""  # the dashboard form's one date field, YYYY-MM-DD
+    delivery_address: dict | None = None  # line, barangay, city, province, zip
 
 
 class MemberRegOut(Schema):
@@ -622,12 +647,17 @@ def member_mobile_verify(request, body: MemberRegIn):
 
 @router.post("/member/registration/details/", response=MemberRegOut)
 def member_details(request, body: MemberRegIn):
+    """The dashboard details form, as TWCinc's: one `date_of_birth` field, no terms tick (the
+    note names the version agreed at checkout), and a delivery address block asked for while the
+    member has none. The three dob_* parts still work when `date_of_birth` is empty."""
     site, member = _member(body.host, body.token)
-    parts = (body.dob_year, body.dob_month, body.dob_day)
-    ok = all(p.isascii() and p.isdigit() and len(p) <= 4 for p in parts)
-    dob = f"{body.dob_year}-{int(body.dob_month):02d}-{int(body.dob_day):02d}" if ok else ""
+    dob = body.date_of_birth
+    if not dob:
+        parts = (body.dob_year, body.dob_month, body.dob_day)
+        ok = all(p.isascii() and p.isdigit() and len(p) <= 4 for p in parts)
+        dob = f"{body.dob_year}-{int(body.dob_month):02d}-{int(body.dob_day):02d}" if ok else ""
     registration.submit_details(
         site, member, date_of_birth=dob, desired_username=body.desired_username,
-        alternate_username=body.alternate_username, terms_accepted=body.terms,
+        alternate_username=body.alternate_username, delivery_address=body.delivery_address,
     )
     return _reg_out(member)

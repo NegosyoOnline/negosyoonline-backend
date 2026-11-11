@@ -83,7 +83,7 @@ Registration card by session (the dashboard's dialog and Home card), body `{host
 | `member/registration/` | none |
 | `member/registration/mobile/send/` | `mobile?` |
 | `member/registration/mobile/verify/` | `code` |
-| `member/registration/details/` | `dob_year, dob_month, dob_day, desired_username, alternate_username, terms` |
+| `member/registration/details/` | `date_of_birth` (`YYYY-MM-DD`; `dob_year/month/day` still accepted when it is empty), `desired_username, alternate_username, delivery_address?` (`{line, barangay, city, province, zip}`) |
 
 ## Subscriber order review (PK8)
 
@@ -117,3 +117,37 @@ TWCinc routes carried (negosyoonline_members `urls.py`): `dashboard/account/`, `
 | `member/account/verify-email/verify/` | `code` | same, `step: done`, `message: "Your email is verified."` |
 | `member/account/change/{mobile\|email}/` | | `{field, current_masked, proof_channel: sms\|email, proof_masked, step: current\|current_code\|replacement\|replacement_code}` |
 | `member/account/change/{mobile\|email}/act/` | `action` = `send_current`, `verify_current` (`code`), `send_replacement` (`new_value`), `verify_replacement` (`code`) | `{state, changed}`; `changed: true` means the contact was replaced and the session is revoked: clear the cookie and show the sign-in page |
+
+## Member Dashboard and My Orders (home and orders reads)
+
+Both are `POST`, body `{host, token}`, built from the member's pack order only (no product orders yet: their counts are zero, and there is no shipment data, so courier and tracking are always empty and `Shipped`/`Delivered` never complete). Money is centavos (`*_centavos`, integers) with TWCinc's formatted text beside it (`"1,488.00"`, no peso sign). Dates are ISO strings; show them in Manila time.
+
+`member/home/` -> `{summary, order_monitor}`:
+
+```
+summary: {total_spent, total_spent_centavos, total_orders, delivered, needs_attention}
+order_monitor: {awaiting_approval, for_booking, for_shipping, delivered, delta, has_orders,
+                series: [{label: "Sun".."Sat", count, h}]}
+```
+
+Same meaning as TWCinc: `total_spent` counts verified orders; `needs_attention` counts rejected; `awaiting_approval` is "Under Review", `for_booking` "Preparing" (verified, not shipped), `for_shipping` "Shipping", `delivered` "Delivered"; `delta` is orders this month minus last month (up arrow `+n vs last month`, down arrow `n vs last month`, zero `No change yet`); `series` is this Sunday to Saturday (Manila) with `h` the bar height percent in steps of 5 (a floor of 4 orders on the axis). `has_orders` false shows "No orders yet. Your order activity will appear here." The tiles are labelled Total Spent, Orders, Delivered, Needs Attention; the monitor stats Under Review, Preparing, Shipping, Delivered; "View all orders" links to My Orders. The lock, hold banner and verify-email prompt come from `member/pack/` and `member/account/`.
+
+`member/orders/` -> `{cards: [card]}`, newest first (empty: "No orders on your dashboard yet."):
+
+```
+card: {id, order_number, created_at, total, total_centavos, payment_status, payment_label,
+       chip_label, chip_class, problem, problem_line, awaiting_payment, under_review,
+       steps: [{num, label, state: done|current|todo, date|null}], courier, tracking, note,
+       shipping_label, headline, item_count, item_lines: [{qty, name}],
+       receiver_name, receiver_mobile, address,
+       membership: null | {label, line, tone, registered, sante_member_id, act}}
+```
+
+`chip_class` is `""` or `sf-status-expired` (rejected; `problem` true and `problem_line` "We could not verify your payment."). TWCinc's card shows, in this order: the problem banner, else the note, else "We received your payment. The store is checking it, and your order starts processing once it is verified." while `under_review`, else the four-step tracker (and the courier line when set). `membership` appears on the newest order only, once its payment is verified ("Membership Status": `label`, `line`, the Member / Reference ID row only when `registered` and `sante_member_id`, "Review your details" link to the dashboard when `act`). View Details: Waybill (courier "To be assigned", tracking "Not yet assigned", Shipping fee `shipping_label` "FREE"), Items, Deliver to (when `address`).
+
+## Parity answers to the frontend builder's four notes
+
+1. `sante_member_id`: the registration card now carries `sante_member_id`, always `""` for now. TWCinc fills it when the Subscriber's registration workflow records the Santé ID on a `registered` registration. That workflow is out of this milestone (registration beyond T1, T3, T4, T8), so no registration can reach `registered`, and there is no column for it yet (a later slice adds it with its own migration). The card's `status`, `label`, `line` are unchanged.
+2. `member/pack/resubmit/`: accepted fields are `host, visitor_ip, token, account_id, reference_number, amount_sent, sender_bank, sender_first_name, sender_last_name (or sender_name), sender_account_number, transferred_at, proof`. `submit_key` is accepted and ignored: TWCinc's resubmit has none. Double-submit protection is the status rule: the first call moves the order from `rejected` to `pending_review`, so a second call answers `409 not_rejected` ("A new proof can be sent only after the store asks for one.").
+3. `member/registration/details/` now reproduces TWCinc's dashboard form: ONE `date_of_birth` (`YYYY-MM-DD`), no terms tick (the registration note names the Membership Terms version agreed at checkout), the two usernames, and a delivery address block (`delivery_address` `{line, barangay, city, province, zip}`). The address is required while the member has no address on file (`registration.needs_address` true: show the block) and is also saved when sent; the ZIP is derived on the server. Errors: `422 invalid_details` with `fields` (`date_of_birth`, `desired_username`, `alternate_username`), `400 invalid_address` with `fields.delivery_address` (a missing line, city or province, from the members address check) and `422 invalid_address` with `fields.province` or `zip` (the ZIP derivation), `409 mobile_not_verified`, `409 wrong_status`. The three-part date and `terms` of the funnel are only on `onboarding/details/`.
+4. Own-proof link: TWCinc's payment panel and rejected dialog show no link to the member's own proof (its proof route exists but nothing links it). Nothing to build; `member/pack/proof/` stays available.
