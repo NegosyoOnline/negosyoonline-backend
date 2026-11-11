@@ -207,3 +207,53 @@ class PackEnrollmentAuthorization(AppendOnly):
     text = models.TextField()
     accepted_at = models.DateTimeField()
     created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+
+class SanteRegistration(models.Model):
+    """One Santé registration per member: opened (T1) when the first order is placed, it holds the
+    date of birth and the two usernames the buyer gives in onboarding. Only the edges that end with
+    the member signing in are carried (T1, T3, T4, T8); the Subscriber's registration workflow
+    comes later. Never deleted."""
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="pack_registrations")
+    member = models.ForeignKey("members.Member", on_delete=models.PROTECT, related_name="sante_registrations")
+    pack_order = models.ForeignKey(PackOrder, on_delete=models.PROTECT, related_name="registrations")
+    status = models.CharField(max_length=24, choices=C.REG_STATUS_CHOICES)
+    status_entered_at = models.DateTimeField(default=timezone.now)
+    state_version = models.PositiveIntegerField(default=1)
+    date_of_birth = models.DateField(null=True, blank=True)
+    desired_username = models.CharField(max_length=20, blank=True)
+    alternate_username = models.CharField(max_length=20, blank=True)
+    details_confirmed_at = models.DateTimeField(null=True, blank=True)
+    details_purged_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["site", "member"], name="pack_reg_site_member_uniq"),
+            models.CheckConstraint(
+                condition=Q(status__in=C.REG_STATUSES), name="pack_reg_status_valid"
+            ),
+        ]
+
+    def delete(self, *args, **kwargs):
+        raise ImmutableRecordError("Registrations are never deleted.")
+
+
+class SanteRegistrationEvent(AppendOnly):
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="pack_reg_events")
+    registration = models.ForeignKey(SanteRegistration, on_delete=models.PROTECT, related_name="events")
+    edge = models.CharField(max_length=24)
+    from_status = models.CharField(max_length=24, blank=True)
+    to_status = models.CharField(max_length=24)
+    reason_code = models.CharField(max_length=32, blank=True)
+    note = models.CharField(max_length=500, blank=True)
+    actor_type = models.CharField(max_length=10, choices=C.ACTOR_TYPES)
+    actor_ref = models.PositiveBigIntegerField(null=True, blank=True)
+    actor_label = models.CharField(max_length=254, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["created_at", "pk"]

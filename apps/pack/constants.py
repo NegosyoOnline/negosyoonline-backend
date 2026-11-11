@@ -54,3 +54,24 @@ TOKEN_TTL_SECONDS = 2 * 3600
 # docs, "Vercel Functions limitations", checked 2026-11-12), so the cap is 4 MB.
 PROOF_MAX_BYTES = 4 * 1024 * 1024
 PROOF_FOLDER = "sante/proofs/site-{}"
+
+# Santé registration (PK7): only the edges up to the member signing in are carried (T1, T3, T4;
+# T8 arrives with the Subscriber's approval). The statuses are TWCinc's full list so a later slice
+# adds edges without a migration.
+REG_STATUSES = (
+    "awaiting_buyer_details", "waiting_for_accept", "ready_to_register", "in_registration",
+    "submitted_on_sante", "needs_buyer_action", "blocked", "retry_wait", "possible_existing_member",
+    "registered", "cancelled",
+)
+REG_STATUS_CHOICES = [(s, s.replace("_", " ").capitalize()) for s in REG_STATUSES]
+PAYMENT_OK = (VERIFIED,)
+
+MSG_TERMS_NOT_ON_RECORD = (
+    "We could not find your agreement to the Membership Terms for this order. Please contact the store."
+)
+# Throttles of the onboarding and access steps, TWCinc's numbers (onboarding.py, site_views.py,
+# access.py): (scope, limit, window seconds).
+SEND_IP_LIMIT = ("pack-otp-ip", 10, 3600)
+TOKEN_SEND_LIMIT = ("pack-otp-token", 5, 3600)
+ACCESS_IP_LIMIT = ("pack-access-ip", 20, 3600)
+RENEW_LIMIT = ("pack-access-renew", 3, 3600)
