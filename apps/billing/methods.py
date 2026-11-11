@@ -22,3 +22,12 @@ def active_at(site, instant):
     return BankTransferPayment.objects.filter(
         under_review_at(instant), subscription__site=site
     ).exists()
+
+
+def reusable(site):
+    """Whether the site has a payment method that could be charged again without the owner.
+
+    Always false until a gateway exists (Billing Build B2): a bank transfer is a payment the
+    owner sends each time, and nothing here authorises a debit.
+    """
+    return False
