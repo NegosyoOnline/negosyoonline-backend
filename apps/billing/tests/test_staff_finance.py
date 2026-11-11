@@ -61,7 +61,11 @@ class FinanceTestCase(StaffTestCase):
 
 class FinanceGateTests(FinanceTestCase):
     def test_the_routes_are_registered_beside_the_sign_in_routes_and_nothing_else_changed(self):
-        self.assertEqual(sorted(staff.ROUTES), sorted(f"finance/payments/{p}" for p in PATHS))
+        self.assertEqual(
+            sorted(staff.ROUTES),
+            sorted([f"finance/payments/{p}" for p in PATHS]
+                   + [f"finance/usage/review/{p}" for p in ("list/", "detail/", "admit/", "dismiss/")]),
+        )
         for path in staff.ROUTES:
             self.assertEqual(staff_views.ROUTES[path][0], "POST")
         self.assertEqual(

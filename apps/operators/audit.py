@@ -47,6 +47,8 @@ ACTIONS = {
     "billing_exempt_set": KEPT,
     "billing_payment_confirmed": KEPT,
     "billing_payment_rejected": KEPT,
+    "billing_usage_admitted": KEPT,
+    "billing_usage_dismissed": KEPT,
     "billing_proof_viewed": KEPT,
     "sante_catalog_owner_set": KEPT,
     "sante_agreement_version_created": KEPT,
