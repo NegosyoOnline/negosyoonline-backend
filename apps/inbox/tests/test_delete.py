@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from apps.inbox import sending, storing
 from apps.inbox.access import scope_for
-from apps.inbox.models import Conversation, ConversationMessage, InboxAccess
+from apps.inbox.models import Contact, ContactGroup, Conversation, ConversationMessage, InboxAccess
 from apps.inbox.tests.base import SENDER, InboxTestCase
 from apps.notifications import gateway, sms
 from apps.notifications.models import SmsMessage
@@ -23,7 +23,7 @@ from apps.sites.tests.base import make_account, make_site
 
 TYPED = "0918 999 0000"
 OTHER = "+639171112222"
-NONE_STORED = "No conversation is stored for that number."
+NONE_STORED = "Nothing is stored for that number."
 NOT_A_NUMBER = "Type one full number."
 TABLES_EXIST = "apps.inbox.management.commands.sms_inbox_delete.tables_exist"
 
@@ -57,10 +57,10 @@ class DeleteCase(InboxTestCase):
             for e in OperatorAuditEntry.objects.order_by("pk")
         ]
 
-    def entry(self, change, conversations, messages, send_records=0):
+    def entry(self, change, conversations, messages, send_records=0, contacts=0):
         detail = {
             "platform": "sms", "change": change, "conversations": conversations,
-            "messages": messages, "send_records": send_records,
+            "messages": messages, "send_records": send_records, "contacts": contacts,
         }
         return ("sms_inbox_delete", self.staff, "conversation", "", detail, {})
 
@@ -73,7 +73,7 @@ class DeleteCommandTests(DeleteCase):
         out, _, _ = self.run_command(TYPED)
         self.assertEqual(
             out.strip(),
-            "Found: 1 conversation, 2 messages, 0 send records. Nothing was deleted. Run again with --confirm to delete them.",
+            "Found: 1 conversation, 2 messages, 0 send records, 0 contacts. Nothing was deleted. Run again with --confirm to delete them.",
         )
         self.assertEqual(self.stored(), (1, 2))
         self.assertEqual(self.entries(), [self.entry("count", 1, 2)])
@@ -82,7 +82,7 @@ class DeleteCommandTests(DeleteCase):
         self.keep()
         self.keep(OTHER, texts=3)
         out, _, _ = self.run_command(TYPED, confirm=True)
-        self.assertEqual(out.strip(), "Deleted: 1 conversation, 2 messages, 0 send records.")
+        self.assertEqual(out.strip(), "Deleted: 1 conversation, 2 messages, 0 send records, 0 contacts.")
         self.assertEqual(list(Conversation.objects.values_list("contact", flat=True)), [OTHER])
         self.assertEqual(ConversationMessage.objects.filter(conversation__contact=OTHER).count(), 3)
         self.assertEqual(self.stored(), (1, 3))
@@ -92,13 +92,13 @@ class DeleteCommandTests(DeleteCase):
         self.keep()
         for typed in ("09189990000", "639189990000", "+63 918 999 0000", "9189990000"):
             with self.subTest(typed=typed):
-                self.assertIn("Found: 1 conversation, 2 messages, 0 send records.", self.run_command(typed)[0])
+                self.assertIn("Found: 1 conversation, 2 messages, 0 send records, 0 contacts.", self.run_command(typed)[0])
 
     def test_4_both_phone_lines_are_covered(self):
         self.keep()
         self.keep(texts=1, phone=online_phone(name="second", forwards_incoming=True))
         out, _, _ = self.run_command(TYPED, confirm=True)
-        self.assertEqual(out.strip(), "Deleted: 2 conversations, 3 messages, 0 send records.")
+        self.assertEqual(out.strip(), "Deleted: 2 conversations, 3 messages, 0 send records, 0 contacts.")
         self.assertEqual(self.stored(), (0, 0))
         self.assertEqual(self.entries(), [self.entry("delete", 2, 3)])
 
@@ -110,18 +110,18 @@ class DeleteCommandTests(DeleteCase):
         self.assertEqual(Conversation.objects.filter(can_reply=False).count(), 3)
         for typed in ("+14155550123", "+1 415 555 0123", "+1 (415) 555-0123", "1.415.555.0123"):
             with self.subTest(typed=typed):
-                self.assertIn("Found: 1 conversation, 1 message, 0 send records.", self.run_command(typed)[0])
+                self.assertIn("Found: 1 conversation, 1 message, 0 send records, 0 contacts.", self.run_command(typed)[0])
         # The landline is stored once in each form: either form typed finds both.
         for typed in ("(02) 8123-4567", "0281234567"):
             with self.subTest(typed=typed):
-                self.assertIn("Found: 2 conversations, 2 messages, 0 send records.", self.run_command(typed)[0])
+                self.assertIn("Found: 2 conversations, 2 messages, 0 send records, 0 contacts.", self.run_command(typed)[0])
         OperatorAuditEntry.objects.all().delete()
         for typed in ("+14155550124", "4155550123"):
             with self.subTest(typed=typed):
                 self.assertEqual(self.run_command(typed)[0].strip(), NONE_STORED)
         self.assertEqual(self.entries(), [self.entry("count", 0, 0)] * 2)
         out, _, _ = self.run_command("+1 (415) 555-0123", confirm=True)
-        self.assertEqual(out.strip(), "Deleted: 1 conversation, 1 message, 0 send records.")
+        self.assertEqual(out.strip(), "Deleted: 1 conversation, 1 message, 0 send records, 0 contacts.")
         self.assertEqual(
             sorted(Conversation.objects.values_list("contact", flat=True)), ["(02) 8123-4567", "0281234567"]
         )
@@ -132,7 +132,7 @@ class DeleteCommandTests(DeleteCase):
         self.keep("GLOBE2024", texts=1)
         self.keep(texts=1)
         self.assertIs(Conversation.objects.get(contact="BDO1234567").can_reply, False)
-        self.assertIn("Found: 1 conversation, 1 message, 0 send records.", self.run_command("1234567")[0])
+        self.assertIn("Found: 1 conversation, 1 message, 0 send records, 0 contacts.", self.run_command("1234567")[0])
         with self.assertRaisesMessage(CommandError, NOT_A_NUMBER):
             self.run_command("2024", confirm=True)
         self.assertEqual(self.run_command("0002024", confirm=True)[0].strip(), NONE_STORED)
@@ -169,7 +169,7 @@ class DeleteCommandTests(DeleteCase):
         self.keep()
         with override_settings(SMS_INBOX_ENABLED=False):
             out, _, _ = self.run_command(TYPED, confirm=True)
-        self.assertEqual(out.strip(), "Deleted: 1 conversation, 2 messages, 0 send records.")
+        self.assertEqual(out.strip(), "Deleted: 1 conversation, 2 messages, 0 send records, 0 contacts.")
         self.assertEqual(self.stored(), (0, 0))
         self.assertEqual(self.entries(), [self.entry("delete", 1, 2)])
 
@@ -216,7 +216,7 @@ class DeleteCommandTests(DeleteCase):
         )
         ConversationMessage.objects.create(conversation=theirs, platform="sms", direction="in", body="Hello")
         out, _, _ = self.run_command(TYPED, confirm=True)
-        self.assertEqual(out.strip(), "Deleted: 1 conversation, 2 messages, 0 send records.")
+        self.assertEqual(out.strip(), "Deleted: 1 conversation, 2 messages, 0 send records, 0 contacts.")
         self.assertEqual(list(Conversation.objects.all()), [theirs])
         self.assertEqual(theirs.messages.count(), 1)
         self.assertEqual(self.entries(), [self.entry("delete", 1, 2)])
@@ -224,7 +224,7 @@ class DeleteCommandTests(DeleteCase):
     def test_13_no_inbox_access_is_needed_or_given(self):
         self.keep()
         self.assertEqual(InboxAccess.objects.count(), 0)
-        self.assertIn("Deleted: 1 conversation, 2 messages, 0 send records.", self.run_command(TYPED, confirm=True)[0])
+        self.assertIn("Deleted: 1 conversation, 2 messages, 0 send records, 0 contacts.", self.run_command(TYPED, confirm=True)[0])
         self.assertEqual(InboxAccess.objects.count(), 0)
 
 
@@ -263,12 +263,12 @@ class DeleteSendRecordsTests(DeleteCase):
         out, _, _ = self.run_command(TYPED)
         self.assertEqual(
             out.strip(),
-            "Found: 1 conversation, 4 messages, 2 send records. Nothing was deleted. "
+            "Found: 1 conversation, 4 messages, 2 send records, 0 contacts. Nothing was deleted. "
             "Run again with --confirm to delete them.",
         )
         self.assertEqual(SmsMessage.objects.count(), 4)
         out, _, _ = self.run_command(TYPED, confirm=True)
-        self.assertEqual(out.strip(), "Deleted: 1 conversation, 4 messages, 2 send records.")
+        self.assertEqual(out.strip(), "Deleted: 1 conversation, 4 messages, 2 send records, 0 contacts.")
         self.assertEqual(self.stored(), (0, 0))
         self.assertEqual(
             sorted(SmsMessage.objects.values_list("pk", flat=True)), sorted([verify.pk, elsewhere.pk])
@@ -294,7 +294,7 @@ class DeleteSendRecordsTests(DeleteCase):
         self.assertEqual(self.entries(), [])
         SmsMessage.objects.filter(pk=record.pk).update(status="sent")
         self.assertEqual(
-            self.run_command(TYPED, confirm=True)[0].strip(), "Deleted: 1 conversation, 3 messages, 1 send record."
+            self.run_command(TYPED, confirm=True)[0].strip(), "Deleted: 1 conversation, 3 messages, 1 send record, 0 contacts."
         )
 
     def test_16_a_waiting_text_is_never_sent_after_the_delete(self):
@@ -307,5 +307,79 @@ class DeleteSendRecordsTests(DeleteCase):
         self.keep("+14155550123", texts=1)
         with CaptureQueriesContext(connection) as queries:
             out, _, _ = self.run_command("+14155550123")
-        self.assertIn("Found: 1 conversation, 1 message, 0 send records.", out)
+        self.assertIn("Found: 1 conversation, 1 message, 0 send records, 0 contacts.", out)
         self.assertEqual([q["sql"] for q in queries if "notifications_smsmessage" in q["sql"]], [])
+
+
+CONTACT_TABLES = "apps.inbox.management.commands.sms_inbox_delete.contacts_tables_exist"
+
+
+class DeleteContactTests(DeleteCase):
+    """The contact held under the number goes with it; its groups stay."""
+
+    def setUp(self):
+        super().setUp()
+        self.group = ContactGroup.objects.create(owner_kind="hq", name="Regulars")
+        self.contact = self.make("Ana", "+639189990000")
+        self.contact.groups.add(self.group)
+        self.other = self.make("Ben", OTHER)
+
+    def make(self, name, mobile):
+        return Contact.objects.create(
+            owner_kind="hq", first_name=name, last_name="Sample", mobile=mobile, created_by=self.staff
+        )
+
+    def test_18_without_confirm_a_contact_is_counted_and_kept(self):
+        out, _, _ = self.run_command(TYPED)
+        self.assertEqual(
+            out.strip(), "Found: 0 conversations, 0 messages, 0 send records, 1 contact. "
+            "Nothing was deleted. Run again with --confirm to delete them.",
+        )
+        self.assertEqual(Contact.objects.count(), 2)
+        self.assertEqual(self.entries(), [self.entry("count", 0, 0, contacts=1)])
+
+    def test_19_with_confirm_it_is_deleted_and_the_group_stays(self):
+        out, _, _ = self.run_command(TYPED, confirm=True)
+        self.assertEqual(out.strip(), "Deleted: 0 conversations, 0 messages, 0 send records, 1 contact.")
+        self.assertEqual(list(Contact.objects.all()), [self.other])
+        self.assertEqual(list(ContactGroup.objects.all()), [self.group])
+        entry = OperatorAuditEntry.objects.get()
+        self.assertEqual(entry.detail["contacts"], 1)
+        text = json.dumps([entry.detail, entry.personal, entry.target_id])
+        for value in ("Ana", "Sample", "9189990000", "918 999"):
+            self.assertNotIn(value, text)
+
+    def test_20_every_form_of_the_number_finds_it(self):
+        for typed in ("09189990000", "639189990000", "+63 918 999 0000", "9189990000"):
+            with self.subTest(typed=typed):
+                self.assertIn("1 contact.", self.run_command(typed)[0])
+
+    def test_21_conversations_and_contact_go_together(self):
+        self.keep()
+        out, _, _ = self.run_command(TYPED, confirm=True)
+        self.assertEqual(out.strip(), "Deleted: 1 conversation, 2 messages, 0 send records, 1 contact.")
+        self.assertEqual(self.stored(), (0, 0))
+        self.assertEqual(Contact.objects.count(), 1)
+
+    def test_22_another_number_is_left(self):
+        self.run_command("+14155550123", confirm=True)
+        self.run_command("0917 111 2223", confirm=True)
+        self.assertEqual(Contact.objects.count(), 2)
+
+    def test_23_without_the_contact_tables_it_still_works(self):
+        self.keep()
+        with mock.patch(CONTACT_TABLES, return_value=False):
+            out, _, _ = self.run_command(TYPED, confirm=True)
+        self.assertEqual(out.strip(), "Deleted: 1 conversation, 2 messages, 0 send records.")
+        self.assertEqual(Contact.objects.count(), 2)
+        self.assertNotIn("contacts", OperatorAuditEntry.objects.get().detail)
+
+    def test_24_with_contacts_off_the_contact_is_still_deleted(self):
+        with override_settings(SMS_CONTACTS_ENABLED=False):
+            out, _, _ = self.run_command(TYPED, confirm=True)
+        self.assertIn("1 contact.", out)
+        self.assertEqual(Contact.objects.count(), 1)
+
+    def test_25_nothing_stored_says_so(self):
+        out, _, _ = self.run_command("0917 111 3333", confirm=True)
+        self.assertEqual(out.strip(), NONE_STORED)

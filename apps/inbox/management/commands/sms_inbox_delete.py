@@ -1,6 +1,6 @@
-"""Delete the SMS inbox conversations of one number, and the send records of the staff texts
-to it: how a person's request to delete their
-texts is carried out. Works with SMS_INBOX_ENABLED on or off, wherever the tables exist.
+"""Delete the SMS inbox conversations of one number, the send records of the staff texts to
+it, and the contact held under it: how a person's request to delete their texts and their
+name is carried out. Works with SMS_INBOX_ENABLED on or off, wherever the tables exist.
 
     manage.py sms_inbox_delete --actor USERNAME             count only
     manage.py sms_inbox_delete --actor USERNAME --confirm   delete
@@ -16,9 +16,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.common.phones import normalise_ph_mobile
-from apps.inbox.models import Conversation, ConversationMessage
+from apps.inbox.models import Contact, Conversation, ConversationMessage
 from apps.inbox.reading import NUMBER_DIGITS, is_a_number
-from apps.inbox.switch import SMS, tables_exist
+from apps.inbox.switch import SMS, contacts_tables_exist, tables_exist
 from apps.notifications import services
 from apps.operators import audit
 
@@ -53,31 +53,47 @@ class Command(BaseCommand):
             found = self._matching(number, digits)
             messages = ConversationMessage.objects.filter(conversation__in=found).count()
             records = self._staff_records(number)
+            contacts = self._contacts(number)
+            held = None if contacts is None else contacts.count()
             if confirm:
                 Conversation.objects.filter(pk__in=found).delete()  # its messages go with it
                 for record in records:
                     record.delete()
-            audit.record(
-                actor, "sms_inbox_delete", target_type=TARGET,
-                detail={
-                    "platform": SMS, "change": "delete" if confirm else "count",
-                    "conversations": len(found), "messages": messages, "send_records": len(records),
-                },
-            )
+                if contacts is not None:
+                    contacts.delete()  # its group links go with it; the groups stay
+            detail = {
+                "platform": SMS, "change": "delete" if confirm else "count",
+                "conversations": len(found), "messages": messages, "send_records": len(records),
+            }
+            if held is not None:
+                detail["contacts"] = held
+            audit.record(actor, "sms_inbox_delete", target_type=TARGET, detail=detail)
         if confirm:
             for record in records:  # after the commit: a text still waiting is never sent
                 services.forget_sms(record)
-        if not (found or records):
-            self.stdout.write("No conversation is stored for that number.")
+        if not (found or records or held):
+            self.stdout.write("Nothing is stored for that number.")
             return
         counts = (
             f"{_count(len(found), 'conversation')}, {_count(messages, 'message')}, "
             f"{_count(len(records), 'send record')}"
         )
+        if held is not None:
+            counts += f", {_count(held, 'contact')}"
         if confirm:
             self.stdout.write(f"Deleted: {counts}.")
         else:
             self.stdout.write(f"Found: {counts}. Nothing was deleted. Run again with --confirm to delete them.")
+
+    def _contacts(self, number):
+        """The HQ contacts held under this exact Philippine mobile, locked, or None when
+        contacts cannot exist here (inbox.0002 not applied). A number that is no Philippine
+        mobile holds none."""
+        if not contacts_tables_exist():
+            return None
+        if number is None:
+            return Contact.objects.none()
+        return Contact.objects.select_for_update().filter(owner_kind="hq", mobile=number)
 
     def _staff_records(self, number):
         """The send records of staff texts to a Philippine mobile, locked. None exist for any
