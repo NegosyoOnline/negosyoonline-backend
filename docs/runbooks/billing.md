@@ -16,14 +16,14 @@ It is not a secret. It exists so the code can be deployed before the tables are 
 
 ## Order on staging
 
-Each step is its own approval.
+Each step is its own approval. All six steps are done on staging, each with Coach Ed's approval at the time. That covers staging only: in any other environment each step is again its own approval, and **none of this is done on production**, which has no services.
 
 1. Merge and deploy. The code is dark while `BILLING_ENABLED` is unset.
-2. Apply `billing.0001_initial` (`docs/runbooks/migrations.md`). It only adds three tables. **Done on staging on 2026-11-11.** Steps 3 to 6 are not approved and not done.
-3. Set `BILLING_ENABLED=1` on `api`. Never before step 2: site creation and the billing endpoints would fail on the missing tables. From this moment every new site gets its subscription when it is created.
-4. Dry-run the backfill and read the counts ("Backfill", below).
-5. Run the backfill with `--apply`.
-6. Check: `GET /v1/sites/{site_id}/billing/` for a test site, signed in as its owner. Then `GET /v1/public/sites/by-host/?host=NAME.PARENT` with no sign-in, where `NAME` is that site's web address and `PARENT` is the value of `SITE_PARENT_HOST`: 200 with seven public fields for a site on trial, and the plain 404 for an ended one and for a name nobody holds.
+2. Apply `billing.0001_initial` (`docs/runbooks/migrations.md`). It only adds three tables. **Done on staging on 2026-11-11.**
+3. Set `BILLING_ENABLED=1` on `api`. Never before step 2: site creation and the billing endpoints would fail on the missing tables. From this moment every new site gets its subscription when it is created. **Done on staging on 2026-11-11**, set by Coach Ed himself.
+4. Dry-run the backfill and read the counts ("Backfill", below). **Done on staging on 2026-11-11.**
+5. Run the backfill with `--apply`. **Done on staging on 2026-11-11:** 1 site, its trial running (recorded on pull request 64).
+6. Check: `GET /v1/sites/{site_id}/billing/` for a test site, signed in as its owner. Then `GET /v1/public/sites/by-host/?host=NAME.PARENT` with no sign-in, where `NAME` is that site's web address and `PARENT` is the value of `SITE_PARENT_HOST`: 200 with seven public fields for a site on trial, and the plain 404 for an ended one and for a name nobody holds. **Done on staging on 2026-11-11**, with Coach Ed signed in as the owner: the owner's billing read answered 200 (`state: trial_active`, `storefront_served: true`, `billing_only: false`, `clocks_started: false`) and 401 with no sign-in; the by-host lookup answered 200 with seven public fields for the site's host and 404 for a name nobody holds. **Not checked:** the 404 for an ended site, because staging has none.
 
 To go back, unset `BILLING_ENABLED`. The tables and their rows stay; nothing reads them.
 
