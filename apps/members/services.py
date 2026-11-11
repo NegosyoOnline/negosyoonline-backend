@@ -95,10 +95,10 @@ def _consume_onboarding_proof(site, mobile, proof):
 
 
 def create_member(site, *, full_name, mobile, email, delivery_address=None, source=ONBOARDING,
-                  mobile_proof=None, email_state=PENDING):
+                  mobile_proof=None, email_state=UNVERIFIED):
     """A new member of this site, in one transaction under the site row lock. With `mobile_proof`
     (the used onboarding challenge for this number) the mobile starts verified, otherwise pending.
-    The email starts pending: the first code sent to it proves it. The delivery address is optional
+    The email starts unverified, as in TWCinc; pass email_state=PENDING for an email that a code may verify. The delivery address is optional
     for an onboarding member. Raises ApiError: invalid_request for a bad value, contact_in_use (409)
     when the mobile or the email is already a member here, or of another live site, not_found when
     the site is gone."""

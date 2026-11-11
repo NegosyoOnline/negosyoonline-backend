@@ -29,6 +29,11 @@ class MemberModelTests(MembersTestCase):
             ("pending", "pending", "onboarding"),
         )
 
+    def test_create_member_starts_the_email_unverified_as_twcinc_does(self):
+        from apps.members import services
+        m = services.create_member(self.site, full_name="Ana", mobile="09181234567", email="ana@buyer.test")
+        self.assertEqual((m.mobile_state, m.email_state), ("pending", "unverified"))
+
     def test_the_mobile_and_the_email_are_each_unique_within_a_site(self):
         self.refused(mobile=self.member.mobile)
         self.refused(email=self.member.email)

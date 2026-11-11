@@ -34,7 +34,7 @@ class MembersTestCase(SurfaceTestCase):
 
     def new_member(self, site=None, email=EMAIL, mobile=MOBILE, name="Maria Santos"):
         return services.create_member(
-            site or self.site, full_name=name, mobile=mobile, email=email
+            site or self.site, full_name=name, mobile=mobile, email=email, email_state="pending"
         )
 
     def post(self, path, host=HOST, secret=SECRET, ip=VISITOR, **fields):
