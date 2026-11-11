@@ -191,7 +191,7 @@ class ConfirmTests(TransferCase):
         transition = subscription.transitions.get(code="first_payment_succeeded")
         self.assertEqual(transition.idempotency_key, f"paid:{payment.reference}")
         self.assertEqual(transition.detail, {
-            "cycle": 1, "reference": payment.reference, "plan": "monthly",
+            "cycle": 1, "reference": payment.reference, "plan": "monthly", "version": 1,
             "amount_centavos": MONTHLY,
         })
         self.assertTrue(services.position(subscription.site, at=T0 + days(6)).storefront_served)

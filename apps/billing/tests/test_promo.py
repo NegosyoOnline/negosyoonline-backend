@@ -42,7 +42,7 @@ class PromoDatesTests(SimpleTestCase):
     def test_the_two_plans(self):
         self.assertEqual(
             [(p.code, p.price_centavos, p.months) for p in plan.PLANS.values()],
-            [("monthly", MONTHLY, 1), ("launch_promo", PROMO, 6)],
+            [("monthly", MONTHLY, 1), ("annual", 2_499_000, 12), ("launch_promo", PROMO, 6)],
         )
 
 

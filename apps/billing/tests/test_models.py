@@ -19,7 +19,9 @@ class ConstraintTests(TestCase):
     def cycle(self, **fields):
         values = {
             "subscription": self.subscription, "sequence": 1, "kind": "paid",
-            "start_at": TRIAL_END, "end_at": CYCLE_1_END, "settlement": "pending", **fields,
+            "start_at": TRIAL_END, "end_at": CYCLE_1_END, "settlement": "pending",
+            "plan_code": "monthly", "plan_version": 1, "price_centavos": 249_900,
+            "term_months": 1, **fields,
         }
         return lambda: BillingCycle.objects.create(**values)
 

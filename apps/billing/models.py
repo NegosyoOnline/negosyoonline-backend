@@ -103,6 +103,13 @@ class BillingCycle(models.Model):
     settlement = models.CharField(max_length=15, choices=Settlement.choices)
     paid_at = models.DateTimeField(null=True, blank=True)
     payment_reference = models.CharField(max_length=64, blank=True)
+    # The plan, price and term this cycle was opened under (Billing Build B3). A cycle is
+    # never re-priced from the current plan: its price is read from here. A trial cycle has
+    # none. A pending or lapsed cycle holds the terms that were due.
+    plan_code = models.CharField(max_length=20, blank=True)
+    plan_version = models.PositiveSmallIntegerField(null=True, blank=True)
+    price_centavos = models.PositiveIntegerField(null=True, blank=True)
+    term_months = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -111,6 +118,16 @@ class BillingCycle(models.Model):
             ),
             models.CheckConstraint(
                 condition=Q(end_at__gt=F("start_at")), name="billing_cycle_end_after_start"
+            ),
+            # Every cycle but the trial says what it was opened under (Billing Build B3).
+            models.CheckConstraint(
+                condition=Q(kind="trial") | (
+                    ~Q(plan_code="")
+                    & Q(plan_version__isnull=False)
+                    & Q(price_centavos__isnull=False)
+                    & Q(term_months__isnull=False)
+                ),
+                name="billing_paid_cycle_has_snapshot",
             ),
             models.UniqueConstraint(
                 fields=["subscription"],
@@ -157,6 +174,8 @@ class BankTransferPayment(models.Model):
     # Our own reference: the one the lifecycle's payment functions are keyed on.
     reference = models.CharField(max_length=64, unique=True)
     plan_code = models.CharField(max_length=20)
+    plan_version = models.PositiveSmallIntegerField(null=True, blank=True)
+    term_months = models.PositiveSmallIntegerField(null=True, blank=True)
     amount_centavos = models.PositiveIntegerField()
     currency = models.CharField(max_length=3, default="PHP")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.SUBMITTED)
@@ -245,3 +264,43 @@ class BillingNotice(models.Model):
 
     def __str__(self):
         return f"{self.code} for subscription {self.subscription_id}"
+
+
+class RenewalConsent(models.Model):
+    """What a buyer of the Launch Promo was told about the price after its six months, and
+    that they accepted it. One row per proof, written with it, never changed or deleted.
+
+    It is a record, not a debit mandate: no payment gateway exists, and nothing is charged
+    on the strength of it. Kept five years with the payment it belongs to.
+    """
+
+    subscription = models.ForeignKey(
+        Subscription, on_delete=models.PROTECT, related_name="consents"
+    )
+    payment = models.OneToOneField(
+        BankTransferPayment, on_delete=models.PROTECT, related_name="consent"
+    )
+    plan_code = models.CharField(max_length=20)
+    plan_version = models.PositiveSmallIntegerField()
+    then_plan_code = models.CharField(max_length=20)
+    then_price_centavos = models.PositiveIntegerField()
+    # The first date after the term that the buyer was shown; empty when the term starts
+    # at the confirmation (an ended or suspended site).
+    shown_first_due_at = models.DateTimeField(null=True, blank=True)
+    starts_at_confirmation = models.BooleanField(default=False)
+    text_version = models.CharField(max_length=40)
+    accepted_by = models.ForeignKey(
+        "accounts.Account", on_delete=models.PROTECT, related_name="+"
+    )
+    accepted_at = models.DateTimeField()
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise RuntimeError("A consent record is kept as it was and cannot be changed.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("A consent record is kept and cannot be deleted.")
+
+    def __str__(self):
+        return f"Consent for payment {self.payment_id}"
