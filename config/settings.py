@@ -89,6 +89,10 @@ ADMIN_SECRETS_KEY = os.environ.get("ADMIN_SECRETS_KEY", "").strip()
 HQ_HOST = os.environ.get("HQ_HOST", "").strip().lower()
 if HQ_HOST and HQ_HOST not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(HQ_HOST)
+# The one browser origin that may call the staff routes on the hq host (/staff/v1/): the staff
+# app on Vercel, for example https://hq.example.com. Empty means those routes do not exist. It
+# is never a host this service answers on, so it is not added to ALLOWED_HOSTS.
+HQ_STAFF_ORIGIN = os.environ.get("HQ_STAFF_ORIGIN", "").strip()
 # The SMS gateway. "1" turns on the send function and the admin's SMS lists. Off, no text is
 # queued and the gateway's tables are not read or written.
 SMS_GATEWAY_ENABLED = os.environ.get("SMS_GATEWAY_ENABLED", "").strip() == "1"

@@ -4,7 +4,7 @@ from django.core.exceptions import DisallowedHost
 from django.http.request import split_domain_port
 
 from apps.common.middleware import API_PREFIX
-from apps.operators import checks, hq_views
+from apps.operators import checks, hq_views, staff_views
 
 HQ_URLCONF = "apps.operators.hq_urls"
 
@@ -18,9 +18,15 @@ class HqHostMiddleware:
         if not hq_host or self._host(request) != hq_host:
             return self.get_response(request)
         request.urlconf = HQ_URLCONF
+        staff_origin = (
+            checks.active_staff_origin() if request.path.startswith(staff_views.PREFIX) else ""
+        )
         if request.path.startswith(API_PREFIX):
             # The API's origin middleware answers on its prefix before any URL is resolved.
             response = hq_views.not_found(request)
+        elif staff_origin:
+            # Answered here, before the form-token check: the one allowed Origin replaces it.
+            response = staff_views.dispatch(request, staff_origin)
         else:
             response = self.get_response(request)
         # Set here so that error pages and the CSRF refusal carry them too.
