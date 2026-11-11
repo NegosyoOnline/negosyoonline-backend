@@ -1,126 +1,195 @@
-"""Member sign-in by emailed one-time code.
+"""Member sign-in. Every well-formed input gets the same answer, the same limits, a challenge row (a
+decoy when there is no match) and the same padded timing (the API pads). Whether the SMS channel
+may be used is decided from the typed contact and the counters before any member lookup.
 
-The codes are `apps.accounts.codes` with the purpose `member:<site pk>`: 600 seconds, 5 attempts,
-and the same per-address and per-IP throttles as a Subscriber's. The request answers the same
-for a member, an unknown address and a decoy, and takes at least MIN_SECONDS, so neither the
-answer nor the time says whether an address is a member of the site.
+The channel rule: an email matches only while it is verified or pending (an unverified email is no
+channel); a mobile matches a member whose number is no longer an unconfirmed onboarding one, and
+goes by SMS unless the email is verified and the mobile is not (then by email), or a template says
+text first. The SMS branch is the hook the SMS slice fills (hooks.register_sms_transport).
 """
-import logging
 import time
+from dataclasses import dataclass
 
-from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
-from apps.accounts import codes
-from apps.common import throttle
-from apps.common.errors import ApiError
-from apps.members import contacts, sessions
-from apps.members.models import PENDING, VERIFIED, Member
-from apps.notifications.services import EmailNotSent, send_email
+from apps.members import contacts, hooks, messaging, otp, sessions
+from apps.members.models import Member, MemberContactAudit
 
-logger = logging.getLogger(__name__)
-
+GENERIC = "If this matches a member of this store, we sent a code."
+OFFER_EMAIL = "We can email your code instead."
 MIN_SECONDS = 1.5
-SITE_MONITOR = 300  # code requests per site per hour before one warning; never refuses
-IP_SEND_LIMIT = (10, 3600)
-IP_VERIFY_LIMIT = (30, 600)
-CATEGORY = "member_signin_code"
 _clock, _sleep = time.monotonic, time.sleep
 
 
-def purpose(site):
-    return f"member:{site.pk}"
+@dataclass(frozen=True)
+class Answer:
+    step: str
+    message: str
+    offer_email: bool = False
 
 
-def _pad(started):
+def clock():
+    return _clock()
+
+
+def pad(started):
     remaining = MIN_SECONDS - (_clock() - started)
     if remaining > 0:
         _sleep(remaining)
 
 
-def _invalid_code():
-    return ApiError("invalid_code", "That code is wrong or has expired.")
+def _mobile_prechecks(site, mobile):
+    messaging.require_transport()
+    precheck = hooks.sms_transport().get("precheck")
+    if precheck:
+        precheck(site, mobile)
 
 
-def _monitor_site_volume(site):
-    """Count the site's code requests, decoys included, and log one warning past SITE_MONITOR.
-    A cache error never blocks a sign-in. The warning names the site, never an address."""
-    hour = timezone.now().strftime("%Y%m%d%H")
-    key = f"members:signin-volume:{site.pk}:{hour}"
-    try:
-        cache.add(key, 0, 3600)
-        try:
-            count = cache.incr(key)
-        except ValueError:
-            cache.set(key, 1, 3600)
-            count = 1
-    except Exception:  # noqa: BLE001 - a monitor never blocks sign-in
-        logger.exception("member sign-in volume counter failed, site %s", site.public_id)
-        return
-    if count == SITE_MONITOR + 1:
-        logger.warning(
-            "More than %s member sign-in code requests in one hour on site %s.",
-            SITE_MONITOR, site.public_id,
-        )
+def _match(site, kind, value):
+    """(member, channel, target, sms_category) or None. An unverified email is no channel."""
+    if kind == "email":
+        m = Member.objects.filter(site=site, email=value, email_state__in=("verified", "pending")).first()
+        return (m, "email", m.email, None) if m else None
+    m = Member.objects.filter(site=site, mobile=value).first()
+    if m is None:
+        return None
+    if m.source == "onboarding" and m.mobile_state == "pending":
+        return None  # a typed, unconfirmed number gets no code; the buyer's way back is the secure link in the after-payment email
+    if m.email_state == "verified" and hooks.sign_in_sms_first(site):
+        return (m, "sms", m.mobile, "otp_email_fallback") if m.mobile_state in ("verified", "pending") else None
+    if m.email_state == "verified":  # only a verified matching contact reaches the email
+        return (m, "email", m.email, None) if m.mobile_state == "verified" else None
+    return m, "sms", m.mobile, "otp_no_fallback"
 
 
-def _signin_member(site, email):
-    """The member who may be sent a code for this address: their email is verified, or pending
-    until this first code proves it."""
-    return Member.objects.filter(site=site, email=email, email_state__in=(VERIFIED, PENDING)).first()
+def _member_for(site, requested):
+    """'Text me' and the accept-email step resolve the member afresh from the typed contact with
+    the same rule, never from challenge.member (null when the target cap wrote a decoy)."""
+    kind = "email" if "@" in requested else "mobile"
+    match = _match(site, kind, requested)
+    return match[0] if match else None
 
 
-def request_code(site, raw_email, ip):
-    """Email a sign-in code to the member of this site with this address. Nothing in the answer,
-    the time or the limits tells a member from anyone else. Raises ApiError: invalid_request for
-    a malformed address, rate_limited (429) for too many requests."""
-    started = _clock()
-    email = contacts.clean_email(raw_email)
-    if ip:
-        throttle.hit("member-signin-ip", ip, limit=IP_SEND_LIMIT[0], window=IP_SEND_LIMIT[1])
-    _monitor_site_volume(site)
-    # Issued for every address, so the cooldown and the hourly limit answer alike for all.
-    code = codes.issue_code(email, ip or "unknown", purpose(site))
-    member = _signin_member(site, email)
-    if member is not None:
-        try:
-            send_email(
-                to=member.email,
-                category=CATEGORY,
-                subject=f"Your {site.display_name} sign-in code",
-                body=(
-                    f"Your sign-in code is {code}. It expires in 10 minutes.\n\n"
-                    "If you did not ask for this code, you can ignore this email."
-                ),
-                sender_name=site.display_name,
-            )
-        except (EmailNotSent, ValueError):
-            logger.warning("member sign-in code email not sent, site %s", site.public_id)
-    _pad(started)
+def _send_email_later(ch, code, defer):
+    """A signed-out sign-in email is sent after the response work, so the request time never depends
+    on the mail provider. The code lives only in this closure. Without a defer hook (service tests,
+    callers outside a request) it is sent at once."""
+    if defer is None:
+        messaging.deliver_code(ch, code)
+    else:
+        defer(lambda: messaging.deliver_code(ch, code))
 
 
-def verify_code(site, raw_email, code, ip):
-    """(member, raw session token). The first valid code marks a pending email verified. Wrong,
-    expired, used and unknown all answer invalid_code."""
-    email = contacts.clean_email(raw_email)
-    if ip:
-        throttle.hit("member-verify-ip", ip, limit=IP_VERIFY_LIMIT[0], window=IP_VERIFY_LIMIT[1])
-    if not codes.check_code(email, (code or "").strip(), purpose(site)):
-        raise _invalid_code()
+def _deliver_signed_out(ch, code, *, category, defer):
+    if ch.channel == "email":
+        _send_email_later(ch, code, defer)
+        return "deferred"
+    return messaging.deliver_code(ch, code, sms_category=category)
+
+
+def request_code(site, raw, *, binding_raw, ip=None, defer=None):
+    kind, value = contacts.parse_identifier(raw)
+    otp.throttle_signed_out(site, ip)
+    otp.check_send_allowed(site, purpose="signin", requested=value, binding_raw=binding_raw)
+    if kind == "mobile":
+        _mobile_prechecks(site, value)
+    match = _match(site, kind, value)
+    if match is None:
+        otp.open_challenge(site, purpose="signin", channel="email" if kind == "email" else "sms", target=value,
+                           requested=value, binding_raw=binding_raw, decoy=True)
+        return Answer("code", GENERIC)
+    member, channel, target, category = match
+    ch, code = otp.open_challenge(site, purpose="signin", channel=channel, target=target, requested=value,
+                                  binding_raw=binding_raw, member=member, reuse_code=True)
+    if code is None:  # silent target bucket full: a decoy was written, same answer
+        return Answer("code", GENERIC)
+    outcome = _deliver_signed_out(ch, code, category=category or "otp_no_fallback", defer=defer)
+    if outcome in ("paused", "refused_not_test_number"):  # a race past the pre-checks
+        raise messaging.outcome_error(outcome)
+    return Answer("code", GENERIC)  # a mail failure on this signed-out step answers the same
+
+
+def resend(site, *, binding_raw, ip=None, defer=None):
+    ch = otp.latest_recent(site, purpose="signin", binding_raw=binding_raw)
+    if ch is None:
+        raise otp.error("expired")
+    return request_code(site, ch.requested_contact, binding_raw=binding_raw, ip=ip, defer=defer)
+
+
+def text_instead(site, *, binding_raw, ip=None):
+    """'Text me instead'. Uniform for every input: with the counter already full the answer is the
+    pause for every input and nothing is sent. The email offer appears only from a real offer_email
+    outcome. Needs the SMS channel."""
+    ch = otp.latest_recent(site, purpose="signin", binding_raw=binding_raw)
+    if ch is None:
+        raise otp.error("expired")
+    otp.throttle_signed_out(site, ip)
+    messaging.require_transport()
+    precheck = hooks.sms_transport().get("precheck")
+    if precheck:
+        precheck(site, ch.target)
+    member = _member_for(site, ch.requested_contact)  # never ch.member
+    if member is None or member.mobile_state not in ("verified", "pending"):
+        otp.open_challenge(site, purpose="signin", channel="sms", target=ch.target, requested=ch.requested_contact,
+                           binding_raw=binding_raw, decoy=True, resend_wait=False,
+                           channel_wait=hooks.sign_in_sms_first(site))
+        return Answer("code", GENERIC)
+    category = "otp_email_fallback" if member.email_state == "verified" else "otp_no_fallback"
+    new, code = otp.open_challenge(site, purpose="signin", channel="sms", target=member.mobile,
+                                   requested=ch.requested_contact, binding_raw=binding_raw, member=member,
+                                   resend_wait=False, channel_wait=hooks.sign_in_sms_first(site), reuse_code=True)
+    if code is None:
+        return Answer("code", GENERIC)
+    outcome = messaging.deliver_code(new, code, sms_category=category)
+    if outcome == "offer_email":
+        return Answer("code", OFFER_EMAIL, offer_email=True)
+    if outcome == "paused":
+        raise messaging.outcome_error("paused")
+    return Answer("code", GENERIC)  # refused_not_test_number answers like a decoy
+
+
+def accept_email(site, *, binding_raw, ip=None, defer=None):
+    """The email offer accepted: a fresh email challenge to the verified email (a decoy when there is none)."""
+    ch = otp.latest_recent(site, purpose="signin", binding_raw=binding_raw)
+    if ch is None:
+        raise otp.error("expired")
+    otp.throttle_signed_out(site, ip)
+    member = _member_for(site, ch.requested_contact)  # never ch.member
+    if member is not None and member.email_state == "verified":
+        new, code = otp.open_challenge(site, purpose="signin", channel="email", target=member.email,
+                                       requested=ch.requested_contact, binding_raw=binding_raw, member=member,
+                                       resend_wait=False, channel_wait=hooks.sign_in_sms_first(site), reuse_code=True)
+        if code is not None:
+            _send_email_later(new, code, defer)  # a mail failure answers the neutral line
+    else:
+        otp.open_challenge(site, purpose="signin", channel="email", target=ch.target, requested=ch.requested_contact,
+                           binding_raw=binding_raw, decoy=True, resend_wait=False,
+                           channel_wait=hooks.sign_in_sms_first(site))
+    return Answer("code", GENERIC)
+
+
+def verify(site, *, binding_raw, code, ip=None):
+    """(member, raw session token), or ApiError. A pending target's first code verifies it. The
+    session row is created inside the member-locked transaction; the storefronts server only puts
+    the token in its cookie. Never call it inside an atomic block: a wrong guess must stay counted."""
+    otp.throttle_verify(ip)
+    ch = otp.verify_challenge(site, purpose="signin", binding_raw=binding_raw, code=code)
+    field = "email" if ch.channel == "email" else "mobile"
     now = timezone.now()
     with transaction.atomic():
-        member = (
-            Member.objects.select_for_update()
-            .filter(site=site, email=email, email_state__in=(VERIFIED, PENDING))
-            .first()
-        )
-        if member is None:  # no such member, or the contact changed after the code was sent
-            raise _invalid_code()
-        if not codes.claim_code(email, purpose(site)):  # a simultaneous request used it first
-            raise _invalid_code()
-        if member.email_state == PENDING:
-            member.email_state, member.email_verified_at = VERIFIED, now
-            member.save(update_fields=["email_state", "email_verified_at", "updated_at"])
-        _, raw = sessions.create_session(site, member, ip=ip, now=now)
-    return member, raw
+        m = Member.objects.select_for_update().filter(pk=ch.member_id, site=site).first()
+        if m is None or getattr(m, field) != ch.target:
+            raise otp.error("expired")  # the contact changed after the code was sent
+        state = getattr(m, f"{field}_state")
+        if state == "pending":
+            setattr(m, f"{field}_state", "verified")
+            setattr(m, f"{field}_verified_at", now)
+            m.save(update_fields=[f"{field}_state", f"{field}_verified_at", "updated_at"])
+            MemberContactAudit.objects.create(site=site, member=m, kind="first_verification", field=field,
+                                              new_masked=contacts.mask(field, ch.target), actor_type="member",
+                                              actor_ref=m.pk, ip_advisory=(ip or "")[:45])
+        elif state != "verified":
+            raise otp.error("expired")
+        _, raw = sessions.create_session(site, m, ip=ip, now=now)
+    return m, raw

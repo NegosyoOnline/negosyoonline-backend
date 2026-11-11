@@ -66,11 +66,3 @@ def check_code(email, code, purpose="signin"):
 
 def clear_code(email, purpose="signin"):
     cache.delete_many([_key("code", purpose, email), _key("attempts", purpose, email)])
-
-
-def claim_code(email, purpose="signin"):
-    """Use the code up. True for the one caller that removed it, so two simultaneous requests
-    with the same right code cannot both succeed."""
-    won = cache.delete(_key("code", purpose, email))
-    cache.delete(_key("attempts", purpose, email))
-    return bool(won)

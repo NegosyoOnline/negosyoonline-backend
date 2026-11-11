@@ -7,12 +7,12 @@ from django.test import override_settings
 from apps.accounts import retention as rules
 from apps.accounts.tests.disposal_base import DisposalTestCase
 from apps.common import retention as registry
-from apps.members import retention, services, sessions
-from apps.members.models import Member, MemberSession
+from apps.members import otp, retention, services, sessions
+from apps.members.models import Member, MemberContactAudit, MemberOtpChallenge, MemberSession
 from apps.operators.models import OperatorAuditEntry
 from apps.sites.models import Site
 
-KEYS = ("members", "member_sessions")
+KEYS = ("members", "member_sessions", "member_otp_challenges", "member_contact_audits")
 NAME, EMAIL, MOBILE = "Maria Santos", "maria@buyer.test", "+639171234567"
 THEIR_EMAIL = "juan@buyer.test"
 
@@ -33,6 +33,18 @@ class MembersDisposalTestCase(DisposalTestCase):
         self.revoked, _ = sessions.create_session(self.site, self.member)
         sessions.revoke_session(self.revoked)
         self.their_session, _ = sessions.create_session(self.their_site, self.theirs)
+        Member.objects.filter(pk=self.member.pk).update(delivery_address={"line": "12 Rizal St", "city": "Cebu"})
+        self.challenge, _ = otp.open_challenge(
+            self.site, purpose="signin", channel="email", target=EMAIL, binding_raw="b" * 20, member=self.member
+        )
+        self.their_challenge, _ = otp.open_challenge(
+            self.their_site, purpose="signin", channel="email", target=THEIR_EMAIL, binding_raw="c" * 20,
+            member=self.theirs,
+        )
+        self.audit = MemberContactAudit.objects.create(
+            site=self.site, member=self.member, kind="first_verification", field="email",
+            new_masked="m***@buyer.test", actor_type="member",
+        )
 
     def dispose(self, **extra):
         return rules.dispose_account(
@@ -55,6 +67,11 @@ class DisposalTests(MembersDisposalTestCase):
         self.assertEqual((row.mobile_state, row.email_state), ("pending", "pending"))
         self.assertEqual(row.public_id, self.member.public_id)
         self.assertEqual(MemberSession.objects.filter(member=self.member).count(), 0)
+        self.assertEqual(row.delivery_address, {})
+        self.assertEqual(counts["member_otp_challenges"], 1)
+        self.assertFalse(MemberOtpChallenge.objects.filter(pk=self.challenge.pk).exists())
+        self.assertTrue(MemberOtpChallenge.objects.filter(pk=self.their_challenge.pk).exists())
+        self.assertTrue(MemberContactAudit.objects.filter(pk=self.audit.pk).exists())  # masked, append-only
 
     def test_a_disposed_member_cannot_be_signed_in_or_reached(self):
         self.dispose()
@@ -73,7 +90,7 @@ class DisposalTests(MembersDisposalTestCase):
     def test_the_audit_entry_names_the_fields_and_never_a_value(self):
         self.dispose()
         entry = OperatorAuditEntry.objects.get(action="account_disposed")
-        self.assertEqual(entry.detail["blanked"]["members"], ["full_name", "mobile", "email"])
+        self.assertEqual(entry.detail["blanked"]["members"], ["full_name", "mobile", "email", "delivery_address"])
         self.assertEqual(entry.detail["counts"]["members"], 1)
         text = json.dumps(entry.detail)
         for value in (NAME, EMAIL, MOBILE, "203.0.113.9"):
@@ -104,11 +121,17 @@ class ExportTests(MembersDisposalTestCase):
         self.assertEqual(data["members"], [{
             "site": self.site.public_id, "id": self.member.public_id, "full_name": NAME,
             "mobile": MOBILE, "mobile_verified_at": None, "email": EMAIL,
-            "email_verified_at": None, "source": "onboarding",
+            "email_verified_at": None, "delivery_address": {"line": "12 Rizal St", "city": "Cebu"},
+            "source": "onboarding",
             "created_at": self.member.created_at.isoformat(),
         }])
         self.assertNotIn(THEIR_EMAIL, json.dumps(data))
         self.assertEqual(len(data["member_sessions"]), 2)
+        self.assertEqual(data["member_contact_audits"], [{
+            "member": self.member.public_id, "kind": "first_verification", "field": "email",
+            "old": "", "new": "m***@buyer.test", "created_at": self.audit.created_at.isoformat(),
+        }])
+        self.assertNotIn("member_otp_challenges", data)  # codes are never exported
 
     def test_it_holds_no_token_hash_no_address_and_no_row_number(self):
         text = json.dumps(self.export())
@@ -132,7 +155,7 @@ class ExportTests(MembersDisposalTestCase):
 
 
 def data_rows(data):
-    return [*data["members"], *data["member_sessions"]]
+    return [*data["members"], *data["member_sessions"], *data["member_contact_audits"]]
 
 
 class ExpiredSessionRuleTests(MembersDisposalTestCase):
@@ -168,4 +191,25 @@ class ExpiredSessionRuleTests(MembersDisposalTestCase):
     @override_settings(MEMBERS_ENABLED=False)
     def test_with_members_off_it_reads_nothing(self):
         MemberSession.objects.update(expires_at=self.now - timedelta(days=60))
+        self.assertEqual(self.run_rule(dry_run=True), 0)
+
+
+class ExpiredChallengeRuleTests(MembersDisposalTestCase):
+    def run_rule(self, dry_run=False):
+        return retention.expired_member_challenges(self.now, dry_run)
+
+    def test_it_is_registered(self):
+        self.assertIn("expired_member_challenges", registry.names())
+
+    def test_a_code_row_is_deleted_thirty_days_after_it_expired(self):
+        MemberOtpChallenge.objects.filter(pk=self.challenge.pk).update(expires_at=self.now - timedelta(days=31))
+        MemberOtpChallenge.objects.filter(pk=self.their_challenge.pk).update(expires_at=self.now - timedelta(days=5))
+        self.assertEqual(self.run_rule(dry_run=True), 1)
+        self.assertEqual(MemberOtpChallenge.objects.count(), 2)
+        self.assertEqual(self.run_rule(), 1)
+        self.assertEqual(list(MemberOtpChallenge.objects.values_list("pk", flat=True)), [self.their_challenge.pk])
+
+    @override_settings(MEMBERS_ENABLED=False)
+    def test_with_members_off_it_reads_nothing(self):
+        MemberOtpChallenge.objects.update(expires_at=self.now - timedelta(days=60))
         self.assertEqual(self.run_rule(dry_run=True), 0)
