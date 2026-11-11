@@ -1,4 +1,5 @@
-"""Delete the SMS inbox conversations of one number: how a person's request to delete their
+"""Delete the SMS inbox conversations of one number, and the send records of the staff texts
+to it: how a person's request to delete their
 texts is carried out. Works with SMS_INBOX_ENABLED on or off, wherever the tables exist.
 
     manage.py sms_inbox_delete --actor USERNAME             count only
@@ -18,6 +19,7 @@ from apps.common.phones import normalise_ph_mobile
 from apps.inbox.models import Conversation, ConversationMessage
 from apps.inbox.reading import NUMBER_DIGITS, is_a_number
 from apps.inbox.switch import SMS, tables_exist
+from apps.notifications import services
 from apps.operators import audit
 
 TARGET = "conversation"
@@ -50,23 +52,43 @@ class Command(BaseCommand):
         with transaction.atomic():
             found = self._matching(number, digits)
             messages = ConversationMessage.objects.filter(conversation__in=found).count()
+            records = self._staff_records(number)
             if confirm:
                 Conversation.objects.filter(pk__in=found).delete()  # its messages go with it
+                for record in records:
+                    record.delete()
             audit.record(
                 actor, "sms_inbox_delete", target_type=TARGET,
                 detail={
                     "platform": SMS, "change": "delete" if confirm else "count",
-                    "conversations": len(found), "messages": messages,
+                    "conversations": len(found), "messages": messages, "send_records": len(records),
                 },
             )
-        if not found:
+        if confirm:
+            for record in records:  # after the commit: a text still waiting is never sent
+                services.forget_sms(record)
+        if not (found or records):
             self.stdout.write("No conversation is stored for that number.")
             return
-        counts = f"{_count(len(found), 'conversation')}, {_count(messages, 'message')}"
+        counts = (
+            f"{_count(len(found), 'conversation')}, {_count(messages, 'message')}, "
+            f"{_count(len(records), 'send record')}"
+        )
         if confirm:
             self.stdout.write(f"Deleted: {counts}.")
         else:
             self.stdout.write(f"Found: {counts}. Nothing was deleted. Run again with --confirm to delete them.")
+
+    def _staff_records(self, number):
+        """The send records of staff texts to a Philippine mobile, locked. None exist for any
+        other number: a staff text can go to no other. Refuses while one is with the phone,
+        before anything is deleted or recorded: the phone's report on it must still find it."""
+        if number is None:
+            return []
+        records = list(services.staff_send_records(number).select_for_update())
+        if any(record.status == "dispatched" for record in records):
+            raise CommandError("A text to that number is with the phone right now. Run again in 10 minutes.")
+        return records
 
     def _typed(self, typed):
         """What was typed, as a Philippine mobile or else as its digits. The error never

@@ -407,9 +407,105 @@ class SendSmsKeepsNoTextTests(SmsTestCase):
 
 
 class PurposeListTests(TestCase):
-    def test_15_no_reply_or_marketing_purpose_is_declared(self):
-        self.assertEqual(set(sms.PURPOSES), {"mobile_verify"})
+    def test_15_no_marketing_purpose_is_declared(self):
+        self.assertEqual(set(sms.PURPOSES), {"mobile_verify", "inbox_reply", "inbox_compose"})
         for name, purpose in sms.PURPOSES.items():
             with self.subTest(purpose=name):
-                self.assertIn(purpose.priority, (sms.Priority.CODE, sms.Priority.STATUS))
-                self.assertIn(purpose.category, (sms.CODE, sms.STATUS))
+                self.assertIn(purpose.priority, (sms.Priority.CODE, sms.Priority.REPLY))
+                self.assertIn(purpose.category, (sms.CODE, sms.INBOX))
+                self.assertNotEqual(purpose.priority, sms.Priority.MARKETING)
+
+    def test_30_the_two_staff_purposes_are_declared(self):
+        for name in ("inbox_reply", "inbox_compose"):
+            with self.subTest(purpose=name):
+                purpose = sms.PURPOSES[name]
+                self.assertEqual(purpose.category, "inbox")
+                self.assertEqual(purpose.priority, sms.Priority.REPLY)
+                self.assertTrue(purpose.paced)
+        self.assertFalse(sms.PURPOSES["mobile_verify"].paced)
+        self.assertEqual(sorted(sms.paced_purposes()), ["inbox_compose", "inbox_reply"])
+
+
+class StaffTextTests(SmsTestCase):
+    def setUp(self):
+        super().setUp()
+        online_phone()
+
+    def staff(self, **fields):
+        fields = {
+            "to": MOBILE, "purpose": "inbox_reply", "text": "Yes, we are open.",
+            "ttl": sms.STAFF_TEXT_LIFETIME, **fields,
+        }
+        return send_sms(**fields)
+
+    def test_31_a_staff_text_makes_a_send_record_without_a_site_or_a_fallback(self):
+        result = self.staff()
+
+        self.assertEqual((result.outcome, result.reason), (sms.QUEUED, ""))
+        message = SmsMessage.objects.get()
+        self.assertEqual((message.category, message.purpose), ("inbox", "inbox_reply"))
+        self.assertEqual(message.priority, SmsMessage.Priority.REPLY)
+        self.assertIsNone(message.site)
+        self.assertIsNone(sms.take_fallback(message))
+        self.assertAlmostEqual(
+            message.expires_at, message.created_at + timedelta(hours=1), delta=timedelta(seconds=5)
+        )
+        self.assertEqual(sms.platform_count(), 1)
+
+    def test_32_the_reserve_refuses_a_staff_text_and_not_a_code(self):
+        set_policy(platform_daily_limit=305)
+        for _ in range(5):
+            self.assertEqual(self.staff().outcome, sms.QUEUED)
+
+        with self.assertLogs("apps.notifications", level="ERROR"):
+            result = self.staff()
+        self.assertEqual((result.outcome, result.reason), (sms.REFUSED, "staff_limit"))
+        self.assertEqual(result.message.status, SmsMessage.Status.REFUSED)
+        self.assertEqual(sms.platform_count(), 5)
+        self.assertEqual(send_code().outcome, sms.QUEUED)
+        self.assertEqual(sms.platform_count(), 6)
+
+        for limit in (300, 100):
+            with self.subTest(limit=limit):
+                cache.clear()
+                SmsMessage.objects.all().delete()
+                set_policy(platform_daily_limit=limit)
+                with self.assertLogs("apps.notifications", level="ERROR"):
+                    self.assertEqual(self.staff().reason, "staff_limit")
+
+    def test_33_a_refused_staff_text_gives_back_its_slot(self):
+        set_policy(platform_daily_limit=301)
+        self.assertEqual(self.staff().outcome, sms.QUEUED)
+        with self.assertLogs("apps.notifications", level="ERROR"):
+            self.assertEqual(self.staff().reason, "staff_limit")
+        self.assertEqual(sms.platform_count(), 1)
+
+        set_policy(platform_daily_limit=2000)
+        SmsDevice.objects.update(last_contact_at=timezone.now() - timedelta(minutes=5))
+        with self.assertLogs("apps.notifications", level="ERROR"):
+            self.assertEqual(self.staff().reason, "gateway_offline")
+        self.assertEqual(sms.platform_count(), 1)
+
+    def test_34_the_helpers_other_apps_call(self):
+        from apps.notifications import services
+
+        for text in ("fine", "", "x" * 161, "see example.com"):
+            self.assertEqual(services.sms_text_problem(text), sms.text_problem(text))
+        self.assertEqual(services.sms_line(), sms.pick_device())
+        self.assertEqual(
+            services.sms_status(),
+            {"phone_online": True, "used_today": 0, "cap": 2000, "reserved_for_codes": 300},
+        )
+        self.assertEqual(services.staff_send_records(MOBILE).count(), 0)
+        self.staff()
+        send_code()
+        self.assertEqual(services.staff_send_records(MOBILE).count(), 1)
+
+    def test_34_with_the_gateway_off_the_status_is_offline_and_reads_no_table(self):
+        from apps.notifications import services
+
+        with override_settings(SMS_GATEWAY_ENABLED=False), self.assertNumQueries(0):
+            self.assertEqual(
+                services.sms_status(),
+                {"phone_online": False, "used_today": None, "cap": None, "reserved_for_codes": None},
+            )

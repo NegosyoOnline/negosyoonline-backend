@@ -30,6 +30,7 @@ from datetime import timedelta
 from functools import wraps
 
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -128,17 +129,20 @@ def _note_contact(device, body, now):
     )
 
 
+def _paced():
+    """The texts sent one at a time with a gap: marketing, and the purposes declared paced."""
+    return Q(priority=SmsMessage.Priority.MARKETING) | Q(purpose__in=sms.paced_purposes())
+
+
 def _waiting(device, now):
     """The next texts for this phone: by sending class, then oldest first. A text that carries
     a gap is handed out one at a time, and the next only after the first is reported, so a
     paced text never sits on the phone past its expiry."""
     queued = SmsMessage.objects.filter(status=Status.QUEUED, expires_at__gt=now)
-    paced = queued.filter(priority=SmsMessage.Priority.MARKETING)
+    paced = queued.filter(_paced())
     order = ("priority", "created_at", "pk")
-    chosen = list(queued.exclude(priority=SmsMessage.Priority.MARKETING).order_by(*order)[:BATCH])
-    pacing_now = SmsMessage.objects.filter(
-        device=device, status=Status.DISPATCHED, priority=SmsMessage.Priority.MARKETING
-    )
+    chosen = list(queued.exclude(_paced()).order_by(*order)[:BATCH])
+    pacing_now = SmsMessage.objects.filter(_paced(), device=device, status=Status.DISPATCHED)
     if len(chosen) < BATCH and not pacing_now.exists():
         chosen += list(paced.order_by(*order)[:1])
     return chosen
@@ -157,7 +161,7 @@ def _hand_out(device, now):
             SmsMessage.objects.filter(pk=message.pk).update(status=Status.FAILED, reason="text_lost")
             services.unsent(message, "text_lost")
             continue
-        paced = message.priority == SmsMessage.Priority.MARKETING
+        paced = message.priority == SmsMessage.Priority.MARKETING or message.purpose in sms.paced_purposes()
         handed.append(
             {
                 "id": message.public_id,

@@ -353,6 +353,35 @@ class PollTests(GatewayCase):
         self.report({"id": first.public_id, "status": "sent"})
         self.assertEqual([m["id"] for m in self.poll()["messages"]], [second.public_id])
 
+    def test_35_a_staff_text_carries_a_gap_and_a_code_does_not(self):
+        staff = self.queue(P.REPLY, "Yes", purpose="inbox_reply", age=20)
+        code = self.queue(P.CODE, CODE_TEXT, age=10)
+
+        handed = self.poll()["messages"]
+
+        self.assertEqual([m["id"] for m in handed], [code.public_id, staff.public_id])
+        self.assertEqual(handed[0]["gap"], 0)
+        self.assertTrue(18 <= handed[1]["gap"] <= 25, handed)
+
+    def test_36_one_staff_text_at_a_time(self):
+        first = self.queue(P.REPLY, "One", purpose="inbox_reply", age=30)
+        second = self.queue(P.REPLY, "Two", purpose="inbox_compose", age=20)
+
+        self.assertEqual([m["id"] for m in self.poll()["messages"]], [first.public_id])
+        code = self.queue(P.CODE)
+        self.assertEqual([m["id"] for m in self.poll()["messages"]], [code.public_id])
+        self.assertEqual(self.state(second), (S.QUEUED, ""))
+
+        self.report({"id": first.public_id, "status": "sent"})
+        self.assertEqual([m["id"] for m in self.poll()["messages"]], [second.public_id])
+
+    def test_37_the_reply_class_alone_is_not_paced(self):
+        self.queue(P.REPLY, "Yes", purpose="test")
+        self.queue(P.REPLY, "Yes again", purpose="test")
+        handed = self.poll()["messages"]
+        self.assertEqual(len(handed), 2)
+        self.assertEqual({m["gap"] for m in handed}, {0})
+
     def test_22_a_full_answer_tells_the_phone_to_ask_again_at_once(self):
         for _ in range(6):
             self.queue()

@@ -93,6 +93,53 @@ def sms_on():
     return sms.gateway_on()
 
 
+SMS_STAFF_TEXT_LIFETIME = sms.STAFF_TEXT_LIFETIME
+SMS_RESERVED_FOR_CODES = sms.RESERVED_FOR_CODES
+STAFF_PURPOSES = ("inbox_reply", "inbox_compose")
+
+
+def sms_text_problem(text):
+    """Why this text cannot be one SMS, or "". For a form that shows the reason before sending."""
+    return sms.text_problem(text)
+
+
+def sms_line():
+    """The phone that sends, or None."""
+    return sms.pick_device()
+
+
+def sms_status():
+    """What a status line may show. Reads no SMS table while the gateway is off."""
+    if not sms.gateway_on():
+        return {"phone_online": False, "used_today": None, "cap": None, "reserved_for_codes": None}
+    return {
+        "phone_online": sms.gateway_online(),
+        "used_today": sms.platform_count(),
+        "cap": sms.policy().platform_daily_limit,
+        "reserved_for_codes": sms.RESERVED_FOR_CODES,
+    }
+
+
+def staff_send_records(to):
+    """The send records of the staff texts to one number, for the deletion command."""
+    return SmsMessage.objects.filter(recipient=to, purpose__in=STAFF_PURPOSES)
+
+
+def sms_statuses(public_ids):
+    """{public id: (status, reason)} of these send records, in one query. A record that is
+    gone is missing from the answer. Reads nothing for an empty list."""
+    public_ids = [p for p in public_ids if p]
+    if not public_ids:
+        return {}
+    rows = SmsMessage.objects.filter(public_id__in=public_ids).values_list("public_id", "status", "reason")
+    return {public_id: (status, reason) for public_id, status, reason in rows}
+
+
+def forget_sms(message):
+    """Drop a waiting text, so a deleted record's text is never handed to the phone."""
+    sms.forget(message)
+
+
 def send_sms(*, to, purpose, text, site=None, fallback=None, ttl=sms.DEFAULT_LIFETIME):
     """Queue one text for the phone, or say why not. Returns an `sms.SmsResult`.
 

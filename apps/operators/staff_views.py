@@ -19,6 +19,7 @@ from django.utils.cache import patch_vary_headers
 
 from apps.accounts.sessions import client_ip
 from apps.billing import staff as billing_staff
+from apps.inbox import staff as inbox_staff
 from apps.common.errors import error_body
 from apps.operators import audit, background, hq_auth, hq_views, two_step
 
@@ -194,6 +195,9 @@ def _for_staff(view):
 
 ROUTES.update(
     {path: ("POST", _for_staff(view)) for path, view in billing_staff.ROUTES.items()}
+)
+ROUTES.update(
+    {path: ("POST", _for_staff(view)) for path, view in inbox_staff.ROUTES.items()}
 )
 
 
