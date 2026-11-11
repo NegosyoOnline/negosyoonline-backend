@@ -2,7 +2,7 @@
 
 ClickUp task: z8uq9me128 "SMS inbox, reply and compose (HQ)" (https://app.clickup.com/t/z8uq9me128), a subtask of z8uq9md33v "NPC Build 1 — SMS Carrier & Data-Flow Controls".
 
-Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. One decision is open and is his: where the screens are served (section 3). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. After approval comes a plan, also for approval, before any code.
+Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. One decision is open and is his: where the screens are served (section 3). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. After approval comes a plan, also for approval, before any code.
 
 ## 1. Sources
 
@@ -39,8 +39,9 @@ The coordinator's readings recorded with those rulings, which this design confir
 | R12 | He supplies the TWCinc numbers himself as a file, with no system link to TWCinc | "Yes, a file" |
 | R13 | The announcement lets people opt out by replying STOP, kept on a do-not-text list | "Yes, add STOP" |
 | R14 | Bulk texts use the same SIM as the codes; the risk of a carrier block is accepted | "Same SIM, accept risk" |
+| R15 | Bulk SMS has an input for uploading a CSV file of mobile numbers, and a list of bulk sends that shows a batch is still sending and lets him stop it | "Number one is there a input where we can upload a CSV file for the mobile numbers? Then number two, for the list of the bulk SMS, there should be a list that is informing me that it is still sending, and I have the capability to stop it." |
 
-R10 to R14 were relayed by the coordinator on 2026-11-11, each recorded as a comment on the Task. Section 18 applies them.
+R9 to R15 are each a comment on the Task, re-read there on 2026-11-11. Section 18 applies R10 to R15.
 
 ### 2.1 What R7 and R8 change in this design
 
@@ -54,7 +55,7 @@ R10 to R14 were relayed by the coordinator on 2026-11-11, each recorded as a com
 ### 2.2 What R9 changes in this design
 
 - **No heading block.** The Inbox pages have no eyebrow, title or description. The side menu and the platform menu say where the user is. The conversation page keeps the masked number as its heading and the compose page keeps "New SMS", because those name the thing on the page; neither has an eyebrow or a description. Each page still has a heading for screen readers.
-- **One status line.** On the SMS list, the status chips ("Gateway phone online", "214 of 2,000 texts used today") are on the left and the "New SMS" button on the right, on one line. The "Texts are kept 365 days" chip is removed from the screen. The 365-day rule itself (R2, section 11) is unchanged, and the compose page still tells staff the text is kept 365 days.
+- **One status line.** On the SMS list, the status chips ("Gateway phone online", "610 of 2,000 texts used today") are on the left and the "New SMS" button on the right, on one line. The "Texts are kept 365 days" chip is removed from the screen. The 365-day rule itself (R2, section 11) is unchanged, and the compose page still tells staff the text is kept 365 days.
 - **"New SMS".** The button, the compose page and its send button say SMS, as he called it.
 - **Search and notification buttons** at the top right, beside the theme button, in the dashboard's order: search, theme, bell (section 13).
 
@@ -360,7 +361,7 @@ So both new buttons work, as links, without script and without any new record. T
 
 They follow the Subscriber dashboard: the Manrope typeface, the blue `#173DB8` primary, the dark navy sidebar on desktop, the top bar and bottom tab bar on phones, the eyebrow and heading at the top of each view, cards with a 10-pixel radius, pill chips, 44-pixel buttons, and the dashboard's dark theme with its light theme when the device prefers light.
 
-**Mockup:** `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/`: `index.html` (the SMS list), `conversation.html`, `compose.html`, `platform.html` (the "not yet available" state; `?p=instagram` and the like pick the name shown), `bulk.html` (Bulk SMS, section 18: its three steps drawn on one page), one shared `mockup.css`. Static files, made-up data only: no real number and no real text. To open it:
+**Mockup:** `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/`: `index.html` (the SMS list), `conversation.html`, `compose.html`, `platform.html` (the "not yet available" state; `?p=instagram` and the like pick the name shown), `bulk.html` (Bulk SMS, section 18: the list of bulk sends and the three steps of a batch, drawn on one page), one shared `mockup.css`. Static files, made-up data only: no real number and no real text. To open it:
 
 ```bash
 python3 -m http.server 8765 --bind 127.0.0.1 --directory docs/superpowers/specs/mockups/2026-11-11-sms-inbox
@@ -443,7 +444,7 @@ Not verified:
 - The platform menu and the top-right buttons against the running dashboard side by side. Their rules were copied from the dashboard's stylesheet and the mockup was read; the two were not opened next to each other.
 - Section 18's numbers (time to send, the size of a batch) are arithmetic on the existing cap and gap. The carrier's behaviour toward a SIM that sends one text to many numbers is not known; that risk is accepted (R14).
 - Whether the phone's poll can feed a batch to the queue without a new worker (section 18.3) was not checked against the code.
-- R10 to R14 were taken from the coordinator's messages; this session did not re-read the Task's comments after them.
+- The CSV upload is drawn with the browser's own file button, which shows no chosen file in the mockup; reading a real file was not tried.
 
 - Nothing was run against the backend. This stage wrote documents and a static mockup only.
 - The phone app's behaviour with the switch on, on a real phone with a real SIM: the permission prompt, texts in several parts, two SIMs.
@@ -451,9 +452,9 @@ Not verified:
 - The NPC documents and the privacy page were not read by this session.
 - Whether the HQ host sends a Content-Security-Policy header; none was found in `config/settings.py`. The built pages would carry their styles and the font from HQ itself in either case.
 
-## 18. Bulk SMS (R10 to R14)
+## 18. Bulk SMS (R10 to R15)
 
-Part of the design since rulings R10 to R14 (section 2). Like the rest of this document it is for Coach Ed's approval and nothing is built. The mockup page is `bulk.html`. Where this section and an earlier one disagree about bulk sending, this section is the design; the table in 18.9 lists every such place.
+Part of the design since rulings R10 to R14 (section 2), with the CSV upload and the list of bulk sends from R15. Like the rest of this document it is for Coach Ed's approval and nothing is built. The mockup page is `bulk.html`. Where this section and an earlier one disagree about bulk sending, this section is the design; the table in 18.9 lists every such place.
 
 ### 18.1 What it is for
 
@@ -461,15 +462,39 @@ One purpose: the launch announcement to TWCinc subscribers (R11). It is a stated
 
 ### 18.2 The steps on the screen
 
-A "Bulk SMS" button on the SMS list, beside "New SMS", shown only to a staff user with the bulk permission.
+A "Bulk SMS" button on the SMS list, beside "New SMS", shown only to a staff user with the bulk permission. The page opens on the list of bulk sends (18.2.1); the steps of a new batch are below it.
 
 1. **One text.** The same text for every number, under the SMS rules: one SMS of at most 160 plain characters, no web link.
 2. **The opt-out line (R13).** Every bulk text ends with "Reply STOP to opt out". The server adds it; the staff user cannot remove or change it. With the space before it, it takes 22 of the 160 characters, so 138 are left for the announcement, and the screen's counter counts it.
-3. **The numbers (R12).** The list Coach Ed supplies for the batch, pasted one per line or uploaded as a text or CSV file with one number per line. Numbers only: no names and no other column. Each line is checked with `normalise_ph_mobile`; duplicates are removed; lines that are not a Philippine mobile are set aside and can be downloaded; numbers on the do-not-text list are skipped and counted. Nothing is sent at this step.
+3. **The numbers (R12, R15).** The list Coach Ed supplies for the batch. The first input is a CSV file upload; pasting the numbers one per line is the second way. The file's shape is in 18.2.2. Each line is checked with `normalise_ph_mobile`; duplicates are removed; lines that are not a Philippine mobile are set aside and can be downloaded; numbers on the do-not-text list are skipped and counted. Nothing is sent at this step.
 4. **The check.** Lines read, duplicates removed, lines refused, numbers skipped because they replied STOP, numbers in the list, texts left today, the size of this batch, and how long it will take at one text every 18 to 25 seconds.
 5. **Confirm.** The staff user types the batch's count.
 6. **Progress and results.** Sent, waiting and not sent, with a result per number, masked. No full number is shown after the check.
-7. **Stop.** Stopping keeps what was sent and sends nothing more.
+7. **Stop.** Stopping keeps what was sent and sends nothing more. The button is on the batch's row in the list and on its progress.
+
+#### 18.2.1 The list of bulk sends (R15)
+
+At the top of the Bulk SMS page, newest first. One row per batch: when it was confirmed, who started it, its state, and its counts. No number and no text is shown in the list.
+
+| State | Means | The row shows |
+|---|---|---|
+| Waiting | Confirmed; no text has been handed to the phone yet (codes are ahead of it, or the phone is offline) | "Waiting", the batch's size, a Stop button |
+| Still sending | Texts are going out | "Still sending", sent of total, not sent, waiting, the time left, a progress bar, a Stop button |
+| Stopped | A staff user stopped it | "Stopped", at how many of the total, by whom, sent, not sent, never sent |
+| Finished | Every text has a final result, or the batch's day ended (18.3) | "Finished", sent and not sent |
+
+- Stop is offered only on a waiting or sending row, to a staff user with the bulk permission, and asks once before it stops. It is audited (`sms_inbox_bulk_stop`, 18.7).
+- While a batch is waiting or sending, the "Bulk SMS" button on the SMS list carries a small chip, "Sending 396 of 1,786", so staff with the bulk permission see it without opening the page. It sits on the button so the status chips and the buttons stay on one line (R9).
+- The counts are read when the page is loaded; the page does not need script to show them. Whether it refreshes itself is for the plan.
+- A row stays as long as its batch record does: 365 days (18.4).
+
+#### 18.2.2 The CSV file (R15)
+
+- One mobile number per row, in the first column. A first row that is not a number is taken as a header and skipped.
+- Other columns are ignored: they are not read into any record, not shown and not kept. So a file exported with names beside the numbers can be used as it is, and the names go nowhere.
+- At most 1 MB. A larger file, or one that is not text, is refused with a plain message and nothing is read.
+- The file is read once, in memory, and is never stored as a file (18.4). Only the numbers that pass the check become the batch's list.
+- A file and a pasted list given together are read as one list.
 
 ### 18.3 Batches (R10)
 
@@ -487,7 +512,7 @@ In numbers: a full day's 2,000 texts take about 10 to 14 hours of sending. The m
 
 - Coach Ed supplies the numbers, as a file or a pasted list, for each batch, and confirms that those subscribers may be contacted. That confirmation is his and is not something the tool checks.
 - There is no link to TWCinc: no integration, no access to a TWCinc database, no TWCinc code and no TWCinc secret. The tool sees only what a staff user pastes or uploads.
-- An uploaded file is read and never stored as a file.
+- An uploaded file is read and never stored as a file. Columns other than the first are dropped as it is read (18.2.2).
 - The batch keeps its list of numbers only while it needs them: the rows are deleted when the batch has finished or was stopped and its last text has a final result. After that the screen shows the batch's counts, not its numbers.
 - What stays, as for every text the gateway sends: one send record per text (the number, the purpose, the result, no text), deleted at 365 days by the existing rule and shown masked in the admin's SMS list.
 - The batch keeps its one text and its counts for 365 days, as staff texts are kept (R2).
@@ -536,7 +561,7 @@ To the list in section 12, all in the new app and each needing the same approval
 
 Whether these tables are in `inbox.0001_initial` or a second migration is for the plan.
 
-Tests the build would add to section 15: the opt-out line is always present and counted; a text over 138 characters is refused; the list is checked, de-duplicated and stripped of opted-out numbers; a batch larger than the texts left is cut and says so; a batch with nothing left is refused; a second batch is refused while one runs; a code is handed out before a waiting bulk text; stop sends nothing more; STOP in any case with spaces lists the number, and "STOP please" does not; a listed number can still be replied to; a batch is refused while incoming texts are not stored, while `SMS_BULK_ENABLED` is off, and for a user without `can_bulk`; the recipient rows are gone after the batch ends; no audit entry, log line or page after the check holds a full number, and none holds the text.
+Tests the build would add to section 15: the opt-out line is always present and counted; a text over 138 characters is refused; the list is checked, de-duplicated and stripped of opted-out numbers; a batch larger than the texts left is cut and says so; a batch with nothing left is refused; a second batch is refused while one runs; a code is handed out before a waiting bulk text; stop sends nothing more, from the list and from the progress; a CSV with a header row and extra columns yields only its first column's numbers; a file over 1 MB is refused; the list of bulk sends shows each state and holds no number and no text; STOP in any case with spaces lists the number, and "STOP please" does not; a listed number can still be replied to; a batch is refused while incoming texts are not stored, while `SMS_BULK_ENABLED` is off, and for a user without `can_bulk`; the recipient rows are gone after the batch ends; no audit entry, log line or page after the check holds a full number, and none holds the text.
 
 ### 18.9 What this changes in the earlier sections
 
