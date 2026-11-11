@@ -154,7 +154,7 @@ class Statement(AppendOnlyMixin, models.Model):
         "billing.BillingCycle", null=True, blank=True, on_delete=models.PROTECT,
         related_name="statements",
     )
-    # What the statement was issued for: payment:<id>:<kind>, adjustment:<original>:<n>.
+    # What the statement was issued for: payment:<btp_id>, adjustment:<original>:<n>.
     # Unique, so a second issue for the same event returns the first.
     source_key = models.CharField(max_length=120, unique=True)
     original = models.ForeignKey(

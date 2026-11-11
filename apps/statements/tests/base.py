@@ -84,7 +84,7 @@ def make_statement(subscription=None, key=None, number=None, **fields):
     values = dict(
         number=number or f"NOBS-2026-{_counter[0]:06d}", document_type="statement",
         kind="monthly", subscription=subscription, cycle=cycle,
-        source_key=key or f"payment:btp_test{_counter[0]}:monthly",
+        source_key=key or f"payment:btp_test{_counter[0]}",
         period_start=cycle.start_at, period_end=cycle.end_at, total_centavos=39900,
         is_test=True, issuer={}, bill_to={}, pdf_key="k", pdf_sha256="0" * 64, pdf_size=1,
         issued_at=WHEN,

@@ -42,12 +42,13 @@ class StatementGuardTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             make_statement(self.statement.subscription, key=self.statement.source_key)
 
-    def test_one_statement_per_payment_kind_even_with_usage_only_and_no_cycle(self):
+    def test_one_statement_per_payment_even_with_usage_only_and_no_cycle(self):
         sub = self.statement.subscription
-        usage = make_statement(sub, key="payment:btp_u:usage_only", kind="usage_only", cycle=None)
+        usage = make_statement(sub, key="payment:btp_u", kind="usage_only", cycle=None)
         self.assertIsNone(usage.cycle)
         with self.assertRaises(IntegrityError), transaction.atomic():
-            make_statement(sub, key="payment:btp_u:usage_only", kind="usage_only", cycle=None)
+            # The same payment cannot get a second statement, whatever its kind.
+            make_statement(sub, key="payment:btp_u", kind="final_usage", cycle=None)
 
     def test_term_statement_needs_cycle_and_adjustment_needs_original(self):
         sub = self.statement.subscription

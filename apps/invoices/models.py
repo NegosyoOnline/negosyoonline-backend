@@ -36,9 +36,9 @@ class InvoiceBook(models.Model):
     issuer = models.ForeignKey(
         "statements.IssuerProfile", on_delete=models.PROTECT, related_name="books"
     )
-    # Unique overall, not per issuer: the issuer is versioned, so a per-row rule would let
-    # the same printed series appear under two versions of one issuer.
-    series = models.CharField(max_length=20, blank=True, unique=True)
+    # Booklets under one ATP may share a series, or have none, with consecutive serial ranges.
+    # So a series is not unique; two books of one series may not overlap (see `save`).
+    series = models.CharField(max_length=20, blank=True)
     serial_from = models.PositiveIntegerField()
     serial_to = models.PositiveIntegerField()
     serial_width = models.PositiveSmallIntegerField(default=1)
@@ -56,6 +56,20 @@ class InvoiceBook(models.Model):
                 condition=Q(serial_to__gte=F("serial_from")), name="invoices_book_range_ordered"
             ),
         ]
+
+    def overlapping(self):
+        """Other books of the same series whose serial range crosses this one's."""
+        return InvoiceBook.objects.filter(
+            series=self.series, serial_from__lte=self.serial_to, serial_to__gte=self.serial_from
+        ).exclude(pk=self.pk)
+
+    def save(self, *args, **kwargs):
+        # A service-level rule, not a database constraint: an exclusion constraint needs a
+        # PostgreSQL extension and does not exist on SQLite. The staff service that records a
+        # book locks the issuer row first, so two requests cannot both pass this check.
+        if self._state.adding and self.overlapping().exists():
+            raise Immutable("That serial range overlaps another book of the same series.")
+        super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
         raise Immutable("A billing record is kept and cannot be deleted.")

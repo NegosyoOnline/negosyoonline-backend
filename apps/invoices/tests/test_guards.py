@@ -108,17 +108,27 @@ class InvoiceTests(TestCase):
 
 @override_settings(BILLING_ENABLED=True)
 class BookTests(TestCase):
-    def test_series_unique_overall_and_range_ordered(self):
+    def test_range_ordered_and_never_deleted(self):
         book = make_book(series="Z")
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            make_book(series="Z")
         with self.assertRaises(IntegrityError), transaction.atomic():
             make_book(series="Y", serial_from=10, serial_to=5)
         with self.assertRaises(Immutable):
             book.delete()
 
+    def test_second_booklet_of_same_or_blank_series_with_next_range(self):
+        for series in ("A", ""):
+            make_book(series=series, serial_from=1, serial_to=50)
+            make_book(series=series, serial_from=51, serial_to=100)
+            make_book(series=series, serial_from=101, serial_to=150)
 
-@override_settings(BILLING_ENABLED=True)
+    def test_overlapping_range_in_same_series_refused(self):
+        make_book(series="A", serial_from=1, serial_to=50)
+        for lo, hi in ((50, 80), (1, 1), (10, 20), (0, 200)):
+            with self.assertRaises(Immutable):
+                make_book(series="A", serial_from=lo, serial_to=hi)
+        make_book(series="B", serial_from=1, serial_to=50)  # another series is free
+
+
 class ScanTests(TestCase):
     def setUp(self):
         self.invoice = make_invoice()
