@@ -134,6 +134,10 @@ SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() ==
 # SANTE_SETTINGS_ENABLED is on too: the catalog reads the catalog owner row. Off, the
 # endpoints answer 404 and the catalog tables are not read or written.
 SANTE_CATALOG_ENABLED = os.environ.get("SANTE_CATALOG_ENABLED", "").strip() == "1"
+# The central Membership Agreement and the Membership Pack reads of the storefront surface
+# (apps/sante/agreement.py, pack_api.py). "1" turns them on. Off, the routes answer 404 and the
+# publish command refuses; the tables are not read or written.
+SANTE_AGREEMENT_ENABLED = os.environ.get("SANTE_AGREEMENT_ENABLED", "").strip() == "1"
 # A site's payment methods (its bank and e-wallet accounts for direct transfer). "1" turns
 # on their endpoints and admin lists. Off, the endpoints answer 404 and the payment tables
 # are not read or written.
