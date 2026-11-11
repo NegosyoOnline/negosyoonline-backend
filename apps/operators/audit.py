@@ -46,6 +46,10 @@ ACTIONS = {
     "billing_payment_rejected": KEPT,
     "billing_proof_viewed": KEPT,
     "sante_catalog_owner_set": KEPT,
+    "sante_agreement_version_created": KEPT,
+    "sante_agreement_version_updated": KEPT,
+    "sante_agreement_version_deleted": KEPT,
+    "sante_agreement_published": KEPT,
 }
 SIGN_IN_ACTIONS = ("admin_sign_in_ok", "admin_sign_in_failed", "admin_locked", "admin_sign_out")
 IDENTITY_TARGET = "admin_identity"
