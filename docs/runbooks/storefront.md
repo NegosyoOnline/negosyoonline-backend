@@ -25,6 +25,25 @@ Coach Ed approved the two secret variables for staging on 2026-11-11 (ClickUp z8
 | On, good credential, host whose site is not served right now, or is not a Santé site | 404 `not_found`, "Not found." |
 | On, good credential, served Santé site | 200 |
 
+## The contact call
+
+`POST /storefront/v1/contact/` emails a visitor's "Send a Message" form to the store. The body is JSON: `host`, `visitor_ip`, `name`, `email`, `subject`, `message` and `website` (the form's hidden field), all strings. The switch, the credential and the host rule above apply first, with the same answers.
+
+| Case | Answer |
+|---|---|
+| Sent | 200 `{"status": "sent"}` |
+| `website` is filled (the hidden field people never see) | 200 `{"status": "sent"}`, and nothing is sent, counted or recorded |
+| More than 10 calls in an hour for one `visitor_ip`, whichever stores they were for | 429 `rate_limited` |
+| No name, no message, or an email that is not one valid address | 400 `invalid_request`, with `fields` naming `name`, `email` or `message` |
+| The store has no contact email | 409 `no_contact_email` |
+| The mail server refused or could not be reached | 503 `email_not_sent` |
+
+The checks run in that order, so a refused form counts toward the 10 and a trapped one does not. A missing or invalid `visitor_ip` is counted under one shared entry. `visitor_ip` is believed only because the call carries the server credential.
+
+The email goes to the contact email the site call shows (`site.contact_email`, else the profile's privacy contact email), never to the owner's account email. Its From is the store's name beside the address of `DEFAULT_FROM_EMAIL`, and its Reply-To is the visitor's email. Name and subject are cut to one line; limits are 120, 254, 200 and 4,000 characters, cut silently.
+
+Nothing of the message is stored or logged. A sent or failed email leaves the usual `EmailMessage` row: the store's contact email, the category `storefront_contact`, the status and the times. The visitor's address is held only as the name of its count in the cache, for one hour. On a service with no `EMAIL_HOST` every email is printed to the service log instead of sent (`config/settings.py`), this one included, so the surface must not be turned on for real visitors on such a service.
+
 Every answer carries `Cache-Control: no-store`.
 
 "Served" is decided by `served(host)` in `apps/sites/api_public.py`, the function `GET /v1/public/sites/by-host/` uses: the host is one label under `SITE_PARENT_HOST`, the name is active and not reserved, the site is not removed and not on operator hold, and its subscription serves the storefront at that moment. So a site shows only while `BILLING_ENABLED` is on.

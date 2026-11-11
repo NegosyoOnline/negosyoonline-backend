@@ -16,7 +16,7 @@ from apps.billing.tests.base import (
 )
 from apps.sites.models import Site, Subdomain
 from apps.sites.tests.base import make_account, make_site
-from apps.storefront.tests.base import HOST, NOT_FOUND, SurfaceTestCase
+from apps.storefront.tests.base import HOST, NOT_FOUND, SECRET, SurfaceTestCase
 
 BY_HOST = "/v1/public/sites/by-host/"
 
@@ -32,7 +32,16 @@ class ServedParityTests(SurfaceTestCase):
             self.assertEqual(surface.json()["id"], public.json()["id"])
         else:
             self.assert_answer(surface, 404, NOT_FOUND)
+        self.assertEqual(self.contact(host).status_code, public.status_code, f"{host!r} differs")
         return surface.status_code == 200
+
+    def contact(self, host):
+        """The contact call for this host, with the form's hidden field filled: it answers
+        whether the host is served and sends nothing."""
+        return self.client.post(
+            "/storefront/v1/contact/", {"host": host, "website": "x"},
+            content_type="application/json", secure=True, HTTP_AUTHORIZATION=f"Bearer {SECRET}",
+        )
 
     def assert_served(self, host=HOST):
         self.assertTrue(self.both(host), f"{host!r} is not served")
