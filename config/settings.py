@@ -16,6 +16,7 @@ from pathlib import Path
 import dj_database_url
 
 from apps.common.database import require_database_tls
+from config.celery import broker_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -180,6 +181,29 @@ if REDIS_URL:
             "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
         }
     }
+
+# The task queue (config/celery.py). The broker is the Redis server above on its own database
+# number. With no REDIS_URL a task runs in-process at once, so no broker is needed locally.
+# No result store. The schedule is this fixed list; no table holds it.
+if REDIS_URL:
+    CELERY_BROKER_URL = broker_url(REDIS_URL)
+else:
+    CELERY_BROKER_URL = "memory://"
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+BILLING_SWEEP_EVERY_SECONDS = 300
+CELERY_BEAT_SCHEDULE = {
+    "billing-sweep": {
+        "task": "billing.sweep",
+        "schedule": BILLING_SWEEP_EVERY_SECONDS,
+        # A sweep not picked up before the next one is queued is dropped, not piled up.
+        "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
+    },
+}
 
 
 # Password validation

@@ -19,7 +19,7 @@ It is not a secret. It exists so the code can be deployed before the tables are 
 Each step is its own approval.
 
 1. Merge and deploy. The code is dark while `BILLING_ENABLED` is unset.
-2. Apply `billing.0001_initial` (`docs/runbooks/migrations.md`). It only adds three tables.
+2. Apply `billing.0001_initial` (`docs/runbooks/migrations.md`). It only adds three tables. **Done on staging on 2026-11-11.** Steps 3 to 6 are not approved and not done.
 3. Set `BILLING_ENABLED=1` on `api`. Never before step 2: site creation and the billing endpoints would fail on the missing tables. From this moment every new site gets its subscription when it is created.
 4. Dry-run the backfill and read the counts ("Backfill", below).
 5. Run the backfill with `--apply`.
@@ -75,7 +75,7 @@ railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e staging -s api -- 'uv run
 
 The sweep catches the stored rows up with the time: a trial past its end, a payment needing attention past 7 days, a paid cycle past its end plus 7 days. A site's state never waits for it, because every read computes the state from the current time; a late sweep shuts nobody early and serves nobody late.
 
-Until the `worker` and `beat` services exist, the sweep runs only by hand.
+Until the `worker` and `beat` services exist ("Worker and beat", below), the sweep runs only by hand. Once they exist it also runs every 5 minutes; running it by hand stays safe.
 
 Print what is due. This writes nothing:
 
@@ -95,7 +95,35 @@ The output is a count per transition. A second run answers "Nothing is due."
 
 `manage.py dispose_account` cancels the account's subscriptions first. See "A request to delete an account" in `docs/runbooks/retention.md`.
 
+## Worker and beat
+
+Two services run the sweep on a schedule. The code for them is merged; **neither service exists until Coach Ed approves creating it**, and each is its own approval: `worker` first, then `beat`. Staging only.
+
+| Service | What it does | Config file | Start command |
+|---|---|---|---|
+| `worker` | Runs queued jobs | `railway.worker.toml` | `uv run celery -A config worker --loglevel=info --concurrency=2` |
+| `beat` | Queues the sweep every 5 minutes | `railway.beat.toml` | `uv run celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule` |
+
+For each service, in the `negosyoonline-backend` project, staging environment:
+
+1. Create the service from this repository, the same branch as `api`.
+2. In its settings, set the config file path to the file in the table. `railway.toml` stays the `api` service's file and is not changed.
+3. Give it the same variables as `api`. It needs `DATABASE_URL`, `REDIS_URL`, `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=false` and `BILLING_ENABLED` at the least.
+4. No public domain and no health path. `beat` runs as exactly one instance: two would queue every sweep twice (harmless to the data, since a second sweep finds nothing due, but wasteful).
+
+The queue uses the Redis server of `REDIS_URL` on the database number after the cache's (cache on 0, queue on 1), so clearing the cache never drops queued work. It needs no variable of its own. Nothing is stored about a finished job.
+
+While `BILLING_ENABLED` is unset on `worker`, every sweep it runs returns at once and reads nothing. So the services can be created before the switch is on.
+
+Check, in the service logs:
+
+- `worker`: a line listing `billing.sweep` under `[tasks]`, then `ready`. After `beat` is up, every 5 minutes: `Task billing.sweep[...] received` and `succeeded ...: {...}`. The braces hold a count per transition, or nothing when nothing was due. No log line holds a personal value.
+- `beat`: `beat: Starting...`, then `Scheduler: Sending due task billing-sweep (billing.sweep)` every 5 minutes. The first one comes 5 minutes after the start.
+
+If `worker` is down, queued sweeps are dropped after 5 minutes instead of piling up, and no site's state is wrong meanwhile: every read computes the state from the time. If `beat` is down, nothing is queued; run the sweep by hand.
+
+To go back, remove the two services. Nothing else depends on them.
+
 ## Not in this runbook yet
 
-- The `worker` and `beat` services and the 5-minute schedule: they arrive with the queue part of B1, each on its own approval.
 - Payments, payment methods, reminders and statements: B2 and later.
