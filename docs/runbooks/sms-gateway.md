@@ -54,6 +54,23 @@ The phone's own Messages app keeps a copy of every text the gateway app sends, w
 
 A phone with a screen lock starts the gateway app again after a restart only once it has been unlocked. Until then the server sees it as offline.
 
+### Setting up the phone and its app
+
+The app is in its own repository, `NegosyoOnline/negosyoonline-sms-gateway`. Its checklist, `docs/phone-setup.md` there, covers the phone side: the signing key, the release build, the install, the permissions and the app's screen. This section says where the server steps fall in that checklist. No server address and no token is written in either repository.
+
+**Status: not yet done on a real phone.** The app has run only on an Android 17 emulator against a local server. Android 8.0, a real SIM, 24 hours on the charger, and the restricted-settings and Play Protect steps of the install are unproven. The checklist's taps for the install and the permissions are written after the first real phone.
+
+1. **The phone itself.** One SIM, no SIM PIN, kept on its charger, and the two controls in "Before a phone is added" above.
+2. **Build and install the app** (checklist steps 1 to 4). Nothing on the server changes.
+3. **Add the phone on the server** with `sms_device add` (above). **On staging or production this is Coach Ed's approval, each time.** The token is printed once: type it into the app straight away, with the server's address, and tap Save.
+4. **Check, then start.** In the app tap Check, which should say "Connected.", then turn "Gateway on" on. A Check takes any text that is waiting and reports it not sent, so tap it only when nobody is asking for a code on that server. The app refuses Check and Save while the gateway is on.
+5. **Confirm on the server.** `sms_device list` shows a recent `last_contact` and the app's version, and the admin's SMS phones list shows the phone.
+6. **Turn USB debugging off** on the phone if it was used for the install.
+
+After an app update the gateway comes back by itself if its switch was on; `sms_device list` should show a fresh `last_contact` within a minute. If the app was reinstalled rather than updated, its saved token is gone: rotate the token (below) and type the new one.
+
+Incoming texts stay off (see "Incoming texts" below). Turning that switch on for any phone is Coach Ed's own approval, each time.
+
 ### Rotating a token
 
 Use this when the token may have been seen by anyone else, or when the phone is replaced.
@@ -118,6 +135,8 @@ uv run python manage.py sms_fake_phone --token TOKEN --url http://127.0.0.1:8000
 ```
 
 `sms_fake_phone` polls like the phone, prints each text in its terminal instead of sending it, and reports it sent. It refuses to run unless `DEBUG` is on.
+
+The app's debug build can take the fake phone's place on an Android emulator: `adb reverse tcp:8000 tcp:8000`, then `http://127.0.0.1:8000` as the address in the app. Only the debug build accepts an `http` address, and only that one. The emulator has no real SIM, so no text leaves the computer. Run one or the other, not both: a text is handed out once, and only to the system phone.
 
 ## Retention
 
