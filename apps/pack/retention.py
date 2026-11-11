@@ -14,14 +14,26 @@ and goes through the plain manager, so the refusal stays in force everywhere els
 from datetime import timedelta
 
 from django.conf import settings
+from django.db import transaction
+from django.db.models import Q
 
 from apps.common import private_files, retention
-from apps.pack.models import CheckoutToken, PackOrder, PackProofSubmission
+from apps.pack import registration
+from apps.pack.models import CheckoutToken, PackOrder, PackProofSubmission, SanteRegistration
 from apps.sites.models import Site
 
-ORDERS, PROOFS, PROOF_FILES, TOKENS = (
+ORDERS, PROOFS, PROOF_FILES, TOKENS, REGISTRATIONS = (
     "pack_orders", "pack_proof_submissions", "pack_proof_files", "pack_checkout_tokens",
+    "sante_registrations",
 )
+REGISTRATION_PERSONAL = ("date_of_birth", "desired_username", "alternate_username")
+# TWCinc sweep.py: details are kept 90 days after the last status change, whatever the status.
+DETAILS_RETENTION = timedelta(days=90)
+HOLDS_DETAILS = (
+    Q(date_of_birth__isnull=False) | ~Q(desired_username="") | ~Q(alternate_username="")
+)
+ERASE_T24 = ("waiting_for_accept", "ready_to_register", "in_registration", "retry_wait")
+CLEAR_CONFIRMED = ("awaiting_buyer_details", "needs_buyer_action", "possible_existing_member")
 ORDER_PERSONAL = ("buyer_name", "delivery_address")
 PROOF_PERSONAL = ("sender_name", "sender_account_number", "reference_number", "ip_advisory", "file_key")
 TOKEN_GRACE = retention.CREDENTIAL_GRACE  # an expired token is deleted this long after it expires
@@ -41,6 +53,7 @@ def blanked():
         return {}
     return {
         ORDERS: list(ORDER_PERSONAL), PROOFS: list(PROOF_PERSONAL), TOKENS: ["all rows deleted"],
+        REGISTRATIONS: list(REGISTRATION_PERSONAL),
     }
 
 
@@ -57,17 +70,22 @@ def blank_packs_of(account, dry_run=False):
     proofs = PackProofSubmission._base_manager.filter(site__account=account)
     tokens = CheckoutToken.objects.filter(site__account=account)
     keys = list(proofs.exclude(file_key="").values_list("file_key", flat=True))
-    counts = {ORDERS: orders.count(), PROOFS: proofs.count(), PROOF_FILES: len(keys), TOKENS: tokens.count()}
+    registrations = SanteRegistration.objects.filter(site__account=account).filter(HOLDS_DETAILS)
+    counts = {
+        ORDERS: orders.count(), PROOFS: proofs.count(), PROOF_FILES: len(keys), TOKENS: tokens.count(),
+        REGISTRATIONS: registrations.count(),
+    }
     if not dry_run:
         for key in keys:
             private_files.delete(key)
         tokens.delete()
         orders.update(buyer_name="", delivery_address={})
         proofs.update(sender_name="", sender_account_number="", reference_number="", ip_advisory="", file_key="")
+        registrations.update(date_of_birth=None, desired_username="", alternate_username="")
     return counts
 
 
-def export_packs_of(account):
+def export_packs_of(account):  # noqa: C901
     """The pack orders and proofs of the account's sites as plain values: no file key, no token,
     no row number. Reads only."""
     if not enabled():
@@ -77,7 +95,17 @@ def export_packs_of(account):
     proofs = (
         PackProofSubmission.objects.filter(site__account=account).select_related("order").order_by("pk")
     )
+    registrations = SanteRegistration.objects.filter(site__account=account).select_related("member").order_by("pk")
     return {
+        REGISTRATIONS: [
+            {
+                "site": public_ids[row.site_id], "member": row.member.public_id, "status": row.status,
+                "date_of_birth": row.date_of_birth.isoformat() if row.date_of_birth else None,
+                "desired_username": row.desired_username, "alternate_username": row.alternate_username,
+                "details_confirmed_at": _iso(row.details_confirmed_at),
+            }
+            for row in registrations
+        ],
         ORDERS: [
             {
                 "site": public_ids[row.site_id], "id": row.public_id, "number": row.order_number,
@@ -114,4 +142,40 @@ def expired_checkout_tokens(now, dry_run):
     return retention.remove(rows, dry_run)
 
 
+@retention.behind_switch
+def registration_details(now, dry_run):
+    """Date of birth and the two Santé usernames, 90 days after the registration's last status
+    change (TWCinc sweep._erase, Coach Ed's erase rule): each row under its own lock. In-progress
+    rows take T24 to needs_buyer_action; rows waiting on the customer lose details_confirmed_at, so
+    the buyer enters them again. The registration row itself stays."""
+    if not enabled():
+        return 0
+    due = SanteRegistration.objects.filter(HOLDS_DETAILS, status_entered_at__lte=now - DETAILS_RETENTION)
+    if dry_run:
+        return due.count()
+    erased = 0
+    for pk in due.values_list("pk", flat=True):
+        with transaction.atomic():
+            reg = SanteRegistration.objects.select_for_update().select_related("pack_order").get(pk=pk)
+            if reg.status_entered_at > now - DETAILS_RETENTION or not (
+                reg.date_of_birth or reg.desired_username or reg.alternate_username
+            ):
+                continue
+            reg.date_of_birth, reg.desired_username, reg.alternate_username = None, "", ""
+            reg.details_purged_at = now
+            if reg.status in ERASE_T24:
+                reg.details_confirmed_at = None
+                registration._transition(
+                    reg, "T24", actor=registration.SYSTEM, reason_code="details_expired", now=now
+                )
+            else:
+                if reg.status in CLEAR_CONFIRMED:
+                    reg.details_confirmed_at = None
+                reg.state_version += 1
+                reg.save()
+            erased += 1
+    return erased
+
+
 retention.register("expired_checkout_tokens", expired_checkout_tokens)
+retention.register("pack_registration_details", registration_details)

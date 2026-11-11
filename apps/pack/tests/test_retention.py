@@ -70,3 +70,71 @@ class PackRetentionTests(PackTestCase):
         self.assertEqual((counts["pack_orders"], counts["pack_proof_files"]), (1, 1))
         self.assertEqual(self.proof_files(), [])
         self.assertEqual(PackOrder.objects.get().buyer_name, "")
+
+
+@override_settings(RETENTION_ENABLED=True)
+class RegistrationDetailsRetentionTests(PackTestCase):
+    """TWCinc's 90-day erase of the date of birth and the two Santé usernames."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.pack.models import SanteRegistration
+        self.placed()
+        self.reg = SanteRegistration.objects.get()
+
+    def fill(self, status, age_days=91):
+        from apps.pack.models import SanteRegistration
+        now = timezone.now()
+        SanteRegistration.objects.filter(pk=self.reg.pk).update(
+            status=status, date_of_birth=now.date().replace(year=1990), desired_username="mariasantos1",
+            alternate_username="mariasantos2", details_confirmed_at=now,
+            status_entered_at=now - timedelta(days=age_days),
+        )
+
+    def run_rule(self, dry_run=False):
+        return retention.registration_details(timezone.now(), dry_run)
+
+    def test_a_waiting_registration_is_erased_and_goes_to_needs_buyer_action_t24(self):
+        from apps.pack.models import SanteRegistration, SanteRegistrationEvent
+        self.fill("waiting_for_accept")
+        self.assertEqual(self.run_rule(), 1)
+        reg = SanteRegistration.objects.get()
+        self.assertEqual((reg.date_of_birth, reg.desired_username, reg.alternate_username), (None, "", ""))
+        self.assertEqual((reg.status, reg.details_confirmed_at is None), ("needs_buyer_action", True))
+        self.assertIsNotNone(reg.details_purged_at)
+        event = SanteRegistrationEvent.objects.last()
+        self.assertEqual((event.edge, event.reason_code), ("T24", "details_expired"))
+
+    def test_a_row_waiting_on_the_customer_loses_its_confirmation_and_keeps_its_status(self):
+        from apps.pack.models import SanteRegistration
+        self.fill("awaiting_buyer_details")
+        self.run_rule()
+        reg = SanteRegistration.objects.get()
+        self.assertEqual((reg.status, reg.details_confirmed_at, reg.date_of_birth), ("awaiting_buyer_details", None, None))
+
+    def test_a_row_younger_than_ninety_days_or_without_details_is_left_alone(self):
+        self.fill("waiting_for_accept", age_days=89)
+        self.assertEqual(self.run_rule(), 0)
+        self.fill("waiting_for_accept")
+        from apps.pack.models import SanteRegistration
+        SanteRegistration.objects.update(date_of_birth=None, desired_username="", alternate_username="")
+        self.assertEqual(self.run_rule(), 0)
+
+    def test_a_dry_run_counts_and_changes_nothing(self):
+        from apps.pack.models import SanteRegistration
+        self.fill("waiting_for_accept")
+        self.assertEqual(self.run_rule(dry_run=True), 1)
+        self.assertEqual(SanteRegistration.objects.get().desired_username, "mariasantos1")
+
+    def test_disposal_blanks_the_details_and_keeps_the_row(self):
+        from apps.pack.models import SanteRegistration
+        self.fill("waiting_for_accept", age_days=1)
+        counts = retention.blank_packs_of(self.site.account)
+        self.assertEqual(counts["sante_registrations"], 1)
+        reg = SanteRegistration.objects.get()
+        self.assertEqual((reg.date_of_birth, reg.desired_username), (None, ""))
+
+    def test_the_export_lists_registrations(self):
+        self.fill("waiting_for_accept", age_days=1)
+        row = retention.export_packs_of(self.site.account)["sante_registrations"][0]
+        self.assertEqual((row["desired_username"], row["status"]), ("mariasantos1", "waiting_for_accept"))
