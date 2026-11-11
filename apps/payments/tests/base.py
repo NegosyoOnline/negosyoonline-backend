@@ -1,8 +1,15 @@
 """Helpers shared by the payment method tests."""
+import shutil
+import tempfile
+from pathlib import Path
+from unittest import mock
+
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
 from apps.accounts.tests.base import ORIGIN
+from apps.common import private_files
 from apps.payments.models import SitePaymentAccount, SitePaymentSettings
 from apps.sites.models import Site
 from apps.sites.tests.api_base import SitesApiTestCase
@@ -18,6 +25,36 @@ EWALLET = {
     "kind": "ewallet", "account_type": "", "provider_name": "GCash",
     "account_name": "Ana Santos", "account_number": "09171234567",
 }
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+JPEG = b"\xff\xd8\xff\xe0" + b"1" * 32
+WEBP = b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"2" * 32
+
+
+def qr_file(content=PNG, content_type="image/png", name="qr.png"):
+    return SimpleUploadedFile(name, content, content_type=content_type)
+
+
+def use_local_private_store(case):
+    """Private files of this test go to a folder of its own, removed after it. Every payment
+    test calls this, so none can reach the real store whatever the environment holds. Returns
+    the folder."""
+    directory = Path(tempfile.mkdtemp(prefix="payments-test-private-"))
+    case.addCleanup(shutil.rmtree, directory, ignore_errors=True)
+    patcher = mock.patch.object(
+        private_files, "store", return_value=private_files.LocalStore(directory)
+    )
+    patcher.start()
+    case.addCleanup(patcher.stop)
+    return directory
+
+
+def stored_files(directory):
+    """The keys of every file in the folder."""
+    return sorted(
+        path.relative_to(directory).as_posix() for path in directory.rglob("*") if path.is_file()
+    )
 
 
 def methods_url(site_id):
@@ -78,6 +115,7 @@ class PaymentsApiTestCase(SitesApiTestCase):
 
     def setUp(self):
         super().setUp()
+        self.private_dir = use_local_private_store(self)
         self.site_id = self.create_site()["id"]
         self.site = Site.objects.get(public_id=self.site_id)
         self.url = methods_url(self.site_id)
