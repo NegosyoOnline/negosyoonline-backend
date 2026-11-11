@@ -221,7 +221,7 @@ Modelled on `inbox.InboxAccess` [I `inbox/models.py:111-121`].
 
 ### 2.4 The source link to a `BankTransferPayment`
 
-[P] **Loose reference, not a foreign key.** The entry stores `source_type="billing.banktransferpayment"`, `source_ref=<payment public_id>` (`btp_...` [I `models.py:127`, `services.py:744`]) and `source_event="pay"`. Reasons:
+[P] **Loose reference, not a foreign key.** The entry stores `source_type="billing.banktransferpayment"`, `source_ref=<payment public_id>` (`btp_...` [I `models.py:127`, `services.py:744`]) and `source_event="payment_confirmed"`. Reasons:
 
 - The journal must not make billing's migrations wait for ledger's, or the reverse. Billing has three plans that change `BankTransferPayment` (PRs 106, 107, 108, FAS-01 §8); a foreign key adds a cross-app migration dependency to each of them.
 - The ledger switch can be off while billing is on. A foreign key would make every billing migration and test require the ledger tables.
