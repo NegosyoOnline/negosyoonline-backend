@@ -29,7 +29,7 @@ def pack_out(site):
         "currency": CURRENCY,
         "available": bool(pay_to) and active is not None,
         "agreement": (
-            {"id": active.pk, "label": active.label, "effective_date": active.effective_date.isoformat()}
+            {"id": active.pk, "label": active.version_label, "effective_date": active.effective_date.isoformat()}
             if active else None
         ),
         "payment_accounts": pay_to,

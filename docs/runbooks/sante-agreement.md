@@ -3,7 +3,7 @@
 One central agreement PDF serves every Santé site. It is published by an operator with a
 command; there is no upload page. Switch: `SANTE_AGREEMENT_ENABLED` (`1` turns it on, off by
 default). Off, the three storefront routes answer the same 404 as an unknown site, and the
-command refuses. The migration is `sante.0002_membership_agreement` (two new tables, no
+command refuses. The migration is `sante.0002_membership_agreement` (three new tables, no
 existing table changed); it is run by the reviewed release step, never by the build.
 
 ## Routes (storefront surface, server credential, `Cache-Control: no-store`)
@@ -19,24 +19,28 @@ existing table changed); it is run by the reviewed release step, never by the bu
 The surface wrapper sets `no-store` on every answer, which is stricter than TWCinc's
 `private, no-cache` for the PDF; the storefronts server must not rely on browser caching of it.
 
-## Publishing
+## Publishing (as TWCinc: authorization first)
 
-The PDF stays out of chat, logs and output. Run on the `api` service (see `railway-ssh-quoting`
-note in the team memory: single-quote the whole remote command):
+Only the Santé catalog owner site writes the agreement, and only an operator acts for it (an
+active staff user named with `--operator`); there is no Subscriber path and no admin screen.
+Every step is in the operator audit log. The PDF stays out of chat, logs and output
+(`--file -` reads standard input; `--file <path>` a file on the machine running the command).
+Run on the `api` service, single-quoting the whole remote command.
 
-```bash
-manage.py sante_agreement_publish draft --label 2026-11 --effective-date 2026-11-15 --file -  < agreement.pdf
-manage.py sante_agreement_publish publish --label 2026-11 --reason "Authorized by <who>, filed at <where>"
-```
+1. A catalog owner is set (`sante_catalog_owner_set`, existing).
+2. `authorize --operator NAME --document-date D --note "Santé letter ref" --covers-pdf-hosting --covers-branding --covers-online-acceptance --file <letter>` stores Santé's written authorization (PDF, JPEG or PNG, 20 MB) in the private store.
+3. `verify --operator NAME --id N` puts it in force (needs all three grants and an intact file).
+4. `draft --operator NAME --title T --label L --effective-date D --file -` stores the PDF as a draft; prints label and SHA-256.
+5. `publish --operator NAME --label L` makes it the active version. Refused with no verified, unrevoked authorization.
 
-`--file -` reads the PDF from standard input, so nothing is copied to the service's disk;
-`--file <path>` reads a file on the machine running the command. `draft` prints the version
-label and the SHA-256, never contents. `publish` writes the audit action
-`sante_agreement_published` (kept whole) with the reason, the label, the SHA-256 and the
-previous active version. A published version is never changed; publishing a newer one moves the
-pointer and the older one stays readable. Limits: PDF only (checked by its first bytes), 20 MB.
+`update` and `delete` change or remove a draft only; a published version never changes.
+`revoke --operator NAME --id N --reason R` withdraws the authorization: the pack becomes
+unavailable and no version is served, the rows and files are kept as evidence. `status` lists
+versions and authorizations without file contents. Audit actions: `sante_agreement_version_created|updated|deleted`, `sante_agreement_published`, `sante_agreement_authorization_recorded|verified|revoked`.
 
 ## Data and retention
 
-The agreement is a company document, not personal data of a Subscriber, site or buyer: nothing
-to export, dispose of or register with retention. The audit row holds no personal value.
+The agreement and Santé's letter are company documents, not personal data of a Subscriber, site
+or buyer: nothing to export, dispose of or register with retention. Operator names sit on the
+authorization rows and in the audit log (kept whole, no personal value). The catalog owner site
+cannot be disposed of while it is the owner (existing rule), so `master_site` never dangles.

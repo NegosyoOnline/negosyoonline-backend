@@ -9,12 +9,14 @@ import hashlib
 
 from django.test import override_settings
 
+from apps.sante import agreement
 from apps.billing.tests.base import make_subscription
 from apps.common import private_files
 from apps.payments.models import SitePaymentAccount, SitePaymentSettings
 from apps.payments.tests.base import PNG, make_payment_account, use_local_private_store
-from apps.sante import agreement
-from apps.sante.tests.test_agreement import DAY, PDF, REASON
+from apps.sante.tests.agreement_helpers import (
+    DAY, PDF, authorize, draft, make_master, make_operator, published,
+)
 from apps.sante.tests.base import retemplate
 from apps.storefront.tests.base import HOST, NOT_FOUND, SurfaceTestCase
 
@@ -28,14 +30,15 @@ class PackTests(SurfaceTestCase):
         super().setUp()
         self.directory = use_local_private_store(self)
         self.site = make_subscription().site
+        self.op = make_operator()
+        make_master(self.op)
+        authorize(self.op)
 
     def pack(self, host=HOST, path=PACK):
         return self.call(host, path=path)
 
     def publish(self, label="v1", content=PDF):
-        version = agreement.create_draft(label=label, effective_date=DAY, content=content)
-        agreement.publish(label, reason=REASON)
-        return version
+        return published(self.op, label, content=content)
 
     def account(self, **fields):
         return make_payment_account(self.site, **fields)
@@ -54,7 +57,7 @@ class PackTests(SurfaceTestCase):
         body = self.pack().json()
         self.assertFalse(body["available"])
         self.assertEqual(len(body["payment_accounts"]), 1)
-        agreement.create_draft(label="d", effective_date=DAY, content=PDF)  # a draft only
+        draft(self.op, "d")  # a draft only
         self.assertFalse(self.pack().json()["available"])
         self.assertIsNone(self.pack().json()["agreement"])
 
@@ -127,12 +130,12 @@ class PackTests(SurfaceTestCase):
         self.assertIn("no-store", response["Cache-Control"])  # the surface's rule, stricter than private
 
     def test_the_pdf_route_refuses_a_draft_an_unknown_id_and_a_changed_file(self):
-        draft = agreement.create_draft(label="d", effective_date=DAY, content=PDF)
-        for version_id in (draft.pk, draft.pk + 99):
+        pending = draft(self.op, "d")
+        for version_id in (pending.pk, pending.pk + 99):
             self.assert_answer(self.pack(path=f"{PACK}agreement/{version_id}/pdf/"), 404, NOT_FOUND)
-        agreement.publish("d", reason=REASON)
-        (self.directory / draft.file_key).write_bytes(b"%PDF-changed")
-        self.assert_answer(self.pack(path=f"{PACK}agreement/{draft.pk}/pdf/"), 404, NOT_FOUND)
+        agreement.publish(self.op, "d")
+        (self.directory / pending.storage_key).write_bytes(b"%PDF-changed")
+        self.assert_answer(self.pack(path=f"{PACK}agreement/{pending.pk}/pdf/"), 404, NOT_FOUND)
 
     def test_the_qr_route_serves_this_sites_active_account_only(self):
         qr = self.account()
