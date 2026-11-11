@@ -92,7 +92,31 @@ For the NPC coordinator, who asked for this list. **One setting is added. No exi
 | `SESSION_COOKIE_*`, `CSRF_COOKIE_*` | Not edited. The HQ cookies are set by `hq_views._set_cookie`, not by these |
 | `HQ_HOST`, `ADMIN_SECRETS_KEY` | Not edited |
 
-`/healthz/` is in `config/urls.py` and is not touched. The new code runs only for a request whose host is `HQ_HOST` and whose path starts with `/staff/v1/`. A health check on the API host or on `healthcheck.railway.app` never reaches it. Task 4 adds a test that says so with the variable set.
+`/healthz/` is in `config/urls.py` and is not touched. The new code runs only for a request whose host is `HQ_HOST` and whose path starts with `/staff/v1/`. A health check on the API host or on `healthcheck.railway.app` never reaches it. Task 2 adds tests that say so with the variable set.
+
+### 4.1 The exact lines added, and nothing else
+
+The build adds these four lines to `config/settings.py`, directly after the line `    ALLOWED_HOSTS.append(HQ_HOST)`, and changes, moves or removes no other line of the file:
+
+```python
+# The one browser origin that may call the staff routes on the hq host (/staff/v1/): the staff
+# app on Vercel, for example https://hq.example.com. Empty means those routes do not exist. It
+# is never a host this service answers on, so it is not added to ALLOWED_HOSTS.
+HQ_STAFF_ORIGIN = os.environ.get("HQ_STAFF_ORIGIN", "").strip()
+```
+
+Lines are only added. Nothing is reordered or restructured, so another session's added lines (Santé slice 7, z8uq9me4dy: a new switch, `PAYMENT_CREDENTIALS_ENCRYPTION_KEY`, one `INSTALLED_APPS` entry) merge beside these. Whichever PR is ready first merges first; the other updates from `origin/main` and keeps both sides' lines.
+
+**This plan's build does not touch `config/api.py`, `pyproject.toml` or `uv.lock`.** The routes are not on the API and need no new dependency. This plan-only PR touches none of the shared files.
+
+### 4.2 Two things that stay exactly as they are, each with a check
+
+| What | Where it is | How the build shows it is unchanged |
+|---|---|---|
+| `SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]` (PR 78) | `config/settings.py` | The existing test `test_only_the_exact_healthz_path_is_exempt` in `apps/health/tests.py`, which stays unedited and passes; the new test `test_health_over_plain_http_is_untouched` in task 2; and the diff check in task 4 step 5 |
+| `healthcheck.railway.app` in the allowed hosts | Not in the code. It is in the Railway variable `DJANGO_ALLOWED_HOSTS` (`README.md` line 31, `docs/runbooks/billing.md`). `config/settings.py` only reads that variable into `ALLOWED_HOSTS` | The build edits no line that reads or builds `ALLOWED_HOSTS`, and the new setting is never appended to it: the new test `test_the_staff_origin_changes_no_allowed_host` in task 2. This plan sets or changes no Railway variable other than `HQ_STAFF_ORIGIN`, and never `DJANGO_ALLOWED_HOSTS` (7.3). On staging, step 1 of 7.4 confirms the deployment passed Railway's health check |
+
+The present value of `DJANGO_ALLOWED_HOSTS` on staging was not read by this session.
 
 ## 5. The routes
 
@@ -148,7 +172,7 @@ Rules that cover every route:
 | Both ways in make one session | A session made by the routes opens the Django console, and one made by the Django pages answers `me/` |
 | Other hosts | `/staff/v1/…` on the API host answers 404 with the variable set |
 | The Django pages are unchanged | With the variable set, the Django sign-in still works and still needs its form token |
-| Health | With the variable set, `/healthz/` answers 200 on the default host and on `healthcheck.railway.app` |
+| Health | With the variable set, `/healthz/` answers 200 on the default host and on `healthcheck.railway.app`, over plain http with the redirect on; `SECURE_REDIRECT_EXEMPT` is `[r"^healthz/$"]`; the staff origin adds no allowed host |
 | A failing route | 500 `server_error` as JSON, with the two headers |
 
 ---
@@ -510,7 +534,42 @@ class StaffOriginTests(StaffTestCase):
             response = self.client.get("/healthz/", HTTP_HOST="healthcheck.railway.app")
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("Access-Control-Allow-Origin", response.headers)
+
+    def test_health_over_plain_http_is_untouched(self):
+        from django.conf import settings
+
+        self.assertEqual(settings.SECURE_REDIRECT_EXEMPT, [r"^healthz/$"])
+        hosts = ["healthcheck.railway.app", HQ, "testserver"]
+        with override_settings(SECURE_SSL_REDIRECT=True, ALLOWED_HOSTS=hosts):
+            # Railway's check: plain http, its own host name. Answered, not redirected.
+            response = self.client.get("/healthz/", HTTP_HOST="healthcheck.railway.app")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["status"], "ok")
+            # A staff path over plain http is still redirected, like every other path.
+            self.assertEqual(self.client.get("/staff/v1/me/", HTTP_HOST=HQ).status_code, 301)
+
+    def test_the_staff_origin_changes_no_allowed_host(self):
+        import importlib
+        import os
+
+        from django.conf import settings
+
+        from config import settings as module
+
+        # HQ_STAFF_ORIGIN is a plain string read from its own variable. It is never a host
+        # this service answers on, so loading the settings with it set adds no allowed host.
+        with mock.patch.dict(os.environ, {"HQ_STAFF_ORIGIN": STAFF}):
+            reloaded = importlib.reload(module)
+        try:
+            self.assertEqual(reloaded.HQ_STAFF_ORIGIN, STAFF)
+            self.assertNotIn("hq-app.example.test", reloaded.ALLOWED_HOSTS)
+            self.assertEqual(reloaded.SECURE_REDIRECT_EXEMPT, [r"^healthz/$"])
+        finally:
+            importlib.reload(module)
+        self.assertEqual(settings.HQ_STAFF_ORIGIN, STAFF)  # this class's own override
 ```
+
+If reloading `config.settings` inside a test proves unreliable in this repository (the builder says so if it does), `test_the_staff_origin_changes_no_allowed_host` is replaced by reading the file: assert that the only line of `config/settings.py` naming `HQ_STAFF_ORIGIN` is the assignment of 4.1, and that no line containing `ALLOWED_HOSTS` names it.
 
 - [ ] **Step 2: Run them and see them fail**
 
@@ -1122,7 +1181,26 @@ DJANGO_DEBUG=false DJANGO_SECRET_KEY=local-check-only uv run python manage.py ch
 ```
 Expected: the same warnings as on `main` and no new one. Compare with the same command run on `origin/main` first.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Show that the shared files changed only as section 4 says**
+
+```bash
+git fetch origin main && git diff origin/main...HEAD --stat -- config/settings.py config/api.py pyproject.toml uv.lock
+```
+Expected: one line, `config/settings.py | 4 ++++`. No line for `config/api.py`, `pyproject.toml` or `uv.lock`.
+
+```bash
+git diff origin/main...HEAD -- config/settings.py | grep '^[-+]' | grep -v '^+++\|^---'
+```
+Expected: exactly the four `+` lines of 4.1 and no `-` line.
+
+```bash
+grep -n 'SECURE_REDIRECT_EXEMPT' config/settings.py
+```
+Expected: one line, `SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]`, as on `main`.
+
+Report the three outputs to the coordinator with the build PR, for the NPC coordinator's review.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add docs/runbooks/admin-two-step.md
@@ -1234,7 +1312,7 @@ Which Railway service answers `HQ_HOST` on staging was not looked up by this ses
 
 Done by a person who holds an enrolled staging admin identity, with the coordinator. No code or secret is pasted into chat, a ticket or a commit.
 
-- [ ] **Step 1: Before the variable is set**, with the build deployed: `https://hq-staging.negosyonline.com/staff/v1/me/` answers the plain "Page not found", and `https://api-staging.negosyonline.com/healthz/` answers 200 with the deployed commit. The Django sign-in works.
+- [ ] **Step 1: Before the variable is set**, with the build deployed: `https://hq-staging.negosyonline.com/staff/v1/me/` answers the plain "Page not found", and `https://api-staging.negosyonline.com/healthz/` answers 200 with the deployed commit. The Django sign-in works. The deployment itself succeeded, which on staging means Railway's health check (plain http, host `healthcheck.railway.app`, path `/healthz/`) passed on this build; the coordinator confirms by name only that `DJANGO_ALLOWED_HOSTS` still lists `healthcheck.railway.app`.
 - [ ] **Step 2: After rows 2 to 4**, read the service log for `hq-staff-origin-refused:`. If it is there, the value was refused and the routes are off: stop and report the line.
 - [ ] **Step 3: With curl**, no browser yet:
 
@@ -1353,7 +1431,8 @@ Unverified after this plan is built, said plainly:
 
 ## 11. Shared files and other sessions
 
-- `config/settings.py`: one added setting (section 4). Announced to the NPC coordinator before merge, as design 22.5 asks.
+- `config/settings.py`: one added setting, four added lines, nothing reordered (4.1). Announced to the NPC coordinator before merge, as design 22.5 asks. The NPC coordinator has no open PR and no objection. Santé slice 7 (z8uq9me4dy) also adds lines to this file: first ready merges first, the other updates from `origin/main` and keeps both sides' lines.
+- `config/api.py`, `pyproject.toml`, `uv.lock`: not touched by this plan's build.
 - `apps/operators/middleware.py` and `checks.py` belong to NPC Build 6 and Build 9 (z8uq9mdwdx, z8uq9mdxvt). The NPC coordinator reviews the build PR before it merges.
 - `docs/runbooks/admin-two-step.md` is that task's runbook: three additions, nothing rewritten.
 - Before the build PR is opened, and again before it merges: fetch `origin/main`, bring the branch up to date, re-run the tests, list the open PRs with their files, and tell the coordinator of any that touch these five files.
