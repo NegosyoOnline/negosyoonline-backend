@@ -1,5 +1,5 @@
-"""Sign-in codes and their limits live in the Django cache. Without REDIS_URL that cache is
-per process, so a code requested from one worker is unknown to the next."""
+"""Sign-in codes live in the database; the request throttles and the flood monitor live in the
+Django cache. Without REDIS_URL that cache is per process, so the limits are per worker."""
 from django.conf import settings
 from django.core.checks import Warning, register
 
@@ -11,7 +11,7 @@ def check_members_cache(app_configs, **kwargs):
     return [
         Warning(
             "MEMBERS_ENABLED is on but REDIS_URL is not set.",
-            hint="Member sign-in codes and limits would live in each process's own memory.",
+            hint="Member sign-in throttles would be counted in each process's own memory.",
             id="members.W001",
         )
     ]
