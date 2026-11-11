@@ -274,3 +274,244 @@ class StaffOriginTests(StaffTestCase):
         )
         # Under this class's override the staff host is still not a host the service answers on.
         self.assertNotIn("hq-app.example.test", settings.ALLOWED_HOSTS)
+
+
+def _attributes(morsel):
+    return {k: morsel[k] for k in ("path", "domain", "secure", "httponly", "samesite")}
+
+
+@on_staff
+class StaffSignInTests(StaffTestCase):
+    def actions(self):
+        return list(OperatorAuditEntry.objects.order_by("pk").values_list("action", flat=True))
+
+    def test_the_full_path(self):
+        identity = self.enrolled()
+        self.assertError(self.call("GET", "/staff/v1/me/"), 401, "unauthenticated")
+
+        response = self.call("POST", "/staff/v1/sign-in/", {"email": f"  {EMAIL.upper()} "})
+        self.assertEqual((response.status_code, response.content), (204, b""))
+        self.assertEqual(response.cookies[PRE]["max-age"], 600)
+        self.assertEqual(len(mail.outbox), 1)
+
+        response = self.call("POST", "/staff/v1/sign-in/code/", {"code": self.emailed_code()})
+        self.assertEqual((response.status_code, response.content), (204, b""))
+        self.assertEqual(response.cookies[PRE].value, "")
+        self.assertEqual(response.cookies[SESSION]["max-age"], 12 * 3600)
+        first_token = response.cookies[SESSION].value
+        self.assertError(self.call("GET", "/staff/v1/me/"), 401, "second_step_required")
+        self.assertError(self.call("GET", "/staff/v1/console/"), 401, "second_step_required")
+
+        response = self.call("POST", "/staff/v1/sign-in/verify/", {"code": self.code()})
+        self.assertEqual((response.status_code, response.content), (204, b""))
+        self.assertNotEqual(response.cookies[SESSION].value, first_token)
+        self.assertLessEqual(response.cookies[SESSION]["max-age"], 12 * 3600)
+
+        session = AdminSession.objects.get()
+        body = self.call("GET", "/staff/v1/me/").json()
+        self.assertEqual(body, {"email": EMAIL, "expires_at": session.expires_at.isoformat()})
+
+        body = self.call("GET", "/staff/v1/console/").json()
+        self.assertEqual(
+            sorted(body), ["email", "events", "expires_at", "verified_at"]
+        )
+        self.assertEqual(body["verified_at"], session.verified_at.isoformat())
+        self.assertEqual(
+            [(e["action"], e["surface"], e["step"]) for e in body["events"]],
+            [("admin_sign_in_ok", "hq", "totp")],
+        )
+        self.assertEqual(sorted(body["events"][0]), ["action", "at", "step", "surface"])
+
+        response = self.call("POST", "/staff/v1/sign-out/")
+        self.assertEqual((response.status_code, response.content), (204, b""))
+        self.assertEqual(response.cookies[SESSION].value, "")
+        self.assertIsNotNone(AdminSession.objects.get().revoked_at)
+        self.assertError(self.call("GET", "/staff/v1/me/"), 401, "unauthenticated")
+        self.assertEqual(self.actions(), ["admin_sign_in_ok", "admin_sign_out"])
+        self.assertEqual(
+            OperatorAuditEntry.objects.filter(target_id=str(identity.pk)).count(), 2
+        )
+
+    def test_no_answer_holds_a_token_or_a_code(self):
+        self.enrolled()
+        self.staff_sign_in()
+        token = self.client.cookies[SESSION].value
+        for path in ("/staff/v1/me/", "/staff/v1/console/"):
+            text = self.call("GET", path).content.decode()
+            self.assertNotIn(token, text)
+            self.assertNotIn(self.secret, text)
+
+    def test_the_cookies_are_the_ones_the_django_pages_set(self):
+        self.enrolled()
+        django, staff = Client(), Client()
+        self.post("/sign-in/", {"email": EMAIL}, client=django)
+        via_page = self.post("/code/", {"code": self.emailed_code()}, client=django)
+        self.call("POST", "/staff/v1/sign-in/", {"email": EMAIL}, client=staff)
+        via_route = self.call(
+            "POST", "/staff/v1/sign-in/code/", {"code": self.emailed_code()}, client=staff
+        )
+        want = {"path": "/", "domain": "", "secure": True, "httponly": True, "samesite": "Strict"}
+        for name in (SESSION, PRE):
+            self.assertEqual(_attributes(via_route.cookies[name]), _attributes(via_page.cookies[name]))
+        self.assertEqual(_attributes(via_route.cookies[SESSION]), want)
+
+    def test_both_ways_in_make_the_same_session(self):
+        self.enrolled()
+        self.staff_sign_in()
+        self.assertEqual(self.get("/").status_code, 200)  # the Django console opens
+        other = Client()
+        self.post("/sign-in/", {"email": EMAIL}, client=other)
+        self.post("/code/", {"code": self.emailed_code()}, client=other)
+        self.post("/verify/", {"code": self.code(1)}, client=other)
+        self.assertEqual(self.call("GET", "/staff/v1/me/", client=other).json()["email"], EMAIL)
+
+    def test_a_code_asked_for_through_the_route_can_be_finished_on_the_django_page(self):
+        self.enrolled()
+        self.call("POST", "/staff/v1/sign-in/", {"email": EMAIL})
+        page = self.get("/code/")
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, EMAIL)
+
+    def test_every_well_formed_address_gets_the_same_answer(self):
+        self.enrolled()
+        answers = []
+        for email in (EMAIL, "nobody@example.test"):
+            response = self.call("POST", "/staff/v1/sign-in/", {"email": email}, client=Client())
+            answers.append((response.status_code, response.content, sorted(response.cookies)))
+        self.assertEqual(answers[0], answers[1])
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_an_over_limit_address_gets_the_same_answer_and_no_mail(self):
+        self.enrolled()
+        for _ in range(5):
+            self.call("POST", "/staff/v1/sign-in/", {"email": EMAIL})
+        sent = len(mail.outbox)
+        response = self.call("POST", "/staff/v1/sign-in/", {"email": EMAIL})
+        self.assertEqual(response.status_code, 204)
+        self.assertIn(PRE, response.cookies)
+        self.assertEqual(len(mail.outbox), sent)
+
+    def test_a_malformed_address_or_body_is_refused_before_any_counter(self):
+        bodies = ({"email": "not-an-address"}, {"email": 5}, {}, [], "x")
+        with mock.patch("apps.operators.hq_auth.within_limits") as limits:
+            for body in bodies:
+                response = self.call("POST", "/staff/v1/sign-in/", body)
+                self.assertError(response, 400, "invalid_email")
+                self.assertNotIn(PRE, response.cookies)
+            raw = self.client.post(
+                "/staff/v1/sign-in/", data="{", content_type="application/json",
+                secure=True, HTTP_HOST=HQ, HTTP_ORIGIN=STAFF,
+            )
+            self.assertError(raw, 400, "invalid_email")
+            big = self.call("POST", "/staff/v1/sign-in/", {"email": EMAIL, "pad": "x" * 3000})
+            self.assertError(big, 400, "invalid_email")
+        limits.assert_not_called()
+
+    def test_a_wrong_code_is_refused_and_audited(self):
+        self.enrolled()
+        self.call("POST", "/staff/v1/sign-in/", {"email": EMAIL})
+        wrong = "000000" if self.emailed_code() != "000000" else "111111"
+        response = self.call("POST", "/staff/v1/sign-in/code/", {"code": wrong})
+        self.assertError(response, 400, "invalid_code")
+        self.assertNotIn(SESSION, response.cookies)
+        self.assertEqual(self.actions(), ["admin_sign_in_failed"])
+
+    def test_a_code_without_the_ten_minute_cookie_gets_the_same_refusal(self):
+        self.enrolled()
+        self.call("POST", "/staff/v1/sign-in/", {"email": EMAIL})
+        answers = []
+        for client in (self.client, Client()):
+            response = self.call("POST", "/staff/v1/sign-in/code/", {"code": "12345"}, client=client)
+            answers.append((response.status_code, response.content))
+        self.assertEqual(answers[0], answers[1])
+        self.assertError(
+            self.call("POST", "/staff/v1/sign-in/code/", {"code": self.emailed_code()}, client=Client()),
+            400, "invalid_code",
+        )
+        self.assertFalse(AdminSession.objects.exists())
+
+    def test_the_second_step_needs_the_first(self):
+        self.enrolled()
+        response = self.call("POST", "/staff/v1/sign-in/verify/", {"code": self.code()})
+        self.assertError(response, 401, "unauthenticated")
+
+    def test_a_recovery_code_passes_the_second_step_once(self):
+        self.enrolled()
+        self.staff_email_step()
+        recovery = self.recovery_codes[0]
+        spaced = f"{recovery[:5]}-{recovery[5:]}".lower()
+        response = self.call("POST", "/staff/v1/sign-in/verify/", {"code": spaced})
+        self.assertEqual(response.status_code, 204)
+        entry = OperatorAuditEntry.objects.get(action="admin_sign_in_ok")
+        self.assertEqual(entry.detail, {"surface": "hq", "step": "recovery"})
+        again = Client()
+        self.staff_email_step_for(again)
+        self.assertError(
+            self.call("POST", "/staff/v1/sign-in/verify/", {"code": recovery}, client=again),
+            400, "invalid_code",
+        )
+
+    def staff_email_step_for(self, client):
+        self.call("POST", "/staff/v1/sign-in/", {"email": EMAIL}, client=client)
+        self.call("POST", "/staff/v1/sign-in/code/", {"code": self.emailed_code()}, client=client)
+
+    def test_a_wrong_second_step_code_is_refused_and_audited(self):
+        self.enrolled()
+        self.staff_email_step()
+        response = self.call("POST", "/staff/v1/sign-in/verify/", {"code": self.wrong_code()})
+        self.assertError(response, 400, "invalid_code")
+        self.assertEqual(self.actions(), ["admin_sign_in_failed"])
+        self.assertError(self.call("GET", "/staff/v1/me/"), 401, "second_step_required")
+
+    def test_five_wrong_codes_pause_and_end_every_session(self):
+        identity = self.enrolled()
+        elsewhere = Client()
+        self.staff_email_step_for(elsewhere)
+        self.call("POST", "/staff/v1/sign-in/verify/", {"code": self.code()}, client=elsewhere)
+        self.staff_email_step()
+        mail.outbox.clear()
+        with self.committed():
+            for _ in range(4):
+                self.assertError(
+                    self.call("POST", "/staff/v1/sign-in/verify/", {"code": self.wrong_code()}),
+                    400, "invalid_code",
+                )
+            response = self.call("POST", "/staff/v1/sign-in/verify/", {"code": self.wrong_code()})
+        self.assertError(response, 403, "sign_in_paused")
+        self.assertEqual(response.cookies[SESSION].value, "")
+        self.assertEqual(response.cookies[PRE].value, "")
+        self.assertEqual(self.actions()[-1], "admin_locked")
+        identity.refresh_from_db()
+        self.assertGreater(identity.locked_until, timezone.now() + timedelta(minutes=14))
+        self.assertEqual([m.subject for m in mail.outbox], ["NegosyoOnline admin sign-in paused"])
+        self.assertError(self.call("GET", "/staff/v1/me/", client=elsewhere), 401, "unauthenticated")
+
+    def test_a_signed_in_person_is_told_so(self):
+        self.enrolled()
+        self.staff_sign_in()
+        sent = len(mail.outbox)
+        for path, body in (
+            ("/staff/v1/sign-in/", {"email": EMAIL}),
+            ("/staff/v1/sign-in/code/", {"code": "123456"}),
+            ("/staff/v1/sign-in/verify/", {"code": self.code(1)}),
+        ):
+            self.assertError(self.call("POST", path, body), 409, "already_signed_in")
+        self.assertEqual(len(mail.outbox), sent)
+
+    def test_sign_out_without_a_session_answers_the_same(self):
+        response = self.call("POST", "/staff/v1/sign-out/")
+        self.assertEqual((response.status_code, response.content), (204, b""))
+        self.assertFalse(OperatorAuditEntry.objects.exists())
+
+    def test_an_ended_or_expired_session_reads_nothing(self):
+        self.enrolled()
+        self.staff_sign_in()
+        AdminSession.objects.update(expires_at=timezone.now() - timedelta(seconds=1))
+        self.assertError(self.call("GET", "/staff/v1/console/"), 401, "unauthenticated")
+
+    def test_the_django_pages_still_work_and_still_need_their_form_token(self):
+        self.enrolled()
+        self.sign_in()  # HqTestCase: the three Django pages, in order
+        self.assertEqual(self.get("/").status_code, 200)
+        strict = Client(enforce_csrf_checks=True)
+        self.assertEqual(self.post("/sign-in/", {"email": EMAIL}, client=strict).status_code, 403)

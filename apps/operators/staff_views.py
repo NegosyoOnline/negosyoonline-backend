@@ -37,6 +37,29 @@ def _no_content():
     return HttpResponse(status=204)
 
 
+def _body(request):
+    """The JSON object sent, or {} when there is none or it is not one."""
+    try:
+        if int(request.META.get("CONTENT_LENGTH") or 0) > MAX_BODY:
+            return {}
+        data = json.loads(request.body)
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _text(request, key):
+    value = _body(request).get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _already_signed_in(request):
+    """The 409 for a session that passed both steps, else None."""
+    if hq_views.is_verified(hq_views.load_session(request)):
+        return _error(409, "already_signed_in", "You are already signed in.")
+    return None
+
+
 def _gate(request):
     """(session, None) for a session that passed both steps, else (None, the 401 to send)."""
     session = hq_views.load_session(request)
@@ -79,7 +102,79 @@ def console(request):
     })
 
 
+def sign_in(request):
+    refusal = _already_signed_in(request)
+    if refusal:
+        return refusal
+    email = hq_auth.normalize_email(_text(request, "email"))
+    if email is None:
+        return _error(400, "invalid_email", "Enter a valid email address.")
+    # From here every address gets the same answer. The lookup and the email happen later.
+    nonce = secrets.token_urlsafe(16)
+    if hq_auth.within_limits(email, client_ip(request)):
+        try:
+            background.run_later(hq_auth.issue_email_code, email, nonce)
+        except Exception:
+            logger.exception("hq sign-in code could not be handed over")
+    response = _no_content()
+    value = signing.dumps({"email": email, "nonce": nonce}, salt=hq_views.PRE_SALT)
+    hq_views._set_cookie(response, hq_views._cookie_names()[1], value, hq_views.PRE_SECONDS)
+    return response
+
+
+def code(request):
+    refusal = _already_signed_in(request)
+    if refusal:
+        return refusal
+    pre = hq_views._pre(request)
+    typed = "".join(_text(request, "code").split())
+    token = None
+    if pre is not None and len(typed) == 6 and typed.isdigit():
+        token = hq_auth.check_email_code(pre["email"], pre["nonce"], typed)
+    if token is None:
+        # One answer for a wrong code, a used one, a stale one and a browser that never asked.
+        return _error(400, "invalid_code", "That code did not work.")
+    session_name, pre_name = hq_views._cookie_names()
+    response = hq_views._drop_cookies(_no_content(), pre_name)
+    hq_views._set_cookie(response, session_name, token, hq_auth.SESSION_HOURS * 3600)
+    return response
+
+
+def verify(request):
+    session = hq_views.load_session(request)
+    if session is None:
+        return _error(401, "unauthenticated", "Sign in to continue.")
+    if hq_views.is_verified(session):
+        return _error(409, "already_signed_in", "You are already signed in.")
+    result = two_step.verify_second_step(
+        session.identity_id, _text(request, "code"), surface=two_step.SURFACE_HQ
+    )
+    if result.locked:
+        paused = _error(
+            403, "sign_in_paused", "Too many wrong codes. Sign-in is paused for 15 minutes."
+        )
+        return hq_views._drop_cookies(paused, *hq_views._cookie_names())
+    if not result.ok:
+        return _error(400, "invalid_code", "That code did not work.")
+    token = hq_auth.mark_verified(session, result.credential_version)
+    response = _no_content()
+    remaining = int((session.expires_at - timezone.now()).total_seconds())
+    hq_views._set_cookie(response, hq_views._cookie_names()[0], token, max(remaining, 0))
+    return response
+
+
+def sign_out(request):
+    session = hq_views.load_session(request)
+    if session is not None:
+        hq_auth.sign_out(session)
+    return hq_views._drop_cookies(_no_content(), *hq_views._cookie_names())
+
+
 ROUTES = {
+    "sign-in/": ("POST", sign_in),
+    "sign-in/code/": ("POST", code),
+    "sign-in/verify/": ("POST", verify),
+    "sign-out/": ("POST", sign_out),
     "me/": ("GET", me),
     "console/": ("GET", console),
 }
