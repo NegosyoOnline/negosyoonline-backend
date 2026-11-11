@@ -1,4 +1,8 @@
+import dataclasses
+from unittest import mock
+
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.test import override_settings
 
 from apps.common.errors import ApiError
@@ -84,6 +88,19 @@ class ContactTests(ContactsCase):
         self.assertIsNone(contacts.open_contact(self.scope(), "junk"))
         self.assertEqual(len(self.entries("contact_open")), 1)
         self.assertNothingPersonalIn(self.entries(), *PERSONAL)
+
+    def test_6b_edit_answers_already_exists_when_another_contact_wins_the_race(self):
+        a = contacts.add_contact(self.scope(), ANA)
+        b = contacts.add_contact(self.scope(), BEN)
+        # The pre-check cannot see the other contact, as when it is added a moment later.
+        blind = dataclasses.replace(self.scope(), contacts=Contact.objects.exclude(public_id=b["id"]))
+        with mock.patch.object(Contact, "save", side_effect=IntegrityError):
+            with self.assertRaises(ApiError) as caught:
+                contacts.edit_contact(blind, a["id"], {**ANA, "mobile": BEN["mobile"]})
+        self.assertEqual(caught.exception.code, "already_exists")
+        self.assertEqual(caught.exception.status, 409)
+        self.assertEqual(caught.exception.fields, {"contact": b["id"]})
+        self.assertEqual(Contact.objects.get(public_id=a["id"]).mobile, "+639170000101")
 
     def test_6_edit_changes_audits_the_field_names_and_refuses_another_contacts_number(self):
         a = contacts.add_contact(self.scope(), ANA)
