@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
-<title>Bulk SMS (proposal) | Inbox mockup</title>
+<title>Bulk SMS | Inbox mockup</title>
 <!-- MOCKUP ONLY. Static page with made-up data: no real number, no real text, no application code.
      Design: docs/superpowers/specs/2026-11-11-sms-inbox-hq-design.md (ClickUp z8uq9me128). -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -50,20 +50,17 @@
         <a class="back" href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/></svg>SMS</a>
         <div class="head-row">
           <h1>Bulk SMS</h1>
-          <span class="chip chip-warn">Proposal · not yet approved</span>
+          <span class="chip chip-neutral">Launch announcement only</span>
         </div>
       </div>
-      <section class="err-box" aria-labelledby="open-h">
-        <h2 id="open-h">Proposal only. Open points with Coach Ed</h2>
-        <p>This screen is not approved and nothing here is planned to be built yet. The approved design sends one text to one number and has no bulk path. The open points are in the design, section 18: marketing, consent and where the list comes from, the daily cap, the risk to the SIM, and opting out.</p>
-      </section>
       <div class="cols">
         <form class="dash-card form-card" action="#" onsubmit="return false" aria-labelledby="b1-h">
           <h2 id="b1-h"><span class="step">1</span>Write the text and add the numbers</h2>
           <div class="field">
             <label for="b-text">Message</label>
-            <textarea class="textarea" id="b-text" maxlength="400" data-count="b-count" aria-describedby="b-text-hint">Sample announcement text for the mockup. The same text goes to every number.</textarea>
-            <p class="hint" id="b-text-hint">One text for every number. One SMS of at most 160 plain characters. No web links.</p>
+            <textarea class="textarea" id="b-text" maxlength="400" data-count="b-count" data-extra="22" aria-describedby="b-text-hint">Sample announcement text for the mockup. The same text goes to every number.</textarea>
+            <p class="optout"><span class="small">Added at the end of every text:</span> Reply STOP to opt out</p>
+            <p class="hint" id="b-text-hint">One text for every number. One SMS of at most 160 plain characters, counting the opt-out line (22 characters). No web links.</p>
             <span class="counter" id="b-count" aria-live="polite">0 / 160</span>
           </div>
           <div class="field">
@@ -71,7 +68,7 @@
             <textarea class="textarea" id="b-list" aria-describedby="b-list-hint" placeholder="Paste one Philippine mobile number per line">0900 000 0101
 0900 000 0102
 +63 900 000 0103</textarea>
-            <p class="hint" id="b-list-hint">Paste one number per line, or upload a text or CSV file with one number per line.</p>
+            <p class="hint" id="b-list-hint">The list Coach Ed supplies for this batch. Paste one number per line, or upload a text or CSV file with one number per line. Numbers only.</p>
             <input class="file" type="file" accept=".txt,.csv" aria-label="Upload a list of numbers">
           </div>
           <div class="form-foot">
@@ -81,11 +78,14 @@
         </form>
         <div class="aside">
           <section class="banner" aria-labelledby="b-rules-h">
-            <h2 id="b-rules-h">How bulk sending would work</h2>
+            <h2 id="b-rules-h">How bulk sending works</h2>
             <ul>
+              <li>For the launch announcement only. Other marketing is not allowed.</li>
               <li>Sign-in codes always go first.</li>
               <li>One text every 18 to 25 seconds.</li>
               <li>Counts toward the 2,000 texts a day shared with codes.</li>
+              <li>Sent in batches. A batch never goes over the texts left today.</li>
+              <li>Numbers that replied STOP are skipped.</li>
               <li>Recorded with your name and the count, never the text.</li>
             </ul>
           </section>
@@ -94,19 +94,24 @@
       <section class="dash-card form-card wide" aria-labelledby="b2-h">
         <h2 id="b2-h"><span class="step">2</span>Check and confirm</h2>
         <dl class="facts">
-          <div><dt>Lines read</dt><dd>1,250</dd></div>
-          <div><dt>Will be texted</dt><dd>1,180</dd></div>
-          <div><dt>Duplicates removed</dt><dd>52</dd></div>
-          <div><dt>Not a Philippine mobile</dt><dd>18</dd></div>
+          <div><dt>Numbers in your list</dt><dd>2,293</dd></div>
+          <div><dt>Texts left today</dt><dd>1,786</dd></div>
+          <div><dt>This batch</dt><dd>1,786</dd></div>
+          <div><dt>For a later batch</dt><dd>507</dd></div>
         </dl>
-        <p class="dash-copy">About <strong>7 hours</strong> to send, at one text every 18 to 25 seconds. Uses <strong>1,180 of the 1,786</strong> texts left today, which leaves 606 for sign-in codes.</p>
+        <div class="banner">
+          <h2>Your list does not fit in today's texts</h2>
+          <p class="dash-copy">This batch is cut to the first <strong>1,786</strong> numbers, all the texts left today (214 of 2,000 are used). The other <strong>507</strong> are not sent; download them for a later batch.</p>
+        </div>
+        <p class="dash-copy">About <strong>10 to 11 hours</strong> to send, at one text every 18 to 25 seconds. 2,400 lines were read: 52 duplicates were removed, 18 lines are not a Philippine mobile, and <strong>37 numbers were skipped</strong> because they replied STOP.</p>
+        <p class="mock-note"><strong>Open point.</strong> As drawn, this batch leaves no texts for sign-in codes today. How many to keep back for codes is not decided.</p>
         <div class="field">
-          <label for="b-confirm">Type 1180 to confirm</label>
+          <label for="b-confirm">Type 1786 to confirm</label>
           <input class="input narrow" id="b-confirm" inputmode="numeric" autocomplete="off">
         </div>
         <div class="form-foot">
-          <a class="no-btn no-btn-ghost" href="#">Download the 18 refused lines</a>
-          <button class="no-btn no-btn-primary" type="button">Send to 1,180 numbers</button>
+          <span class="status-actions"><a class="no-btn no-btn-ghost" href="#">Download the 507 not in this batch</a><a class="no-btn no-btn-ghost" href="#">Download the 18 refused lines</a></span>
+          <button class="no-btn no-btn-primary" type="button">Send this batch of 1,786</button>
         </div>
       </section>
       <section class="dash-card form-card wide" aria-labelledby="b3-h">
@@ -114,12 +119,12 @@
           <h2 id="b3-h"><span class="step">3</span>Progress</h2>
           <button class="no-btn no-btn-ghost stop" type="button">Stop sending</button>
         </div>
-        <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="1180" aria-valuenow="412" aria-label="412 of 1,180 handled"><span style="width:35%"></span></div>
+        <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="1786" aria-valuenow="412" aria-label="412 of 1,786 handled"><span style="width:23%"></span></div>
         <div class="strip">
           <span class="chip chip-ok">396 sent</span>
-          <span class="chip chip-warn">768 waiting</span>
+          <span class="chip chip-warn">1,374 waiting</span>
           <span class="chip chip-neutral">16 not sent</span>
-          <span class="chip chip-neutral">About 4 hours 35 minutes left</span>
+          <span class="chip chip-neutral">About 8 hours left</span>
         </div>
         <ul class="list results">
           <li><span class="item-num">+63 900 ••• 0101</span><span class="chip chip-ok">Sent</span></li>
@@ -152,8 +157,9 @@
   document.querySelectorAll("[data-count]").forEach(function (area) {
     var out = document.getElementById(area.getAttribute("data-count"));
     function show() {
-      out.textContent = area.value.length + " / 160";
-      out.classList.toggle("over", area.value.length > 160);
+      var n = area.value.length + (parseInt(area.getAttribute("data-extra"), 10) || 0);
+      out.textContent = n + " / 160";
+      out.classList.toggle("over", n > 160);
     }
     area.addEventListener("input", show);
     show();
