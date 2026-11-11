@@ -129,6 +129,7 @@ class BookTests(TestCase):
         make_book(series="B", serial_from=1, serial_to=50)  # another series is free
 
 
+@override_settings(BILLING_ENABLED=True)
 class ScanTests(TestCase):
     def setUp(self):
         self.invoice = make_invoice()
