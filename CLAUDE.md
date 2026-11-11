@@ -10,7 +10,7 @@ This repository is the clean Django backend foundation for NegosyoOnline. It is 
 - Work on a feature branch. `main` is protected: open a pull request, pass the required CI checks, and merge through GitHub. Never bypass branch protection.
 - Every build starts in ClickUp. Coach Ed starts it with `/clickup-coordinator <TASK_ID>`, and the coordinator creates the builder sub-sessions. A session not started that way is either a brainstorming session or a session Coach Ed opened to get data from production. It may read, discuss, plan and report that data, but it does not build a task, and reading production data never extends to changing production state. If asked to build there, say the task needs a detailed ClickUp task and a coordinator session first.
 - Keep changes small, scoped, and reversible. Do not mix product work with unrelated cleanup.
-- Do not create a migration, seed data, alter Railway variables, deploy, or change production state unless Coach Ed explicitly approves that action.
+- Do not create a migration, seed data, alter Railway variables, deploy, or change production state unless Coach Ed explicitly approves that action. His one standing approval (2026-11-11): a migration that an approved plan specifies may be written, and run on staging by its coordinator, as `.claude/briefs/coordinator.md` section 10 sets out. Production is never covered.
 - Never print, commit, copy, or expose secrets. Use ignored local environment files for development and Railway variables for staging or production.
 
 ## Architecture boundaries
