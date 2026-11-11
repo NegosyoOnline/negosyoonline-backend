@@ -60,7 +60,7 @@ Replace `<env>` with `staging` or `production`.
 
 ## Pending
 
-- `notifications.0003_sms_daily_limits_start_at_2000`: not applied to `staging` or `production`. It changes the starting value of the two SMS daily limits from 4,000 to 2,000 for a row created later. On PostgreSQL it runs no SQL (`sqlmigrate` prints `-- (no-op)` for both fields) and only records itself as applied. Until it is applied, `migrate --plan` lists it; nothing fails meanwhile. Its staging run is its own approval.
+- None on `staging`. `production` has not been migrated at all (see Notes).
 
 ## History
 
@@ -71,3 +71,4 @@ Replace `<env>` with `staging` or `production`.
 - 2026-11-10: `sites.0001_initial` was applied to `staging` by Coach Ed from his own terminal, at commit `23c9e32`. The plan read beforehand listed only that migration. Afterwards `migrate --plan` reported no pending operations.
 - 2026-11-11: `notifications.0002_sms_gateway` was applied to `staging` by the coordinator session after Coach Ed approved that run, at commit `91aa0a8`. The plan read beforehand listed only that migration. Afterwards `migrate --plan` reported no pending operations and `/healthz/` returned ok. `SMS_GATEWAY_ENABLED` was not set.
 - 2026-11-11: `accounts.0003_accountmobile_mobileotpchallenge` was applied to `staging` by the coordinator session after Coach Ed approved that run, at commit `100c66f`. The plan read beforehand listed only that migration. Afterwards `migrate --plan` reported no pending operations and `/healthz/` returned ok. `SMS_GATEWAY_ENABLED` was not set.
+- 2026-11-11: `notifications.0003_sms_daily_limits_start_at_2000` was applied to `staging` by the coordinator session after Coach Ed approved that run ("Yes, run it"). It changes the starting value of the two SMS daily limits from 4,000 to 2,000 for a row created later; on PostgreSQL it runs no SQL (`sqlmigrate` prints `-- (no-op)` for both fields) and only records itself as applied. `production`: not run, not approved.

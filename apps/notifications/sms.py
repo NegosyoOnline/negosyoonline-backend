@@ -81,7 +81,16 @@ _PLAIN = frozenset(
     "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?"
     "¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà"
 )
-_LINK = re.compile(r"(?i)https?://|\bwww\.|\b[a-z0-9-]+\.[a-z]{2,}\b")
+# A web link in any form a phone could make tappable. The edges are spelled out as plain letters
+# and digits rather than "\b": "\b" counts "_" and the accented and Greek SMS letters as part of
+# a word, so "see_example.com" and "ñexample.com" used to pass.
+_LINK = re.compile(
+    r"https?://"
+    r"|(?<![a-z0-9])www\."
+    r"|[a-z0-9-]+\.[a-z]{2,}(?![a-z0-9])"  # a bare domain: example.com
+    r"|(?<![0-9])[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?![0-9])",  # a bare IP address: 10.0.0.1
+    re.IGNORECASE | re.ASCII,
+)
 MAX_LENGTH = 160
 
 

@@ -67,6 +67,21 @@ class SendSmsRefusesMistakesTests(SmsTestCase):
             "Track it at bit.ly/abc",
             "Track it at (example.com)",
             "Track it at\nexample.com",
+            # A domain next to "_" or next to an accented or Greek SMS letter.
+            "see_example.com",
+            "_example.com/x",
+            "Track it at ñexample.com",
+            "Track it at éexample.com",
+            "Track it at Ωexample.com",
+            "Track it at example.com_x",
+            "Track it at example.comñ",
+            "Track it at _www.example",
+            "Track it at ñWWW.example",
+            # A bare IP address.
+            "Track it at 192.168.1.10/x",
+            "Track it at 10.0.0.1",
+            "Track it at_10.0.0.1",
+            "Track it at ñ10.0.0.1:8000",
             "Salamat ❤",  # not a plain SMS character: it would no longer fit one SMS
         )
         for text in bad:
@@ -75,6 +90,19 @@ class SendSmsRefusesMistakesTests(SmsTestCase):
                     send_code(text=text)
         self.assertEqual(SmsMessage.objects.count(), 0)
         self.assertEqual(send_code(text="x" * 160).outcome, sms.QUEUED)
+
+    def test_a_text_with_full_stops_and_numbers_but_no_link_is_sent(self):
+        good = (
+            CODE_TEXT,
+            STATUS_TEXT,
+            "Salamat po. Ingat!",
+            "Your total is P1,250.00. Thank you.",
+            "Order 12.5 kg, 3 items. Ref_no 1.2.3",
+            "Señor Peña, your code is 123456.",
+        )
+        for text in good:
+            with self.subTest(text=text[:30]):
+                self.assertEqual(sms.text_problem(text), "")
 
     def test_a_number_that_is_not_a_philippine_mobile_is_refused(self):
         with self.assertRaises(ValueError):
