@@ -13,6 +13,7 @@ from apps.billing.tests.test_transfer_api import TransferApiCase
 
 PROMO, MONTHLY = 499_900, 249_900
 promo_on = override_settings(BILLING_LAUNCH_PROMO_ENABLED=True)
+ACCEPTED = {"renewal_consent": "true", "consent_version": plan.CONSENT_VERSION}
 
 
 def three_pm(*parts):
@@ -42,7 +43,7 @@ class PromoDatesTests(SimpleTestCase):
     def test_the_two_plans(self):
         self.assertEqual(
             [(p.code, p.price_centavos, p.months) for p in plan.PLANS.values()],
-            [("monthly", MONTHLY, 1), ("launch_promo", PROMO, 6)],
+            [("monthly", MONTHLY, 1), ("annual", 2_499_000, 12), ("launch_promo", PROMO, 6)],
         )
 
 
@@ -177,6 +178,17 @@ class PromoApiTests(TransferApiCase):
         self.assertEqual((monthly["plan"], monthly["amount_centavos"], monthly["then"]),
                          ("monthly", MONTHLY, None))
 
+    def test_the_offer_names_what_must_be_accepted_and_the_proof_needs_it(self):
+        promo, monthly = self.get(self.base + "payment/").json()["offers"]
+        self.assertEqual(
+            (promo["consent"]["required"], promo["consent"]["version"], monthly["consent"]),
+            (True, "promo-consent-1", None),
+        )
+        self.assertEqual(promo["consent"]["then"], promo["then"])
+        body = self.error(self.upload(plan="launch_promo"), 400, "invalid_request")
+        self.assertEqual(sorted(body["fields"]), ["consent_version", "renewal_consent"])
+        self.assertEqual(self.store.files, {})
+
     def test_an_ended_site_is_told_the_term_starts_at_the_confirmation(self):
         self.at(self.trial_end + days(1))
         promo = self.get(self.base + "payment/").json()["offers"][0]
@@ -187,7 +199,7 @@ class PromoApiTests(TransferApiCase):
         )
 
     def test_a_promo_proof_is_accepted_and_then_the_next_offer_is_monthly(self):
-        sent = self.upload(plan="launch_promo").json()
+        sent = self.upload(plan="launch_promo", **ACCEPTED).json()
         self.assertEqual((sent["plan"], sent["amount_centavos"]), ("launch_promo", PROMO))
 
         self.confirm(sent["id"], self.start + days(2))
@@ -195,5 +207,5 @@ class PromoApiTests(TransferApiCase):
         self.at(self.trial_end + days(170))
         offers = self.get(self.base + "payment/").json()["offers"]
         self.assertEqual([(o["plan"], o["amount_centavos"]) for o in offers], [("monthly", MONTHLY)])
-        body = self.error(self.upload(plan="launch_promo", content=PNG), 400, "invalid_request")
+        body = self.error(self.upload(plan="launch_promo", content=PNG, **ACCEPTED), 400, "invalid_request")
         self.assertEqual(list(body["fields"]), ["plan"])

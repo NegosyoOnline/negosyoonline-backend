@@ -29,7 +29,9 @@ router = Router(tags=["billing"], auth=signed_in)
 
 WRITE_LIMIT, WRITE_WINDOW = 20, 3600  # cancels and reactivations per account per hour
 PROOF_LIMIT, PROOF_WINDOW = 10, 3600  # proofs of payment per account per hour
-SUBMIT_FIELDS = ("plan", "transferred_on", "transfer_reference", "proof")
+SUBMIT_FIELDS = (
+    "plan", "transferred_on", "transfer_reference", "proof", "renewal_consent", "consent_version",
+)
 PROOF_FILE_NAMES = {
     "image/jpeg": "proof.jpg", "image/png": "proof.png", "application/pdf": "proof.pdf",
 }
@@ -123,6 +125,45 @@ def billing_reactivate(request, site_id: str):
     return services.overview(site)
 
 
+# The plans on offer (Billing Build B3)
+
+class PublicPlanOut(Schema):
+    plan: str
+    version: int
+    name: str
+    amount_centavos: int
+    currency: str
+    term_months: int
+    interval: str
+    saving_centavos: int | None
+
+
+class PlansOut(Schema):
+    plans: list[PublicPlanOut]
+
+
+@router.get("/plan/", response=PlansOut, auth=None)
+def plans_on_offer(request):
+    """The plans anyone may see: Monthly, and Annual while it is on offer. It reads no table.
+    The Launch Promo is never listed here; it is shown to the site that can buy it."""
+    listed = [plan.MONTHLY]
+    if plan.annual_open():
+        listed.append(plan.ANNUAL)
+    return {"plans": [
+        {
+            "plan": p.code, "version": p.version, "name": p.name,
+            "amount_centavos": p.price_centavos, "currency": plan.CURRENCY,
+            "term_months": p.months, "interval": "year" if p.months == 12 else "month",
+            # Twelve Monthly payments less what Annual costs.
+            "saving_centavos": (
+                plan.MONTHLY.price_centavos * p.months - p.price_centavos
+                if p.months > 1 else None
+            ),
+        }
+        for p in listed
+    ]}
+
+
 # Bank transfer with proof (Billing Build B2a)
 
 class PaidCycleOut(Schema):
@@ -164,16 +205,26 @@ class NextPlanOut(Schema):
     first_due_at: datetime | None
 
 
+class ConsentOut(Schema):
+    required: bool
+    version: str
+    then: NextPlanOut
+    first_due_at: datetime | None
+
+
 class OfferOut(Schema):
     plan: str
     name: str
     amount_centavos: int
     currency: str
     months: int
+    version: int
+    term_months: int
     period_start_at: datetime | None
     period_end_at: datetime | None
     starts_at_confirmation: bool
     then: NextPlanOut | None
+    consent: ConsentOut | None
 
 
 class TransferAccountOut(Schema):
@@ -191,6 +242,7 @@ class ProofRulesOut(Schema):
 class PaymentOptionsOut(Schema):
     payable: bool
     not_payable_reason: str | None
+    payable_from: datetime | None
     offers: list[OfferOut]
     transfer_accounts: list[TransferAccountOut]
     under_review: PaymentOut | None
@@ -294,6 +346,8 @@ def billing_payment_submit(request, site_id: str):
         content=proof.read(),
         transferred_on=transferred_on,
         transfer_reference=request.POST.get("transfer_reference", ""),
+        renewal_consent=request.POST.get("renewal_consent"),
+        consent_version=request.POST.get("consent_version"),
     )
     if created:
         record_event(

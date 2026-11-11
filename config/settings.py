@@ -117,6 +117,9 @@ BILLING_BANK_TRANSFER_ENABLED = os.environ.get("BILLING_BANK_TRANSFER_ENABLED", 
 # The six-month Launch Promo (PHP 4,999.00 once). "1" offers it, to a site that never had a
 # paid cycle, wherever paying by bank transfer is on.
 BILLING_LAUNCH_PROMO_ENABLED = os.environ.get("BILLING_LAUNCH_PROMO_ENABLED", "").strip() == "1"
+# The Annual Plan (PHP 24,990.00 for twelve months). "1" offers it beside Monthly, wherever
+# paying by bank transfer is on. Off, `plan=annual` is refused and GET /v1/plan/ omits it.
+BILLING_ANNUAL_ENABLED = os.environ.get("BILLING_ANNUAL_ENABLED", "").strip() == "1"
 # The accounts Subscribers send their payment to, as a JSON list of objects with `kind`
 # ("bank" or "ewallet"), `provider_name`, `account_name` and `account_number`. Never in code.
 BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").strip()
@@ -130,6 +133,10 @@ SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() ==
 # SANTE_SETTINGS_ENABLED is on too: the catalog reads the catalog owner row. Off, the
 # endpoints answer 404 and the catalog tables are not read or written.
 SANTE_CATALOG_ENABLED = os.environ.get("SANTE_CATALOG_ENABLED", "").strip() == "1"
+# The central Membership Agreement and the Membership Pack reads of the storefront surface
+# (apps/sante/agreement.py, pack_api.py). "1" turns them on. Off, the routes answer 404 and the
+# publish command refuses; the tables are not read or written.
+SANTE_AGREEMENT_ENABLED = os.environ.get("SANTE_AGREEMENT_ENABLED", "").strip() == "1"
 # A site's payment methods (its bank and e-wallet accounts for direct transfer). "1" turns
 # on their endpoints and admin lists. Off, the endpoints answer 404 and the payment tables
 # are not read or written.
@@ -141,6 +148,10 @@ PRIVATE_BLOB_READ_WRITE_TOKEN = os.environ.get("PRIVATE_BLOB_READ_WRITE_TOKEN", 
 PRIVATE_FILES_DIR = os.environ.get("PRIVATE_FILES_DIR", "").strip() or str(
     BASE_DIR / ".private-files"
 )
+# Santé member sign-in (apps/members), on the storefront surface below. "1" turns on its four
+# routes. Off, they answer the 404 of an unknown site and no member table is read or written.
+# Sign-in codes and limits live in the cache, so it needs REDIS_URL outside local work.
+MEMBERS_ENABLED = os.environ.get("MEMBERS_ENABLED", "").strip() == "1"
 # The storefront surface (/storefront/v1/), called only by the storefronts server. "1" turns
 # it on, and only while STOREFRONT_SERVER_SECRET holds at least 32 characters. Off, every path
 # under it answers 404. The secret is read here and nowhere else.
@@ -169,6 +180,7 @@ INSTALLED_APPS = [
     'apps.inbox',
     'apps.health',
     'apps.storefront',
+    'apps.members',
 ]
 
 AUTH_USER_MODEL = "operators.User"

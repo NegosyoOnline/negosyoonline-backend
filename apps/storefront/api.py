@@ -25,6 +25,8 @@ from django.urls import URLPattern, re_path
 from ninja import NinjaAPI, Schema
 
 from apps.common.errors import ApiError, error_body, register_error_handlers
+from apps.members.api import router as members_router
+from apps.sante import pack_api
 from apps.storefront import services
 from apps.storefront.auth import server_only
 
@@ -35,6 +37,7 @@ api = NinjaAPI(
     docs_url=None,
 )
 register_error_handlers(api)
+api.add_router("/member/", members_router)
 
 
 class BusinessOut(Schema):
@@ -101,6 +104,9 @@ class ContactOut(Schema):
 def contact(request, body: ContactIn):
     services.send_contact_message(_site(body.host), body.dict(), body.visitor_ip)
     return {"status": "sent"}
+
+
+api.add_router("", pack_api.router)  # the Membership Pack reads (apps/sante/pack_api.py)
 
 
 def _no_such_endpoint(request):
