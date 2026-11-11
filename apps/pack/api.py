@@ -27,7 +27,7 @@ from ninja.files import UploadedFile
 from apps.common import private_files, throttle
 from apps.common.errors import ApiError
 from apps.pack import (
-    access, address_zip, checkout, constants as C, interfaces, notices, onboarding, panels, placement, records,
+    access, address_zip, checkout, constants as C, interfaces, notices, onboarding, panels, placement, policies, records,
     registration, registration_rules, review,
 )
 from apps.members import sessions
@@ -560,3 +560,74 @@ def member_pack_resubmit(request, body: Form[ResubmitIn], proof: File[UploadedFi
     throttle.hit("pack-resubmit", member.pk, limit=10, window=3600)
     review.resubmit(site, member, data=data, upload=proof, ip=_ip(body.visitor_ip))
     return {"pack": panels.pack_panel(member), "registration": None}
+
+
+# -- the store policy pages' data -------------------------------------------------------------------
+
+@router.get("/policies/{slug}/")
+def policy_page(request, slug: str, host: str = ""):
+    """GET /storefront/v1/policies/{slug}/?host=... -> {slug, title, version, effective_date,
+    business, shipping, privacy, links}. 404 (the one shape) until the store has filled every value
+    the page prints, for an unknown slug, an unknown, foreign or non-Santé host, and while PACK_ENABLED
+    is off. The storefronts server renders the page from this data."""
+    data = policies.page(_site(host), slug)
+    if data is None:
+        raise ApiError("not_found", "Not found.", status=404)
+    return data
+
+
+# -- the member dashboard's Santé registration card (TWCinc dashboard/registration/*), by member session
+
+class MemberRegIn(MemberIn):
+    visitor_ip: str = ""
+    mobile: str = ""
+    code: str = ""
+    dob_year: str = ""
+    dob_month: str = ""
+    dob_day: str = ""
+    desired_username: str = ""
+    alternate_username: str = ""
+    terms: bool = False
+
+
+class MemberRegOut(Schema):
+    registration: dict | None
+    mobile: dict
+
+
+def _reg_out(member):
+    member.refresh_from_db()
+    return {"registration": panels.registration_panel(member), "mobile": panels.mobile_check(member)}
+
+
+@router.post("/member/registration/", response=MemberRegOut)
+def member_registration(request, body: MemberRegIn):
+    _, member = _member(body.host, body.token)
+    return _reg_out(member)
+
+
+@router.post("/member/registration/mobile/send/", response=MemberRegOut)
+def member_mobile_send(request, body: MemberRegIn):
+    site, member = _member(body.host, body.token)
+    onboarding.send_member_code(site, member, body.mobile or member.mobile, ip=_ip(body.visitor_ip))
+    return _reg_out(member)
+
+
+@router.post("/member/registration/mobile/verify/", response=MemberRegOut)
+def member_mobile_verify(request, body: MemberRegIn):
+    site, member = _member(body.host, body.token)
+    onboarding.verify_member_code(site, member, body.code, ip=_ip(body.visitor_ip))
+    return _reg_out(member)
+
+
+@router.post("/member/registration/details/", response=MemberRegOut)
+def member_details(request, body: MemberRegIn):
+    site, member = _member(body.host, body.token)
+    parts = (body.dob_year, body.dob_month, body.dob_day)
+    ok = all(p.isascii() and p.isdigit() and len(p) <= 4 for p in parts)
+    dob = f"{body.dob_year}-{int(body.dob_month):02d}-{int(body.dob_day):02d}" if ok else ""
+    registration.submit_details(
+        site, member, date_of_birth=dob, desired_username=body.desired_username,
+        alternate_username=body.alternate_username, terms_accepted=body.terms,
+    )
+    return _reg_out(member)

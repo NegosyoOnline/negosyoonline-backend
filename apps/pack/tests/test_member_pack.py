@@ -135,3 +135,32 @@ class ResubmitTests(MemberPackCase):
     def test_a_bad_session_is_401(self):
         self.reject()
         self.assertEqual(self.resubmit(token="nope").status_code, 401)
+
+
+class MemberRegistrationTests(MemberPackCase):
+    def call(self, path, **fields):
+        return self.client.post(
+            "/storefront/v1/member/registration/" + path,
+            {"host": HOST, "token": self.session, "visitor_ip": VISITOR, **fields},
+            content_type="application/json", secure=True,
+            HTTP_X_REAL_IP="198.51.100.200", HTTP_AUTHORIZATION=f"Bearer {SECRET}",
+        )
+
+    def test_read_and_details_by_session(self):
+        body = self.call("").json()
+        self.assertEqual(body["registration"]["status"], "awaiting_buyer_details")
+        self.assertEqual(self.call("", ).status_code, 200)
+        self.member.__class__.objects.filter(pk=self.member.pk).update(mobile_state="verified")
+        self.order.refresh_from_db()
+        from apps.pack import registration
+        from apps.pack.tests.test_onboarding import ADDRESS
+        self.member.refresh_from_db()
+        registration.save_delivery(self.site, self.member, self.order, ADDRESS)
+        done = self.call("details/", dob_year="1990", dob_month="5", dob_day="17",
+                         desired_username="mariasantos1", alternate_username="mariasantos2", terms=True)
+        self.assertEqual(done.status_code, 200, done.content)
+        self.assertEqual(done.json()["registration"]["status"], "waiting_for_accept")
+
+    def test_a_bad_session_is_401(self):
+        self.session = "nope"
+        self.assertEqual(self.call("").status_code, 401)

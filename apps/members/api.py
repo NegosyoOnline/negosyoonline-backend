@@ -173,3 +173,150 @@ def signout(request, body: SessionIn):
     if session is not None:  # signing out twice, or with an old token, is not an error
         sessions.revoke_session(session)
     return {"status": "signed_out"}
+
+
+# -- the member's Account page (TWCinc negosyoonline_members/site_views.py: account, verify_email,
+#    change_mobile, change_email). Every call carries {host, token} (the member session) and, where a
+#    code is sent or checked, `visitor_ip`. The raw session token is the binding of every code.
+
+from apps.members import contact_change, contacts, holds  # noqa: E402
+
+
+class AccountIn(Schema):
+    host: str = ""
+    visitor_ip: str = ""
+    token: str = ""
+
+
+def _hold_banner(member):
+    hold = holds.current_hold(member)
+    return holds.banner(hold) if hold is not None else ""
+
+
+class AccountOut(Schema):
+    member_name: str
+    mobile_masked: str
+    mobile_state: str
+    email_masked: str
+    email_state: str
+    default_channel: str
+    hold_banner: str
+
+
+@router.post("/account/", response=AccountOut)
+def account(request, body: AccountIn):
+    member = _session(_site(body.host), body.token).member
+    return {
+        "member_name": member.full_name, "mobile_masked": contacts.mask("mobile", member.mobile),
+        "mobile_state": member.mobile_state, "email_masked": contacts.mask("email", member.email),
+        "email_state": member.email_state, "default_channel": services.default_channel(member),
+        "hold_banner": _hold_banner(member),
+    }
+
+
+class VerifyEmailOut(Schema):
+    step: str  # send | code | done
+    email_masked: str
+    message: str
+
+
+def _email_step(site, member, raw):
+    from apps.members import otp
+    if member.email_state == "verified":
+        return "done"
+    return "code" if otp.latest_open(site, purpose="email_verify", binding_raw=raw) else "send"
+
+
+def _email_out(site, member, raw, message=""):
+    return {"step": _email_step(site, member, raw), "email_masked": contacts.mask("email", member.email),
+            "message": message}
+
+
+@router.post("/account/verify-email/", response=VerifyEmailOut)
+def verify_email_state(request, body: AccountIn):
+    site = _site(body.host)
+    return _email_out(site, _session(site, body.token).member, body.token)
+
+
+@router.post("/account/verify-email/send/", response=VerifyEmailOut)
+def verify_email_send(request, body: AccountIn):
+    site = _site(body.host)
+    member = _session(site, body.token).member
+    contact_change.email_verification_start(site, member, session_raw=body.token, ip=_ip(body.visitor_ip))
+    return _email_out(site, member, body.token)
+
+
+class CodeIn(AccountIn):
+    code: str = ""
+
+
+@router.post("/account/verify-email/verify/", response=VerifyEmailOut)
+def verify_email_verify(request, body: CodeIn):
+    site = _site(body.host)
+    session = _session(site, body.token)
+    member = contact_change.email_verification_confirm(
+        site, session.member, session=session, session_raw=body.token, code=body.code, ip=_ip(body.visitor_ip)
+    )
+    return _email_out(site, member, body.token, contact_change.EMAIL_VERIFIED)
+
+
+class ChangeStateOut(Schema):
+    field: str
+    current_masked: str
+    proof_channel: str  # sms | email
+    proof_masked: str
+    step: str  # current | current_code | replacement | replacement_code
+
+
+def _field(field):
+    if field not in ("mobile", "email"):
+        raise ApiError("not_found", "Not found.", status=404)
+    return field
+
+
+def _change_state(site, member, raw, field):
+    channel, target = contact_change._current_target(member, field)
+    return {
+        "field": field, "current_masked": contacts.mask(field, getattr(member, field)),
+        "proof_channel": channel, "proof_masked": contacts.mask("mobile" if channel == "sms" else "email", target),
+        "step": contact_change.change_state(site, member, session_raw=raw, field=field),
+    }
+
+
+@router.post("/account/change/{field}/", response=ChangeStateOut)
+def change_state(request, field: str, body: AccountIn):
+    site, field = _site(body.host), _field(field)
+    return _change_state(site, _session(site, body.token).member, body.token, field)
+
+
+class ChangeIn(CodeIn):
+    action: str = ""  # send_current | verify_current | send_replacement | verify_replacement
+    new_value: str = ""
+
+
+class ChangeOut(Schema):
+    state: ChangeStateOut | None = None
+    changed: bool  # true: the contact was replaced and every session of the member is revoked
+
+
+@router.post("/account/change/{field}/act/", response=ChangeOut)
+def change_act(request, field: str, body: ChangeIn):
+    """`action` is send_current, verify_current (`code`), send_replacement (`new_value`) or
+    verify_replacement (`code`). The last one replaces the contact and revokes every session of the
+    member, this one included: the storefronts server clears its cookie and shows the sign-in page."""
+    site, field = _site(body.host), _field(field)
+    session = _session(site, body.token)
+    member, raw, ip = session.member, body.token, _ip(body.visitor_ip)
+    if body.action == "send_current":
+        contact_change.current_proof_start(site, member, session_raw=raw, field=field, ip=ip)
+    elif body.action == "verify_current":
+        contact_change.current_proof_confirm(site, member, session_raw=raw, field=field, code=body.code, ip=ip)
+    elif body.action == "send_replacement":
+        contact_change.replacement_start(site, member, session_raw=raw, field=field, raw_value=body.new_value, ip=ip)
+    elif body.action == "verify_replacement":
+        contact_change.replacement_confirm(site, member, session=session, session_raw=raw, field=field,
+                                           code=body.code, ip=ip)
+        return {"state": None, "changed": True}
+    else:
+        raise ApiError("not_found", "Not found.", status=404)
+    return {"state": _change_state(site, member, raw, field), "changed": False}

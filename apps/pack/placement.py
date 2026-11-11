@@ -19,7 +19,7 @@ from apps.members import contacts, services as members
 from apps.members.models import MemberOtpChallenge
 from apps.members.otp import binding_hash
 from apps.payments import services as payments
-from apps.pack import checkout, constants as C, notices, proofs, records, registration
+from apps.pack import checkout, constants as C, notices, policies, proofs, records, registration
 from apps.pack.models import CheckoutToken, PackOrder
 from apps.sites.models import Site
 
@@ -48,9 +48,8 @@ def _next_number(site):
 
 
 def _policy_version(site):
-    """The store policy version shown at checkout, recorded only when a policy page is live.
-    Policy pages arrive with PK12; until then none is live and the column stays blank."""
-    return ""
+    """The store policy version shown at checkout, recorded only when a policy page is live."""
+    return policies.accepted_version(site)
 
 
 def _proof_challenge(site, token, raw):
