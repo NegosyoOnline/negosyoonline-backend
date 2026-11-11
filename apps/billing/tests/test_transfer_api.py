@@ -26,7 +26,7 @@ OPTION_KEYS = {
 }
 OFFER_KEYS = {
     "plan", "name", "amount_centavos", "currency", "months", "period_start_at", "period_end_at",
-    "starts_at_confirmation", "then",
+    "starts_at_confirmation", "then", "consent",
 }
 
 

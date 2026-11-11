@@ -7,7 +7,7 @@ from unittest import mock
 from django.test import override_settings
 
 from apps.accounts.models import Account
-from apps.billing import clock, services
+from apps.billing import clock, plan, services
 from apps.billing.models import Subscription
 from apps.operators.models import User
 from apps.sites.models import Site
@@ -118,6 +118,9 @@ def make_operator(username="op"):
 
 def submit(subscription, at, content=JPEG, plan_code="monthly", **fields):
     """The owner sends a proof at `at`. Returns the payment."""
+    if plan_code == "launch_promo":  # the buyer accepts what follows, as the page asks
+        fields.setdefault("renewal_consent", True)
+        fields.setdefault("consent_version", plan.CONSENT_VERSION)
     payment, _ = services.submit_transfer(
         subscription, subscription.site.account, plan_code=plan_code, content=content,
         transferred_on=fields.pop("transferred_on", at.astimezone(MANILA).date()),

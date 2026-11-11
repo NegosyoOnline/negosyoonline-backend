@@ -20,6 +20,9 @@ GRACE = timedelta(days=7)  # L11: no payment outcome by the due date plus 7 days
 DOWNLOAD_WINDOW = timedelta(days=30)
 DELETION_AFTER_PAID = timedelta(days=90)
 DELETION_NEVER_PAID = timedelta(days=30)  # L75
+# The id of the wording a buyer of the Launch Promo accepts. The wording is the frontend's;
+# the backend records only which version was shown (Billing Build B3, question 4).
+CONSENT_VERSION = "promo-consent-1"
 
 
 @dataclass(frozen=True)

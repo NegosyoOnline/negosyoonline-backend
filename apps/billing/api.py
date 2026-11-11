@@ -29,7 +29,9 @@ router = Router(tags=["billing"], auth=signed_in)
 
 WRITE_LIMIT, WRITE_WINDOW = 20, 3600  # cancels and reactivations per account per hour
 PROOF_LIMIT, PROOF_WINDOW = 10, 3600  # proofs of payment per account per hour
-SUBMIT_FIELDS = ("plan", "transferred_on", "transfer_reference", "proof")
+SUBMIT_FIELDS = (
+    "plan", "transferred_on", "transfer_reference", "proof", "renewal_consent", "consent_version",
+)
 PROOF_FILE_NAMES = {
     "image/jpeg": "proof.jpg", "image/png": "proof.png", "application/pdf": "proof.pdf",
 }
@@ -164,6 +166,13 @@ class NextPlanOut(Schema):
     first_due_at: datetime | None
 
 
+class ConsentOut(Schema):
+    required: bool
+    version: str
+    then: NextPlanOut
+    first_due_at: datetime | None
+
+
 class OfferOut(Schema):
     plan: str
     name: str
@@ -174,6 +183,7 @@ class OfferOut(Schema):
     period_end_at: datetime | None
     starts_at_confirmation: bool
     then: NextPlanOut | None
+    consent: ConsentOut | None
 
 
 class TransferAccountOut(Schema):
@@ -294,6 +304,8 @@ def billing_payment_submit(request, site_id: str):
         content=proof.read(),
         transferred_on=transferred_on,
         transfer_reference=request.POST.get("transfer_reference", ""),
+        renewal_consent=request.POST.get("renewal_consent"),
+        consent_version=request.POST.get("consent_version"),
     )
     if created:
         record_event(

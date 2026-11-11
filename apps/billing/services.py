@@ -17,7 +17,8 @@ from django.utils import timezone
 
 from apps.billing import clock, methods, plan, proofs
 from apps.billing.models import (
-    BankTransferEvent, BankTransferPayment, BillingCycle, Subscription, SubscriptionTransition,
+    BankTransferEvent, BankTransferPayment, BillingCycle, RenewalConsent, Subscription,
+    SubscriptionTransition,
 )
 from apps.common.errors import ApiError
 from apps.common.ids import is_public_id
@@ -778,9 +779,14 @@ def _refuse_unpayable(subscription, now):
 
 
 def submit_transfer(
-    subscription, account, *, plan_code, content, transferred_on, transfer_reference="", now=None
+    subscription, account, *, plan_code, content, transferred_on, transfer_reference="",
+    renewal_consent=None, consent_version=None, now=None,
 ):
     """The owner sends a proof of a bank transfer. Returns (payment, created).
+
+    A plan that needs consent (the Launch Promo) is accepted only with `renewal_consent` true
+    and the `consent_version` the offer showed; the consent is stored with the payment. A plan
+    that does not need it ignores both.
 
     Nothing about the subscription changes. A proof sent while another is under review
     replaces it; the same file for the same plan again returns the payment already there.
@@ -799,6 +805,11 @@ def submit_transfer(
     chosen = plan.PLANS.get(plan_code) if isinstance(plan_code, str) else None
     if chosen is None:
         fields["plan"] = "This plan is not offered."
+    if chosen is not None and chosen.needs_consent:
+        if renewal_consent is not True and renewal_consent != "true":
+            fields["renewal_consent"] = "The terms after the first term must be accepted."
+        if consent_version != plan.CONSENT_VERSION:
+            fields["consent_version"] = "The terms shown are out of date. Reload and read them again."
     if not isinstance(transferred_on, date) or isinstance(transferred_on, datetime):
         fields["transferred_on"] = "The date of the transfer is needed."
     elif transferred_on > now.astimezone(clock.MANILA).date():
@@ -850,10 +861,64 @@ def submit_transfer(
             submitted_by=account,
             submitted_at=now,
         )
+        if chosen.needs_consent:
+            _record_consent(subscription, payment, chosen, account, now)
         _transfer_event(payment, "submitted", BankTransferEvent.Actor.OWNER)
         return payment, True
 
     return _write(subscription, now, change)
+
+
+def _term_start(subscription, state):
+    """Where the next term would start and its anchor day, or (None, None) when it starts at
+    the confirmation (an ended site). `payment_options` shows the same dates."""
+    latest = _latest_cycle(subscription)
+    if state == State.TRIAL_ACTIVE:
+        return subscription.trial_end_at, clock.anchor_day(subscription.trial_end_at)
+    if state == State.ACTIVE:
+        return latest.end_at, subscription.anchor_day
+    if state == State.PAYMENT_REQUIRES_ATTENTION:
+        return latest.start_at, subscription.anchor_day
+    return None, None
+
+
+def _consent_shown(offered, state, subscription):
+    """What the buyer must accept before `offered` is bought, or None."""
+    if not offered.needs_consent:
+        return None
+    start_at, anchor = _term_start(subscription, state)
+    first_due = clock.cycle_end(start_at, anchor, offered.months) if start_at else None
+    follows = plan.PLANS[offered.renews_to]
+    return {
+        "required": True,
+        "version": plan.CONSENT_VERSION,
+        "then": {
+            "plan": follows.code,
+            "amount_centavos": follows.price_centavos,
+            "interval": "month",
+            "first_due_at": first_due,
+        },
+        "first_due_at": first_due,
+    }
+
+
+def _record_consent(subscription, payment, bought, account, now):
+    """What the buyer was told about the price after the term, kept with the proof."""
+    follows = plan.PLANS[bought.renews_to]
+    shown = _consent_shown(bought, subscription.state, subscription)
+    RenewalConsent.objects.create(
+        subscription=subscription,
+        payment=payment,
+        plan_code=bought.code,
+        plan_version=bought.version,
+        then_plan_code=follows.code,
+        then_price_centavos=follows.price_centavos,
+        shown_first_due_at=shown["first_due_at"],
+        starts_at_confirmation=shown["first_due_at"] is None,
+        text_version=plan.CONSENT_VERSION,
+        accepted_by=account,
+        accepted_at=now,
+    )
 
 
 def _settle_transfer(subscription, payment, at):
@@ -1052,6 +1117,7 @@ def payment_options(subscription, at=None):
                 "period_start_at": start_at,
                 "period_end_at": end_at,
                 "starts_at_confirmation": start_at is None,
+                "consent": _consent_shown(offered, state, subscription),
                 # After the promo's one term, the price is the Monthly one.
                 "then": None if offered is plan.MONTHLY else {
                     "plan": plan.MONTHLY.code,
@@ -1300,3 +1366,54 @@ def sweep(now=None, *, dry_run=False):
     result = dict(sorted(counts.items()))
     logger.info("Billing sweep%s: %s", " (dry run)" if dry_run else "", result or "nothing due")
     return result
+
+
+def conversion_decision(subscription, at):
+    """What a charge at the first renewal of a Launch Promo term would be allowed to do.
+
+    Only a decision: nothing is charged, opened or written here, and a repeated call gives the
+    same answer and the same key. At launch the answer is `manual`: the Subscriber sends a
+    Monthly proof.
+    """
+    none = {"action": "none", "reason": None, "terms": None, "key": None}
+    if subscription.billing_exempt or subscription.state in (
+        State.CANCELLED, State.CANCELLED_NO_PAYMENT_METHOD, State.SUSPENDED,
+    ):
+        return none
+    cycle = _latest_paid_cycle(subscription)
+    if cycle is None or cycle.plan_code != plan.LAUNCH_PROMO.code or at < cycle.end_at:
+        return none
+    terms = renewal_terms(subscription)
+    payment = BankTransferPayment.objects.filter(cycle=cycle).first()
+    consent = RenewalConsent.objects.filter(payment=payment).first() if payment else None
+    if (
+        consent is None
+        or consent.then_plan_code != terms["plan"]
+        or consent.then_price_centavos != terms["amount_centavos"]
+    ):
+        return {**none, "action": "manual", "reason": "no_valid_consent", "terms": terms}
+    if not methods.reusable(subscription.site):
+        return {**none, "action": "manual", "reason": "no_reusable_method", "terms": terms}
+    next_sequence = _latest_cycle(subscription).sequence + 1
+    return {
+        "action": "charge", "reason": None, "terms": terms,
+        "key": f"renewal:{subscription.pk}:{next_sequence}",
+    }
+
+
+def allowance_period_at(subscription, at):
+    """The paid cycle covering `at`, which monthly allowance period of it `at` falls in, and
+    that period's bounds; None when no paid cycle covers `at`. Reads, stores nothing."""
+    cycle = subscription.cycles.filter(
+        settlement=Settlement.PAID, start_at__lte=at, end_at__gt=at
+    ).first()
+    if cycle is None:
+        return None
+    bought = plan.version_of(cycle.plan_code, cycle.plan_version)
+    periods = clock.allowance_periods(
+        cycle.start_at, subscription.anchor_day, cycle.term_months, bought.allowance_periods
+    )
+    for index, (start, end) in enumerate(periods, start=1):
+        if start <= at < end:
+            return {"cycle": cycle, "index": index, "start_at": start, "end_at": end}
+    return None
