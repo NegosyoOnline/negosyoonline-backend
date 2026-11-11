@@ -119,6 +119,16 @@ class BillingCycle(models.Model):
             models.CheckConstraint(
                 condition=Q(end_at__gt=F("start_at")), name="billing_cycle_end_after_start"
             ),
+            # Every cycle but the trial says what it was opened under (Billing Build B3).
+            models.CheckConstraint(
+                condition=Q(kind="trial") | (
+                    ~Q(plan_code="")
+                    & Q(plan_version__isnull=False)
+                    & Q(price_centavos__isnull=False)
+                    & Q(term_months__isnull=False)
+                ),
+                name="billing_paid_cycle_has_snapshot",
+            ),
             models.UniqueConstraint(
                 fields=["subscription"],
                 condition=Q(settlement="pending"),
