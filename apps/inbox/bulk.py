@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef
 from django.utils import timezone
 
 from apps.common.errors import ApiError
@@ -371,9 +371,11 @@ def settle(batch, now=None):
 def settle_pending():
     """Settle every batch that is over or stopped but still holds a number with the phone."""
     with transaction.atomic():
+        # No join and no DISTINCT: PostgreSQL refuses FOR UPDATE with DISTINCT.
+        holding = BulkRecipient.objects.filter(batch=OuterRef("pk"))
         for batch in BulkBatch.objects.select_for_update().filter(
-            state__in=("stopped", "finished"), recipients__isnull=False
-        ).distinct():
+            Exists(holding), state__in=("stopped", "finished")
+        ):
             settle(batch)
 
 
