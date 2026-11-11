@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>New text | SMS inbox mockup</title>
+<!-- MOCKUP ONLY. Static page with made-up data: no real number, no real text, no application code.
+     Design: docs/superpowers/specs/2026-11-11-sms-inbox-hq-design.md (ClickUp z8uq9me128). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body class="dash-app">
+<a class="skip" href="#main">Skip to content</a>
+<div class="app">
+  <aside class="side dash-chrome" aria-label="HQ navigation">
+    <a class="wordmark" href="index.html" aria-label="NegosyoOnline HQ home"><svg viewBox="0 0 224 200" aria-hidden="true" focusable="false"><path fill="#FFFFFF" d="M0 0H64L160 103V0H224V200H160L64 97V200H0Z"/><path fill="#C59A3B" d="M64 0L160 103V200L64 97Z"/></svg><span>NegosyoOnline</span></a>
+    <div class="side-sep"></div>
+    <div class="ws"><span class="ws-tile" aria-hidden="true">HQ</span><span class="ws-text"><span class="ws-name">NegosyoOnline HQ</span><span class="chip chip-info">Staff only</span></span></div>
+    <div class="side-sep"></div>
+    <nav class="side-nav" aria-label="SMS inbox sections">
+      <a href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 13l2.5-8h11L20 13v6H4zM4 13h5l1 2.5h4l1-2.5h5"/></svg>SMS inbox<span class="count" aria-label="3 unread texts">3</span></a>
+      <a href="compose.html" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></svg>New text</a>
+      <div class="side-sep" role="separator"></div>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 11l8-7 8 7v9H4z"/></svg>Admin console</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 4h12v16H6zM9 8h6M9 12h6M9 16h3"/></svg>Admin lists</a>
+    </nav>
+    <div class="side-foot">
+      <div class="acct-row"><span class="acct-row-ini" aria-hidden="true">SS</span><span class="acct-row-text"><span class="acct-row-name">sample.staff</span><span class="acct-row-sub">Two-step sign-in verified</span></span></div>
+      <a class="no-btn no-btn-ghost" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9"/></svg>Sign out</a>
+    </div>
+  </aside>
+  <header class="topbar dash-chrome">
+    <a class="wordmark" href="index.html" aria-label="NegosyoOnline HQ home"><svg viewBox="0 0 224 200" aria-hidden="true" focusable="false"><path fill="#FFFFFF" d="M0 0H64L160 103V0H224V200H160L64 97V200H0Z"/><path fill="#C59A3B" d="M64 0L160 103V200L64 97Z"/></svg><span>NegosyoOnline</span></a>
+    <div class="top-actions"><button type="button" class="icon-btn" data-theme-toggle aria-label="Switch between dark and light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg></button><span class="acct-btn" aria-label="Signed in as sample.staff">SS</span></div>
+  </header>
+  <div class="col">
+    <div class="desk-switch"><button type="button" class="icon-btn" data-theme-toggle aria-label="Switch between dark and light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg></button></div>
+    <main class="view" id="main">
+      <div class="view-head">
+        <a class="back" href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/></svg>SMS inbox</a>
+        <p class="dash-eyebrow">HQ · Text messages</p>
+        <h1>New text</h1>
+        <p class="view-sub">Send one text to one Philippine mobile number from the NegosyoOnline phone.</p>
+      </div>
+      <div class="cols">
+        <form class="dash-card form-card" action="#" onsubmit="return false">
+          <div class="field">
+            <label for="to">Mobile number</label>
+            <input class="input" id="to" type="tel" inputmode="tel" autocomplete="off" placeholder="0900 000 0000" aria-describedby="to-hint">
+            <p class="hint" id="to-hint">Any Philippine mobile, for example 0900 000 0000 or +63 900 000 0000. After sending, the number is shown masked.</p>
+          </div>
+          <div class="field">
+            <label for="text">Message</label>
+            <textarea class="textarea" id="text" maxlength="400" data-count="text-count" aria-describedby="text-hint" placeholder="Write one text message"></textarea>
+            <p class="hint" id="text-hint">One SMS of at most 160 plain characters. No web links.</p>
+          </div>
+          <div class="form-foot">
+            <span class="counter" id="text-count" aria-live="polite">0 / 160</span>
+            <button class="no-btn no-btn-primary" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 12l16-8-6 16-3-7z"/></svg>Send text</button>
+          </div>
+        </form>
+        <div class="aside">
+          <section class="banner" aria-labelledby="rules-h">
+            <h2 id="rules-h">Before you send</h2>
+            <ul>
+              <li>No marketing or promotions. Service messages only.</li>
+              <li>One number at a time. There is no bulk sending.</li>
+              <li>No web links. A text with a link is refused.</li>
+              <li>The text is kept for 365 days, and who sent it is recorded.</li>
+            </ul>
+          </section>
+          <div class="strip" aria-label="Gateway status">
+            <span class="chip chip-ok"><span class="dot"></span>Gateway phone online</span>
+            <span class="chip chip-neutral">214 of 2,000 texts used today</span>
+          </div>
+        </div>
+      </div>
+      <p class="mock-note"><strong>Mockup note.</strong> The box below shows how a refused text looks. The form keeps what was typed and nothing is sent.</p>
+      <div class="cols">
+        <form class="dash-card form-card" action="#" onsubmit="return false" aria-label="Example of a refused text">
+          <div class="err-box" role="alert">
+            <h2>Nothing was sent</h2>
+            <p>Fix the two fields marked below, then send again.</p>
+          </div>
+          <div class="field">
+            <label for="to-bad">Mobile number</label>
+            <input class="input" id="to-bad" type="tel" value="0900 000" aria-invalid="true" aria-describedby="to-bad-err">
+            <p class="field-err" id="to-bad-err">Enter a valid Philippine mobile number.</p>
+          </div>
+          <div class="field">
+            <label for="text-bad">Message</label>
+            <textarea class="textarea" id="text-bad" maxlength="400" data-count="text-bad-count" aria-invalid="true" aria-describedby="text-bad-err">Hello, please see sample-page.example for the steps.</textarea>
+            <p class="field-err" id="text-bad-err">The text must not contain a web link.</p>
+          </div>
+          <div class="form-foot">
+            <span class="counter" id="text-bad-count">0 / 160</span>
+            <button class="no-btn no-btn-primary" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 12l16-8-6 16-3-7z"/></svg>Send text</button>
+          </div>
+        </form>
+        <div class="aside"></div>
+      </div>
+    </main>
+    <footer class="dash-foot"><p>Mockup for ClickUp z8uq9me128. Made-up data only. Nothing here sends or stores a text.</p></footer>
+  </div>
+  <nav class="tabs dash-chrome" aria-label="SMS inbox sections">
+    <a href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 13l2.5-8h11L20 13v6H4zM4 13h5l1 2.5h4l1-2.5h5"/></svg>Inbox</a>
+    <a href="compose.html" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></svg>New text</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 11l8-7 8 7v9H4z"/></svg>Console</a>
+  </nav>
+</div>
+<script>
+/* Mockup only: the theme button and the character count. The built pages work without script. */
+(function () {
+  var root = document.documentElement;
+  document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var light = root.getAttribute("data-theme") === "light" ||
+        (!root.hasAttribute("data-theme") && window.matchMedia("(prefers-color-scheme: light)").matches);
+      root.setAttribute("data-theme", light ? "dark" : "light");
+    });
+  });
+  document.querySelectorAll("[data-count]").forEach(function (area) {
+    var out = document.getElementById(area.getAttribute("data-count"));
+    function show() {
+      out.textContent = area.value.length + " / 160";
+      out.classList.toggle("over", area.value.length > 160);
+    }
+    area.addEventListener("input", show);
+    show();
+  });
+})();
+</script>
+</body>
+</html>
