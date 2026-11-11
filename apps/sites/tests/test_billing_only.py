@@ -12,6 +12,8 @@ from apps.billing import services
 from apps.billing.api import router as billing_router
 from apps.billing.models import Subscription
 from apps.billing.tests.base import days, method_on_file
+from apps.catalog.api import router as catalog_router
+from apps.catalog.tests.base import VALID_CREATE, designate, make_product
 from apps.sante.api import router as sante_router
 from apps.sites.api import router as sites_router
 from apps.sites.models import Site, SiteBusinessProfile
@@ -26,7 +28,12 @@ TURNED_OFF = [
     ("PATCH", "/sites/{site_id}/business-profile/"),
     ("GET", "/sites/{site_id}/sante/settings/"),
     ("PATCH", "/sites/{site_id}/sante/settings/"),
+    ("GET", "/sites/{site_id}/catalog/products/"),
+    ("POST", "/sites/{site_id}/catalog/products/"),
+    ("PATCH", "/sites/{site_id}/catalog/products/{product_id}/"),
+    ("GET", "/sites/{site_id}/catalog/products/{product_id}/revisions/"),
 ]
+CREATED = [("POST", "/sites/{site_id}/catalog/products/")]  # these answer 201 when they work
 STAYS_ON = [
     ("GET", "/sites/{site_id}/"),
     ("GET", "/sites/{site_id}/billing/"),
@@ -37,7 +44,7 @@ MESSAGE = "This site is limited to Billing until its subscription continues."
 SANTE_BODY = {"sponsor_id": "TAKEN-1"}
 
 
-@override_settings(BILLING_ENABLED=True, SANTE_SETTINGS_ENABLED=True)
+@override_settings(BILLING_ENABLED=True, SANTE_SETTINGS_ENABLED=True, SANTE_CATALOG_ENABLED=True)
 class BillingOnlyTestCase(SitesApiTestCase):
     def setUp(self):
         super().setUp()
@@ -50,21 +57,39 @@ class BillingOnlyTestCase(SitesApiTestCase):
         self.clock = patcher.start()
         self.addCleanup(patcher.stop)
         self.at(self.start + days(1))
+        # The catalog routes work only for the catalog owner site, on a product that exists.
+        self.product = make_product()
+        self.creates = 0
+        designate(self.site)
 
     def at(self, moment):
         self.clock.now.return_value = moment
         return moment
 
     def call(self, method, template, client=None, site_id=None):
-        path = "/v1" + template.replace("{site_id}", site_id or self.site_id)
+        path = "/v1" + template.replace("{site_id}", site_id or self.site_id).replace(
+            "{product_id}", self.product.public_id
+        )
         if method == "GET":
             return self.get(path, client=client)
+        if "/catalog/" in path:
+            return self.send(method.lower(), path, self.catalog_body(method), client=client)
         body = PROFILE_BODY if "business-profile" in path else SITE_BODY
         if "/sante/" in path:
             body = SANTE_BODY
         if "billing" in path:
             body = None
         return self.send(method.lower(), path, body, client=client)
+
+    def catalog_body(self, method):
+        if method == "PATCH":  # the values on file: it works and changes nothing
+            return {"revision": 1, "name": self.product.name}
+        self.creates += 1  # a new code each time, so a repeated create is never a 409
+        return {**VALID_CREATE, "code": f"FX-NEW-{self.creates}"}
+
+    def assert_worked(self, method, template, response):
+        expected = 201 if (method, template) in CREATED else 200
+        self.assertEqual(response.status_code, expected, response.content)
 
     def pay_first_cycle(self):
         with method_on_file():
@@ -100,8 +125,7 @@ class BillingOnlyTestCase(SitesApiTestCase):
     def assert_working(self):
         for method, template in TURNED_OFF:
             with self.subTest(method=method, template=template):
-                response = self.call(method, template)
-                self.assertEqual(response.status_code, 200, response.content)
+                self.assert_worked(method, template, self.call(method, template))
 
 
 class BillingOnlyTests(BillingOnlyTestCase):
@@ -203,10 +227,10 @@ class BillingOnlyTests(BillingOnlyTestCase):
         other = site.public_id
 
         self.assert_turned_off()
+        designate(site)  # the catalog routes work for the catalog owner site only
         for method, template in TURNED_OFF:
             with self.subTest(method=method, template=template):
-                response = self.call(method, template, site_id=other)
-                self.assertEqual(response.status_code, 200, response.content)
+                self.assert_worked(method, template, self.call(method, template, site_id=other))
 
 
 class RouteInventoryTests(BillingOnlyTestCase):
@@ -215,6 +239,7 @@ class RouteInventoryTests(BillingOnlyTestCase):
             routes_under_a_site(sites_router)
             + routes_under_a_site(billing_router)
             + routes_under_a_site(sante_router)
+            + routes_under_a_site(catalog_router)
         )
 
     def test_every_route_under_a_site_is_turned_off_or_allowed_by_name(self):
