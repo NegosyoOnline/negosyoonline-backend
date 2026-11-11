@@ -75,7 +75,7 @@ def _payment_of(body):
 
 def _payment(payment):
     """A payment as Finance sees it. Never where the file is kept, its hash or an account."""
-    bought = plan.PLANS[payment.plan_code]
+    bought = plan.version_of(payment.plan_code, payment.plan_version or 1)
     site = payment.subscription.site
     rejected = payment.status == Status.REJECTED
     cycle = payment.cycle
