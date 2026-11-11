@@ -4,7 +4,7 @@ Status: design approved by Coach Ed on 2026-11-10. Amended the same day to add F
 
 ## 1. Purpose
 
-Rebuild the NegosyoOnline platform backend in this repository as a clean Django API. The legacy implementation inside TWCinc is the behaviour reference only: read it to understand a rule, never copy its code, dependencies or configuration. A separate session builds the frontend against the API described here.
+Rebuild the NegosyoOnline platform backend in this repository as a clean Django API. The legacy implementation inside TWCinc is the behaviour reference only: read it to understand a rule, never copy its code, dependencies or configuration (amended on 2026-11-11 for the Santé port, see section 12). A separate session builds the frontend against the API described here.
 
 ## 2. Decisions
 
@@ -173,7 +173,7 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
 
 ## 10. Out of scope
 
-- Commerce: products, orders, buyer checkout, buyer payments, members, payouts, the Santé pack, media library. These live in other legacy apps that have not been mapped; they need their own scope after this one. The usage figures in slice 5 depend on orders and media, so slice 5 ships its ledger and charging first and is fed real numbers when commerce exists.
+- Commerce: products, orders, buyer checkout, buyer payments, members, payouts, the Santé pack, media library. These live in other legacy apps that have not been mapped; they need their own scope after this one (amended on 2026-11-11 for the Santé port, see section 12). The usage figures in slice 5 depend on orders and media, so slice 5 ships its ledger and charging first and is fed real numbers when commerce exists.
 - Facebook features other than sign-in (pages, posting, catalogue, messaging).
 - Custom domains per subscriber (for example `live4moreonline.store`).
 - Annual billing.
@@ -272,3 +272,12 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
     - D15: a never-paid subscription keeps its download and deletion dates empty until payment collection is live (R-4a), so it has no last date to pay. B2 starts those clocks on the go-live day.
   - The approval covers the plan with these rulings, this amendment, the migration file `apps/billing/migrations/0001_initial.py` and the Celery dependency.
   - The approval does not cover, and each is still Coach Ed's own yes, on staging only: running the migration, setting `BILLING_ENABLED`, running the backfill (dry run included), creating the `worker` service, creating the `beat` service, any other variable. Production is not part of it.
+- 2026-11-11: the Santé Barley Site MVP is ported into NegosyoOnline, from Coach Ed's rulings of 2026-11-11 on ClickUp task z8uq9m92fv (comments 1100430000483854 and 1100430000484157) and his approval the same day of this scope amendment and of the slice plan ("Yes, approve" to each). Sections 1 and 10 carry a pointer to this entry. This entry is words only: it adds no code, model, migration, dependency, variable or service.
+  - The port ruling. The Santé Barley Site MVP (z8uq9m92fv) was built and approved in TWCinc. It is ported and adapted into this backend and the frontend, not rebuilt from scratch and not copied wholesale. For this work only, section 1's "never copy its code" is replaced by: TWCinc Santé code may be copied and adapted, never imported. No TWC dependency, secret or deployment configuration is carried over. For everything else section 1 stands.
+  - Section 10. It no longer excludes products, orders, buyer checkout, buyer payments, members, payouts and the Santé pack. The media library, custom domains and production deployment stay out of scope.
+  - Rendering and sessions. `apps/storefronts` in the frontend renders the Santé site and the Member dashboard on its server, with the approved CSS, JS and images unchanged. Its server holds the member, cart and checkout cookies on the site's own host and calls Django on a new storefront-only surface with one server secret. Storefront origins stay out of the API allowlist; section 4 is unchanged. The secret itself is not yet approved: neither its Railway variable nor its Vercel variable.
+  - Texts. One-time codes (member sign-in, cash-on-delivery verification, withdrawal request) and order-status texts may go to members and buyers. Security notices and the Subscriber's new-withdrawal notice go by email only. No text carries a link. The privacy wording for these recipients is checked before any member text is switched on.
+  - Launch control. No gate is built, as already ruled in the Santé capability entry above. Each Santé surface ships behind its own settings switch, off by default.
+  - Unchanged and restated: one site per account (section 2); subdomains only; Santé is the only site type.
+  - Planned backend apps, named only: Santé settings, catalog, members, orders, pack, product checkout, earnings. Naming them here approves none of them. Each model, migration, dependency, variable and service still needs its own approval.
+  - Open, and not approved by this entry: where private files live; per-site Xendit keys and webhook; whether E8 earnings is approved for porting.
