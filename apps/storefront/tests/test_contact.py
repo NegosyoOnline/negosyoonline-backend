@@ -68,7 +68,10 @@ class SendTests(ContactTestCase):
             parseaddr(header(sent, "From")),
             ("Ana's Store", parseaddr(settings.DEFAULT_FROM_EMAIL)[1]),
         )
-        self.assertEqual(sent.subject, "[Ana's Store] New message from Maria Santos")
+        self.assertEqual(sent.subject, "[Ana's Store] Barley for my lola (from Maria Santos)")
+        self.assertEqual(
+            header(sent, "Subject"), "[Ana's Store] Barley for my lola (from Maria Santos)"
+        )
         self.assertEqual(
             sent.body,
             "New message from the Ana's Store website contact form.\n\n"
@@ -112,20 +115,22 @@ class SendTests(ContactTestCase):
         self.assertNotIn(self.site.account.email, text)
         self.assertNotIn("ana@example.test", text)
 
-    def test_an_optional_subject_and_the_field_limits(self):
+    def test_the_field_limits(self):
         self.assert_answer(
             self.post(
-                name=" Maria\r\n Santos " + "x" * 200, email="  MARIA@Visitor.TEST ", subject="",
-                message="  " + "m" * 5000 + "  ",
+                name=" Maria\r\n Santos " + "x" * 200, email="  MARIA@Visitor.TEST ",
+                subject=" Bulk\r\n order " + "s" * 300, message="  " + "m" * 5000 + "  ",
             ),
             200, SENT,
         )
 
         (sent,) = mail.outbox
         name = ("Maria Santos " + "x" * 200)[:120]
-        self.assertEqual(sent.subject, f"[Ana's Store] New message from {name}")
+        topic = ("Bulk order " + "s" * 300)[:200]
+        self.assertEqual(sent.subject, f"[Ana's Store] {topic} (from {name})")
         self.assertEqual(sent.reply_to, ["maria@visitor.test"])
-        self.assertIn("Subject: (none)\n\n" + "m" * 4000 + "\n", sent.body)
+        self.assertIn(f"Subject: {topic}\n\n" + "m" * 4000 + "\n", sent.body)
+        self.assertNotIn("(none)", sent.body)
         self.assertNotIn("m" * 4001, sent.body)
 
     def test_one_store_never_receives_another_stores_message(self):
@@ -166,12 +171,16 @@ class NotSentTests(ContactTestCase):
             ({"name": "  "}, {"name": ["Please enter your name."]}),
             ({"email": "not-an-email"}, {"email": ["Please enter a valid email address."]}),
             ({"email": None}, {"email": ["Please enter a valid email address."]}),
+            ({"subject": ""}, {"subject": ["Please enter a subject."]}),
+            ({"subject": " \r\n\x00 "}, {"subject": ["Please enter a subject."]}),
+            ({"subject": None}, {"subject": ["Please enter a subject."]}),
             ({"message": " \n "}, {"message": ["Please enter a message."]}),
             (
-                {"name": "", "email": "", "message": ""},
+                {"name": "", "email": "", "subject": "", "message": ""},
                 {
                     "name": ["Please enter your name."],
                     "email": ["Please enter a valid email address."],
+                    "subject": ["Please enter a subject."],
                     "message": ["Please enter a message."],
                 },
             ),
@@ -327,6 +336,14 @@ class HeaderInjectionTests(ContactTestCase):
                     sent = self.assert_one_clean_email()
                     for char in self.BREAKS:
                         self.assertNotIn(char, sent.subject)
+                    typed = "Maria Bcc: thief@example.test X-Injected: yes"
+                    topic, name = {
+                        "name": ("Barley for my lola", typed), "subject": (typed, "Maria Santos"),
+                    }[field]
+                    self.assertEqual(sent.subject, f"[Ana's Store] {topic} (from {name})")
+                    # a long header is folded over lines when written; unfolded it is the subject
+                    self.assertEqual(" ".join(header(sent, "Subject").split()), sent.subject)
+                    self.assertIn(f"Subject: {topic}\n", sent.body)
 
     def test_an_email_that_is_not_one_address_is_refused(self):
         tries = (
@@ -387,6 +404,7 @@ class NothingStoredTests(ContactTestCase):
         with CaptureQueriesContext(connection) as queries:
             self.assert_answer(self.post(), 200, SENT)
             self.assertEqual(self.post(name="").status_code, 400)
+            self.assertEqual(self.post(subject="").status_code, 400)
             self.assert_answer(self.post(website="x"), 200, SENT)
             for _ in range(services.CONTACT_LIMIT):
                 self.post()
