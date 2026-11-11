@@ -4,6 +4,8 @@ rule for old sessions.
 Called by apps.accounts.retention. While MEMBERS_ENABLED is off every function here answers
 empty and reads no member table.
 """
+from datetime import timedelta
+
 from django.db.models import Q
 
 from apps.common import retention
@@ -14,6 +16,7 @@ from apps.sites.models import Site
 
 MEMBERS, SESSIONS = "members", "member_sessions"
 CHALLENGES, AUDITS = "member_otp_challenges", "member_contact_audits"
+CHALLENGE_GRACE = timedelta(hours=24)
 MEMBER_PERSONAL = ("full_name", "mobile", "email", "delivery_address")
 
 
@@ -119,10 +122,11 @@ def expired_member_sessions(now, dry_run):
 
 @retention.behind_switch
 def expired_member_challenges(now, dry_run):
-    """Sign-in code rows (they hold the contact a code was sent to), 30 days after they expired."""
+    """Code rows (they hold the contact a code was sent to), 24 hours after they expired, decoys
+    included. The send records of the texts follow their own 365-day rule and stay."""
     if not services.enabled():
         return 0
-    rows = MemberOtpChallenge.objects.filter(expires_at__lte=now - retention.CREDENTIAL_GRACE)
+    rows = MemberOtpChallenge.objects.filter(expires_at__lte=now - CHALLENGE_GRACE)
     return retention.remove(rows, dry_run)
 
 

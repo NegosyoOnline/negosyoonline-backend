@@ -10,11 +10,12 @@ from django.utils import timezone
 from apps.common.errors import ApiError
 from apps.members import holds, hooks, otp
 from apps.members.models import MemberOtpChallenge
+from apps.notifications import sms
 from apps.notifications.services import EmailNotSent, send_email
 
 logger = logging.getLogger(__name__)
 
-HELD_OUTCOMES = frozenset({"paused", "refused_not_test_number", "offer_email"})
+HELD_OUTCOMES = frozenset({"paused", "refused_not_test_number", "offer_email", "sms_unavailable", "held"})
 PAUSE_MESSAGE = "Please try again shortly."
 NOT_TEST_NUMBER = "This number cannot receive messages yet."
 SMS_UNAVAILABLE = "Text messages are not available yet. Please try again later."
@@ -47,6 +48,8 @@ def outcome_error(outcome, *, field="contact"):
         return ApiError("sms_paused", PAUSE_MESSAGE, status=503)
     if outcome == "refused_not_test_number":
         return ApiError("not_test_number", NOT_TEST_NUMBER, fields={field: [NOT_TEST_NUMBER]})
+    if outcome == "sms_unavailable":
+        return ApiError("sms_unavailable", SMS_UNAVAILABLE, status=503)
     if outcome == "mail_failed":
         return ApiError("mail_failed", MAIL_FAILED, status=503)
     return None
@@ -89,8 +92,24 @@ EMAIL_TEXTS = {  # purpose -> (subject, first line, closing line)
 }
 
 
+NEUTRAL_NAME = "Your store"
+
+
+def sms_store_name(site):
+    """The store name as it may stand in a text: plain GSM-7 letters only, and never a web address.
+    A name that cannot be made so, or that pushes the text past one SMS, becomes NEUTRAL_NAME."""
+    return "".join(ch for ch in store_name(site) if ch in sms._PLAIN and ch not in "\r\n").strip() or NEUTRAL_NAME
+
+
 def otp_sms_body(site, code, purpose="signin"):
-    return SMS_BODIES.get(purpose, SMS_SIGNIN).format(name=store_name(site), code=code)
+    """The code text, byte for byte the TWCinc wording. send_sms refuses a text that is over 160
+    characters, not plain GSM-7, or holds a web address; the name is the only free part, so it is
+    cleaned here and, if the text would still be refused, swapped for the neutral name."""
+    template = SMS_BODIES.get(purpose, SMS_SIGNIN)
+    body = template.format(name=sms_store_name(site), code=code)
+    if sms.text_problem(body):
+        body = template.format(name=NEUTRAL_NAME, code=code)
+    return body
 
 
 def otp_email(site, code, purpose="signin"):

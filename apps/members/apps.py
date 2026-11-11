@@ -8,3 +8,6 @@ class MembersConfig(AppConfig):
 
     def ready(self):
         from apps.members import checks, retention  # noqa: F401  register the check and the rule
+        from apps.members import sms
+
+        sms.register()

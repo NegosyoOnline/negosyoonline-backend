@@ -202,6 +202,16 @@ The app can forward the texts the SIM receives. A phone's own switch is **off** 
 - The six routes under `/staff/v1/inbox/`, each a `POST`, are closed while `SMS_INBOX_ENABLED` is off and to a staff user without access.
 - There is still no screen: the pages are the next plan.
 
+## Member one-time codes
+
+A Santé member's code goes by SMS through `send_sms` with no email fallback: `member_signin_code` (signing in by mobile) and `member_mobile_verify` (confirming the mobile after the first order). Both are codes: they count against the platform limit only, never a site limit, and are never paced. The code is sent only while `MEMBERS_ENABLED` and `SMS_GATEWAY_ENABLED` are both on; with the gateway off a sign-in by mobile answers 503 `sms_unavailable` for every input.
+
+- Paused or the platform limit reached: 503 `sms_paused`, checked before any member lookup, so it is the same for every input.
+- Phone offline: a member with a verified email is offered the email (sign-in only; the onboarding mobile never is, because it proves the phone). Otherwise the answer is the neutral one for a signed-out request and 503 `sms_unavailable` for an onboarding code.
+- The text names the store, never NegosyoOnline. A store name that is not plain GSM-7, holds a web address or pushes the text past 160 characters is replaced by "Your store".
+- A disposed member's number is never texted. The code rows are deleted 24 hours after they expire; the send records follow the 365-day rule below.
+- Local test: the fake phone below prints the exact text.
+
 ## Local development
 
 No phone is needed. With `DJANGO_DEBUG=true` and `SMS_GATEWAY_ENABLED=1` in the ignored `.env`, and the server running in one process:

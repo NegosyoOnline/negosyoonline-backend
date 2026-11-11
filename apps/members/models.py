@@ -95,7 +95,7 @@ class MemberSession(models.Model):
 
 
 class MemberOtpChallenge(models.Model):
-    """A six-digit code: SHA-256 stored, 10 minutes, single use, 5 wrong guesses burn it, bound to
+    """A six-digit code: HMAC-SHA256 (keyed with SECRET_KEY) stored, 10 minutes, single use, 5 wrong guesses burn it, bound to
     one browser (or to the member session). A decoy has no member and a code_hash that can never
     match. The row holds the contact it was sent to, so retention deletes it soon after expiry."""
 
