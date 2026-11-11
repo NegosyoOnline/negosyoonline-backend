@@ -9,6 +9,7 @@ from django.db import IntegrityError, transaction
 
 from apps.accounts.models import Account
 from apps.accounts.services import record_event
+from apps.billing import services as billing
 from apps.common.errors import ApiError
 from apps.common.phones import normalise_ph_mobile
 from apps.sites import onboarding, subdomains, templates
@@ -105,7 +106,8 @@ def _locked_record(account):
 
 @transaction.atomic
 def create_first_site(account, *, template, subdomain, display_name):
-    """Create the account's first Site with its Subdomain and business profile, or nothing."""
+    """Create the account's first Site with its Subdomain, business profile and Subscription,
+    or nothing."""
     if account.email_verified_at is None:
         raise ApiError("email_not_verified", "Confirm your email to continue.", status=403)
     record = _locked_record(account)
@@ -135,6 +137,7 @@ def create_first_site(account, *, template, subdomain, display_name):
     except IntegrityError:  # another account took the name between the check and the insert
         raise _subdomain_error(subdomains.TAKEN) from None
     SiteBusinessProfile.objects.create(site=site)
+    billing.start_subscription(site, account)  # nothing while BILLING_ENABLED is off
     record.first_site = site
     record.save(update_fields=["first_site", "updated_at"])
     onboarding.stamp(account)

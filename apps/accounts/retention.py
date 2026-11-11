@@ -17,6 +17,7 @@ from apps.accounts.models import (
     PolicyAcceptance,
     Session,
 )
+from apps.billing import services as billing
 from apps.common import retention
 from apps.common.disposal import DISPOSED_DOMAIN, disposed_address, is_disposed_address
 from apps.notifications import retention as email_records
@@ -47,6 +48,16 @@ class SwitchedOff(Exception):
 
 class AlreadyDisposed(Exception):
     """The account is disposed of: there is nothing left to export."""
+
+
+class NotDisposable(Exception):
+    """The account cannot be disposed of yet. Its subscriptions were cancelled; nothing was
+    blanked. `reasons` says why and until when, and `cancelled` which sites were cancelled."""
+
+    def __init__(self, step):
+        super().__init__("The account cannot be disposed of yet.")
+        self.reasons = step.reasons
+        self.cancelled = step.cancelled
 
 
 @retention.behind_switch
@@ -98,7 +109,18 @@ def dispose_account(account, *, now, rule, actor=None, request_ref="", dry_run=F
     Returns the count per table, or None when the account is already disposed of. A dry run
     returns the same counts and changes nothing. A real run needs RETENTION_ENABLED and writes
     one `account_disposed` audit entry in the same transaction as the blanking.
+
+    The account's subscriptions are cancelled first. While a paid term is still running a real
+    run keeps that cancellation, blanks nothing and raises NotDisposable; a dry run adds
+    `refused_for_now` to the counts instead.
     """
+    result = _dispose(account, now, rule, actor, request_ref, dry_run)
+    if isinstance(result, NotDisposable):
+        raise result  # raised outside the transaction, so the cancellation is kept
+    return result
+
+
+def _dispose(account, now, rule, actor, request_ref, dry_run):
     request_ref = _checked_ref(request_ref)
     if not dry_run and not retention.enabled():
         raise SwitchedOff()
@@ -107,6 +129,9 @@ def dispose_account(account, *, now, rule, actor=None, request_ref="", dry_run=F
         account = rows.get(pk=account.pk)
         if is_disposed(account):  # checked again under the lock
             return None
+        step = billing.prepare_disposal(account, now, dry_run=dry_run)
+        if step.reasons and not dry_run:
+            return NotDisposable(step)
         address = account.email
         sessions = Session.objects.filter(account=account)
         identities = ExternalIdentity.objects.filter(account=account)
@@ -135,7 +160,11 @@ def dispose_account(account, *, now, rule, actor=None, request_ref="", dry_run=F
                 earlier, dry_run
             ),
         }
+        if step.cancelled:
+            counts["subscriptions_cancelled"] = len(step.cancelled)
         if dry_run:
+            if step.reasons:
+                counts["refused_for_now"] = list(step.reasons)
             return counts
         sessions.delete()
         identities.delete()
@@ -167,8 +196,11 @@ def never_verified_accounts(now, dry_run):
         return rows.count()
     count = 0
     for account in list(rows):
-        if dispose_account(account, now=now, rule=NEVER_VERIFIED) is not None:
-            count += 1
+        try:
+            if dispose_account(account, now=now, rule=NEVER_VERIFIED) is not None:
+                count += 1
+        except NotDisposable:
+            continue  # a paid term is running; the next run tries again
     return count
 
 

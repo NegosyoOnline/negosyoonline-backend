@@ -26,6 +26,7 @@ ACTIONS = {
     "retention_run": KEPT,
     "account_disposed": KEPT,
     "account_exported": KEPT,
+    "billing_exempt_set": KEPT,
 }
 SIGN_IN_ACTIONS = ("admin_sign_in_ok", "admin_sign_in_failed", "admin_locked", "admin_sign_out")
 IDENTITY_TARGET = "admin_identity"
