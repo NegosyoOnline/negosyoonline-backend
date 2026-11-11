@@ -146,3 +146,79 @@ Open pull requests when checked (2026-11-11): none. Checked again before the PR 
 | Health timeout typed in Settings, not set through the `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` variable | The task allows no variable change | Task rules; healthchecks page |
 | Plan file renamed to `…-railway-dashboard-settings.md` | The old title named the dropped route | Brief |
 | Branch name kept | Renaming a branch helps no one and the task ID is in it | `/clickup-builder` |
+
+## 10. Addendum, 2026-11-11: the api health check, and what the dashboard steps showed
+
+Status of this section: **not approved.** Written after the coordinator applied the dashboard values on staging (with Coach Ed's go-ahead, 12:45 +08:00). The facts in 10.1 are the coordinator's report; this session ran no Railway command. Draft PR 74 stays a draft.
+
+### 10.1 What happened, and where the plan above was wrong
+
+| Plan said | What staging showed |
+|---|---|
+| Section 3.1: `api` gets health path `/healthz/`, timeout 120, "equal to today's `railway.toml`" | `api` deployment `33d647de` **failed**. Railway's check (user agent `RailwayHealthCheck/1.0`) got HTTP 301 on `/healthz/` eight times. The earlier good deployment `fd6d2965` has no such request in its log, so the `healthcheckPath` in `railway.toml` was never checked. The old deployment still serves. |
+| Section 4: the old file wins over the dashboard until it is removed | `worker` deployment `ce6be1bd` ran Celery from its dashboard start command with `railway.toml` still in the repository. For `api`, the dashboard's health path was checked although the file's never was. So the old files are not what these services follow. U1 is answered for `worker`: yes. |
+| Step 5: clear `worker`'s config file path | No path was set on either service. Step 5 has nothing to do. |
+| "Going back": reverting the PR restores the files, which Railway reads until 2026-12-01 | Not to be relied on, for the reason in the second row. The Settings values are the only source that staging has been seen to follow. |
+| Section 3: labels not confirmed | Seen: "Custom Build Command", "Custom Start Command", "Healthcheck Path", "Healthcheck Timeout" (shown once a path is set; placeholder 300), "Restart Policy" with "Max restart retries", "Railway Config File" (button "Add File Path"), "Regions & Replicas". Changes are staged; "Details" lists them and "Deploy Changes" applies and redeploys. |
+
+Until the health path is removed from `api`'s Settings or the check can pass, **every merge to `main` fails to deploy on staging `api`**, for every session.
+
+### 10.2 Why the check gets a 301
+
+- `config/settings.py` line 260 sets `SECURE_SSL_REDIRECT = True` whenever `DJANGO_DEBUG` is false. A request counts as HTTPS only when it carries `X-Forwarded-Proto: https` (line 256).
+- Railway's check calls the container directly, with host `healthcheck.railway.app`, and passes on "any `2xx` status code" (healthchecks page). The page does not say whether the call is HTTP or HTTPS and mentions no forwarded header; the 301 shows it arrives as plain HTTP.
+- Reproduced here without Railway, with `DJANGO_DEBUG=false` and Django's test client: `GET /healthz/` over plain HTTP with host `healthcheck.railway.app` returns `301` to `https://healthcheck.railway.app/healthz/`. A 301, not a 400, also shows the host is already allowed.
+
+### 10.3 Options
+
+**(a) No health path on `api`, as it effectively always was.**
+- What: remove "Healthcheck Path" from `api`'s Settings and deploy. The runbook table records `api`'s health path as empty.
+- Effect: staging deploys work again at once. Railway switches to a new deployment when its container has started, without asking it anything, which is how every deployment so far has gone live.
+- What still checks health: `verify-staging.yml` and `scripts/verify_deploy.sh` call `/healthz/` from outside over HTTPS after a deploy. That is unchanged.
+- Also needed: `README.md` line 42 ("The deployment must return HTTP 200 from `/healthz/` before Railway accepts it as healthy") has never been true and is corrected in PR 74.
+- No application code. One Railway write.
+
+**(b) Let `/healthz/` answer over plain HTTP, so Railway's check passes.**
+- What: one line in `config/settings.py`, inside the `if not DEBUG:` block: `SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]`. The health path and timeout stay in `api`'s Settings.
+- Tried here with the setting overridden, no file changed: plain-HTTP `GET /healthz/` returns `200`; `/v1/openapi.json`, `/healthz` (no slash) and `/healthz/x` still return `301`; a host that is not allowed still returns `400`.
+- What it changes for security: one URL answers without HTTPS. Its whole response is `{"status": "ok", "commit": "<12 characters>"}`: no cookie, no session, no personal data, no input read. Someone able to read or alter plain-HTTP traffic could see or fake that one response. Every other path keeps the redirect, and HSTS, sent only on HTTPS answers, is unchanged. Whether Railway's public edge even passes plain HTTP to the container, or redirects it first, is not known; if it redirects, the exemption is reachable only from inside Railway.
+- What it gains: for the first time a new `api` deployment must answer before it takes traffic, so a release that starts but cannot serve is not switched to.
+- Tests it needs (in `apps/health/tests.py`, with `SECURE_SSL_REDIRECT=True` set for the test): `/healthz/` over plain HTTP returns 200 with the ok body; another path over plain HTTP still returns 301; `/healthz/` over plain HTTP sets no cookie.
+- A code change to a security setting, merged through a PR. While it is unmerged, staging `api` deploys keep failing unless (a) is done first.
+
+**(c) Anything else Railway documents.**
+- Nothing found. The healthchecks page covers the allowed host, the `PORT` used, the `2xx` rule and the timeout, and says nothing about HTTPS redirects or a header the check sends.
+- Not documented and not recommended: exempting by the `healthcheck.railway.app` host name in our own middleware. It is more code than (b) and no safer, because any caller can send that host name.
+
+### 10.4 Recommendation
+
+**(a) now, and (b) as its own small task.**
+
+- (a) is the only option that unblocks staging without a merge, and it restores what was actually running, which is what this task promised ("carrying today's settings unchanged").
+- (b) is worth doing, because it turns the health path into a real gate. But it changes a security setting and application code, which this task's description does not list, and it should not be rushed in to rescue a failing deploy. Once (b) is merged and seen answering 200 over plain HTTP on staging, the health path and timeout are typed back in and the runbook table is updated.
+
+### 10.5 Scope and who decides
+
+| Item | In this task? | Needs Coach Ed |
+|---|---|---|
+| (a) Remove the health path from `api`'s Settings | Yes: a dashboard value of this task | Yes: a Railway write, and it departs from the task's "health path `/healthz/`, timeout 120" |
+| Runbook table: `api` health path empty, with one sentence saying why | Yes | No, once (a) is approved |
+| `README.md` line 42 corrected | Yes: a document that would otherwise state something untrue about the deploy | No (routine); listed as a choice |
+| (b) `SECURE_REDIRECT_EXEMPT` and its tests | No: application code and a security setting; a new ClickUp task | Yes: scope and security |
+| `CLAUDE.md` line 26 | In the plan; still waiting for his word in the builder session | Yes |
+
+### 10.6 The order of steps, corrected
+
+1. Coach Ed decides 10.3. Under (a): the health path is removed from `api`'s Settings and deployed; the new `api` deployment succeeds and shows the Custom Start Command; `/healthz/` answers ok from outside.
+2. The builder updates PR 74 (runbook values and labels, README line 42), pushes, CI passes.
+3. PR 74 merges. Staging deploys `api` and `worker` with no old file in the repository.
+4. The checks of step 7 in section 4.
+5. `beat`, under its own approval, as step 8 in section 4.
+
+Steps 2 to 5 of section 4 are done or moot: the values are typed and read back; there was no config file path to clear.
+
+### 10.7 Still unknown after this
+
+- Whether `railway.toml` is read at all for `api` today. If it is not, how the earlier deployments got Gunicorn's start command with an empty Custom Start Command is not explained. It no longer matters once the Settings hold the command, but it means a revert of PR 74 is not a tested way back.
+- Whether Railway's public edge forwards plain HTTP to the container (bears on (b) only).
+- Whether an `api` deployment with the Custom Start Command and no health path succeeds: expected, not yet seen, because `33d647de` failed on the health check.
