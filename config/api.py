@@ -11,6 +11,7 @@ from apps.accounts.api_facebook import router as facebook_router
 from apps.billing.api import router as billing_router
 from apps.sante.api import router as sante_router
 from apps.sites.api import router as sites_router
+from apps.sites.api_public import router as public_sites_router
 
 api = NinjaAPI(
     title="NegosyoOnline API",
@@ -25,6 +26,7 @@ api.add_router("", facebook_router)
 api.add_router("", connections_router)
 api.add_router("", sites_router)
 api.add_router("", billing_router)
+api.add_router("", public_sites_router)
 api.add_router("", sante_router)
 
 

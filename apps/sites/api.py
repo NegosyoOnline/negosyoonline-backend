@@ -1,7 +1,9 @@
 """Site, business profile and onboarding endpoints. Shapes here are the frontend's contract.
 
 Every endpoint is signed-in only, and every site is reached through services.site_for, so
-another account's site answers the same 404 as one that does not exist.
+another account's site answers the same 404 as one that does not exist. Saving a site, and
+reading or saving its business profile, answer 403 `billing_only` once the site's subscription
+is suspended or ended; the site list, the site detail and the setup answer as always.
 """
 from datetime import datetime
 
@@ -10,6 +12,8 @@ from ninja import Router, Schema
 from pydantic import ConfigDict
 
 from apps.accounts.api import signed_in
+from apps.billing import services as billing
+from apps.common.errors import ApiError
 from apps.common.pagination import DEFAULT_LIMIT, page
 from apps.common.throttle import hit
 from apps.sites import onboarding, services, subdomains, templates
@@ -135,6 +139,19 @@ class SetupOut(Schema):
     minimum_completed_at: datetime | None
 
 
+def _owner_site(request, site_id):
+    """The signed-in account's site, for an owner function that is off once the site is
+    Billing-only: suspended, or cancelled after its service ended. A site that is not the
+    account's answers the usual 404 first. With billing off nothing is refused."""
+    site = services.site_for(request.account, site_id)
+    if billing.position(site).billing_only:
+        raise ApiError(
+            "billing_only", "This site is limited to Billing until its subscription continues.",
+            status=403,
+        )
+    return site
+
+
 def _subdomain_of(site):
     """The site's active name, from the prefetched rows when there are any."""
     for row in site.subdomains.all():
@@ -201,7 +218,7 @@ def site_detail(request, site_id: str):
 
 @router.patch("/sites/{site_id}/", response=SiteOut)
 def site_update(request, site_id: str, payload: SitePatch):
-    site = services.site_for(request.account, site_id)
+    site = _owner_site(request, site_id)
     return site_out(
         services.update_site(request.account, site, payload.dict(exclude_unset=True))
     )
@@ -209,12 +226,12 @@ def site_update(request, site_id: str, payload: SitePatch):
 
 @router.get("/sites/{site_id}/business-profile/", response=BusinessProfileOut)
 def business_profile_detail(request, site_id: str):
-    return services.site_for(request.account, site_id).business_profile
+    return _owner_site(request, site_id).business_profile
 
 
 @router.patch("/sites/{site_id}/business-profile/", response=BusinessProfileOut)
 def business_profile_update(request, site_id: str, payload: BusinessProfilePatch):
-    site = services.site_for(request.account, site_id)
+    site = _owner_site(request, site_id)
     return services.update_business_profile(
         request.account, site, payload.dict(exclude_unset=True)
     )
