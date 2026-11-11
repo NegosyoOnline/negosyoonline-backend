@@ -1,16 +1,21 @@
 from datetime import timedelta
+from io import StringIO
 
 from django.contrib.sessions.models import Session as DjangoSession
+from django.core.management import call_command
 from django.test import override_settings
 from django.utils import timezone
 
 from apps.common import retention
+from apps.operators import audit
 from apps.operators.models import (
     AdminIdentity,
     AdminRecoveryCode,
     AdminSession,
     AdminSignInChallenge,
+    OperatorAuditEntry,
 )
+from apps.operators.retention import admin_audit_personal_values
 from apps.operators.tests.base import TwoStepTestCase
 
 CODES, SESSIONS, DJANGO = (
@@ -101,3 +106,89 @@ class AdminSignInRetentionTests(TwoStepTestCase):
         before = self.state()
         retention.run_all(now=self.now, only=RULES)
         self.assertEqual(self.state(), before)
+
+
+AUDIT = "admin_audit_personal_values"
+YEAR = timedelta(days=365)
+
+
+@override_settings(RETENTION_ENABLED=True)
+class AdminAuditPersonalValuesTests(TwoStepTestCase):
+    """D4: the rows are kept; their personal values are blanked 1 year after they were written."""
+
+    def setUp(self):
+        super().setUp()
+        self.now = timezone.now()
+        self.operator = self.staff()
+
+    def entry(self, action, age, personal=None):
+        row = audit.record(
+            self.operator, action, target_type="admin_identity", target_id=7,
+            reason="why", detail={"surface": "hq", "step": "code"}, personal=personal,
+        )
+        OperatorAuditEntry.objects.filter(pk=row.pk).update(at=self.now - age)
+        return row
+
+    def build(self):
+        self.old = self.entry("admin_sign_in_ok", YEAR, {"email": "ana@example.test"})
+        self.old_empty = self.entry("admin_sign_in_failed", YEAR + timedelta(days=40))
+        self.recent = self.entry(
+            "admin_locked", YEAR - timedelta(minutes=1), {"email": "ana@example.test"}
+        )
+        self.kept = self.entry("admin_identity_reset", YEAR)
+
+    def rows(self):
+        return list(OperatorAuditEntry.objects.order_by("pk").values())
+
+    def test_old_personal_rows_are_blanked_and_stamped_and_every_row_stays(self):
+        self.build()
+        before = self.rows()
+
+        report = retention.run_all(now=self.now, only=[AUDIT])
+
+        self.assertEqual(report.counts, {AUDIT: 2})
+        after = {row["id"]: row for row in self.rows()}
+        for row in before:
+            now_row = after[row["id"]]
+            if row["id"] in (self.old.pk, self.old_empty.pk):
+                self.assertEqual(now_row["personal"], {})
+                self.assertEqual(now_row["personal_blanked_at"], self.now)
+                kept = set(row) - {"personal", "personal_blanked_at"}
+                self.assertEqual({k: now_row[k] for k in kept}, {k: row[k] for k in kept})
+            else:
+                self.assertEqual(now_row, row)
+        self.assertEqual(after[self.recent.pk]["personal"], {"email": "ana@example.test"})
+        # Nothing was deleted: the four rows and the run log.
+        self.assertEqual(len(after), 5)
+        log = OperatorAuditEntry.objects.get(action="retention_run")
+        self.assertEqual(log.detail["counts"], {AUDIT: 2})
+        self.assertNotIn("example.test", str(log.detail))
+
+    def test_a_second_run_counts_zero(self):
+        self.build()
+        retention.run_all(now=self.now, only=[AUDIT])
+        report = retention.run_all(now=self.now + timedelta(seconds=1), only=[AUDIT])
+        self.assertEqual(report.counts, {AUDIT: 0})
+        self.old.refresh_from_db()
+        self.assertEqual(self.old.personal_blanked_at, self.now)
+
+    def test_the_dry_run_counts_the_same_and_changes_nothing(self):
+        self.build()
+        before = self.rows()
+        report = retention.run_all(now=self.now, dry_run=True, only=[AUDIT])
+        self.assertEqual(report.counts, {AUDIT: 2})
+        self.assertEqual(self.rows(), before)  # no run log either
+
+    @override_settings(RETENTION_ENABLED=False)
+    def test_switched_off_nothing_is_blanked(self):
+        self.build()
+        before = self.rows()
+        out = StringIO()
+        call_command("run_retention", "--only", AUDIT, stdout=out)
+        self.assertIn(f"{AUDIT}: switched off", out.getvalue())
+        self.assertEqual(self.rows()[:4], before)
+        self.assertEqual(admin_audit_personal_values(self.now, False), 0)
+        self.assertEqual(self.rows()[:4], before)
+
+    def test_the_rule_is_registered(self):
+        self.assertIn(AUDIT, retention.names())

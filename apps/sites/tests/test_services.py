@@ -3,7 +3,7 @@ from unittest import mock
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.accounts.models import AccountAuditEvent
+from apps.accounts.models import Account, AccountAuditEvent
 from apps.common.errors import ApiError
 from apps.sites import onboarding, services, templates
 from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
@@ -48,6 +48,25 @@ class CreateFirstSiteTests(TestCase):
         self.assertEqual(
             event.detail, {"site": site.public_id, "subdomain": "anas-store", "template": "sante"}
         )
+
+    def test_a_closed_account_is_refused_and_nothing_is_created(self):
+        self.account.closed_at = timezone.now()
+        self.account.save(update_fields=["closed_at"])
+        before = (SiteBusinessProfile.objects.count(), AccountAuditEvent.objects.count())
+
+        error = self.assert_refused("account_closed", 403)
+
+        self.assertEqual(error.message, "This account is closed.")
+        self.assertEqual(
+            (SiteBusinessProfile.objects.count(), AccountAuditEvent.objects.count()), before
+        )
+        self.assertFalse(Onboarding.objects.filter(first_site__isnull=False).exists())
+
+    def test_an_account_closed_after_it_was_loaded_is_refused(self):
+        """The check reads the row again under the lock, not the object the caller holds."""
+        Account.objects.filter(pk=self.account.pk).update(closed_at=timezone.now())
+        self.assertIsNone(self.account.closed_at)
+        self.assert_refused("account_closed", 403)
 
     def test_any_template_other_than_sante_is_refused_and_nothing_is_created(self):
         for template in ("standard", "basic", "Sante", "", "shop", None):
