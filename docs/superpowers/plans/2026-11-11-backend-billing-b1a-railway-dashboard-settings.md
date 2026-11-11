@@ -222,3 +222,7 @@ Steps 2 to 5 of section 4 are done or moot: the values are typed and read back; 
 - Whether `railway.toml` is read at all for `api` today. If it is not, how the earlier deployments got Gunicorn's start command with an empty Custom Start Command is not explained. It no longer matters once the Settings hold the command, but it means a revert of PR 74 is not a tested way back.
 - Whether Railway's public edge forwards plain HTTP to the container (bears on (b) only).
 - Whether an `api` deployment with the Custom Start Command and no health path succeeds: expected, not yet seen, because `33d647de` failed on the health check.
+
+### 10.8 Decided and done, 2026-11-11
+
+Coach Ed agreed to option (a). The coordinator removed "Healthcheck Path" from staging `api`'s Settings; the timeout field went with it. Deployment `9753aa68` succeeded at 12:59 +08:00, its log shows Gunicorn starting, and `/healthz/` answered 200 from outside (the coordinator's report). So the third unknown of 10.7 is answered: an `api` deployment with the Custom Start Command and no health path succeeds. `api`'s Settings now hold: Custom Build Command, Custom Start Command, no health path, Restart Policy On Failure with 10 retries. Option (b) is not part of this task or its PR.

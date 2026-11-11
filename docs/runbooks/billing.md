@@ -101,20 +101,22 @@ Two services run the sweep on a schedule: `worker` and `beat`. `worker` exists o
 
 Each service's settings are typed into its Settings in the Railway dashboard, project `negosyoonline-backend`, staging environment. No file in this repository sets them: Railway stops reading `railway.toml` files on 2026-12-01, and the three this repository had were removed in Build B1a. This table is the record of what each service's Settings must hold.
 
-| Setting | `api` | `worker` | `beat` |
+| Setting, with its label in Settings | `api` | `worker` | `beat` |
 |---|---|---|---|
 | What it does | Serves the API | Runs queued jobs | Queues the sweep every 5 minutes |
-| Build command | `uv sync --frozen` | `uv sync --frozen` | `uv sync --frozen` |
-| Start command | `uv run gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --access-logfile - --error-logfile -` | `uv run celery -A config worker --loglevel=info --concurrency=2` | `uv run celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule` |
-| Health path | `/healthz/` | empty | empty |
-| Health timeout, in seconds | `120` | not used | not used |
-| Restart policy | `On Failure` | `On Failure` | `On Failure` |
-| Restart retries | `10` | `10` | `10` |
-| Number of instances | not set here | not set here | `1` |
+| Build command: "Custom Build Command" | `uv sync --frozen` | `uv sync --frozen` | `uv sync --frozen` |
+| Start command: "Custom Start Command" | `uv run gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --access-logfile - --error-logfile -` | `uv run celery -A config worker --loglevel=info --concurrency=2` | `uv run celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule` |
+| Health path: "Healthcheck Path" | empty | empty | empty |
+| Health timeout, in seconds: "Healthcheck Timeout" (shown once a path is set) | not used | not used | not used |
+| Restart policy: "Restart Policy" | `On Failure` | `On Failure` | `On Failure` |
+| Restart retries: "Max restart retries" | `10` | `10` | `10` |
+| Number of instances: "Regions & Replicas" | not set here | not set here | `1` |
 | Public domain | yes | none | none |
-| Config file path | empty | empty | empty |
+| Config file path: "Railway Config File" (button "Add File Path") | empty | empty | empty |
 
 No start command runs a migration. "Wait for CI" is off on all three.
+
+`api` has no health path on purpose. Railway's health check calls the service over plain HTTP, and the backend answers every plain-HTTP request with a redirect to HTTPS (`SECURE_SSL_REDIRECT`), so the check never gets its 200. With a health path set, the deployment of 2026-11-11 failed (`33d647de`, HTTP 301 on `/healthz/`); with it removed, the next one succeeded (`9753aa68`). Do not type a health path into `api` until `/healthz/` is exempt from that redirect (`SECURE_REDIRECT_EXEMPT`), which would be a task of its own. Meanwhile `/healthz/` is checked from outside over HTTPS after each deploy: `scripts/verify_deploy.sh` and the `verify-staging` workflow.
 
 To create `worker` or `beat`:
 
@@ -123,7 +125,7 @@ To create `worker` or `beat`:
 3. Give it the same variables as `api`. It needs `DATABASE_URL`, `REDIS_URL`, `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=false` and `BILLING_ENABLED` at the least.
 4. No public domain and no health path. `beat` runs as exactly one instance: two would queue every sweep twice (harmless to the data, since a second sweep finds nothing due, but wasteful).
 
-After changing a value: a change in the dashboard is staged until "Deploy" is clicked in the banner, which redeploys the service. Read the value back from the service's Settings, and change this table in the same pull request or the next one, so the table and the dashboard never disagree. Every change to a service's Settings needs Coach Ed's approval.
+After changing a value: a change in the dashboard is staged. "Details" lists the staged changes and "Deploy Changes" applies them and redeploys the service. Read the value back from the service's Settings, and change this table in the same pull request or the next one, so the table and the dashboard never disagree. Every change to a service's Settings needs Coach Ed's approval.
 
 The queue uses the Redis server of `REDIS_URL` on the database number after the cache's (cache on 0, queue on 1), so clearing the cache never drops queued work. It needs no variable of its own. Nothing is stored about a finished job.
 
