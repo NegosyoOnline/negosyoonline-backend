@@ -7,6 +7,7 @@ because the code is released before their tables are created.
 from datetime import timedelta
 
 from django.core.cache import cache
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.accounts.models import MobileOtpChallenge
@@ -45,6 +46,32 @@ def delete_records_for(address, dry_run=False):
     """Delete the send records of one address when its account is disposed of. Returns the
     count; a dry run only counts. Called only by apps.accounts.retention."""
     return retention.remove(_records_for(address), dry_run)
+
+
+# The notice of an email change goes to the old address just after the change.
+CHANGE_NOTICE = "email_changed_notice"
+CHANGE_NOTICE_WITHIN = timedelta(hours=24)
+
+
+def delete_earlier_records_for(periods, dry_run=False):
+    """Delete the send records of the addresses an account used before an email change.
+
+    `periods` is (address, changed_at) pairs: the old address of each change and when the
+    account left it. Only records written up to that moment go, plus the change notice sent
+    to the old address: afterwards the address may belong to another account. Admin
+    categories stay. Returns the count; a dry run only counts. Called only by
+    apps.accounts.retention.
+    """
+    match = Q()
+    for address, changed_at in periods:
+        match |= Q(recipient__iexact=address) & (
+            Q(created_at__lte=changed_at)
+            | Q(category=CHANGE_NOTICE, created_at__lte=changed_at + CHANGE_NOTICE_WITHIN)
+        )
+    if not match:
+        return 0
+    rows = EmailMessage.objects.filter(match).exclude(category__in=ADMIN_CATEGORIES)
+    return retention.remove(rows, dry_run)
 
 
 def export_records_for(address):
