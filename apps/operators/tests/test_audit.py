@@ -11,7 +11,7 @@ APP = Path(__file__).resolve().parent.parent
 # Other apps that write operator audit rows through audit.record().
 CALLERS = (
     APP, APP.parent / "notifications", APP.parent / "common", APP.parent / "accounts",
-    APP.parent / "billing", APP.parent / "sante",
+    APP.parent / "billing", APP.parent / "sante", APP.parent / "inbox",
 )
 
 

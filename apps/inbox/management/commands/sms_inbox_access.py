@@ -45,7 +45,7 @@ class Command(BaseCommand):
             raise CommandError(f"{option} must be an active staff user.")
         return found
 
-    def _record(self, actor, user, change, level):
+    def _note(self, actor, user, change, level):
         audit.record(
             actor, "sms_inbox_access", target_type=TARGET, target_id=user.pk,
             detail={"platform": SMS, "change": change, "level": level},
@@ -61,7 +61,7 @@ class Command(BaseCommand):
         else:
             row.can_send, row.granted_by = send, actor
             row.save(update_fields=["can_send", "granted_by"])
-        self._record(actor, user, "grant", LEVELS[send])
+        self._note(actor, user, "grant", LEVELS[send])
         self.stdout.write(f"Granted: {WORDS[send]}.")
 
     def _revoke(self, user, actor, _send):
@@ -69,7 +69,7 @@ class Command(BaseCommand):
         if not deleted:
             self.stdout.write("No access to revoke.")
             return
-        self._record(actor, user, "revoke", "none")
+        self._note(actor, user, "revoke", "none")
         self.stdout.write("Revoked.")
 
     def _list(self):
