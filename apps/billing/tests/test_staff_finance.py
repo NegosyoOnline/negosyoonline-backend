@@ -1,6 +1,7 @@
 """The Finance routes under /staff/v1/finance/ on the hq host: an operator reviews bank
 transfer proofs. They are reached only through the staff routes' own origin and session
 checks, and they are closed while bank transfer is off."""
+import ast
 import json
 from datetime import date, datetime
 from unittest import mock, skipUnless
@@ -65,6 +66,26 @@ class FinanceGateTests(FinanceTestCase):
             sorted(set(staff_views.ROUTES) - set(staff.ROUTES)),
             ["console/", "me/", "sign-in/", "sign-in/code/", "sign-in/verify/", "sign-out/"],
         )
+
+    def test_no_finance_route_takes_the_place_of_another_staff_route(self):
+        # ROUTES.update overwrites silently, so the names are held here.
+        sign_in_routes = {"sign-in/", "sign-in/code/", "sign-in/verify/", "sign-out/", "me/", "console/"}
+        for path in staff.ROUTES:
+            self.assertTrue(path.startswith("finance/"), path)
+            self.assertNotIn(path, sign_in_routes)
+        self.assertIs(staff_views.ROUTES["me/"][1], staff_views.me)
+        self.assertIs(staff_views.ROUTES["console/"][1], staff_views.console)
+        self.assertEqual(len(staff_views.ROUTES), len(sign_in_routes) + len(staff.ROUTES))
+
+    def test_the_finance_module_imports_nothing_from_the_staff_routes(self):
+        with open(staff.__file__) as source:
+            tree = ast.parse(source.read())
+        imported = [
+            f"{node.module}.{name.name}" if isinstance(node, ast.ImportFrom) else name.name
+            for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom))
+            for name in node.names
+        ]
+        self.assertEqual([name for name in imported if name.startswith("apps.operators")], [])
 
     def test_another_origin_is_refused_before_anything_else(self):
         self.staff_sign_in()
@@ -284,7 +305,7 @@ class FinanceProofTests(FinanceTestCase):
         super().setUp()
         self.staff_sign_in()
 
-    def test_the_file_is_streamed_with_its_headers_and_each_read_is_audited(self):
+    def test_the_file_is_sent_whole_with_its_headers_and_each_read_is_audited(self):
         subscription = make_subscription()
         for content, content_type, name in (
             (JPEG, "image/jpeg", "proof.jpg"), (PNG, "image/png", "proof.png"),
@@ -293,6 +314,7 @@ class FinanceProofTests(FinanceTestCase):
             payment = submit(subscription, SENT, content=content)
             response = self.finance("proof/", {"payment": payment.public_id})
             self.assertEqual(response.status_code, 200)
+            self.assertFalse(response.streaming)
             self.assertEqual(response.content, content)
             self.assertEqual(response["Content-Type"], content_type)
             self.assertEqual(response["Content-Disposition"], f'inline; filename="{name}"')

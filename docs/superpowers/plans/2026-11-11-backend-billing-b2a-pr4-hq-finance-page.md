@@ -12,6 +12,29 @@ Coach Ed approved this plan at `e06ed33`: "Approve as recommended" (ClickUp z8uq
 - **Q2: yes.** The Subscriber's account email is on the one-payment answer (`detail/`) only, as `subscriber_email`, never in the queue.
 - **Q3: yes** to the one CSP line, `img-src 'self' blob:`.
 
+Conditions of the HQ/SMS coordinator's yes to the lines in its files (relayed 2026-11-11):
+
+For the routes (PR B):
+
+- `staff_views.py` gains the lines of 3.1 exactly as written, and `apps/operators/tests/test_staff_routes.py` stays unchanged.
+- A test in `apps/billing/tests` holds that every key of `billing_staff.ROUTES` starts with `finance/` and none equals an existing staff path, because `ROUTES.update` overwrites silently.
+- `apps/billing/staff.py` imports nothing from `apps.operators.staff_views` and keeps its own body reader.
+- The proof answer is not a streaming response (5.5, corrected).
+
+For the page (PR C), completing 6.3:
+
+- `finance.js` decides by the answer's exact type. `image/jpeg` and `image/png` go into the `<img>`. `application/pdf` alone may be opened in a new tab. Any other type shows "The proof could not be loaded." and is never opened. Tested in `finance.test.mjs`. Reason: a `blob:` address opened in a new tab is a document of the staff app's own origin.
+- To be proven on the local preview in Chrome and Safari before the page relies on it: a PDF opens from a `blob:` address under the inherited `default-src 'none'`, and the new tab is not stopped as a pop-up because it opens after the fetch. If either fails, the fallback is a download link, which needs no CSP change. A frame, `object-src` or any second CSP word goes back to the coordinator first.
+- `hq.js` `file()` as written in 6.3. Tests for it may be added to `apps/hq/tests/client.test.mjs`, added lines only.
+- Stage B of the HQ app is merged (frontend `main` at `264f003`). The final lines for the page:
+  - Menu: `apps/hq/public/assets/js/menu.js`, the `MENU` list at lines 7 to 9. One line is added after line 8, `{ href: "/finance/", label: "Finance", icon: "<path of a 24 by 24 line icon>" }`, and nothing else in that file. Finance stays below "Admin console". In `apps/hq/tests/menu.test.mjs` the `deepEqual` on line 12 and the length on line 18 change.
+  - `next.config.ts`: in `beforeFiles` after line 20, `{ source: "/finance/", destination: "/finance.html" }`; in `redirects` after line 30, `{ source: "/finance.html", destination: "/finance/", permanent: false }`.
+  - The page copies the shell of `apps/hq/public/index.html` (the aside with `<nav class="side-nav" id="side-nav">`, the topbar, the user card `acct-row` and avatar `acct-btn` that start hidden) and loads `config.js`, `hq.js`, `menu.js`, then `finance.js`. The shell's classes are already in `hq.css`.
+  - The user card and Sign out are not written by the page. The HQ builder first moves that wiring from `console.js` into a shared script; its name, load order and element ids are sent when it merges.
+- PR C is cut from `main` only after PR B is merged and that shared script is merged.
+
+Correction to 3.3 and section 9: the Vercel project `negosyoonline-hq-staging` now exists (z8uq9me128, comment 1100430000490033). It has no name, DNS record, variable or deployment, so the HQ app is still not reachable and no operator can open the page.
+
 Corrections found while building the routes: the registration in `staff_views.py` (3.1) is 17 added lines, not 16, with the text unchanged; and `plan.name` for the promo is "NegosyoOnline Launch Promo (6 Months)", as `plan.py` names it, not "Launch Promo" as the example in 5.2 shows.
 
 ## 1. Sources
@@ -91,7 +114,7 @@ Nothing is built: every two-step verified staff identity is equal today, and Coa
 
 Stage B of the HQ staff app, the console shell, is being built now by the HQ/SMS coordinator's builder. The Finance page is one page and one menu entry inside that shell. The menu entry is one added line in one place; the file and line are sent with the merged stage B head, and section 6.1 is completed then. The Finance page pull request is cut only after stage B merges. The backend routes do not wait for it.
 
-**When an operator can actually open the page.** Not when these pull requests merge. The HQ app is reachable only after a Vercel project, its name, its DNS, `HQ_STAFF_ORIGIN` on the environment and the cookie proof, none of which is approved or run today. Until then no operator can open the Finance page anywhere but on a local preview. And if the cookie proof fails, the way the page signs its calls may change, which may mean rework of the Finance page.
+**When an operator can actually open the page.** Not when these pull requests merge. The HQ app is reachable only after a Vercel project, its name, its DNS, `HQ_STAFF_ORIGIN` on the environment and the cookie proof. The Vercel project `negosyoonline-hq-staging` exists (z8uq9me128, comment 1100430000490033) but has no name, DNS record, variable or deployment; the rest is not approved or run. Until then no operator can open the Finance page anywhere but on a local preview. And if the cookie proof fails, the way the page signs its calls may change, which may mean rework of the Finance page.
 
 ## 4. Rules every Finance route keeps
 
@@ -185,7 +208,7 @@ Body: `{"payment": "btp_…"}`.
 
 Body: `{"payment": "btp_…"}`.
 
-200: the file itself. Headers: `Content-Type` (`image/jpeg`, `image/png` or `application/pdf`, as stored from the file's first bytes), `Content-Disposition: inline; filename="proof.jpg|png|pdf"`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`. The file has no address of its own: it is read from the private store and streamed in this answer only. Each successful answer writes one `billing_proof_viewed` entry. The proof of a decided or replaced payment can still be read, and is audited the same way.
+200: the file itself. Headers: `Content-Type` (`image/jpeg`, `image/png` or `application/pdf`, as stored from the file's first bytes), `Content-Disposition: inline; filename="proof.jpg|png|pdf"`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`. The file has no address of its own: it is read whole from the private store and sent as the body of this answer only. It is not a streaming response: the whole answer is built inside the handler, so a failure is still answered by `dispatch` with its 500 and its headers. Each successful answer writes one `billing_proof_viewed` entry. The proof of a decided or replaced payment can still be read, and is audited the same way.
 
 404 `not_found` for an unknown id. No file is read and no entry is written for one.
 
@@ -398,7 +421,7 @@ Each is cut from the latest `origin/main` and lists the open pull requests and t
 
 **Merged is not usable.** After B and C merge, an operator still cannot review a payment on staging or production. Two separate things are missing, each needing Coach Ed's own approvals:
 
-1. **The HQ app must be reachable:** a Vercel project, its name, DNS, `HQ_STAFF_ORIGIN`, and the cookie proof. None is approved or run. A failed cookie proof may mean rework of the Finance page.
+1. **The HQ app must be reachable:** a Vercel project, its name, DNS, `HQ_STAFF_ORIGIN`, and the cookie proof. The project `negosyoonline-hq-staging` exists, with no name, DNS record, variable or deployment; nothing else is approved or run. A failed cookie proof may mean rework of the Finance page.
 2. **Bank transfer must be live:** a proof store exists only for local development (`proofs.available()` needs `DEBUG`). Until the private store is approved and built (question 3 of the B2a plan, still owed), and a receiving account and the switch are set, `collection_live()` is false, the Finance routes answer 404 and the page shows its closed state.
 
 By Coach Ed's ruling of 2026-11-11 ("No, wait for HQ") there is no other way to confirm a proof. Launch payments by bank transfer therefore depend on both.
