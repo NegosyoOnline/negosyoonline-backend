@@ -1,6 +1,6 @@
 # FAS-03: ledger data model, owner-only access and deployment (design)
 
-**Status: proposal, not approved.** Nothing here authorises code, a test, a migration, a switch, a seed, a deploy or a read of staging or production data. Coach Ed approves (or changes) this design first; the stage 2 builders then work from the approved text.
+**Status: approved by Coach Ed on 2026-11-12, as amended by his rulings 7 to 16 (recorded as comments on FAS-00).** Nothing here authorises code, a test, a migration, a switch, a seed, a deploy or a read of staging or production data by itself; each stage 2 piece needs its own approved plan.
 
 ClickUp: [z8uq9md5de](https://app.clickup.com/t/z8uq9md5de), folder "Financial Accounting System", master task FAS-00 (`z8uq9md5db`). Date: 2026-11-11. Backend `origin/main` at `1af6d25`.
 
@@ -20,15 +20,15 @@ Tags: **[I]** inspected by me at the path given; **[P]** proposed by me; **[A]**
 
 ## 1. Decisions needed from Coach Ed
 
-Each has a recommended default. None is decided here.
+Each has a recommended default. The answer Coach Ed gave on 2026-11-12 is marked **Answered** beside each question, citing the ruling number.
 
 | # | Question | Recommended default | If the answer differs |
 |---|---|---|---|
-| Q1 | **Who may open the books, and where does the rule attach?** Options: (a) a capability argument on the shared staff gate `_for_staff`; (b) a `LedgerAccess` row per staff user, checked by a wrapper the ledger applies to every one of its routes; (c) a Django group or permission; (d) a check inside each handler. | (b). Section 5 gives the reasons. A superuser has no access without a row. | (a) is the strongest attachment but edits the gate that billing, inbox and contacts also use; it can be added later on top of (b). (c) and (d) are weaker (section 5.2). |
-| Q2 | **Does the journal entry for a confirmed payment commit with the confirmation, or afterwards?** | Inside the same transaction. If the ledger cannot post (no account mapping, period locked, switch half set), the operator's confirmation is refused with a clear error and nothing is half-written. | "Afterwards" keeps confirmation independent of the books but needs an outbox, retries and a daily check, and the books can lag. Section 3.5. |
-| Q3 | **Who owns the books, and is there ever a second reader?** Which staff users get `owner`? Is a CPA read-only login wanted, and when? | One owner (Coach Ed's own staff identity). No CPA login until one is named, and not before billing and inbox routes gain their own access rows (section 5.6). | n/a |
-| Q5 | **Which receiving account does a payment's cash go to?** (FAS-01 U2; FAS-02 and FAS-32 both need the answer.) | Operator chooses on the confirm screen from the configured accounts; stored on the payment (a billing change, section 3.7). Until that is approved: debit the one default account and correct with a reclass journal. | Section 3.7 gives the three options. |
-| Q4 | **May a live book exist on staging?** | No. `rehearsal` books only on staging; `live` only where `LEDGER_LIVE_BOOKS=1`, and no staging entry is ever copied to a live book. | A staging "dress rehearsal with real figures" would need a written exception. |
+| Q1 | **Who may open the books, and where does the rule attach?** Options: (a) a capability argument on the shared staff gate `_for_staff`; (b) a `LedgerAccess` row per staff user, checked by a wrapper the ledger applies to every one of its routes; (c) a Django group or permission; (d) a check inside each handler. | **Answered: Ruling 7: only the owner may open the books, via a `LedgerAccess` row; no CPA login.** (b). Section 5 gives the reasons. A superuser has no access without a row. | (a) is the strongest attachment but edits the gate that billing, inbox and contacts also use; it can be added later on top of (b). (c) and (d) are weaker (section 5.2). |
+| Q2 | **Does the journal entry for a confirmed payment commit with the confirmation, or afterwards?** | **Answered: Ruling 8: post inside the confirmation transaction.** Inside the same transaction. If the ledger cannot post (no account mapping, period locked, switch half set), the operator's confirmation is refused with a clear error and nothing is half-written. | "Afterwards" keeps confirmation independent of the books but needs an outbox, retries and a daily check, and the books can lag. Section 3.5. |
+| Q3 | **Who owns the books, and is there ever a second reader?** Which staff users get `owner`? Is a CPA read-only login wanted, and when? | **Answered: Ruling 7: one owner, no CPA login.** One owner (Coach Ed's own staff identity). No CPA login until one is named, and not before billing and inbox routes gain their own access rows (section 5.6). | n/a |
+| Q5 | **Which receiving account does a payment's cash go to?** (FAS-01 U2; FAS-02 and FAS-32 both need the answer.) | **Answered: Ruling 14: Security Bank is the only receiving account at launch, 1020 via `cash.bank_transfer_default`; no receiving-account field on the payment, no billing change.** Operator chooses on the confirm screen from the configured accounts; stored on the payment (a billing change, section 3.7). Until that is approved: debit the one default account and correct with a reclass journal. | Section 3.7 gives the three options. |
+| Q4 | **May a live book exist on staging?** | **Answered: Ruling 15: staging holds rehearsal books only.** No. `rehearsal` books only on staging; `live` only where `LEDGER_LIVE_BOOKS=1`, and no staging entry is ever copied to a live book. | A staging "dress rehearsal with real figures" would need a written exception. |
 
 Routine decisions I took (reversible, inside scope) are in section 10 with what, why and source.
 
@@ -324,7 +324,7 @@ ledger_hook.on_payment_confirmed(row, cycle, now)   # may be None for a usage_on
 ```
 
 - It does nothing at all while the ledger or its billing posting is off (`LEDGER_ENABLED` / `LEDGER_POST_BILLING_ENABLED`, section 6.1), and imports the ledger lazily so billing runs without the ledger tables.
-- It builds the lines from FAS-32's rows P1 to P3 (Dr `cash.bank_transfer_default` or `cash.ewallet` / Cr `deferred.subscription`), with `source_type/ref/event` as in 2.4, key `billing.banktransferpayment:<payment public_id>:payment_confirmed`, `rule_version=v1`, `source_detail` (plan code, cycle sequence, `transferred_on`, `transfer_reference`, service dates), and `entry_date` = the Manila date of `decided_at` (FAS-32 §3 default), and calls `posting.post_new(...)`. In the same transaction it writes the cycle's `RecognitionSchedule` rows from the *final* cycle.
+- It builds the lines from FAS-32's rows P1 to P3 (Dr `cash.bank_transfer_default` only, the one launch receiving account, ruling 14 / Cr `deferred.subscription`), with `source_type/ref/event` as in 2.4, key `billing.banktransferpayment:<payment public_id>:payment_confirmed`, `rule_version=v1`, `source_detail` (plan code, cycle sequence, `transferred_on`, `transfer_reference`, service dates), and `entry_date` = the Manila date of `decided_at` (FAS-32 §3 default), and calls `posting.post_new(...)`. In the same transaction it writes the cycle's `RecognitionSchedule` rows from the *final* cycle.
 - It writes only to ledger tables and takes the book lock *after* the subscription lock; the ledger never takes a subscription lock, so lock order is always subscription then book and a deadlock cannot form.
 - A failure raises `ApiError`; `_write` rolls back the whole confirmation. The operator sees a clear error; the payment stays `submitted` and nothing is half-posted.
 - A replayed confirmation returns early at `if row.status == CONFIRMED: return row` before the hook is reached, and if it did reach it, 3.4 returns the same entry.
@@ -337,7 +337,7 @@ ledger_hook.on_payment_confirmed(row, cycle, now)   # may be None for a usage_on
 | `system_key` | Used for |
 |---|---|
 | `cash.bank_transfer_default` | Debit on a confirmed bank-transfer payment, and the default receiving account (3.7 option C): the account that holds this key (1020) |
-| `cash.ewallet` | Debit when the receiving account is an e-wallet (1021) |
+| `cash.ewallet` | Not used at launch (ruling 14): one receiving account, so no e-wallet (1021) is posted to |
 | `deferred.subscription` | Credit on payment, debit on release (2030) |
 | `revenue.monthly` | Credit on release of a monthly-plan payment |
 | `revenue.launch_promo` | Credit on release of a Launch Promo payment |
@@ -365,6 +365,8 @@ Manual entries pick accounts by code and need no key. FAS-32 adds a key only for
 `reverse(entry, entry_date, reason)` in one transaction under the book lock: refuse if the entry is a draft, already reversed (`reverses` unique), or is itself a reversal; build the mirrored lines; post as `kind='reversal'` with key `reverse:<original public id>`; write a `LedgerEvent` carrying the reason. The reversal's date must be in a period the writer may post to; if the original's period is locked the reversal goes in the first open period (the caller chooses the date). A reversal of a cash entry that has been *reconciled* (FAS-08) needs FAS-08's rule; v1 refuses nothing on that ground because reconciliation does not exist yet. Refunds do not exist in billing (FAS-01 §4); a refund paid outside the system is a manual entry with a reason (FAS-01 §11.2 Q10 default).
 
 ### 3.7 Which receiving account got the money (FAS-01 U2)
+
+**Outcome (ruling 14): one account.** Security Bank is the only receiving account at launch. The hook debits 1020 "Cash in Bank — Security Bank" through the system key `cash.bank_transfer_default`; the payment gets no receiving-account field and billing does not change. Options A and B are not taken for launch (they are the route if a second receiving account is ever approved), and option C below is the design as it applies, without the later correction step. The options and the discussion that follow are kept as written.
 
 FAS-02 and FAS-32 both need the debit line to name a bank or e-wallet account. `BankTransferPayment` stores no account (no such field in `models.py:130-212` [I]); the accounts are the environment variable `BILLING_TRANSFER_ACCOUNTS` (a JSON list with `kind`, `provider_name`, `account_name`, `account_number`; `plan.py:66-87` [I]). Options:
 
