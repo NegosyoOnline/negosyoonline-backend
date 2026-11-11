@@ -374,7 +374,7 @@ Frontend tests (`node --test`): `rules.test.mjs` passes with the new files; `fin
 
 ## 8. Migrations
 
-None. No table or column is added. The queue filters `BankTransferPayment` by `status`; at launch volume that needs no index. If the table grows, an index on `(status, id)` is a later migration of its own, asked for then.
+None, if Q1 is answered (a). If it is answered (b), one additive migration for the permission table, as Q1 says. No table or column is added. The queue filters `BankTransferPayment` by `status`; at launch volume that needs no index. If the table grows, an index on `(status, id)` is a later migration of its own, asked for then.
 
 ## 9. Pull requests, in order
 
