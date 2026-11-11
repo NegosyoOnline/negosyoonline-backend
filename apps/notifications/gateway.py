@@ -16,6 +16,8 @@ API. Each is a POST with a JSON body and the phone's token: `Authorization: Bear
     POST /gateway/v1/received
         sends    {"messages": [{"id", "from", "text", "received_at", "sim_slot"}]}   (up to 20)
         answers  204: all taken, drop them.
+        answers  400: the body is not a list of at most 20 texts; nothing was kept. An item
+                 that cannot be stored is skipped, and the answer is still 204.
 
 A token that is missing, wrong, rotated or of a disabled phone gets one and the same 401.
 While SMS_GATEWAY_ENABLED is off every call answers 404.
@@ -34,6 +36,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from apps.accounts.sessions import client_ip
 from apps.common.errors import error_body
+from apps.inbox import storing
 from apps.notifications import retention, services, sms
 from apps.notifications.models import SmsDevice, SmsMessage
 
@@ -176,7 +179,7 @@ def poll(request, device):
     _note_contact(device, body, now)
     sms.sweep(now, services.unsent)
     retention.start_daily()
-    answer = {"messages": [], "wait": WAIT, "incoming": device.forwards_incoming}
+    answer = {"messages": [], "wait": WAIT, "incoming": storing.wanted(device)}
     if sms.policy().sending_stopped:
         answer["wait"] = WAIT_STOPPED
     elif device == sms.pick_device():
@@ -240,12 +243,15 @@ def report(request, device):
 
 
 def store_incoming(device, request):
-    """Where texts the phone received would be kept. Nothing is kept: there is no inbox yet,
-    so the request's body is never read, whatever the phone's switch says. The Dedicated SMS
-    Line add-on replaces this body and nothing else."""
+    """Hand the texts a phone received to the inbox. False when the list is not valid. With
+    SMS_INBOX_ENABLED or the phone's switch off the body is never read and nothing is kept."""
+    if not storing.wanted(device):
+        return True
+    return storing.store(device, _body(request))
 
 
 @phone_call
 def received(request, device):
-    store_incoming(device, request)
+    if not store_incoming(device, request):
+        return _error(400, "invalid_request", "Send the texts as a list of id, from and text.")
     return HttpResponse(status=204)

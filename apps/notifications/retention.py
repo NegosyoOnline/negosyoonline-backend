@@ -1,8 +1,9 @@
 """The retention rules of the notifications app. Loaded by NotificationsConfig.ready().
 
-The two SMS rules are not behind RETENTION_ENABLED: "send records are kept 1 year, then
-deleted" holds wherever texts are sent. While SMS_GATEWAY_ENABLED is off they touch nothing,
-because the code is released before their tables are created.
+The SMS rules are not behind RETENTION_ENABLED: "send records are kept 1 year, then
+deleted" holds wherever texts are sent. While SMS_GATEWAY_ENABLED is off the two rules here
+touch nothing, because the code is released before their tables are created. The third daily
+rule, `inbox_messages`, is registered by apps.inbox and named in DAILY_RULES below.
 """
 from datetime import timedelta
 
@@ -107,7 +108,7 @@ retention.register("sms_messages", sms_messages)
 retention.register("mobile_challenges", mobile_challenges)
 
 
-DAILY_RULES = ("sms_messages", "mobile_challenges")
+DAILY_RULES = ("sms_messages", "mobile_challenges", "inbox_messages")
 
 
 def run_daily_rules():
@@ -115,7 +116,7 @@ def run_daily_rules():
 
 
 def start_daily():
-    """Start the day's run of the two SMS rules, once. Called whenever the phone polls, until
+    """Start the day's run of the SMS rules, once. Called whenever the phone polls, until
     a beat service exists: the first call of each Manila day takes the lock and runs them in
     the background; the others do nothing. A day with no call is a day with no run, and the
     next run removes everything that is due. Every other rule stays manual."""

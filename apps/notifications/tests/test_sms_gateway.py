@@ -303,7 +303,12 @@ class PollTests(GatewayCase):
     def test_16_poll_answers_the_incoming_switch_off_for_a_new_phone(self):
         self.assertIs(self.poll()["incoming"], False)
         SmsDevice.objects.update(forwards_incoming=True)
-        self.assertIs(self.poll()["incoming"], True)
+        # The phone is never told to forward texts that would be thrown away.
+        self.assertIs(self.poll()["incoming"], False)
+        with override_settings(SMS_INBOX_ENABLED=True):
+            self.assertIs(self.poll()["incoming"], True)
+            SmsDevice.objects.update(forwards_incoming=False)
+            self.assertIs(self.poll()["incoming"], False)
 
     def test_19_codes_then_replies_then_status_texts_then_marketing(self):
         marketing = self.queue(P.MARKETING, "Sale", age=40)
@@ -507,7 +512,7 @@ class ReceivedTests(GatewayCase):
     def test_17_received_answers_204_and_keeps_nothing_with_the_switch_off(self):
         self.assert_nothing_kept(self.TEXTS)
 
-    def test_17_received_answers_204_and_keeps_nothing_with_the_switch_on(self):
+    def test_17_received_answers_204_and_keeps_nothing_with_the_phone_switch_on_and_the_inbox_off(self):
         SmsDevice.objects.update(forwards_incoming=True)
         self.assert_nothing_kept(self.TEXTS)
 

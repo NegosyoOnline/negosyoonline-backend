@@ -108,6 +108,7 @@ class SmsDeviceCommandTests(SmsTestCase):
     def test_4_list_with_no_phones(self):
         self.assertIn("No phones.", self.run_command("list", logs=False))
 
+    @override_settings(SMS_INBOX_ENABLED=True)
     def test_5_every_other_action_writes_one_audit_row_with_the_actor(self):
         self.add()
         self.run_command("rotate", name="system")
@@ -137,6 +138,7 @@ class SmsDeviceCommandTests(SmsTestCase):
         self.assertEqual(SmsDevice.objects.count(), 0)
         self.assertEqual(OperatorAuditEntry.objects.count(), 0)
 
+    @override_settings(SMS_INBOX_ENABLED=True)
     def test_7_incoming_on_and_off_set_the_switch_and_list_shows_it(self):
         self.add()
 
@@ -151,6 +153,31 @@ class SmsDeviceCommandTests(SmsTestCase):
             e.detail for e in OperatorAuditEntry.objects.filter(action="sms_device_incoming")
         ]
         self.assertEqual(details, [{"forwards_incoming": True}, {"forwards_incoming": False}])
+
+    def test_8_incoming_on_is_refused_while_the_inbox_is_off(self):
+        self.add()
+        entries = OperatorAuditEntry.objects.count()
+        self.refused(
+            "SMS_INBOX_ENABLED is off. Turn it on before a phone forwards texts.",
+            "incoming", "on", name="system",
+        )
+        self.assertFalse(SmsDevice.objects.get().forwards_incoming)
+        self.assertEqual(OperatorAuditEntry.objects.count(), entries)
+
+    def test_9_incoming_off_works_while_the_inbox_is_off(self):
+        self.add()
+        SmsDevice.objects.update(forwards_incoming=True)
+        self.run_command("incoming", "off", name="system")
+        self.assertFalse(SmsDevice.objects.get().forwards_incoming)
+        entry = OperatorAuditEntry.objects.get(action="sms_device_incoming")
+        self.assertEqual((entry.operator, entry.detail), (self.actor, {"forwards_incoming": False}))
+
+    @override_settings(SMS_INBOX_ENABLED=True)
+    def test_10_incoming_on_says_what_is_stored(self):
+        self.add()
+        output = self.run_command("incoming", "on", name="system")
+        self.assertIn("Texts this phone receives are now stored in the inbox, for 365 days.", output)
+        self.assertNotIn("Nothing the phone forwards is stored", output)
 
 
 class FakePhoneTests(SmsTestCase):

@@ -17,6 +17,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
+from apps.inbox.switch import inbox_on
 from apps.notifications import sms
 from apps.notifications.models import SmsDevice
 from apps.operators import audit
@@ -113,6 +114,8 @@ class Command(BaseCommand):
         self.stdout.write("Disabled. The phone is refused from now on.")
 
     def _incoming(self, name, actor, switch):
+        if switch == "on" and not inbox_on():
+            raise CommandError("SMS_INBOX_ENABLED is off. Turn it on before a phone forwards texts.")
         device = self._locked(name)
         device.forwards_incoming = switch == "on"
         device.save(update_fields=["forwards_incoming"])
@@ -121,7 +124,7 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"Incoming texts: {switch}. The phone learns it with its next poll.")
         if device.forwards_incoming:
-            self.stdout.write("Nothing the phone forwards is stored: there is no inbox yet.")
+            self.stdout.write("Texts this phone receives are now stored in the inbox, for 365 days.")
 
     def _list(self):
         devices = list(SmsDevice.objects.order_by("pk"))
