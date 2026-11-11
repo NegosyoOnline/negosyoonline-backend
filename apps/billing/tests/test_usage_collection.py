@@ -4,7 +4,7 @@ from unittest import mock
 
 from django.test import TestCase, override_settings
 
-from apps.billing import plan, services, usage
+from apps.billing import clock, plan, services, usage
 from apps.billing.models import BankTransferPayment, ChargeLine, Subscription, UsageEntry
 from apps.billing.tests.base import (
     CYCLE_1_END, JPEG, PNG, SECOND, days, fresh, make_active, make_operator, make_suspended,
@@ -121,6 +121,17 @@ class RenewalTests(CollectionCase):
         first.refresh_from_db()
         self.assertEqual(first.status, "replaced")
 
+    def test_a_rejected_proof_attaches_nothing_and_the_next_proof_recomputes(self):
+        subscription = make_active()
+        snapshot(subscription)
+        first = submit(subscription, CYCLE_1_END + days(1))
+        services.reject_transfer(first, self.operator, reason="unreadable", now=CYCLE_1_END + days(2))
+        line = ChargeLine.objects.get()
+        self.assertEqual((line.status, line.settled_payment_id), ("open", None))
+        second = submit(subscription, CYCLE_1_END + days(3), content=PNG)
+        self.assertEqual((second.amount_centavos, second.usage_centavos), (MONTHLY + LINE, LINE))
+        self.assertEqual(second.usage_line_max_id, line.pk)
+
     def test_the_overview_reports_what_is_outstanding(self):
         subscription = make_active()
         self.assertEqual(services.overview(subscription.site, CYCLE_1_END)["outstanding_centavos"], 0)
@@ -156,6 +167,31 @@ class UsageOnlyTests(CollectionCase):
         self.assertEqual(after.state, State.CANCELLED)
         self.assertEqual(after.cycles.count(), 2)
         self.assertTrue(usage.closed_and_settled(after, at + days(2)))
+
+    def test_a_charge_for_a_closed_settled_account_is_written_off_at_once(self):
+        subscription = make_active()
+        cycle = subscription.cycles.get(sequence=1)
+        bought = plan.LAUNCH_PROMO  # six monthly periods, so a last one can follow the payment
+        cycle.end_at = clock.cycle_end(cycle.start_at, subscription.anchor_day, bought.months)
+        for name, value in plan.snapshot(bought).items():
+            setattr(cycle, name, value)
+        cycle.save()
+        periods = clock.allowance_periods(
+            cycle.start_at, subscription.anchor_day, bought.months, bought.allowance_periods
+        )
+        services.cancel(subscription, now=periods[4][1] + days(1))
+        snapshot(subscription, "p5", at=periods[4][1])
+        final = periods[5][1]
+        after = fresh(subscription)
+        self.assertEqual(after.service_ended_at, final)
+        paid_at = final + SECOND * 3600
+        payment = submit(after, paid_at, plan_code=plan.USAGE_ONLY)
+        self.confirm(payment, paid_at + SECOND)
+        self.assertTrue(usage.closed_and_settled(fresh(subscription), final + SECOND * 7200))
+        result = snapshot(subscription, "p6", at=final, now=final + SECOND * 7200)
+        self.assertEqual((result.status, result.reason), ("written_off", "after_final_settlement"))
+        self.assertEqual(ChargeLine.objects.count(), 1)  # only period 5's line, now settled
+        self.assertEqual(ChargeLine.objects.get().status, "settled")
 
     def test_it_is_refused_when_nothing_is_owed_or_the_base_payment_covers_it(self):
         subscription = make_active()
