@@ -12,7 +12,7 @@
 
 Date: 2026-11-11. ClickUp task: z8uq9me128 (https://app.clickup.com/t/z8uq9me128), parent z8uq9md33v.
 Plan branch: `claude/z8uq9me128-hq-staff-sign-in-plan`, cut from `origin/main` at `1c1eff8`. The build branch will be cut from the latest `origin/main` when this plan is approved.
-Status: **a plan, not approved.** It is reviewed by the NPC coordinator, then goes to Coach Ed. Nothing in it is built. The code in it was written from reading the repository and has not been run.
+Status: **approved by Coach Ed on 2026-11-11** ("Approve plan 1", at head `aa61a75`), reviewed by the NPC coordinator. What the approval covers is in 9.3; what it does not cover, each still a separate approval, is in 9.4. Nothing in it is built. The code in it was written from reading the repository and has not been run.
 
 ## 1. Sources
 
