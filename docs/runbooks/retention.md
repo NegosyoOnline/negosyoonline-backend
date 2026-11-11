@@ -165,6 +165,13 @@ While `PAYMENT_METHODS_ENABLED` is off, disposal and export do not read the paym
 
 While `MEMBERS_ENABLED` is off, disposal and export do not read the member tables at all, because the code is released before migration `members.0001` is applied. Turn it on in an environment only after that migration is applied there. Once it has been on, it is not turned off again without Coach Ed's ruling: a disposal run while it is off would leave members' names and contacts in place.
 
+**Membership Pack orders.** Where `PACK_ENABLED` is on (ClickUp z8uq9me9mr, Membership Package slice PK4):
+
+- An order is never deleted and the Subscriber's books must still add up, so a disposal keeps the order rows, their numbers, status, frozen price, events and the agreement and enrollment records. What identifies a person goes: the buyer name and delivery address on each order, the sender name, sender account number, reference number and visitor address on each proof, every proof file in the private store, and every checkout token with its typed contact. Counts gain `pack_orders`, `pack_proof_submissions`, `pack_proof_files` and `pack_checkout_tokens`; the audit entry names fields, never values. A file that cannot be deleted undoes the disposal so it can be run again.
+- Rule `expired_checkout_tokens`: a token is deleted 30 days after it expired.
+- The export gains `pack_orders` and `pack_proof_submissions` as plain values, with no file key, no token and no row number.
+- Same shape as TWCinc and as billing's transfer proofs (files deleted, rows and money kept). While `PACK_ENABLED` is off, disposal and export read no pack table, because the code is released before migration `pack.0001` is applied.
+
 SMS send records are not touched by a disposal: they hold the number a text went to and follow the SMS build's own 1-year rule.
 
 ## An export request
