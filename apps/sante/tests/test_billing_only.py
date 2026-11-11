@@ -1,20 +1,12 @@
 """Billing's rule for a suspended or ended site (plan D11), on the Santé routes: they are owner
-functions, so both answer 403 `billing_only`. Billing's own inventory covers the sites and
-billing routers; this one covers the Santé router."""
+functions, so both answer 403 `billing_only`. The route inventory is Billing's own, in
+apps/sites/tests/test_billing_only.py, which walks the Santé router too; these are the Santé
+behaviour tests."""
 from django.test import override_settings
 
-from apps.sante.api import router
 from apps.sante.models import SanteSiteSettings
 from apps.sante.tests.base import retemplate, settings_url, switched_on
 from apps.sites.tests.test_billing_only import MESSAGE, BillingOnlyTestCase as BillingOnlyBase
-from apps.sites.tests.test_isolation import routes_under_a_site
-
-# Every Santé route under sites/{site_id}/ is in exactly one of these two lists.
-TURNED_OFF = [
-    ("GET", "/sites/{site_id}/sante/settings/"),
-    ("PATCH", "/sites/{site_id}/sante/settings/"),
-]
-STAYS_ON = []
 
 
 @switched_on
@@ -27,13 +19,6 @@ class SanteBillingOnlyTests(BillingOnlyBase):
     def calls(self, client=None):
         yield "GET", self.get(self.url, client=client)
         yield "PATCH", self.patch(self.url, {"sponsor_id": "CHANGED-1"}, client=client)
-
-    def test_every_sante_route_under_a_site_is_turned_off_or_allowed_by_name(self):
-        self.assertEqual(
-            sorted(routes_under_a_site(router)), sorted(TURNED_OFF + STAYS_ON),
-            "A Santé route under sites/{site_id}/ was added or removed: decide whether a "
-            "suspended or ended site may use it, and list it in TURNED_OFF or STAYS_ON.",
-        )
 
     def test_they_work_while_the_site_is_served(self):
         self.assertEqual(self.get(self.url).json()["sponsor_id"], "SB-1")

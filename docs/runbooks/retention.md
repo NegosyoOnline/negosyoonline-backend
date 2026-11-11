@@ -129,7 +129,7 @@ What the billing step does not know yet, so check by hand before disposing: noth
 - Otherwise the sponsor ID of each of the account's sites is blanked and the row is kept. The counts gain `sante_site_settings`, and the audit entry names the field, never the value.
 - The export gains `sante_site_settings`: per Santé site its public id, the sponsor ID, when it was last changed and whether it is the catalog owner.
 
-While `SANTE_SETTINGS_ENABLED` is off, disposal and export do not read the Santé tables at all, because the code is released before migration `sante.0001` is applied. So turn it on in an environment only after that migration is applied there, and do not turn it off again where a sponsor ID has been saved: a disposal run while it is off would leave that sponsor ID in place and would not refuse the catalog owner's account.
+While `SANTE_SETTINGS_ENABLED` is off, disposal and export do not read the Santé tables at all, because the code is released before migration `sante.0001` is applied. So turn it on in an environment only after that migration is applied there. Once it has been on in an environment, it is not turned off again without Coach Ed's ruling: a disposal run while it is off would leave a saved sponsor ID in place and would not refuse the catalog owner's account.
 
 SMS send records are not touched by a disposal: they hold the number a text went to and follow the SMS build's own 1-year rule.
 
