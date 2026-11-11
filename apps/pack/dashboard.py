@@ -2,7 +2,7 @@
 negosyoonline_sante_pack/dashboard.py), built from the member's own pack orders only: product
 orders do not exist yet, so their counts are zero and there are no shipment fields (courier,
 tracking, shipped and delivered dates are always empty). Pure reads. Wording is TWCinc's. Money is
-centavos (`*_centavos`) with the TWCinc-formatted text beside it."""
+pesos (a number, as TWCinc's templates format it), with `*_centavos` and `*_text` beside it."""
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -22,8 +22,13 @@ HEADLINE = "Santé Membership Package ×1"
 ITEM_NAME = "Santé Membership Package · 2 Boxes With Stevia, 20 Sachets"
 
 
-def money(centavos):
-    """TWCinc's `floatformat:2|intcomma` text of a centavo amount."""
+def pesos(centavos):
+    """A centavo amount in pesos, as the number TWCinc's templates format."""
+    return centavos / 100
+
+
+def money_text(centavos):
+    """TWCinc's `floatformat:2|intcomma` text of a centavo amount (no peso sign)."""
     return f"{centavos / 100:,.2f}"
 
 
@@ -43,7 +48,7 @@ def summary(orders):
     """The four tiles over every order: Total Spent counts the orders whose payment was verified."""
     spent = sum((o.price_centavos for o in orders if _paid(o)), 0)
     return {
-        "total_spent": money(spent), "total_spent_centavos": spent, "total_orders": len(orders),
+        "total_spent": pesos(spent), "total_spent_text": money_text(spent), "total_spent_centavos": spent, "total_orders": len(orders),
         "delivered": 0, "needs_attention": sum(1 for o in orders if o.payment_status in PROBLEM),
     }
 
@@ -123,7 +128,8 @@ def card(member, o, *, first):
     place = ", ".join(x for x in (addr.get("line"), addr.get("barangay"), addr.get("city"), addr.get("province")) if x)
     return {
         "id": o.public_id, "order_number": o.order_number, "created_at": o.created_at.isoformat(),
-        "total": money(o.price_centavos), "total_centavos": o.price_centavos,
+        "order": {"order_number": o.order_number, "created_at": o.created_at.isoformat(), "total": pesos(o.price_centavos)},
+        "total": pesos(o.price_centavos), "total_text": money_text(o.price_centavos), "total_centavos": o.price_centavos,
         "payment_status": o.payment_status, "payment_label": panels.METHOD_LABEL,
         "chip_label": chip_label, "chip_class": chip_class, "problem": o.payment_status in PROBLEM,
         "problem_line": PROBLEM_LINES.get(o.payment_status, ""), "awaiting_payment": False,

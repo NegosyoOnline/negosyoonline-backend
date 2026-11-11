@@ -26,7 +26,7 @@ class HomeTests(DashboardCase):
     def test_under_review_order_counts_as_awaiting_not_spent(self):
         body = self.route("home/").json()
         self.assertEqual(body["summary"], {
-            "total_spent": "0.00", "total_spent_centavos": 0, "total_orders": 1, "delivered": 0, "needs_attention": 0,
+            "total_spent": 0, "total_spent_text": "0.00", "total_spent_centavos": 0, "total_orders": 1, "delivered": 0, "needs_attention": 0,
         })
         om = body["order_monitor"]
         self.assertEqual((om["awaiting_approval"], om["for_booking"], om["for_shipping"], om["delivered"]), (1, 0, 0, 0))
@@ -38,7 +38,8 @@ class HomeTests(DashboardCase):
     def test_a_verified_order_is_spent_and_preparing(self):
         self.verify()
         body = self.route("home/").json()
-        self.assertEqual(body["summary"]["total_spent"], "1,488.00")
+        self.assertEqual(body["summary"]["total_spent"], 1488)
+        self.assertEqual(body["summary"]["total_spent_text"], "1,488.00")
         self.assertEqual(body["summary"]["total_spent_centavos"], 148800)
         self.assertEqual((body["order_monitor"]["awaiting_approval"], body["order_monitor"]["for_booking"]), (0, 1))
 
@@ -72,7 +73,8 @@ class OrdersTests(DashboardCase):
     def test_under_review_card(self):
         c = self.card()
         self.assertEqual(c["order_number"], self.order.order_number)
-        self.assertEqual((c["total"], c["total_centavos"]), ("1,488.00", 148800))
+        self.assertEqual((c["total"], c["total_text"], c["total_centavos"]), (1488, "1,488.00", 148800))
+        self.assertEqual(c["order"], {"order_number": self.order.order_number, "created_at": c["created_at"], "total": 1488})
         self.assertEqual((c["headline"], c["item_count"]), ("Santé Membership Package ×1", 1))
         self.assertEqual(c["item_lines"], [{"qty": 1, "name": "Santé Membership Package · 2 Boxes With Stevia, 20 Sachets"}])
         self.assertEqual((c["chip_label"], c["chip_class"]), ("Under review", ""))

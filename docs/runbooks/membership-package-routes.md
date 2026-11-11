@@ -120,12 +120,12 @@ TWCinc routes carried (negosyoonline_members `urls.py`): `dashboard/account/`, `
 
 ## Member Dashboard and My Orders (home and orders reads)
 
-Both are `POST`, body `{host, token}`, built from the member's pack order only (no product orders yet: their counts are zero, and there is no shipment data, so courier and tracking are always empty and `Shipped`/`Delivered` never complete). Money is centavos (`*_centavos`, integers) with TWCinc's formatted text beside it (`"1,488.00"`, no peso sign). Dates are ISO strings; show them in Manila time.
+Both are `POST`, body `{host, token}`, built from the member's pack order only (no product orders yet: their counts are zero, and there is no shipment data, so courier and tracking are always empty and `Shipped`/`Delivered` never complete). Money is PESOS as a number (`1488`, as TWCinc's templates format it: add the peso sign and thousands separators), with `*_centavos` (integer) and `*_text` (`"1,488.00"`) beside it. `h` is 0 to 100 in steps of 5. Dates are ISO strings; show them in Manila time.
 
 `member/home/` -> `{summary, order_monitor}`:
 
 ```
-summary: {total_spent, total_spent_centavos, total_orders, delivered, needs_attention}
+summary: {total_spent, total_spent_text, total_spent_centavos, total_orders, delivered, needs_attention}
 order_monitor: {awaiting_approval, for_booking, for_shipping, delivered, delta, has_orders,
                 series: [{label: "Sun".."Sat", count, h}]}
 ```
@@ -135,7 +135,7 @@ Same meaning as TWCinc: `total_spent` counts verified orders; `needs_attention` 
 `member/orders/` -> `{cards: [card]}`, newest first (empty: "No orders on your dashboard yet."):
 
 ```
-card: {id, order_number, created_at, total, total_centavos, payment_status, payment_label,
+card: {id, order: {order_number, created_at, total}, order_number, created_at, total, total_text, total_centavos, payment_status, payment_label,
        chip_label, chip_class, problem, problem_line, awaiting_payment, under_review,
        steps: [{num, label, state: done|current|todo, date|null}], courier, tracking, note,
        shipping_label, headline, item_count, item_lines: [{qty, name}],
