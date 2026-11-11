@@ -91,7 +91,7 @@ Rows are created by FAS-32's approved list through the account service (FAS-05),
 |---|---|---|
 | `public_id` | char(40), unique | `gla_...` |
 | `entity` | FK `AccountingEntity` | |
-| `system_key` | char(40), null | A stable name the posting rules use instead of a code (list in 3.5). Unique with `entity` where not null. FAS-32 maps each key to its code; the rules module checks at start-up that every key it uses is mapped to an existing, postable, active account. |
+| `system_key` | char(40), blank | A stable name the posting rules use instead of a code (list in 3.5). Unique with `entity` where not blank. Posting rules name a system key, never a code; FAS-32 §4.1a names the keys and the account that holds each. A key with no account, or whose account is inactive or retired on the entry date, fails the posting loudly (`system_key_unmapped`). |
 | `code` | char(16) | Text, not a number (FAS-32: a stable four-digit string). Unique with `entity`. Never reused or re-meant: the writer refuses to change a code once a line points at the account. Reports and people use codes; the hook uses `system_key`. |
 | `name` | char(160) | |
 | `type` | char(10): `asset`, `liability`, `equity`, `revenue`, `expense` | The five classes (FAS-32 §2.1 uses `revenue`). "Direct costs", "other" and the like are reporting groups, not types. |
@@ -129,7 +129,7 @@ The writer creates a missing period (status `open`) under the book lock when a p
 | `status` | char(8): `draft`, `posted` | Two values only. A reversed entry stays `posted`; its reversal is another entry (below). |
 | `kind` | char(10): `normal`, `opening`, `reversal`, `adjustment` | The four kinds of FAS-02 and FAS-32. Whether a hook or a person wrote it is `source_type` (blank = a person) and `created_by`. |
 | `reason` | text, blank | **Required** (check: not blank) when `kind` is `reversal` or `adjustment`, or when `source_type` is blank (a manual entry, including the opening entry). Optional for a system entry. |
-| `rule_version` | char(8), blank | The version of the posting rule that wrote a system entry (`v1`). **A column, not part of the key** (coordinator's ruling): a later rule version posting the same source event is a replacement by reversal and a new entry, with a new key suffix chosen then. |
+| `rule_version` | char(8), blank | The version of the posting rule that wrote a system entry (`v1`). **A column, not part of the key** (coordinator's ruling): a later rule version cannot post a second entry for the same event; changing a posted result is a reversal plus a new entry. |
 | `source_detail` | JSON | A small fixed-vocabulary snapshot for a system entry, so FAS-12 and an auditor read it here and not from billing. For a payment entry: `plan_code`, `cycle_sequence` (or null), `transferred_on` (the Subscriber's date), `transfer_reference`, `service_start`, `service_end`. For a release: `plan_code`, `month`. Empty `{}` for a manual entry. Part of `payload_hash`. Never a personal value. |
 | `entry_date` | date | The accounting date, a Manila calendar date. Decides the period. Not before the book's `books_start_date`. The moment it was written is `created_at`; the moment it was posted is `posted_at` (both full timestamps, so date and instant are separate). |
 | `memo` | char(240), blank | |
@@ -152,9 +152,9 @@ Constraints: **at most one `opening` entry per book** (partial unique on `entity
 | Event | `source_type` | `source_ref` | `source_event` | Key |
 |---|---|---|---|---|
 | Payment confirmed | `billing.banktransferpayment` | the payment's public id, `btp_...` | `payment_confirmed` | `billing.banktransferpayment:btp_3k9x...:payment_confirmed` |
-| Month's revenue release | `billing.banktransferpayment` | the same payment's public id | `revenue_released:YYYY-MM` | `billing.banktransferpayment:btp_3k9x...:revenue_released:2026-11` |
+| Month's revenue release | `billing.banktransferpayment` | the same payment's public id | `revenue_released_YYYY-MM` | `billing.banktransferpayment:btp_3k9x...:revenue_released_2026-11` |
 
-The release carries the same source as the payment (the payment is what is being released), and the event carries the month, so each month is its own key. Public ids only, never a database number. A manual entry has no source: the staff app sends a random client key `manual:<uuid>` with the request, so a double click or a retried request cannot post twice. The opening entry's key is `opening:<book public id>`. Maximum key length 160. The key is unique per book. Same key and same lines (and `source_detail`) is a no-op; same key and different lines is an error (3.4). The rule version is the `rule_version` column.
+The release carries the same source as the payment (the payment is what is being released), and the event carries the month, so each month is its own key. Public ids only, never a database number. A manual entry has no source: the staff app sends a random client key `man:<uuid>` with the request, so a double click or a retried request cannot post twice. The opening entry's key is `opening:<book public id>`. Maximum key length 160. The key is unique per book. Same key and same lines (and `source_detail`) is a no-op; same key and different lines is an error (3.4). The rule version is the `rule_version` column and is not part of the key: a later rule version cannot post a second entry for the same event; changing a posted result is a reversal plus a new entry (with its own key).
 
 **Reversal.** A posted entry is never edited. Reversing it creates a new entry of `kind='reversal'` whose lines are the original's with sides swapped, `reverses` pointing at the original, its own date and period. Whether an entry "is reversed" is the existence of that one row (`reverses` unique), never a flag on the original. A corrected replacement is a separate `adjustment` or `normal` entry.
 
@@ -187,7 +187,7 @@ FAS-32 §4.7 releases a paid cycle's amount from deferred revenue to revenue mon
 | `payment_entry` | FK `JournalEntry` | The journal that created the deferred balance. |
 | `created_at` | datetime | |
 
-Rows are written in the same transaction as the payment's journal (by the hook, through the writer module) and are never changed. A month is *released* when the journal with key `billing.banktransferpayment:<payment_ref>:revenue_released:<YYYY-MM>` exists; "unreleased" is the set of schedule rows without that journal. The schedule rows for a payment sum to the payment amount (check in the writer). The release job posts those whose month has ended; if the month is closed it posts into the first open month (FAS-32; the closed-month rule is FAS-06's).
+Rows are written in the same transaction as the payment's journal (by the hook, through the writer module) and are never changed. A month is *released* when the journal with key `billing.banktransferpayment:<payment_ref>:revenue_released_<YYYY-MM>` exists; "unreleased" is the set of schedule rows without that journal. The schedule rows for a payment sum to the payment amount (check in the writer). The release job posts those whose month has ended; if the month is closed it posts into the first open month (FAS-32; the closed-month rule is FAS-06's).
 
 **Which stage adds the beat entry.** The schedule table is in `ledger.0001` and the hook that writes it is S2-B. The release *job* is not stage 2: it is FAS-14, first as a terminal command `ledger_release_due` (same idempotent writer, runnable by hand), then as a beat entry in `CELERY_BEAT_SCHEDULE` (a `config/settings.py` edit and a Railway change that needs Coach Ed; worker and beat run on staging only [FAS-01 §6.2]).
 
@@ -324,7 +324,7 @@ ledger_hook.on_payment_confirmed(row, cycle, now)   # may be None for a usage_on
 ```
 
 - It does nothing at all while the ledger or its billing posting is off (`LEDGER_ENABLED` / `LEDGER_POST_BILLING_ENABLED`, section 6.1), and imports the ledger lazily so billing runs without the ledger tables.
-- It builds the lines from FAS-32's rows P1 to P3 (Dr `bank_transfer_cash` or `ewallet_cash` / Cr `deferred_subscription_revenue`), with `source_type/ref/event` as in 2.4, key `billing.banktransferpayment:<payment public_id>:payment_confirmed`, `rule_version=v1`, `source_detail` (plan code, cycle sequence, `transferred_on`, `transfer_reference`, service dates), and `entry_date` = the Manila date of `decided_at` (FAS-32 §3 default), and calls `posting.post_new(...)`. In the same transaction it writes the cycle's `RecognitionSchedule` rows from the *final* cycle.
+- It builds the lines from FAS-32's rows P1 to P3 (Dr `cash.bank_transfer_default` or `cash.ewallet` / Cr `deferred.subscription`), with `source_type/ref/event` as in 2.4, key `billing.banktransferpayment:<payment public_id>:payment_confirmed`, `rule_version=v1`, `source_detail` (plan code, cycle sequence, `transferred_on`, `transfer_reference`, service dates), and `entry_date` = the Manila date of `decided_at` (FAS-32 §3 default), and calls `posting.post_new(...)`. In the same transaction it writes the cycle's `RecognitionSchedule` rows from the *final* cycle.
 - It writes only to ledger tables and takes the book lock *after* the subscription lock; the ledger never takes a subscription lock, so lock order is always subscription then book and a deadlock cannot form.
 - A failure raises `ApiError`; `_write` rolls back the whole confirmation. The operator sees a clear error; the payment stays `submitted` and nothing is half-posted.
 - A replayed confirmation returns early at `if row.status == CONFIRMED: return row` before the hook is reached, and if it did reach it, 3.4 returns the same entry.
@@ -332,16 +332,17 @@ ledger_hook.on_payment_confirmed(row, cycle, now)   # may be None for a usage_on
 
 *Cost:* the ledger now sits in the money path. A misconfigured chart (the account for `payment_confirmed` missing) stops confirmations until fixed. Mitigations: a `ledger_ready` check run before the posting switch is ever turned on, and the posting switch is separate from the ledger switch.
 
-**System keys the stage 2 hook needs** (names for FAS-32 to map to its codes; the proposed mapping is in the last column):
+**System keys** (FAS-32 §4.1a names, used exactly; the code in brackets is FAS-32's mapping):
 
-| `system_key` | Used for | FAS-32 code |
-|---|---|---|
-| `bank_transfer_cash` | Debit on a confirmed bank-transfer payment; also the default receiving account (3.7 option C) | 1020 |
-| `ewallet_cash` | Debit when the receiving account is an e-wallet | 1021 |
-| `deferred_subscription_revenue` | Credit on payment, debit on release | 2030 |
-| `revenue_monthly` | Credit on release of a monthly-plan payment | 4010, 4015 or 4020 as FAS-32's plan mapping says |
-| `revenue_launch_promo` | Credit on release of a Launch Promo payment | " |
-| `revenue_annual` | Credit on release of an annual-plan payment (when PR 106 lands) | " |
+| `system_key` | Used for |
+|---|---|
+| `cash.bank_transfer_default` | Debit on a confirmed bank-transfer payment, and the default receiving account (3.7 option C): the account that holds this key (1020) |
+| `cash.ewallet` | Debit when the receiving account is an e-wallet (1021) |
+| `deferred.subscription` | Credit on payment, debit on release (2030) |
+| `revenue.monthly` | Credit on release of a monthly-plan payment |
+| `revenue.launch_promo` | Credit on release of a Launch Promo payment |
+| `revenue.annual` | Credit on release of an annual-plan payment (when PR 106 lands) |
+| `revenue.overage_order`, `revenue.overage_storage` | Credit for overage when PR 108 lands (FAS-32 §4.5) |
 
 Manual entries pick accounts by code and need no key. FAS-32 adds a key only for an account a hook or job posts to.
 
@@ -371,7 +372,7 @@ FAS-02 and FAS-32 both need the debit line to name a bank or e-wallet account. `
 |---|---|---|---|
 | **A. Field on the payment, set at confirmation** | A new nullable column on `billing_banktransferpayment` (for example the index or a stable id of the chosen account), filled in `confirm_transfer`. | The fact is stored with the payment, in one place, and the hook reads it; reconciliation (FAS-08) can use it. | **A billing change with a migration.** It needs Coach Ed's approval (a migration the approved plan does not already specify is not covered by the standing approval), and sequencing with PRs 106, 107 and 108, which all change this table and `services.py`. `confirm_transfer` gains a parameter, so the staff confirm route and HQ page change too. |
 | **B. Operator chooses on the confirm screen** | The same as A seen from the screen: the confirm dialog gains an account choice sent to `confirm_transfer`. A without B stores nothing the operator chose; B without A has nowhere to keep the choice except the journal. | The operator knows where the money landed. | If stored only on the journal's memo, billing keeps no record. B is the *input* of A, not an alternative to it. |
-| **C. Default to one account; correct later** | No billing change. The hook debits the book's default receiving account (a ledger setting naming one `GLAccount`); a wrong guess is fixed by FAS-32's manual reclass journal M9 (Dr right account / Cr wrong account). | Needs no migration and no change to PR 106 to 108; works from day one. | The books are wrong until someone corrects them; the correction is manual, and nothing proves the money really landed in the default account. |
+| **C. Default to one account; correct later** | No billing change. The hook debits the book's default receiving account (the account that holds the system key `cash.bank_transfer_default`); a wrong guess is fixed by FAS-32's manual reclass journal M9 (Dr right account / Cr wrong account). | Needs no migration and no change to PR 106 to 108; works from day one. | The books are wrong until someone corrects them; the correction is manual, and nothing proves the money really landed in the default account. |
 
 **Recommendation.** Start with **C** (the default account is `1020`, per FAS-32), because it unblocks FAS-12 and the hook with no billing migration, and at launch there is likely one receiving account. Plan **A with B** as a separate billing change, in the same PR as, or right after, whichever of PR 107/108 lands next, so `services.py` and the confirm route change once. When A lands, the hook reads the stored account and the default becomes the fallback for payments confirmed earlier. The ledger design does not depend on the choice: the hook's account lookup is one function.
 
@@ -539,7 +540,7 @@ Read from `origin/docs/z8uq9md624-fas-32-coa-journal-matrix` (sections 2.1, 3, 4
 | Integer centavos, wide column; a line is a positive debit or credit on a postable account | 2.3 `JournalLine` (bigint, one positive side); `GLAccount.is_postable` |
 | Account columns: code, name, type, normal balance, postable, status, reporting group, effective dates, contra flag | 2.3 `GLAccount`, plus `system_key` (list in 3.5). Type names `revenue`, not `income`. |
 | Journal: Manila date plus separate timestamp; kind normal, opening, reversal, adjustment; reversal link; reason; evidence reference; source type and public id; `source_detail` (plan code, cycle, transferred_on, transfer reference); rule version | 2.3 `JournalEntry`; evidence reference is per line (2.3 `JournalLine`) |
-| Idempotency key, same key and lines a no-op, different lines an error; one opening journal per book | 2.3: key `source_type:source_ref:source_event` (coordinator's ruling overrides FAS-32's `fas:v1:` form; rule version is a column); partial unique on `opening`; 3.4 |
+| Idempotency key, same key and lines a no-op, different lines an error; one opening journal per book | 2.3: key `source_type:source_ref:source_event` (coordinator's ruling; FAS-32 defers to it; the rule version is a column, not in the key); partial unique on `opening`; 3.4 |
 | Revenue release by Manila days, cumulative, round half up, last month the remainder; a schedule per cycle and month; month-end job | 2.3 `RecognitionSchedule` (stored, written with the payment journal); the job is FAS-14, a command first and a beat entry later |
 | Periods open, soft_closed, locked (coordinator's names), checked in the posting transaction; books-start date; no entry before it | 2.3 `FiscalPeriod.status`, `AccountingEntity.books_start_date`; 3.3 |
 | Book environment label; posting on only in live; no staging entry copied | `AccountingEntity.kind`, 6.1, 6.4 |
@@ -549,7 +550,6 @@ Read from `origin/docs/z8uq9md624-fas-32-coa-journal-matrix` (sections 2.1, 3, 4
 
 **Where this design goes further or differs.**
 - FAS-32 §4.7 says the schedule is "proposed; FAS-03/FAS-14 model it". Modelled here as a stored table in `ledger.0001`.
-- FAS-32 §8 lists status "posted or reversed" on the journal. Here a posted journal has no `reversed` status, because the row cannot change; "reversed" is the existence of the linked reversal (2.3). Reports and screens derive it.
 - FAS-32 and FAS-02 expect the key to be unique "across all journals". Here it is unique per book; since a book is one environment and there is at most one live book, the difference is nil in practice.
 - FAS-02's "year is closed by a report or an explicit close" (FAS-32 §8 item 7) is FAS-06/FAS-28's; the schema carries nothing for it in v1.
 
@@ -568,7 +568,7 @@ Read from `origin/docs/z8uq9md624-fas-32-coa-journal-matrix` (sections 2.1, 3, 4
 | R7 | PostgreSQL triggers in a separate migration, tested by the existing PostgreSQL CI job | The job exists; a trigger-only guard is no longer untestable | `.github/workflows/ci.yml` [I] |
 | R8 | Three switches, one per decision (app, billing hook, live books) | Each can be turned on or off alone; follows the existing pattern | `settings.py:112-147` [I] |
 | R9 | 404 for no access, 403 for a viewer on a write route | The route looks absent to the unauthorised, as with billing off | `staff.py:_route` [I] |
-| R13 | Kept `system_key` after all (coordinator's ruling), with FAS-32's codes as the mapping | The hook does not hard-code codes; a code change is a data change | Coordinator, 2026-11-11 |
+| R13 | `system_key` is on `GLAccount` (blank, unique per book where not blank); posting rules name keys, never codes | The hook does not hard-code codes; a code change is a data change | Coordinator ruling, 2026-11-11; FAS-32 §4.1a |
 | R10 | Chart rows are never in a migration | No seed without approval; the list is FAS-32's | `CLAUDE.md`, FAS-03 task |
 | R11 | Drafts can be discarded (deleted) with a `LedgerEvent`; posted entries never | "Drafts are editable" | FAS-03 task |
 | R12 | One currency per book, `PHP`, enforced by check | Single-currency business; a second currency is a new decision | FAS-00 contract |
