@@ -26,7 +26,7 @@ Migration `accounts.0003` (the mobile number tables) must be applied in an envir
 | `never_verified_accounts` | Nothing: it disposes of accounts whose email was never verified, as in "What disposal does" below | 30 days after sign-up |
 | `account_audit_events` | An account's audit events (sign-ins, sign-outs of other devices, linked sign-in providers, email and mobile changes, and the account and site history events) | 1 year after they were written. An `email_changed` event is kept 2 years: see "Security records" below |
 
-No rule touches a billing or tax record, an SMS record or a recovery code. No rule deletes an audit entry: `admin_audit_personal_values` only blanks the personal values of the admin sign-in entries, and every other entry is kept whole. Only `never_verified_accounts` touches an account or a site.
+No rule touches a billing or tax record, an SMS record or a recovery code. No rule deletes an entry of the admin audit log: `admin_audit_personal_values` only blanks the personal values of the admin sign-in entries, and every other entry is kept whole. An account's audit events are a different record, and `account_audit_events` deletes them. Only `never_verified_accounts` touches an account or a site.
 
 ## Security records
 
