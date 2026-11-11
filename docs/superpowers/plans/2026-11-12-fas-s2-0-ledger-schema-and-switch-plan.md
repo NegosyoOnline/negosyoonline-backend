@@ -14,6 +14,26 @@ Date: 2026-11-12. ClickUp task: z8uq9md5df (https://app.clickup.com/t/z8uq9md5df
 Plan branch: `docs/z8uq9md5df-fas-s2-0-plan`, cut from `origin/main` at `34b0d10`. The build branch is cut from the latest `origin/main` once Coach Ed approves this plan.
 Status: **plan only; nothing in it is built.** The SQL of section 5 was run on a scratch PostgreSQL 14 against hand-made tables with the same column names (every refusal below fired as described, and the balanced post passed); the Python was not run. Approving the FAS stage 2 split approved no plan: this plan needs Coach Ed's approval before a builder starts, and the approval of this plan is what the standing approval of 2026-11-11 reads as "a migration that an approved plan specifies" (`CLAUDE.md`, `.claude/briefs/coordinator.md` section 10).
 
+## Deviations from FAS-03 section 2.5
+
+Coach Ed approves this plan, so the two places where it departs from the approved text are named here. The coordinator agreed both on 2026-11-12. The FAS-03 spec is not edited in this PR.
+
+### Deviation 1: no TRUNCATE trigger on `ledger_event`
+
+- **Design text (2.5, layer 2):** "`BEFORE UPDATE OR DELETE` and `BEFORE TRUNCATE` on `ledger_event`: raise."
+- **This plan instead:** the `BEFORE UPDATE OR DELETE` trigger only (`ledger_event_append_only`, section 5.2). No TRUNCATE trigger and no session-setting bypass.
+- **Why:** Django's `TransactionTestCase` teardown runs one `TRUNCATE` over every table of every installed app, and `apps/sante`, `apps/catalog` and `apps/sites` each have such tests. With the trigger, the existing PostgreSQL CI job fails at the first teardown after `apps.ledger` is installed, and so would S2-A's two-thread test. **Evidence**, run 2026-11-12 on a scratch PostgreSQL 14 (`postgresql://postgres@127.0.0.1:5499/scratch`, nothing shared): `uv run python manage.py test apps.sites.tests.test_concurrency --keepdb` passed (`OK`); after adding `CREATE TRIGGER ... BEFORE TRUNCATE ON sites_site FOR EACH STATEMENT` (a stand-in table, the ledger tables not existing yet, raising with the same `RAISE EXCEPTION ... ERRCODE 'check_violation'` as section 5.2) the same command ended `FAILED (errors=1)` with `psycopg.errors.CheckViolation: ledger: the change history is append-only` raised through `django.db.utils.IntegrityError` in the teardown `flush` ("Database ... couldn't be flushed"). The build repeats this on the real `ledger_event` in task 5, step 1; if it does not fail there, the trigger is kept as designed.
+- **Protection lost:** a session that is the table owner can empty `ledger_event` with `TRUNCATE`, which the design's trigger would have stopped. `UPDATE` and `DELETE` of its rows stay refused by the database and by every Django path.
+- **Alternative not taken:** keep the trigger and let it pass when a session setting (for example `ledger.allow_truncate`) is `on`, set by the test runner. It needs a test-only hook that every test run, including `manage.py test apps.billing` alone, must set, and it is a switch that disables the protection. The design's layer 3 already says the triggers defend against the application and mistakes, not against the database owner, who can drop a trigger as easily; the seal chain (S2-A, FAS-06) is what reveals a tampered history.
+
+### Deviation 2: the period trigger refuses only `locked`
+
+- **Design text (2.5, layer 2):** "The period lock is checked in the same posted-transition trigger: the period must be `open` (or `soft_closed` with an entry kind FAS-06 allows [A])."
+- **This plan instead:** `ledger_entry_guard` refuses a draft-to-posted transition into a `locked` period and does not look at `soft_closed`. Whether a `soft_closed` period takes an entry stays the writer's rule (design 3.3 step 3), as design 2.3 already says: "what `soft_closed` still allows ... is FAS-06's rule".
+- **Why:** FAS-06 (S2-E) has not named the kinds a `soft_closed` period accepts. A trigger that refuses all of them would block the owner's adjustments; a trigger that allows a guessed list would be wrong the day FAS-06 decides, and either way a later migration would have to replace the function. Leaving it out means S2-E needs no trigger migration.
+- **Protection lost:** a write that bypasses the writer (raw SQL, a bug in a future module) can post into a `soft_closed` period; the database still stops it in a `locked` one. Django-level code cannot do it through the writer.
+- **Alternative not taken:** refuse `soft_closed` in the trigger now, and have S2-E replace the function in `0003`. That keeps the database strict but couples S2-0 to a policy not yet written and adds a trigger migration to stage 2.
+
 ## 1. Sources
 
 | Short name | Source |
@@ -69,11 +89,9 @@ No other file changes. In particular not `docs/runbooks/` (the accounting runboo
 
 ## 3. Decisions and conflicts to read before building
 
-### 3.1 One conflict inside the approved design, and the default taken
+### 3.1 The two deviations
 
-Design 2.5 lists a `BEFORE TRUNCATE` trigger on `ledger_event` that raises. Django's `TransactionTestCase` teardown runs `TRUNCATE` on the tables of every installed app (`django/db/backends/postgresql/operations.py` `sql_flush`; `core/management/sql.py`), and `apps/sante`, `apps/catalog` and `apps/sites` each have a `TransactionTestCase`. With the trigger, the existing PostgreSQL CI job would fail at the first such teardown once `apps.ledger` is installed, and S2-A's two-thread test would fail the same way.
-
-**Default taken in this plan: no TRUNCATE trigger.** Rows of `ledger_event` are still protected from `UPDATE` and `DELETE` by a database trigger and from every Django path by the guards. `TRUNCATE` needs the table owner, as dropping a trigger does, and design 2.5 layer 3 (the seal chain, S2-A and FAS-06) is what covers the owner. The alternative (keep the trigger and let it pass when a session setting is on) needs a test-only hook that every test run must set, and was not chosen. The coordinator was asked on 2026-11-12; if the answer differs, only section 5.2 (the `ledger_event` trigger) and task 5 change. The build confirms the failure first (task 5, step 1) before relying on this.
+See "Deviations from FAS-03 section 2.5" above (no TRUNCATE trigger; the period trigger refuses only `locked`). If either is overruled, only section 5.2 and task 5 change.
 
 ### 3.2 Routine decisions
 
@@ -81,7 +99,7 @@ Each is reversible and inside the approved design; the report to the coordinator
 
 | # | Decision | Why | Source |
 |---|---|---|---|
-| D1 | The period trigger refuses `locked` only. A `soft_closed` period stays a writer rule | Which kinds a `soft_closed` period still accepts is FAS-06's rule. A trigger that refused it would need replacing by a new migration the day S2-E decides | Design 2.3 `ledger_period` and 3.3 step 3 ("what `soft_closed` still allows is FAS-06's rule"); design 2.5 puts it in the trigger with "[A]" |
+| D1 | Deviation 2 above: the period trigger refuses `locked` only | see Deviations | FAS-03 2.5 |
 | D2 | Every choice column gets an enumerated `CheckConstraint` (`kind`, `status`, `type`, `normal_side`, `level`) | The triggers compare against literals such as `'posted'`; a value outside the vocabulary must not exist | Design 2.5 (the guarantees rest on those values) |
 | D3 | A new `JournalEntry` can only be inserted as `draft` (Django guard); a posted entry arises only by the draft-to-posted update | Closes inserting a row already posted. On PostgreSQL the deferred balance trigger and the line trigger already make such a row useless | Design 2.5 layer 1 |
 | D4 | The commit-time trigger also re-checks every line against its account (header, other book, effective dates) | The line trigger runs when a line is written; an entry date edited afterwards must be caught at the transition | Design 2.5 layer 2 (line rules) |
@@ -356,7 +374,7 @@ What the triggers guarantee, and what they leave to the writer:
 | At commit, at least two lines and debits = credits = `total_centavos`; no line on a header, another book's account or outside its effective dates | `ledger_entry_balanced` (deferred, D4) | checks the same first |
 | A line never points at a header account, another book's account, or one whose dates exclude the entry date; every line of an `opening` entry has an evidence reference | `ledger_line_guard` | checks the same first; also refuses a `retired` account |
 | `ledger_event` rows are never updated or deleted | `ledger_event_append_only` | writes in the same transaction as the change |
-| `ledger_event` is never truncated | **not a trigger** (section 3.1) | seal chain (layer 3) |
+| `ledger_event` is never truncated | **not a trigger** (Deviation 1) | seal chain (layer 3) |
 
 ## 6. Switches, settings and the shared files
 
@@ -458,11 +476,11 @@ Run all commands from the repository root with `uv run`. Branch: `feat/z8uq9md5d
 
 **Files:** `apps/ledger/migrations/0002_postgres_guards.py`, `apps/ledger/tests/test_postgres_guards.py`.
 
-- [ ] **Step 1: prove the TRUNCATE finding** (section 3.1) before writing the migration: on a local PostgreSQL (`DATABASE_URL` set to a scratch database; never staging), add the `BEFORE TRUNCATE` trigger by hand to a test database and run `uv run python manage.py test apps.sites.tests.test_concurrency`; it should fail in teardown. Record the output in the PR. Then drop the hand-made trigger. If it does not fail, tell the coordinator before going on.
+- [ ] **Step 1: prove the TRUNCATE finding** (Deviation 1) before writing the migration: on a local PostgreSQL (`DATABASE_URL` set to a scratch database; never staging), add the `BEFORE TRUNCATE` trigger by hand to a test database and run `uv run python manage.py test apps.sites.tests.test_concurrency`; it should fail in teardown. Record the output in the PR. Then drop the hand-made trigger. If it does not fail, tell the coordinator before going on.
 - [ ] **Step 2: write `test_postgres_guards.py`**, every class decorated `@skipUnless(connection.vendor == "postgresql", "PostgreSQL triggers")`, `TestCase`, each refusal inside `with self.assertRaises(IntegrityError), transaction.atomic():` and asserting the message text of section 5.2 appears in `str(error)`:
   - entry: update of a posted entry; delete of a posted entry; draft to posted without a period, without a sequence, without `posted_at`, with a blank seal; with a date outside the period; with a period of another book; into a `locked` period; into a `soft_closed` period (**passes**, D1); with `books_start_date` null; dated before `books_start_date`; a draft update and a draft delete pass;
   - line: insert into a posted entry; update and delete on a posted entry's line; a header account; another book's account; an entry date before `effective_from` and after `effective_to`; an `opening` entry's line with a blank evidence reference refused and with one accepted; the deleting of a draft entry removes its lines;
-  - event: update and delete refused; insert accepted; **`TRUNCATE` is not refused** is not tested (section 3.1);
+  - event: update and delete refused; insert accepted; **`TRUNCATE` is not refused** is not tested (Deviation 1);
   - balance: the deferred trigger does not fire inside a test's transaction, so each case runs `SET CONSTRAINTS ledger_entry_balanced IMMEDIATE` after the writes, inside a savepoint: one line; unequal sides; total different from the sums; and a line on a header account placed on the entry by changing the account's `is_postable` afterwards (D4): each refused; a two-line balanced entry passes. This avoids `TransactionTestCase` (so no flush) and fires the same function.
   - `test_reverse_drops_the_triggers` (`TransactionTestCase`, after the others, `available_apps = ["apps.ledger", "apps.operators", "django.contrib.contenttypes", "django.contrib.auth"]`): migrate the `ledger` app back to `0001`, assert `pg_trigger` has no trigger whose name starts `ledger_` and `pg_proc` no function of that name, migrate forward to `0002`, assert all four triggers and four functions exist; the cleanup always migrates forward.
 - [ ] **Step 3: write `test_sqlite_noop`** in `test_app.py` (`skipUnless` SQLite): `sqlite_master` holds no trigger whose name starts `ledger_`. (It runs wherever CI's `django` job runs; on PostgreSQL the test is skipped.)
@@ -519,7 +537,7 @@ Production: not covered, and has no services (`production-build-deferred-until-m
 |---|---|
 | Every model and field of design 2.3 exists as approved, with the constraints and indexes of section 4 | Tasks 3, 4: `test_models.py`; review of the generated migration against section 4 |
 | Two migrations, exactly as section 5 | Task 4, 5: `test_app.py` tests 5 to 7; `makemigrations --check` |
-| The PostgreSQL triggers refuse what design 2.5 lists (with 3.1 and D1) | Task 5: `test_postgres_guards.py`, run by CI job `postgres-and-redis` |
+| The PostgreSQL triggers refuse what design 2.5 lists (with the two deviations) | Task 5: `test_postgres_guards.py`, run by CI job `postgres-and-redis` |
 | A posted entry and its lines cannot be changed through Django on SQLite or PostgreSQL | Task 2: `test_guards.py` |
 | Three switches, all off by default; the two startup checks | Task 1: `test_switch.py`, `test_checks.py` |
 | No data, no seed, no admin screen, no tax or receiving-account field | Task 6: `test_app.py` tests 2, 4, 5, 9 |
@@ -528,6 +546,5 @@ Production: not covered, and has no services (`production-build-deferred-until-m
 
 ## 11. What this plan does not decide
 
-- Whether the `TRUNCATE` trigger is kept with a bypass (section 3.1) is the coordinator's answer to the question sent on 2026-11-12; the default above stands until then.
 - Nothing about the chart, the first book, the books-start date or any switch's value anywhere: those are S2-C, FAS-32's loading command and Coach Ed.
 - I ran no migration, no test of the Python and no query against staging or production, and read no data from them.
