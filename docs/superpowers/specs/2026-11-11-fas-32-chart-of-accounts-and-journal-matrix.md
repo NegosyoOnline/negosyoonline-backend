@@ -21,7 +21,7 @@ The task was written for a card-and-gateway business. Coach Ed's rulings (2026-1
 | Task text | Here |
 |---|---|
 | `PaymentAttempt.succeeded` is the money-in event | A confirmed `BankTransferPayment` (`confirm_transfer`, `services.py:876`) is the only money-in event [main]. The amount is on the payment, not on the cycle (FAS-01 §1.1). |
-| Debit 1030 "Xendit Settlement Receivable" on payment | Debit the bank or e-wallet the Subscriber paid into. Money is in hand at confirmation; there is no clearing step and no gateway. 1030 and 1031 are **Held** until a gateway is approved. |
+| Debit 1030 "Xendit Settlement Receivable" on payment | Debit the one bank account, 1020 Cash in Bank — Security Bank (ruling 14). Money is in hand at confirmation; there is no clearing step and no gateway. 1030 and 1031 are **Held** until a gateway is approved. |
 | E4 payout settlement, the CSV importer, Xendit fee, VAT on fee, CWT on remittance, accounts 5070/5071 | **Dropped for launch.** They exist only for a gateway. No fee is deducted from a manual transfer. 5070 and 5071 are Held. |
 | E5 credit note and refund | **Held.** The code has no refund and no credit note; a confirmed payment cannot be undone (FAS-01 §4). 2050 and 4090 are Later. |
 | E6 referral and promotional credit, 6040 commissions | **Held.** Not built (`credits.available_credit()` was legacy). PR 107 only names `referral_credit` as a future line kind. |
