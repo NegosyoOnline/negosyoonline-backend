@@ -81,6 +81,13 @@ class AuditTests(TwoStepTestCase):
         self.assertIsNotNone(entry.personal_blanked_at)
         self.assertEqual(entry.action, "admin_sign_in_ok")
 
+    def test_a_personal_value_on_a_kept_action_is_refused(self):
+        """A kept row is never blanked, so it must never hold a personal value."""
+        with self.assertRaises(ValueError):
+            audit.record(None, "admin_identity_add", personal={"email": "ana@example.test"})
+        self.assertEqual(OperatorAuditEntry.objects.count(), 0)
+        audit.record(None, "admin_identity_add", personal={})  # an empty value is not one
+
     def test_recent_sign_in_events_are_the_newest_ten_of_one_identity(self):
         mine = self.enrolled()
         other = self.enrolled("other@example.test", self.staff("other"))
