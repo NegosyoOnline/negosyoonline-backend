@@ -94,6 +94,9 @@ SMS_GATEWAY_ENABLED = os.environ.get("SMS_GATEWAY_ENABLED", "").strip() == "1"
 # Account-side retention. "1" lets its rules delete and blank. Off, a run of them touches
 # nothing; only the dry run counts.
 RETENTION_ENABLED = os.environ.get("RETENTION_ENABLED", "").strip() == "1"
+# Billing. "1" turns on the subscription lifecycle. Off, site creation writes no subscription,
+# the sweep does nothing, and the billing tables are not read or written.
+BILLING_ENABLED = os.environ.get("BILLING_ENABLED", "").strip() == "1"
 
 
 # Application definition
@@ -109,6 +112,7 @@ INSTALLED_APPS = [
     'apps.common',
     'apps.accounts',
     'apps.sites',
+    'apps.billing',
     'apps.notifications',
     'apps.health',
 ]
