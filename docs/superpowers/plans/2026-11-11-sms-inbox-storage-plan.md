@@ -12,7 +12,7 @@
 
 Date: 2026-11-11. ClickUp task: z8uq9me128 (https://app.clickup.com/t/z8uq9me128), parent z8uq9md33v.
 Plan branch: `claude/z8uq9me128-inbox-storage-plan`, cut from `origin/main` at `bef2f89`. The build branch will be cut from the latest `origin/main` when this plan is approved.
-Status: **not approved. Plan only.** Nothing in it is built. The code in it was written from reading the repository at `bef2f89` and has not been run. It returns to Coach Ed for approval before any code; the NPC coordinator reviews it first.
+Status: **plan only; nothing in it is built.** Under Coach Ed's ruling "build until plan 9" (ClickUp comment 1100430000490204, as the coordinator recorded it; this session was told it by the coordinator and has not read the comment), plans 3 to 9 do not return to him one by one. The gate for this plan is the coordinator's read and the NPC coordinator's review; the coordinator then merges it and says when to build. The code in it was written from reading the repository at `bef2f89` and has not been run.
 
 ## 1. Sources
 
@@ -31,7 +31,7 @@ Status: **not approved. Plan only.** Nothing in it is built. The code in it was 
 - **R3**: "Yes, as proposed". Only HQ staff with an explicit SMS inbox permission; every opened conversation is written to the operator audit record.
 - **R8**: "Yes, this is for SMS only." Records name their platform; only `sms` exists.
 - **R27, R28** and his words of 2026-11-11, "there will be no Django admin and we will be building the HQ for the common cases in managing Negosyo Online": **this plan adds no Django admin screen, list or registration for any inbox record**, and task 7 has a test that holds it.
-- His answer to "should the designer start writing plan 3 (inbox storage) now, a plan-only PR that returns to him before any code?", as relayed by the coordinator: "ok build this fist and ill conment for improvements in visual test to ready it". The coordinator reads it as yes to writing this plan. It approves no plan and no code.
+- "build until plan 9", after "or lest do it all in plans 9" and "is it possible you build upto 9?", as relayed by the coordinator and recorded by it in comment 1100430000490204. The coordinator's reading: plans 3 to 9 of the build order are written and built one after another without each plan returning to him; he comments on the look at the visual test. Each plan is still written first and gated by the coordinator's read and the reviewing coordinator. It turns no switch on and approves nothing in section 6.2.
 
 ## 2. Scope
 
@@ -1016,11 +1016,11 @@ Expected: the full run passes; no migration is proposed; `check` is clean; `chec
 - [ ] With no variable set, by hand on a local SQLite database with the migration **not** applied: start the server with `SMS_GATEWAY_ENABLED=1` and a local Redis address, add a phone, and send one `received` call with its token. Expected: 204, and no error about a missing table. This is the proof that the code can be released before the table exists.
 - [ ] Apply the migration locally, set `SMS_INBOX_ENABLED=1`, `sms_device incoming on`, send the same call. Expected: 204 and one row; the same call again, still one row. Made-up number and text only.
 
-## 6. What needs Coach Ed's approval, and what this plan does not ask
+## 6. The gate for this plan, and what still needs Coach Ed's approval
 
-### 6.1 Asked with this plan
+### 6.1 The gate: the coordinator's read and the NPC coordinator's review
 
-Building tasks 1 to 10 on a build branch, including writing `inbox.0001_initial`; a build PR reviewed by the NPC coordinator before merge; merged by the coordinator on green CI after the overlap check; that merge reaching staging with `SMS_INBOX_ENABLED` unset. The coordinator then runs the one migration on staging under the standing approval of 2026-11-11.
+This plan does not return to Coach Ed ("build until plan 9", 1.1). Once the coordinator has read it and the NPC coordinator has reviewed it, the coordinator merges it and says when to build. What that covers: building tasks 1 to 10 on a build branch, including writing `inbox.0001_initial`; a build PR reviewed by the NPC coordinator before merge; merged by the coordinator on green CI after the overlap check; that merge reaching staging with `SMS_INBOX_ENABLED` unset. The coordinator then runs the one migration on staging under the standing approval of 2026-11-11.
 
 ### 6.2 Not asked, each still its own approval
 
@@ -1032,7 +1032,7 @@ Building tasks 1 to 10 on a build branch, including writing `inbox.0001_initial`
 | Anything on production, the migration included | Coach Ed. Not covered by any standing approval |
 | Plans 4 to 11 | Each its own plan and approval |
 
-### 6.3 What he should know before approving
+### 6.3 What the coordinator and the reviewer should know, and what Coach Ed is told
 
 - After this build there is still nothing to look at: no page and no route. The first screen is plan 5.
 - When the three switches are on, **every** text the SIM receives is stored, including ones that have nothing to do with NegosyoOnline (design 5.2). Nothing filters them.
