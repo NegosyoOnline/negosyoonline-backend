@@ -1,8 +1,7 @@
-"""The task queue: the Celery app, its one scheduled job and the two Railway service files.
+"""The task queue: the Celery app, its one scheduled job, and no Railway config file in the repository.
 
 No test here needs a broker or a running worker: the task is run in-process.
 """
-import tomllib
 from pathlib import Path
 from unittest import mock
 
@@ -163,34 +162,13 @@ class QueueSetupTests(SimpleTestCase):
 
 
 class RailwayFilesTests(SimpleTestCase):
-    def read(self, name):
-        return tomllib.loads((ROOT / name).read_text())
+    """Each service's settings live in its Railway Settings; docs/runbooks/billing.md records them."""
 
-    def test_the_worker_and_beat_start_commands(self):
-        self.assertEqual(
-            self.read("railway.worker.toml")["deploy"]["startCommand"],
-            "uv run celery -A config worker --loglevel=info --concurrency=2",
-        )
-        self.assertEqual(
-            self.read("railway.beat.toml")["deploy"]["startCommand"],
-            "uv run celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule",
+    def test_no_railway_config_file_is_in_the_repository_root(self):
+        found = sorted(
+            path.name
+            for pattern in ("railway.toml", "railway.json", "railway.*.toml", "railway.*.json")
+            for path in ROOT.glob(pattern)
         )
 
-    def test_neither_has_a_health_path_and_neither_runs_a_migration(self):
-        for name in ("railway.worker.toml", "railway.beat.toml"):
-            with self.subTest(name=name):
-                config = self.read(name)
-                self.assertNotIn("healthcheckPath", config["deploy"])
-                self.assertEqual(config["build"], {"buildCommand": "uv sync --frozen"})
-                self.assertNotIn("migrate", (ROOT / name).read_text())
-
-    def test_beat_is_one_instance(self):
-        self.assertEqual(self.read("railway.beat.toml")["deploy"]["numReplicas"], 1)
-
-    def test_the_api_service_file_is_as_it_was(self):
-        deploy = self.read("railway.toml")["deploy"]
-
-        self.assertTrue(deploy["startCommand"].startswith("uv run gunicorn config.wsgi:application"))
-        self.assertEqual(deploy["healthcheckPath"], "/healthz/")
-        self.assertNotIn("celery", (ROOT / "railway.toml").read_text())
-        self.assertNotIn("migrate", (ROOT / "railway.toml").read_text())
+        self.assertEqual(found, [])

@@ -22,7 +22,7 @@ Railway staging owns PostgreSQL and Redis. Its credentials must be configured la
 
 ## Railway staging
 
-`railway.toml` deliberately starts Gunicorn without running database migrations. Migrations stay an explicit reviewed release action.
+The `api` service's start command is set in its Railway Settings and recorded in `docs/runbooks/billing.md`. It starts Gunicorn and deliberately does not run database migrations. Migrations stay an explicit reviewed release action.
 
 Before a staging deploy, configure these Railway variables through the service UI:
 
@@ -39,4 +39,4 @@ Before a staging deploy, configure these Railway variables through the service U
 - `BILLING_ENABLED`: `1` turns on billing (`apps/billing`: the subscription lifecycle, the billing endpoints, and `manage.py billing_sweep`, `billing_backfill_subscriptions` and `billing_exempt`). Leave it unset until the `apps/billing` migration has been applied and Coach Ed approves it for the environment, following `docs/runbooks/billing.md`; unset, nothing reads or writes the billing tables and the sweep does nothing.
 - `DASHBOARD_URL` and `SITE_URL`: where the browser lands after a Google sign-in that worked (the dashboard) or did not (the public site's sign-in popup). No trailing slashes.
 
-The deployment must return HTTP 200 from `/healthz/` before Railway accepts it as healthy.
+After a deploy, `/healthz/` must return HTTP 200 over HTTPS: `scripts/verify_deploy.sh` checks it. Railway itself does not check it: the `api` service has no health path set, because Railway's check calls over plain HTTP and gets the HTTPS redirect. See "Worker and beat" in `docs/runbooks/billing.md`.
