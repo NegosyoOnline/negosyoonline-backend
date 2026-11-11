@@ -14,8 +14,10 @@ from apps.billing.models import Subscription
 from apps.billing.tests.base import days, method_on_file
 from apps.catalog.api import router as catalog_router
 from apps.catalog.tests.base import catalog_call
+from apps.pack.api_owner import router as pack_router
+from apps.pack.tests.owner_base import pack_call
 from apps.payments.api import router as payments_router
-from apps.payments.tests.base import payments_call
+from apps.payments.tests.base import payments_call, use_local_private_store
 from apps.sante.api import router as sante_router
 from apps.sites.api import router as sites_router
 from apps.sites.models import Site, SiteBusinessProfile
@@ -39,6 +41,11 @@ TURNED_OFF = [
     ("POST", "/sites/{site_id}/payment-methods/accounts/"),
     ("POST", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
     ("DELETE", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
+    ("GET", "/sites/{site_id}/pack/orders/"),
+    ("GET", "/sites/{site_id}/pack/orders/{order_id}/"),
+    ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"),
+    ("POST", "/sites/{site_id}/pack/orders/{order_id}/approve/"),
+    ("POST", "/sites/{site_id}/pack/orders/{order_id}/reject/"),
 ]
 # These answer 201 when they work.
 CREATED = [
@@ -63,11 +70,12 @@ SANTE_BODY = {"sponsor_id": "TAKEN-1"}
 
 @override_settings(
     BILLING_ENABLED=True, SANTE_SETTINGS_ENABLED=True, SANTE_CATALOG_ENABLED=True,
-    PAYMENT_METHODS_ENABLED=True,
+    PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True,
 )
 class BillingOnlyTestCase(SitesApiTestCase):
     def setUp(self):
         super().setUp()
+        use_local_private_store(self)
         self.site_id = self.create_site()["id"]
         self.site = Site.objects.get(public_id=self.site_id)
         self.subscription = Subscription.objects.get(site=self.site)
@@ -86,6 +94,8 @@ class BillingOnlyTestCase(SitesApiTestCase):
         path = "/v1" + template.replace("{site_id}", site_id or self.site_id)
         if "/catalog/" in path:
             return catalog_call(self, method, path, client=client)
+        if "/pack/" in path:
+            return pack_call(self, method, path, client=client)
         if "/payment-methods/" in path:
             return payments_call(self, method, path, client=client)
         if method == "GET":
@@ -250,6 +260,7 @@ class RouteInventoryTests(BillingOnlyTestCase):
             + routes_under_a_site(sante_router)
             + routes_under_a_site(catalog_router)
             + routes_under_a_site(payments_router)
+            + routes_under_a_site(pack_router)
         )
 
     def test_every_route_under_a_site_is_turned_off_or_allowed_by_name(self):

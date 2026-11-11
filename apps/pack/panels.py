@@ -2,7 +2,7 @@
 TWCinc's negosyoonline_sante_pack/panels.py, the parts the onboarding and the member reads use).
 The wording is TWCinc's."""
 from apps.members import contacts, otp
-from apps.pack import access, onboarding
+from apps.pack import access, constants as C, interfaces, onboarding
 from apps.pack.models import PackOrder, SanteRegistration
 
 MEMBER_REG_LABELS = {
@@ -79,3 +79,43 @@ def mobile_check(member):
         masked = contacts.mask("mobile", member.mobile)
         return {"pending": True, "locked": True, "mobile": masked, "code_sent_to": masked if ch is not None else ""}
     return {"pending": True, "mobile": member.mobile, "code_sent_to": ch.target if ch is not None else ""}
+
+
+PACK_TONES = {"pending_review": "rev", "rejected": "att", "verified": "ok"}
+METHOD_LABEL = "Bank or e-wallet transfer"
+
+
+def _lock(order):
+    """The rejection dialog's data: the reason (shown only after sign-in), whether a new proof is
+    already in, and the accounts to pay to."""
+    if not order.rejection_lock_active:
+        return None
+    from apps.pack import review
+    from apps.sante import pack as sante_pack
+    label, other = review.member_reason(order)
+    return {
+        "reason_label": label, "other_text": other,
+        "resubmitted": order.payment_status == C.PENDING_REVIEW,
+        "accounts": sante_pack.accounts(order.site),
+    }
+
+
+def pack_panel(member):
+    """The member's payment card (TWCinc pack_panel, Xendit and shipment parts left out)."""
+    order = latest_order(member)
+    if order is None:
+        return None
+    return {
+        "order_number": order.order_number, "payment_status": order.payment_status,
+        "payment_label": dict(C.PAYMENT_STATUSES)[order.payment_status], "method_label": METHOD_LABEL,
+        "price_centavos": order.price_centavos, "tone": PACK_TONES.get(order.payment_status, "rev"),
+        "lock": _lock(order), "benefits_off": not interfaces.benefits_active(member),
+        "proofs": [
+            {
+                "id": s.public_id, "seq": s.seq, "submitted_at": s.submitted_at.isoformat(),
+                "reference_number": s.reference_number, "amount_sent_centavos": s.amount_sent_centavos,
+                "content_type": s.content_type,
+            }
+            for s in order.submissions.all()
+        ],
+    }

@@ -20,16 +20,18 @@ import ipaddress
 from django.utils import timezone
 
 from django.conf import settings
+from django.http import HttpResponse
 from ninja import File, Form, Router, Schema
 from ninja.files import UploadedFile
 
-from apps.common import throttle
+from apps.common import private_files, throttle
 from apps.common.errors import ApiError
 from apps.pack import (
-    access, address_zip, checkout, constants as C, notices, onboarding, panels, placement, records,
-    registration, registration_rules,
+    access, address_zip, checkout, constants as C, interfaces, notices, onboarding, panels, placement, records,
+    registration, registration_rules, review,
 )
-from apps.pack.models import PackOrder, SanteRegistration
+from apps.members import sessions
+from apps.pack.models import PackOrder, PackProofSubmission, SanteRegistration
 from apps.storefront.services import served_sante_site
 
 router = Router()
@@ -488,3 +490,73 @@ def address_zip_lookup(request, body: ZipIn):
         "ok": d.ok, "zip_code": d.zip_code or "", "zip_precision": d.zip_precision or "",
         "error_field": d.error_field or "", "error_message": d.error_message,
     }
+
+
+# -- the member's own payment card, proof and new proof (the member session token) -------------------
+
+class MemberIn(Schema):
+    host: str = ""
+    token: str = ""
+
+
+def _member(host, token):
+    """(site, member) for a live member session of this site, or 401 `member_session_invalid`."""
+    site = _site(host)
+    session = sessions.find_session(site, token)
+    if session is None:
+        raise ApiError("member_session_invalid", "Not signed in.", status=401)
+    return site, session.member
+
+
+class MemberPackOut(Schema):
+    pack: dict | None
+    registration: dict | None
+
+
+@router.post("/member/pack/", response=MemberPackOut)
+def member_pack(request, body: MemberIn):
+    """The payment card, the rejection reason (only here, after sign-in) and the member's own
+    proofs. The registration card is shown only while benefits are on (TWCinc AC-68)."""
+    _, member = _member(body.host, body.token)
+    return {
+        "pack": panels.pack_panel(member),
+        "registration": panels.registration_panel(member) if interfaces.benefits_active(member) else None,
+    }
+
+
+class MemberProofIn(MemberIn):
+    proof_id: str = ""
+
+
+@router.post("/member/pack/proof/")
+def member_pack_proof(request, body: MemberProofIn):
+    """The member's own proof file. Another member's id answers the same 404."""
+    site, member = _member(body.host, body.token)
+    sub = PackProofSubmission.objects.filter(
+        site=site, public_id=body.proof_id, order__member=member
+    ).first()
+    if sub is None:
+        raise ApiError("not_found", "Not found.", status=404)
+    response = HttpResponse(private_files.read(sub.file_key), content_type=sub.content_type)
+    response["Cache-Control"] = "private, no-store"
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Content-Disposition"] = 'inline; filename="proof"'
+    return response
+
+
+class ResubmitIn(PlaceIn):
+    pass
+
+
+@router.post("/member/pack/resubmit/", response=MemberPackOut)
+def member_pack_resubmit(request, body: Form[ResubmitIn], proof: File[UploadedFile] = None):
+    """Multipart, like the checkout proof, plus `token` (the member session). Only from `rejected`:
+    409 `not_rejected` otherwise. The lock stays until the Subscriber approves."""
+    site, member = _member(body.host, body.token)
+    data = body.dict()
+    for name in ("sender_name", "sender_first_name", "sender_last_name"):
+        if name not in request.POST:
+            data.pop(name)
+    throttle.hit("pack-resubmit", member.pk, limit=10, window=3600)
+    review.resubmit(site, member, data=data, upload=proof, ip=_ip(body.visitor_ip))
+    return {"pack": panels.pack_panel(member), "registration": None}
