@@ -3,17 +3,13 @@
 Every step names the operator (an active staff user) and is written to the operator audit log.
 Output names versions and checksums, never file contents.
 
-    manage.py sante_agreement_publish authorize --operator NAME --document-date 2026-10-31 \
-        --note "Santé letter ref 123" --covers-pdf-hosting --covers-branding \
-        --covers-online-acceptance --file letter.pdf
-    manage.py sante_agreement_publish verify --operator NAME --id 1
     manage.py sante_agreement_publish draft --operator NAME --title "..." --label 2026-11 \
         --effective-date 2026-11-15 --file agreement.pdf        # --file - reads standard input
-    manage.py sante_agreement_publish publish --operator NAME --label 2026-11
-    manage.py sante_agreement_publish update|delete|revoke|status
+    manage.py sante_agreement_publish publish --operator NAME --label 2026-11 \
+        --reason "Authorized by X, filed at Y"
+    manage.py sante_agreement_publish update|delete|status
 
-Publishing is refused until an authorization is recorded and verified, and while no Santé catalog
-owner site is set. See docs/runbooks/sante-agreement.md.
+Publishing is refused while no Santé catalog owner site is set. See docs/runbooks/sante-agreement.md.
 """
 import sys
 from datetime import date
@@ -53,18 +49,6 @@ class Command(BaseCommand):
                 p.add_argument("--operator", required=True, help="username of an active staff user")
             return p
 
-        p = step("authorize")
-        p.add_argument("--document-date", required=True)
-        p.add_argument("--note", required=True)
-        p.add_argument("--covers-pdf-hosting", action="store_true")
-        p.add_argument("--covers-branding", action="store_true")
-        p.add_argument("--covers-online-acceptance", action="store_true")
-        p.add_argument("--file", required=True, help="evidence: PDF, JPEG or PNG; - for stdin")
-        p = step("verify")
-        p.add_argument("--id", type=int, required=True)
-        p = step("revoke")
-        p.add_argument("--id", type=int, required=True)
-        p.add_argument("--reason", required=True)
         p = step("draft")
         p.add_argument("--title", required=True)
         p.add_argument("--label", required=True)
@@ -79,6 +63,7 @@ class Command(BaseCommand):
         p.add_argument("--label", required=True)
         p = step("publish")
         p.add_argument("--label", required=True)
+        p.add_argument("--reason", required=True, help="who authorized it, where it is filed")
         step("status", operator=False)
 
     def handle(self, *args, step, **o):
@@ -98,20 +83,7 @@ class Command(BaseCommand):
         user = get_user_model().objects.filter(username=o["operator"]).first()
         if user is None:
             raise agreement.AgreementError(agreement.NOT_OPERATOR)
-        if step == "authorize":
-            row = agreement.record_authorization(
-                user, content=_read(o["file"]), document_date=_date(o["document_date"]),
-                note=o["note"], covers_pdf_hosting=o["covers_pdf_hosting"],
-                covers_branding=o["covers_branding"],
-                covers_online_acceptance=o["covers_online_acceptance"])
-            out(f"Authorization {row.pk} recorded. It is not in force until verified.")
-        elif step == "verify":
-            agreement.verify_authorization(user, o["id"])
-            out(f"Authorization {o['id']} verified.")
-        elif step == "revoke":
-            agreement.revoke_authorization(user, o["id"], reason=o["reason"])
-            out(f"Authorization {o['id']} revoked.")
-        elif step == "draft":
+        if step == "draft":
             v = agreement.create_draft(
                 user, title=o["title"], version_label=o["label"],
                 effective_date=_date(o["effective_date"]), content=_read(o["file"]))
@@ -125,5 +97,5 @@ class Command(BaseCommand):
             agreement.delete_draft(user, o["label"])
             out(f"Draft {o['label']} deleted.")
         elif step == "publish":
-            v = agreement.publish(user, o["label"])
+            v = agreement.publish(user, o["label"], reason=o["reason"])
             out(f"Published {v.version_label} as the active version.")

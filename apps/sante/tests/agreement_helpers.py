@@ -10,6 +10,7 @@ PDF = b"%PDF-1.4\n" + b"sample agreement\n" * 20 + b"%%EOF"
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 40
 DAY = date(2026, 11, 15)
 LETTER_DAY = date(2026, 10, 31)
+REASON = "Authorized by Coach Ed, filed in ClickUp z8uq9me7x7"
 
 
 def make_operator(username="op", **fields):
@@ -25,18 +26,6 @@ def make_master(operator, email="master@example.test", name="master-store"):
     return site
 
 
-def authorize(operator, *, verify=True, **changes):
-    fields = dict(
-        content=PDF, document_date=LETTER_DAY, note="Santé letter ref 1",
-        covers_pdf_hosting=True, covers_branding=True, covers_online_acceptance=True,
-    )
-    row = agreement.record_authorization(operator, **{**fields, **changes})
-    if verify:
-        agreement.verify_authorization(operator, row.pk)
-        row.refresh_from_db()
-    return row
-
-
 def draft(operator, label="v1", title="Santé Membership Agreement", content=PDF, effective=DAY):
     return agreement.create_draft(
         operator, title=title, version_label=label, effective_date=effective, content=content
@@ -45,6 +34,6 @@ def draft(operator, label="v1", title="Santé Membership Agreement", content=PDF
 
 def published(operator, label="v1", **changes):
     version = draft(operator, label, **changes)
-    agreement.publish(operator, label)
+    agreement.publish(operator, label, reason=REASON)
     version.refresh_from_db()
     return version

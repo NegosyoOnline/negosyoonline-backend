@@ -15,7 +15,7 @@ from apps.common import private_files
 from apps.payments.models import SitePaymentAccount, SitePaymentSettings
 from apps.payments.tests.base import PNG, make_payment_account, use_local_private_store
 from apps.sante.tests.agreement_helpers import (
-    DAY, PDF, authorize, draft, make_master, make_operator, published,
+    DAY, PDF, REASON, draft, make_master, make_operator, published,
 )
 from apps.sante.tests.base import retemplate
 from apps.storefront.tests.base import HOST, NOT_FOUND, SurfaceTestCase
@@ -32,7 +32,6 @@ class PackTests(SurfaceTestCase):
         self.site = make_subscription().site
         self.op = make_operator()
         make_master(self.op)
-        authorize(self.op)
 
     def pack(self, host=HOST, path=PACK):
         return self.call(host, path=path)
@@ -133,7 +132,7 @@ class PackTests(SurfaceTestCase):
         pending = draft(self.op, "d")
         for version_id in (pending.pk, pending.pk + 99):
             self.assert_answer(self.pack(path=f"{PACK}agreement/{version_id}/pdf/"), 404, NOT_FOUND)
-        agreement.publish(self.op, "d")
+        agreement.publish(self.op, "d", reason=REASON)
         (self.directory / pending.storage_key).write_bytes(b"%PDF-changed")
         self.assert_answer(self.pack(path=f"{PACK}agreement/{pending.pk}/pdf/"), 404, NOT_FOUND)
 

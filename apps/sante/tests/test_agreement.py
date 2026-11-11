@@ -1,7 +1,9 @@
-"""The central Membership Agreement: authorization, drafts, publishing, the command, the audit.
+"""The central Membership Agreement: drafts, publishing, the command, the audit.
 
 TWCinc's test_agreements (38), test_agreement_operator (20) and test_agreement_file_helpers (5)
 were the checklist; every group is ported below except, with reasons:
+- Santé's authorization letter (record, verify, revoke, the publish gate): dropped by Coach Ed's
+  ruling of 2026-11-11 (no need for it); publish keeps an audit reason instead.
 - Subscriber/Master Store write path, its 403s and the Subscriber API shape: there is no
   Subscriber path here; only an operator command writes (no Django admin screens, ruling
   2026-11-11).
@@ -27,11 +29,10 @@ from apps.operators.models import OperatorAuditEntry
 from apps.payments.tests.base import use_local_private_store
 from apps.sante import agreement
 from apps.sante.models import (
-    AgreementPublishAuthorization, ImmutableRecordError, MembershipAgreement,
-    MembershipAgreementVersion,
+    ImmutableRecordError, MembershipAgreement, MembershipAgreementVersion,
 )
 from apps.sante.tests.agreement_helpers import (
-    DAY, LETTER_DAY, PDF, PNG, authorize, draft, make_master, make_operator, published,
+    DAY, LETTER_DAY, PDF, PNG, REASON, draft, make_master, make_operator, published,
 )
 
 
@@ -44,88 +45,6 @@ class AgreementCase(TestCase):
 
     def actions(self, name):
         return OperatorAuditEntry.objects.filter(action=name).order_by("pk")
-
-
-class AuthorizationTests(AgreementCase):
-    def test_recording_keeps_the_evidence_and_does_not_unlock(self):
-        row = authorize(self.op, verify=False)
-        self.assertEqual(row.evidence_sha256, hashlib.sha256(PDF).hexdigest())
-        self.assertRegex(row.evidence_key, r"^sante/agreement-evidence/[0-9a-f]{32}\.pdf$")
-        self.assertEqual(private_files.read(row.evidence_key), PDF)
-        self.assertEqual(row.recorded_by, self.op)
-        self.assertFalse(agreement.publishing_authorized())
-        draft(self.op)
-        with self.assertRaisesMessage(agreement.AgreementError, "Publishing is locked"):
-            agreement.publish(self.op, "v1")
-
-    def test_verifying_unlocks_publishing(self):
-        row = authorize(self.op)
-        self.assertEqual(row.verified_by, self.op)
-        self.assertTrue(agreement.publishing_authorized())
-        self.assertEqual(self.actions("sante_agreement_authorization_verified").count(), 1)
-
-    def test_evidence_may_be_a_pdf_jpeg_or_png_and_nothing_else(self):
-        authorize(self.op, content=PNG, verify=False)
-        for bad in (b"plain text", b"", b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"1" * 20):
-            with self.assertRaises(agreement.AgreementError):
-                authorize(self.op, content=bad, verify=False)
-
-    def test_a_note_and_a_date_are_required(self):
-        for changes in ({"note": "  "}, {"note": "x" * 256}, {"document_date": "2026-10-31"}):
-            with self.assertRaises(agreement.AgreementError):
-                authorize(self.op, verify=False, **changes)
-
-    def test_all_three_grants_are_needed_to_verify(self):
-        for grant in ("covers_pdf_hosting", "covers_branding", "covers_online_acceptance"):
-            row = authorize(self.op, verify=False, **{grant: False})
-            with self.assertRaisesMessage(agreement.AgreementError, "must cover"):
-                agreement.verify_authorization(self.op, row.pk)
-        self.assertFalse(agreement.publishing_authorized())
-
-    def test_changed_evidence_cannot_be_verified(self):
-        row = authorize(self.op, verify=False)
-        (self.directory / row.evidence_key).write_bytes(PDF + b"x")
-        with self.assertRaisesMessage(agreement.AgreementError, "could not be verified"):
-            agreement.verify_authorization(self.op, row.pk)
-
-    def test_a_decided_authorization_cannot_be_decided_again(self):
-        row = authorize(self.op)
-        with self.assertRaisesMessage(agreement.AgreementError, "already been decided"):
-            agreement.verify_authorization(self.op, row.pk)
-        with self.assertRaisesMessage(agreement.AgreementError, "no such authorization"):
-            agreement.verify_authorization(self.op, row.pk + 99)
-
-    def test_revoking_closes_the_agreement_but_keeps_the_history(self):
-        row = authorize(self.op)
-        version = published(self.op)
-        self.assertEqual(agreement.active_version(), version)
-        with self.assertRaisesMessage(agreement.AgreementError, "Record why"):
-            agreement.revoke_authorization(self.op, row.pk, reason=" ")
-        agreement.revoke_authorization(self.op, row.pk, reason="Santé withdrew the letter")
-        self.assertIsNone(agreement.active_version())
-        self.assertIsNone(agreement.published_bytes(version.pk))
-        self.assertEqual(MembershipAgreementVersion.objects.count(), 1)
-        self.assertEqual(self.actions("sante_agreement_authorization_revoked").get().reason,
-                         "Santé withdrew the letter")
-        with self.assertRaisesMessage(agreement.AgreementError, "already ended"):
-            agreement.revoke_authorization(self.op, row.pk, reason="again")
-        # a new authorization reopens it
-        authorize(self.op)
-        self.assertEqual(agreement.active_version(), version)
-
-    def test_authorization_rows_are_never_changed_or_deleted_by_hand(self):
-        row = authorize(self.op)
-        with self.assertRaises(ImmutableRecordError):
-            row.delete()
-        row.note = "edited"
-        with self.assertRaises(ImmutableRecordError):
-            row.save()
-
-    def test_the_database_refuses_a_verified_row_that_does_not_cover_everything(self):
-        row = authorize(self.op, verify=False, covers_branding=False)
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            AgreementPublishAuthorization.objects.filter(pk=row.pk).update(
-                verified_at=row.recorded_at)
 
 
 class DraftTests(AgreementCase):
@@ -190,7 +109,6 @@ class DraftTests(AgreementCase):
         self.assertEqual(self.actions("sante_agreement_version_deleted").count(), 1)
         with self.assertRaisesMessage(agreement.AgreementError, "not found"):
             agreement.delete_draft(self.op, "nope")
-        authorize(self.op)
         published(self.op, "v3")
         for call in (lambda: agreement.delete_draft(self.op, "v3"),
                      lambda: agreement.update_draft(self.op, "v3", title="t",
@@ -226,10 +144,6 @@ class WriterTests(AgreementCase):
 
 
 class PublishTests(AgreementCase):
-    def setUp(self):
-        super().setUp()
-        authorize(self.op)
-
     def test_publish_moves_the_pointer_and_audits(self):
         first = published(self.op)
         self.assertEqual(first.state, "published")
@@ -239,7 +153,7 @@ class PublishTests(AgreementCase):
         self.assertEqual(entry.operator, self.op)
         self.assertEqual(entry.target_id, str(first.pk))
         self.assertEqual(entry.detail["sha256"], first.sha256)
-        self.assertEqual(entry.detail["authorization_id"], AgreementPublishAuthorization.objects.get().pk)
+        self.assertEqual(entry.reason, REASON)
         self.assertNotIn("sample", str(entry.detail))
 
     def test_a_newer_version_replaces_the_active_one_and_the_old_stays_readable(self):
@@ -250,25 +164,33 @@ class PublishTests(AgreementCase):
         self.assertEqual(self.actions("sante_agreement_published").last().detail["previous_version_id"],
                          first.pk)
 
+    def test_a_reason_is_required_and_capped(self):
+        draft(self.op)
+        for reason in ("", "   ", "x" * 501):
+            with self.assertRaises(agreement.AgreementError):
+                agreement.publish(self.op, "v1", reason=reason)
+        self.assertIsNone(agreement.active_version())
+        self.assertEqual(self.actions("sante_agreement_published").count(), 0)
+
     def test_unknown_and_already_published_labels_are_refused(self):
         with self.assertRaisesMessage(agreement.AgreementError, "not found"):
-            agreement.publish(self.op, "nope")
+            agreement.publish(self.op, "nope", reason=REASON)
         published(self.op)
         with self.assertRaisesMessage(agreement.AgreementError, "published version cannot"):
-            agreement.publish(self.op, "v1")
+            agreement.publish(self.op, "v1", reason=REASON)
 
     def test_a_file_that_no_longer_matches_cannot_be_published(self):
         version = draft(self.op)
         (self.directory / version.storage_key).write_bytes(PDF + b"tampered")
         with self.assertRaisesMessage(agreement.AgreementError, "could not be verified"):
-            agreement.publish(self.op, "v1")
+            agreement.publish(self.op, "v1", reason=REASON)
         self.assertIsNone(agreement.active_version())
         self.assertEqual(self.actions("sante_agreement_published").count(), 0)
 
     def test_a_draft_and_a_tampered_file_are_never_served(self):
         version = draft(self.op)
         self.assertIsNone(agreement.published_bytes(version.pk))
-        agreement.publish(self.op, "v1")
+        agreement.publish(self.op, "v1", reason=REASON)
         self.assertEqual(agreement.published_bytes(version.pk)[1], PDF)
         (self.directory / version.storage_key).write_bytes(b"%PDF-changed")
         self.assertIsNone(agreement.published_bytes(version.pk))
@@ -282,6 +204,7 @@ class PublishTests(AgreementCase):
             version.delete()
 
     def test_one_agreement_row_only(self):
+        draft(self.op)
         self.assertEqual(MembershipAgreement.objects.count(), 1)
         with self.assertRaises(IntegrityError), transaction.atomic():
             MembershipAgreement.objects.create(id=2)
@@ -289,7 +212,6 @@ class PublishTests(AgreementCase):
     def test_the_status_lines_show_no_file_contents(self):
         published(self.op)
         text = "\n".join(agreement.status())
-        self.assertIn("Authorized to publish: yes", text)
         self.assertIn("ACTIVE", text)
         self.assertNotIn("sample", text)
 
@@ -311,26 +233,19 @@ class CommandTests(AgreementCase):
 
     def test_the_whole_process_by_command(self):
         op = ["--operator", "op"]
-        out = self.run_command("authorize", *op, "--document-date", "2026-10-31", "--note", "ref 1",
-                               "--covers-pdf-hosting", "--covers-branding",
-                               "--covers-online-acceptance", "--file", self.file())
-        self.assertIn("not in force until verified", out)
-        with self.assertRaisesMessage(CommandError, "Publishing is locked"):
-            self.run_command("publish", *op, "--label", "v1")
-        number = str(AgreementPublishAuthorization.objects.get().pk)
-        self.run_command("verify", *op, "--id", number)
         out = self.run_command("draft", *op, "--title", "T", "--label", "v1",
                                "--effective-date", "2026-11-15", "--file", "-", stdin=PDF)
         self.assertIn(hashlib.sha256(PDF).hexdigest(), out)
         self.assertNotIn("sample agreement", out)
         self.run_command("update", *op, "--label", "v1", "--title", "T2", "--new-label", "v1",
                          "--effective-date", "2026-11-16")
-        self.assertIn("Published v1", self.run_command("publish", *op, "--label", "v1"))
+        with self.assertRaises(CommandError):  # --reason is required
+            self.run_command("publish", *op, "--label", "v1")
+        out = self.run_command("publish", *op, "--label", "v1", "--reason", REASON)
+        self.assertIn("Published v1", out)
         status = self.run_command("status")
         self.assertIn("ACTIVE", status)
         self.assertNotIn("sample agreement", status)
-        self.run_command("revoke", *op, "--id", number, "--reason", "withdrawn")
-        self.assertIsNone(agreement.active_version())
 
     def test_refusals_are_command_errors(self):
         op = ["--operator", "op"]

@@ -65,56 +65,6 @@ class MembershipAgreement(models.Model):
         return "Membership Agreement"
 
 
-class AgreementPublishAuthorization(models.Model):
-    """Santé's written authorization, recorded and verified by an operator (Coach Ed
-    2026-10-31). Publishing needs one verified, unrevoked row. Rows change only through
-    agreement.py, with a filtered update; they are never deleted."""
-
-    agreement = models.ForeignKey(
-        MembershipAgreement, on_delete=models.PROTECT, related_name="authorizations"
-    )
-    document_date = models.DateField()
-    note = models.CharField(max_length=255)
-    covers_pdf_hosting = models.BooleanField(default=False)
-    covers_branding = models.BooleanField(default=False)
-    covers_online_acceptance = models.BooleanField(default=False)
-    evidence_key = models.CharField(max_length=255, unique=True, editable=False)
-    evidence_sha256 = models.CharField(max_length=64)
-    evidence_size = models.PositiveIntegerField()
-    recorded_by = models.ForeignKey(
-        "operators.User", on_delete=models.PROTECT, related_name="+"
-    )
-    recorded_at = models.DateTimeField(default=timezone.now, editable=False)
-    verified_by = models.ForeignKey(
-        "operators.User", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
-    )
-    verified_at = models.DateTimeField(null=True, blank=True)
-    revoked_by = models.ForeignKey(
-        "operators.User", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
-    )
-    revoked_at = models.DateTimeField(null=True, blank=True)
-    revoked_reason = models.CharField(max_length=255, blank=True)
-
-    class Meta:
-        ordering = ["-recorded_at", "-pk"]
-        constraints = [
-            models.CheckConstraint(
-                condition=models.Q(verified_at__isnull=True) | models.Q(
-                    covers_pdf_hosting=True, covers_branding=True, covers_online_acceptance=True
-                ),
-                name="sante_authorization_verified_covers_all",
-            )
-        ]
-
-    def save(self, *args, **kwargs):
-        if self.pk is not None and not self._state.adding:
-            raise ImmutableRecordError("Authorization rows change only through the agreement service.")
-        return super().save(*args, **kwargs)
-
-    def delete(self, *args, **kwargs):
-        raise ImmutableRecordError("Authorization rows are never deleted.")
-
-
 class MembershipAgreementVersion(models.Model):
     """One uploaded PDF. A published row is immutable and its file key is never reused."""
 

@@ -1,13 +1,14 @@
 """The central Membership Agreement (Coach Ed 2026-10-31), ported from TWCinc
-negosyoonline_sante/agreements.py. One pointer, MembershipAgreement.active_version, is the whole
+negosyoonline_sante/agreements.py (without TWCinc's Santé authorization letter: Coach Ed ruled
+2026-11-11 it is not needed). One pointer, MembershipAgreement.active_version, is the whole
 distribution: every Santé site reads it, nothing is copied. Only the Santé catalog owner site
 is the writer, and only an operator acts for it (a command; there is no Subscriber path and no
-admin screen). Publishing needs Santé's written authorization, recorded and verified first.
+admin screen). Publishing needs a draft version and an operator.
 
 The PDF stays in the private store under a new key per upload and is checked against its SHA-256
 on every read. Behind SANTE_AGREEMENT_ENABLED.
 Lock order: the catalog owner row, then its Site row, then the MembershipAgreement row, then a
-version or authorization row.
+version row.
 """
 import hashlib
 import logging
@@ -22,20 +23,16 @@ from apps.billing import services as billing
 from apps.common import private_files
 from apps.operators import audit
 from apps.sante import services as sante
-from apps.sante.models import (
-    AgreementPublishAuthorization, MembershipAgreement, MembershipAgreementVersion,
-)
+from apps.sante.models import MembershipAgreement, MembershipAgreementVersion
 from apps.sites.models import Site
 
 logger = logging.getLogger(__name__)
 
 FOLDER = "sante/agreement"
-EVIDENCE_FOLDER = "sante/agreement-evidence"
 MAX_BYTES = 20 * 1024 * 1024
+MAX_REASON = 500
 PDF = "application/pdf"
-EVIDENCE_TYPES = (PDF, "image/jpeg", "image/png")
 TARGET = "sante_agreement_version"
-AUTH_TARGET = "sante_agreement_authorization"
 
 NOT_OPERATOR = "Only an active staff operator can manage the Membership Agreement."
 NO_OWNER = "Set the Santé catalog owner before managing the Membership Agreement."
@@ -43,7 +40,6 @@ BILLING_ONLY = (
     "The catalog owner site cannot change the Membership Agreement while it is suspended, "
     "cancelled or deactivated."
 )
-NOT_AUTHORIZED = "Publishing is locked until the Santé authorization is recorded and verified."
 NOT_FOUND = "This agreement version was not found."
 TAKEN = "This version already exists. Use a new version."
 
@@ -188,12 +184,6 @@ def delete_draft(operator, version_label):
         transaction.on_commit(lambda: private_files.discard(key))
 
 
-def publishing_authorized():
-    return AgreementPublishAuthorization.objects.filter(
-        agreement_id=1, verified_at__isnull=False, revoked_at__isnull=True
-    ).exists()
-
-
 def read_checked(version):
     """The version's bytes if the stored file still matches its SHA-256, else None."""
     try:
@@ -207,19 +197,18 @@ def read_checked(version):
     return data
 
 
-def publish(operator, version_label):
-    """The only writer of the pointer. There is no flag or route around the authorization."""
+def publish(operator, version_label, *, reason):
+    """The only writer of the pointer. The reason (who authorized it and where it is filed) is
+    kept in the audit row."""
     _snapshot_operator(operator)
+    reason = (reason or "").strip()
+    if not reason:
+        raise AgreementError("Record who authorized this and where it is filed (--reason).")
+    if len(reason) > MAX_REASON:
+        raise AgreementError(f"The reason is over {MAX_REASON} characters.")
     with transaction.atomic():
         _writer_site(lock=True)
         row = MembershipAgreement.objects.select_for_update().get_or_create(pk=1)[0]
-        # Read under a row lock, so a revoke and a publish serialize: one waits for the other.
-        authorization = (
-            AgreementPublishAuthorization.objects.select_for_update()
-            .filter(agreement_id=1, verified_at__isnull=False, revoked_at__isnull=True).first()
-        )
-        if authorization is None:
-            raise AgreementError(NOT_AUTHORIZED)
         version = _locked_draft(version_label)
         if read_checked(version) is None:
             raise AgreementError("The stored file could not be verified. Create the draft again.")
@@ -232,122 +221,25 @@ def publish(operator, version_label):
         )
         audit.record(
             operator, "sante_agreement_published", target_type=TARGET, target_id=version.pk,
+            reason=reason,
             detail={"version_label": version.version_label, "sha256": version.sha256,
-                    "previous_version_id": row.active_version_id,
-                    "authorization_id": authorization.pk},
+                    "previous_version_id": row.active_version_id},
         )
     version.refresh_from_db()
     return version
 
 
-# ---- Santé's written authorization (evidence kept in the private store) ----
-
-def record_authorization(operator, *, content, document_date, note, covers_pdf_hosting,
-                         covers_branding, covers_online_acceptance):
-    """The evidence goes to the private store under a new key; publishing stays locked until
-    verify_authorization runs."""
-    _snapshot_operator(operator)
-    note = (note or "").strip()
-    if not note:
-        raise AgreementError("Record what authorizes publishing, such as the letter's reference.")
-    if len(note) > 255:
-        raise AgreementError("The note is over 255 characters.")
-    if not isinstance(document_date, date):
-        raise AgreementError("Enter the document date as YYYY-MM-DD.")
-    data, content_type = _check_file(content, EVIDENCE_TYPES, "evidence")
-    key = private_files.save(EVIDENCE_FOLDER, data, content_type)
-    try:
-        with transaction.atomic():
-            row = AgreementPublishAuthorization.objects.create(
-                agreement=_agreement(), document_date=document_date, note=note,
-                covers_pdf_hosting=covers_pdf_hosting, covers_branding=covers_branding,
-                covers_online_acceptance=covers_online_acceptance, evidence_key=key,
-                evidence_sha256=hashlib.sha256(data).hexdigest(), evidence_size=len(data),
-                recorded_by=operator,
-            )
-            audit.record(operator, "sante_agreement_authorization_recorded",
-                         target_type=AUTH_TARGET, target_id=row.pk, reason=note)
-    except Exception:
-        private_files.discard(key)
-        raise
-    return row
-
-
-def evidence_bytes(row):
-    """The evidence file if it still matches its checksum, else None."""
-    try:
-        data = private_files.read(row.evidence_key)
-    except Exception:  # noqa: BLE001
-        logger.warning("Membership agreement evidence unreadable (authorization %s).", row.pk)
-        return None
-    return data if hashlib.sha256(data).hexdigest() == row.evidence_sha256 else None
-
-
-def _cannot_verify(row):
-    if row.verified_at is not None or row.revoked_at is not None:
-        return "This authorization has already been decided."
-    if not (row.covers_pdf_hosting and row.covers_branding and row.covers_online_acceptance):
-        return "It must cover PDF hosting, Santé branding and online acceptance."
-    if evidence_bytes(row) is None:
-        return "The stored evidence could not be verified."
-    return ""
-
-
-def verify_authorization(operator, pk):
-    _snapshot_operator(operator)
-    with transaction.atomic():
-        row = AgreementPublishAuthorization.objects.select_for_update().filter(pk=pk).first()
-        if row is None:
-            raise AgreementError("There is no such authorization.")
-        reason = _cannot_verify(row)
-        if reason:
-            raise AgreementError(reason)
-        AgreementPublishAuthorization.objects.filter(pk=pk, verified_at__isnull=True).update(
-            verified_at=timezone.now(), verified_by=operator
-        )
-        audit.record(operator, "sante_agreement_authorization_verified",
-                     target_type=AUTH_TARGET, target_id=pk)
-
-
-def revoke_authorization(operator, pk, *, reason):
-    """active_version then answers None, which closes membership checkout. Published history
-    stays."""
-    _snapshot_operator(operator)
-    reason = (reason or "").strip()
-    if not reason:
-        raise AgreementError("Record why this authorization ended.")
-    if len(reason) > 255:
-        raise AgreementError("The reason is over 255 characters.")
-    with transaction.atomic():
-        row = AgreementPublishAuthorization.objects.select_for_update().filter(pk=pk).first()
-        if row is None:
-            raise AgreementError("There is no such authorization.")
-        if row.revoked_at is not None:
-            raise AgreementError("This authorization has already ended.")
-        AgreementPublishAuthorization.objects.filter(pk=pk, revoked_at__isnull=True).update(
-            revoked_at=timezone.now(), revoked_by=operator, revoked_reason=reason
-        )
-        audit.record(operator, "sante_agreement_authorization_revoked",
-                     target_type=AUTH_TARGET, target_id=pk, reason=reason)
-
-
 # ---- what buyers read ----
 
 def active_version():
-    """The one published version Santé sites use, or None. A withdrawn or missing authorization
-    answers None, which closes membership checkout through this one line."""
-    if not publishing_authorized():
-        return None
+    """The one published version Santé sites use, or None. None closes membership checkout."""
     row = MembershipAgreement.objects.select_related("active_version").filter(pk=1).first()
     return row.active_version if row else None
 
 
 def published_bytes(version_id):
     """(version, bytes) of a published version, or None. A draft never leaves through here.
-    Older published versions stay readable after a newer one. Once the authorization is withdrawn
-    nothing is served (Coach Ed 2026-10-31): the file and rows are kept as evidence."""
-    if not publishing_authorized():
-        return None
+    Older published versions stay readable after a newer one."""
     version = MembershipAgreementVersion.objects.filter(
         pk=version_id, state=MembershipAgreementVersion.PUBLISHED
     ).first()
@@ -356,15 +248,12 @@ def published_bytes(version_id):
 
 
 def status():
-    """Plain lines for the operator: versions and authorizations. No file contents."""
+    """Plain lines for the operator: the versions. No file contents."""
     row = _agreement()
-    lines = [f"Authorized to publish: {'yes' if publishing_authorized() else 'no'}"]
+    lines = []
     for v in row.versions.all():
         lines.append(
             f"version {v.version_label} [{v.state}]{' ACTIVE' if v.pk == row.active_version_id else ''}"
             f" effective {v.effective_date} sha256 {v.sha256}"
         )
-    for a in row.authorizations.all():
-        stage = "revoked" if a.revoked_at else ("verified" if a.verified_at else "recorded")
-        lines.append(f"authorization {a.pk} [{stage}] document {a.document_date}: {a.note}")
     return lines
