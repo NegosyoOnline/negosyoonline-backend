@@ -50,6 +50,9 @@ PURPOSES = {
     "mobile_verify": Purpose(category=CODE, priority=Priority.CODE),
     "inbox_reply": Purpose(category=INBOX, priority=Priority.REPLY, paced=True),
     "inbox_compose": Purpose(category=INBOX, priority=Priority.REPLY, paced=True),
+    # One announcement text of a Bulk SMS batch. MARKETING is the sending class (lowest, paced),
+    # not a permission for other marketing: this closed list is what forbids that.
+    "inbox_bulk": Purpose(category=INBOX, priority=Priority.MARKETING, paced=True),
 }
 
 

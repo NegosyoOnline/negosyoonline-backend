@@ -95,7 +95,7 @@ def sms_on():
 
 SMS_STAFF_TEXT_LIFETIME = sms.STAFF_TEXT_LIFETIME
 SMS_RESERVED_FOR_CODES = sms.RESERVED_FOR_CODES
-STAFF_PURPOSES = ("inbox_reply", "inbox_compose")
+STAFF_PURPOSES = ("inbox_reply", "inbox_compose", "inbox_bulk")
 
 
 def sms_text_problem(text):
@@ -118,6 +118,29 @@ def sms_status():
         "cap": sms.policy().platform_daily_limit,
         "reserved_for_codes": sms.RESERVED_FOR_CODES,
     }
+
+
+def sms_room_for_staff():
+    """(used today, texts a staff or bulk text may still use today). Reads no SMS table
+    while the gateway is off."""
+    if not sms.gateway_on():
+        return 0, 0
+    used = sms.platform_count()
+    return used, max(sms.policy().platform_daily_limit - sms.RESERVED_FOR_CODES - used, 0)
+
+
+def cancel_sms(public_id):
+    """Take back a text still waiting for the phone. True when it was waiting; False when the
+    phone has it or it is already over."""
+    message = SmsMessage.objects.filter(public_id=public_id).first()
+    if message is None:
+        return False
+    taken = SmsMessage.objects.filter(pk=message.pk, status=SmsMessage.Status.QUEUED).update(
+        status=SmsMessage.Status.EXPIRED, reason="stopped"
+    )
+    if taken:
+        sms.forget(message)
+    return bool(taken)
 
 
 def staff_send_records(to):

@@ -104,6 +104,10 @@ SMS_INBOX_ENABLED = os.environ.get("SMS_INBOX_ENABLED", "").strip() == "1"
 # Needs SMS_INBOX_ENABLED as well. Off, every contacts route answers 404 and no contact is
 # stored or shown. Contacts already stored are removed only on a person's request.
 SMS_CONTACTS_ENABLED = os.environ.get("SMS_CONTACTS_ENABLED", "").strip() == "1"
+# Bulk SMS. "1" lets HQ staff with the bulk permission send one announcement to a list of numbers.
+# Needs SMS_INBOX_ENABLED as well. Off, every bulk route answers 404 and the poll queues nothing for
+# a batch. A STOP reply is still listed as do-not-text whatever this says.
+SMS_BULK_ENABLED = os.environ.get("SMS_BULK_ENABLED", "").strip() == "1"
 # Account-side retention. "1" lets its rules delete and blank. Off, a run of them touches
 # nothing; only the dry run counts.
 RETENTION_ENABLED = os.environ.get("RETENTION_ENABLED", "").strip() == "1"

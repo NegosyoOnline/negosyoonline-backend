@@ -2,6 +2,7 @@
 
 No log line, cache entry or audit entry made here ever holds a number or a text."""
 import logging
+import unicodedata
 from datetime import datetime
 
 from django.db import transaction
@@ -9,8 +10,8 @@ from django.db.models import F
 from django.utils import timezone
 
 from apps.common.phones import normalise_ph_mobile
-from apps.inbox.models import Conversation, ConversationMessage
-from apps.inbox.switch import SMS, inbox_on
+from apps.inbox.models import Conversation, ConversationMessage, DoNotText
+from apps.inbox.switch import SMS, dnt_tables_exist, inbox_on
 from apps.notifications.models import SmsDevice
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,18 @@ def _contact(sender):
         return sender[:MAX_CONTACT], False
 
 
+def _is_stop(text):
+    """True when the whole text is the word STOP, in any case. Whitespace and punctuation
+    (Unicode category P) at either end are dropped; nothing inside the text is."""
+    word = text.strip()
+    start, end = 0, len(word)
+    while start < end and unicodedata.category(word[start]).startswith("P"):
+        start += 1
+    while end > start and unicodedata.category(word[end - 1]).startswith("P"):
+        end -= 1
+    return word[start:end].strip().casefold() == "stop"
+
+
 def _when(raw, now):
     try:
         value = datetime.fromisoformat(raw)
@@ -100,6 +113,7 @@ def store(device, body):
     if not texts:
         return True
     now = timezone.now()
+    listing = dnt_tables_exist()
     with transaction.atomic():
         # One call per phone at a time, so a repeat that overlaps the first cannot store twice.
         SmsDevice.objects.select_for_update().get(pk=device.pk)
@@ -119,11 +133,13 @@ def store(device, body):
                 platform=SMS, line=device, contact=contact, **owner_of(device),
                 defaults={"can_reply": can_reply, "last_message_at": occurred_at},
             )
-            ConversationMessage.objects.create(
+            message = ConversationMessage.objects.create(
                 conversation=conversation, platform=SMS, direction=ConversationMessage.Direction.IN,
                 body=text[:MAX_BODY], clipped=len(text) > MAX_BODY, gateway_ref=ref,
                 device=device, sim_slot=_slot(sim_slot), occurred_at=occurred_at,
             )
+            if listing and can_reply and _is_stop(text):
+                DoNotText.objects.get_or_create(platform=SMS, mobile=contact, defaults={"message": message})
             Conversation.objects.filter(pk=conversation.pk).update(
                 unread_count=F("unread_count") + 1,
                 last_message_at=max(conversation.last_message_at, occurred_at),

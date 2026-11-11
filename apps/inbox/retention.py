@@ -7,8 +7,8 @@ exist, because the code is released before they are created."""
 from datetime import timedelta
 
 from apps.common import retention
-from apps.inbox.models import Conversation, ConversationMessage
-from apps.inbox.switch import SMS, tables_exist
+from apps.inbox.models import BulkBatch, Conversation, ConversationMessage
+from apps.inbox.switch import SMS, bulk_tables_exist, tables_exist
 
 MESSAGE_LIFETIME = timedelta(days=365)
 
@@ -26,3 +26,15 @@ def inbox_messages(now, dry_run):
 
 
 retention.register("inbox_messages", inbox_messages)
+
+
+def bulk_batches(now, dry_run):
+    """Bulk SMS batches (the text and the counts), 365 days after they were confirmed; their
+    numbers, if any are left, go with them. Runs wherever the table exists, whatever the bulk
+    switch says. The do-not-text list is not touched by any rule."""
+    if not bulk_tables_exist():
+        return 0
+    return retention.remove(BulkBatch.objects.filter(created_at__lte=now - MESSAGE_LIFETIME), dry_run)
+
+
+retention.register("bulk_batches", bulk_batches)

@@ -408,12 +408,15 @@ class SendSmsKeepsNoTextTests(SmsTestCase):
 
 class PurposeListTests(TestCase):
     def test_15_no_marketing_purpose_is_declared(self):
-        self.assertEqual(set(sms.PURPOSES), {"mobile_verify", "inbox_reply", "inbox_compose"})
+        # The one bulk purpose is the announcement of a Bulk SMS batch; it is the only purpose
+        # in the lowest, paced sending class, and the list is closed.
+        self.assertEqual(set(sms.PURPOSES), {"mobile_verify", "inbox_reply", "inbox_compose", "inbox_bulk"})
         for name, purpose in sms.PURPOSES.items():
             with self.subTest(purpose=name):
-                self.assertIn(purpose.priority, (sms.Priority.CODE, sms.Priority.REPLY))
+                self.assertIn(purpose.priority, (sms.Priority.CODE, sms.Priority.REPLY, sms.Priority.MARKETING))
                 self.assertIn(purpose.category, (sms.CODE, sms.INBOX))
-                self.assertNotEqual(purpose.priority, sms.Priority.MARKETING)
+                if name != "inbox_bulk":
+                    self.assertNotEqual(purpose.priority, sms.Priority.MARKETING)
 
     def test_30_the_two_staff_purposes_are_declared(self):
         for name in ("inbox_reply", "inbox_compose"):
@@ -423,7 +426,7 @@ class PurposeListTests(TestCase):
                 self.assertEqual(purpose.priority, sms.Priority.REPLY)
                 self.assertTrue(purpose.paced)
         self.assertFalse(sms.PURPOSES["mobile_verify"].paced)
-        self.assertEqual(sorted(sms.paced_purposes()), ["inbox_compose", "inbox_reply"])
+        self.assertEqual(sorted(sms.paced_purposes()), ["inbox_bulk", "inbox_compose", "inbox_reply"])
 
 
 class StaffTextTests(SmsTestCase):
