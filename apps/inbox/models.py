@@ -3,9 +3,17 @@ text. No record here has a Django admin screen."""
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import Lower
 
 from apps.common.ids import new_public_id
 from apps.inbox.switch import SMS
+
+
+_OWNER = (
+    Q(owner_kind="hq", site__isnull=True, account__isnull=True)
+    | Q(owner_kind="site", site__isnull=False, account__isnull=True)
+    | Q(owner_kind="account", site__isnull=True, account__isnull=False)
+)
 
 
 def new_conversation_id():
@@ -43,11 +51,7 @@ class Conversation(models.Model):
         constraints = [
             models.CheckConstraint(
                 name="inbox_conversation_owner",
-                condition=(
-                    Q(owner_kind="hq", site__isnull=True, account__isnull=True)
-                    | Q(owner_kind="site", site__isnull=False, account__isnull=True)
-                    | Q(owner_kind="account", site__isnull=True, account__isnull=False)
-                ),
+                condition=_OWNER,
             ),
             models.CheckConstraint(name="inbox_conversation_platform", condition=Q(platform=SMS)),
             models.UniqueConstraint(
@@ -115,3 +119,59 @@ class InboxAccess(models.Model):
         constraints = [
             models.UniqueConstraint(name="inbox_access_one_per_operator_platform", fields=["operator", "platform"]),
         ]
+
+
+def new_contact_id():
+    return new_public_id("cont")
+
+
+def new_group_id():
+    return new_public_id("grp")
+
+
+class ContactGroup(models.Model):
+    public_id = models.CharField(max_length=40, unique=True, default=new_group_id, editable=False)
+    owner_kind = models.CharField(max_length=8, choices=Conversation.Owner.choices)
+    site = models.ForeignKey("sites.Site", null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    account = models.ForeignKey("accounts.Account", null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    name = models.CharField(max_length=60)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(name="inbox_group_owner", condition=_OWNER),
+            models.UniqueConstraint(
+                Lower("name"), name="inbox_group_one_name_per_hq", condition=Q(owner_kind="hq"),
+            ),
+        ]
+
+    def __str__(self):
+        return self.public_id
+
+
+class Contact(models.Model):
+    """A name kept with a mobile number, until HQ staff delete it. No job removes it."""
+
+    public_id = models.CharField(max_length=40, unique=True, default=new_contact_id, editable=False)
+    owner_kind = models.CharField(max_length=8, choices=Conversation.Owner.choices)
+    site = models.ForeignKey("sites.Site", null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    account = models.ForeignKey("accounts.Account", null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    first_name = models.CharField(max_length=80)
+    last_name = models.CharField(max_length=80, blank=True)
+    mobile = models.CharField(max_length=13)
+    groups = models.ManyToManyField(ContactGroup, blank=True, related_name="contacts")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(name="inbox_contact_owner", condition=_OWNER),
+            models.UniqueConstraint(
+                name="inbox_contact_one_number_per_hq", fields=["mobile"], condition=Q(owner_kind="hq"),
+            ),
+        ]
+
+    def __str__(self):
+        return self.public_id

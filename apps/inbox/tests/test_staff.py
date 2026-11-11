@@ -12,7 +12,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from apps.billing import staff as billing_staff
-from apps.inbox import staff, storing
+from apps.inbox import contacts_staff, staff, storing
 from apps.inbox.models import Conversation, InboxAccess
 from apps.inbox.tests.base import SENDER, inbox_on
 from apps.notifications.models import SmsDevice, SmsMessage
@@ -77,9 +77,11 @@ class InboxGateTests(InboxRouteCase):
             self.assertEqual(staff_views.ROUTES[path][0], "POST")
             self.assertNotIn(path, sign_in)
             self.assertNotIn(path, billing_staff.ROUTES)
+            self.assertNotIn(path, contacts_staff.ROUTES)
         self.assertIs(staff_views.ROUTES["me/"][1], staff_views.me)
         self.assertEqual(
-            len(staff_views.ROUTES), len(sign_in) + len(billing_staff.ROUTES) + len(staff.ROUTES)
+            len(staff_views.ROUTES),
+            len(sign_in) + len(billing_staff.ROUTES) + len(staff.ROUTES) + len(contacts_staff.ROUTES),
         )
 
     def test_2_the_module_imports_nothing_from_the_staff_routes(self):
