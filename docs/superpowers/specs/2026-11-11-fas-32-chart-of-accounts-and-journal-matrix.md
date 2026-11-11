@@ -2,7 +2,7 @@
 
 ClickUp: [z8uq9md624](https://app.clickup.com/t/z8uq9md624), folder "Financial Accounting System" (master FAS-00 `z8uq9md5db`). Date: 2026-11-11.
 
-**Status: a proposal. Not approved.** Nothing here is built. No code, test, migration, switch, seed or deploy was written or run, and no staging or production data was read. The design needs Coach Ed's approval, and the accounting policy in it needs a CPA (section 7).
+**Status: approved by Coach Ed on 2026-11-12, as amended by his rulings 7 to 16 (recorded as comments on FAS-00).** The text below has been brought in line with those rulings; where a row or question cites "ruling N", that ruling decides it. Nothing here is built. No code, test, migration, switch, seed or deploy was written or run, and no staging or production data was read. The approval authorises no code, migration, switch, seed or deploy by itself (each stage 2 piece needs its own approved plan), and the accounting policy rows in section 7 that no ruling answers stay open for a CPA.
 
 Sources: the FAS-32 task text (read in full; it is the owner's earlier proposal, written on the legacy TWC code), the FAS-01 inspection report (`docs/superpowers/specs/2026-11-11-fas-01-accounting-inspection.md`, PR 110), `main` at `1af6d25`, and the plans in PRs 106 (Billing B3), 107 (B5) and 108 (B4), read from their branches. Nothing was copied from TWCinc.
 
@@ -21,7 +21,7 @@ The task was written for a card-and-gateway business. Coach Ed's rulings (2026-1
 | Task text | Here |
 |---|---|
 | `PaymentAttempt.succeeded` is the money-in event | A confirmed `BankTransferPayment` (`confirm_transfer`, `services.py:876`) is the only money-in event [main]. The amount is on the payment, not on the cycle (FAS-01 §1.1). |
-| Debit 1030 "Xendit Settlement Receivable" on payment | Debit the bank or e-wallet the Subscriber paid into. Money is in hand at confirmation; there is no clearing step and no gateway. 1030 and 1031 are **Held** until a gateway is approved. |
+| Debit 1030 "Xendit Settlement Receivable" on payment | Debit the one bank account, 1020 Cash in Bank — Security Bank (ruling 14). Money is in hand at confirmation; there is no clearing step and no gateway. 1030 and 1031 are **Held** until a gateway is approved. |
 | E4 payout settlement, the CSV importer, Xendit fee, VAT on fee, CWT on remittance, accounts 5070/5071 | **Dropped for launch.** They exist only for a gateway. No fee is deducted from a manual transfer. 5070 and 5071 are Held. |
 | E5 credit note and refund | **Held.** The code has no refund and no credit note; a confirmed payment cannot be undone (FAS-01 §4). 2050 and 4090 are Later. |
 | E6 referral and promotional credit, 6040 commissions | **Held.** Not built (`credits.available_credit()` was legacy). PR 107 only names `referral_credit` as a future line kind. |
@@ -50,8 +50,8 @@ Status: **L** = needed at launch; **Later** = real, add when the event first occ
 | Code | Name | Status | Note |
 |---|---|---|---|
 | 1010 | Cash on Hand | Later | Only if the owner keeps petty cash. |
-| 1020 | Bank Accounts — PHP | **L** | Where bank transfers land. Changed: the task's "Operating Bank". One account at launch; which of the owner's real accounts is a reconciliation detail (§7 Q4). |
-| 1021 | E-Wallet Accounts — PHP | **L** | Changed: the task's "Other Bank / Reserve". `BILLING_TRANSFER_ACCOUNTS` allows kind `ewallet` (`plan.py:66-87`) [main], so money can land in a wallet. |
+| 1020 | Cash in Bank — Security Bank | **L** | The one launch receiving account; holds system key `cash.bank_transfer_default`. Changed: the task's "Operating Bank". Bank names are chart data, not code (ruling 14; §7 Q4). |
+| 1021 | E-Wallet Accounts — PHP | Later | Not a launch account (ruling 14): Security Bank is the only receiving account, so `cash.ewallet` is not used at launch. Changed: the task's "Other Bank / Reserve". Added only if a wallet is ever approved as a receiving account. |
 | 1030 | Payment Gateway Clearing | **Held** | Gateway only. Reopen with the gateway decision. |
 | 1031 | Other Gateway Clearing | Dropped | Merged into 1030 when needed. |
 | 1100 | Subscriber Accounts Receivable | **Held** | Credit sales. Only needed if overage is accrued before it is paid (§4.5, Q5). |
@@ -146,12 +146,12 @@ Why revenue is split by plan: the owner's task asked for it, and the plan code i
 | 7020 | Interest Expense | Later | Debit. |
 | 7030 | Foreign Exchange Gain / Loss | **Held** | Hosting is billed in USD but the expense is the pesos actually charged, so no gain or loss arises on a card or bank debit. |
 
-Launch needs 21 postable accounts: 1020, 1021, 2030, 3010, 3020, 3030, 3050, 4010, 4015, 5010, 5020, 5030, 5040, 6030, 6050, 6060, 6080, 6090, 6150, 6190 and 7010. Accounts marked "Later → after PR" are added by the build that introduces the event.
+Launch needs 20 postable accounts: 1020, 2030, 3010, 3020, 3030, 3050, 4010, 4015, 5010, 5020, 5030, 5040, 6030, 6050, 6060, 6080, 6090, 6150, 6190 and 7010. Accounts marked "Later → after PR" are added by the build that introduces the event.
 
 ### 2.3 Tax stance built into the chart
 
 - NegosyoOnline is non-VAT, tax_amount is zero everywhere in the money model [main: no tax column exists]. The chart has **no** output-VAT, input-VAT or percentage-tax account. A future VAT status is a new versioned set of accounts, never a change of these.
-- The owner's 8% income tax is the owner's personal tax. It is tracked in a schedule built from gross receipts (FAS-20), not as an expense. If paid from business funds the default is a draw (§5, M7). All of this is a CPA decision (§7 Q6, Q7).
+- The owner's 8% income tax is the owner's personal tax. It is tracked in a schedule built from gross receipts (FAS-20), not as an expense. **Decided by Coach Ed (ruling 11):** it is an owner's drawing (3020), never a business operating expense, and no tax lines appear in journals; if paid from business funds it is M7 (Dr 3020 / Cr 1020). Whether the 8% schedule and the non-VAT status are right stays for the CPA and the COR (§7 Q6, Q7).
 
 ## 3. Journal rules common to every row
 
@@ -180,7 +180,7 @@ Every posting event is "a payment was confirmed" or "a month ended". Amounts bel
 | Service period | `BillingCycle.start_at`, `end_at` through `payment.cycle` (OneToOne, `models.py:180`) | [main] |
 | Which cycle path | `SubscriptionTransition.code` (`first_payment_succeeded`, `renewed`, `recovered`, `reactivated`), key `paid:<reference>` | [main] `services.py:581-584` |
 | Usage part of a payment | `usage_centavos`, `usage_line_max_id` on the payment; `ChargeLine` (kind, amount, status, `settled_payment`) | [PR 108] |
-| Which receiving account got the money | Nothing | **Missing in main; [proposed]** see §7 Q4 |
+| Which receiving account got the money | Nothing, and none is needed at launch: one account, 1020 (ruling 14) | **Not needed;** see §7 Q4 |
 | Live or test | Nothing on the payment or subscription | **Missing in main**; the ledger rule is environment-level (§6) |
 
 ### 4.1a Accounts the rules post to automatically (`system_key`)
@@ -189,8 +189,8 @@ FAS-03's account table has a `system_key`, so a posting rule names a key and nev
 
 | system_key (proposed) | Code | Used by |
 |---|---|---|
-| `cash.bank_transfer_default` | 1020 | P1–P7: the debit for a confirmed payment (Q4) |
-| `cash.ewallet` | 1021 | Only once the receiving account is recorded on the payment (Q4); until then manual M9 |
+| `cash.bank_transfer_default` | 1020 | P1–P7: the debit for a confirmed payment, the one launch receiving account (ruling 14, Q4) |
+| `cash.ewallet` | 1021 | Not used at launch (ruling 14); added only if a wallet is ever approved as a receiving account |
 | `deferred.subscription` | 2030 | P1, P2, P4, P7 credit; R1 debit |
 | `revenue.monthly` | 4010 | R1 for `monthly` |
 | `revenue.launch_promo` | 4015 | R1 for `launch_promo` |
@@ -287,15 +287,15 @@ Entered by the owner (the only role, FAS-03), each with a date, a memo, an attac
 
 | # | Event | Debit | Credit |
 |---|---|---|---|
-| M1 | Capital paid into the business bank | 1020 (or 1021) | 3010 |
-| M2 | Expense paid from the business bank | the expense: 5010, 5020, 5030, 5040, 6030, 6050, 6060, 6080, 6090 or 6190 | 1020 (or 1021) |
+| M1 | Capital paid into the business bank | 1020 | 3010 |
+| M2 | Expense paid from the business bank | the expense: 5010, 5020, 5030, 5040, 6030, 6050, 6060, 6080, 6090 or 6190 | 1020 |
 | M3 | Expense the owner paid personally | the expense | 3010 if the owner does not want it repaid; 2090 Due to Owner if it is to be repaid, by the owner's statement at the time (Q8) |
-| M4 | Owner draw / personal withdrawal | 3020 | 1020 (or 1021) |
-| M5 | Bank or transfer charge | 6150 | 1020 (or 1021) |
+| M4 | Owner draw / personal withdrawal | 3020 | 1020 |
+| M5 | Bank or transfer charge | 6150 | 1020 |
 | M6 | Bank interest received | 1020 | 7010 |
-| M7 | Owner's income tax paid from business funds | 3020 (default; CPA decides) | 1020 |
-| M8 | Move between the owner's own accounts (bank to wallet, wallet to bank) | the receiving account | the sending account |
-| M9 | Reclass of a payment's receiving account (§7 Q4) | the right account | the wrong account |
+| M7 | Owner's income tax paid from business funds (decided, ruling 11: an owner's drawing, not an expense) | 3020 Owner Drawings | 1020 |
+| M8 | **Later.** Move between the owner's own accounts (bank to wallet, wallet to bank); one receiving account at launch (ruling 14) | the receiving account | the sending account |
+| M9 | **Later.** Reclass of a payment's receiving account; one receiving account at launch (ruling 14, §7 Q4) | the right account | the wrong account |
 | M10 | Reversal of a posted journal | the original's credits | the original's debits |
 
 A deposit in the bank that matches no payment and no journal above is **not** posted until the owner says what it is. There is no suspense account in v1, so nothing is parked silently (consistent with the task text: "do not label transfer, expense or owner drawings arbitrarily"). Equipment, loans and vendor bills are Later.
@@ -306,24 +306,24 @@ A deposit in the bank that matches no payment and no journal above is **not** po
 
 ## 7. Questions for Coach Ed and a CPA
 
-Each has a recommended default. None is decided here.
+Each has a recommended default. Rows marked **Decided** are answered by Coach Ed's rulings of 2026-11-12 and cited by ruling number; the others are still open (CPA or Coach Ed).
 
 | # | Question | Recommended default |
 |---|---|---|
-| Q1 | **Deferred revenue for prepaid terms.** Are the promo and annual payments deferred and released over the service period, and is the monthly plan deferred too? | Defer all plans: every confirmed base payment goes to 2030, then releases. It matches the owner's task text, keeps one rule, and matters mainly at year end. CPA confirms. |
-| Q2 | **Day-count and rounding.** Released by calendar days of the service period, cumulative, round half up, last month takes the rest? | Yes (§4.7). It reproduces the owner's PHP 1,491.41 and PHP 3,697.15. |
-| Q3 | **Which date books a payment.** Confirmation date, the Subscriber's `transferred_on`, or the bank's own date? | Confirmation date: it is system-attested and always in an open period; `transferred_on` is only the Subscriber's claim. A transfer made 31 Dec and confirmed 2 Jan falls into January, which a CPA may want in December for the tax year. |
-| Q4 | **Which receiving account.** A payment records no account, so the ledger cannot know bank versus wallet. | Debit 1020 by default and correct with M9; later, record the account on the payment (a field in billing, [proposed]). Treat the receiving accounts as ledger records (FAS-01 Q12). |
+| Q1 | **Deferred revenue for prepaid terms.** Are the promo and annual payments deferred and released over the service period, and is the monthly plan deferred too? | **Decided: ruling 9 (prepaid income deferred, released by Manila service days).** Defer all plans: every confirmed base payment goes to 2030, then releases. It matches the owner's task text, keeps one rule, and matters mainly at year end. CPA confirms. |
+| Q2 | **Day-count and rounding.** Released by calendar days of the service period, cumulative, round half up, last month takes the rest? | **Decided: ruling 9 (release by Manila service days).** Yes (§4.7). It reproduces the owner's PHP 1,491.41 and PHP 3,697.15. |
+| Q3 | **Which date books a payment.** Confirmation date, the Subscriber's `transferred_on`, or the bank's own date? | **Decided: ruling 10 (the entry date is the Manila confirmation date).** Confirmation date: it is system-attested and always in an open period; `transferred_on` is only the Subscriber's claim. A transfer made 31 Dec and confirmed 2 Jan falls into January, which a CPA may want in December for the tax year. |
+| Q4 | **Which receiving account.** A payment records no account, so the ledger cannot know bank versus wallet. | **Decided: ruling 14.** One receiving account, 1020 "Cash in Bank — Security Bank" (`cash.bank_transfer_default`); no receiving-account field on the payment and no billing change. Bank names are chart data, not code. M8 and M9 are Later. |
 | Q5 | **Overage timing and write-offs.** Revenue when the line is created (accrue, with 1100 and 6140) or when the payment is confirmed? | When confirmed (§4.5). No receivable is ever booked; a write-off posts nothing. The CPA may prefer accrual. |
-| Q6 | **8% income tax election and non-VAT status.** Is the chart right to have no tax accounts? Who pays the 8% and from what? | No tax accounts and no computation in the ledger. Gross receipts are the base for a separate FAS-20 schedule. 8% paid from business funds is a draw (M7). Registration status and thresholds are verified by the CPA and the COR. |
-| Q7 | **Cash versus accrual basis.** Management books are accrual (deferral); the 8% base is gross receipts, which is cash-like. | Keep both: the ledger is accrual, and the tax schedule reads confirmed payment dates. |
+| Q6 | **8% income tax election and non-VAT status.** Is the chart right to have no tax accounts? Who pays the 8% and from what? | **Decided: ruling 11.** The 8% income tax is an owner's drawing (M7: Dr 3020 / Cr 1020), never a business expense, tracked in a separate schedule from gross receipts (FAS-20), with no tax lines in journals. Registration status and thresholds are still verified by the CPA and the COR. |
+| Q7 | **Cash versus accrual basis.** Management books are accrual (deferral); the 8% base is gross receipts, which is cash-like. | **Decided: ruling 11 (separate schedule from gross receipts; the ledger is not the tax base).** Keep both: the ledger is accrual, and the tax schedule reads confirmed payment dates. |
 | Q8 | **Owner-paid business costs.** Credit capital (3010), or a payable to the owner (2090)? | By the owner's statement at the time of payment (FAS-02 P-18): capital (3010) if not to be repaid, a payable to the owner (2090) if to be repaid. 2090 stays Later. |
 | Q9 | **Revenue by plan or one account.** Three revenue accounts for plans, or one with a tag? | Separate accounts (4010, 4015, 4020), as the owner proposed. |
-| Q10 | **Account naming and numbering.** The task's codes kept; 1020 and 1021 changed meaning; 6150 and 3050 added; 5070 and 5071 held. | As in §2.2. Since nothing is posted yet, renumbering now is free; after launch it is not. |
-| Q11 | **Refunds.** The code refuses to refund; if one is ever paid outside the system, how is it booked? | A manual M10 reversal journal with a reason, plus 4090 added when a refund feature exists. |
+| Q10 | **Account naming and numbering.** The task's codes kept; 1020 changed meaning and 1021 is Later (ruling 14); 6150 and 3050 added; 5070 and 5071 held. | As in §2.2. Since nothing is posted yet, renumbering now is free; after launch it is not. |
+| Q11 | **Refunds.** The code refuses to refund; if one is ever paid outside the system, how is it booked? | **Decided: ruling 13 (corrections by reversal only; only the owner closes or reopens a month).** A manual M10 reversal journal with a reason, plus 4090 added when a refund feature exists. |
 | Q12 | **Capitalise software and equipment?** | Capitalise an item above a threshold (placeholder PHP 15,000, CPA to set) and expense below it (FAS-02 P-11); 1300, 1310 and 6110 stay Later, added when the first asset is bought. Capitalised software (1320, 1330) stays held (FAS-02 P-15). |
 | Q13 | **Foreign-currency vendors.** USD-billed hosting. | Book the pesos actually debited; no 7030. |
-| Q14 | **Payment mismatches and the out-of-system settlement.** Posting only exactly-matched confirmed payments. | As §4.8. Anything else is a manual journal. |
+| Q14 | **Payment mismatches and the out-of-system settlement.** Posting only exactly-matched confirmed payments. | **Decided: ruling 12 (only exact confirmed bank-transfer payments post automatically, no suspense account).** As §4.8. Anything else is a manual journal. |
 
 ## 8. Assumptions about FAS-02 and FAS-03
 
