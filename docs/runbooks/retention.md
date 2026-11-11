@@ -24,6 +24,8 @@ Migration `accounts.0003` (the mobile number tables) must be applied in an envir
 | `email_messages` | Email send records | 2 years after they were written |
 | `admin_audit_personal_values` | Deletes nothing: it blanks the personal values of admin sign-in audit entries (signed in, failed, locked, signed out) and of the SMS inbox's `sms_inbox_open`, `sms_inbox_reply` and `sms_inbox_compose` entries (the masked number of the conversation that was opened, or that the text was sent to), and stamps each row with the time. The row and everything else on it stay (ruling D4) | 1 year after the entry was written |
 | `never_verified_accounts` | Nothing: it disposes of accounts whose email was never verified, as in "What disposal does" below | 30 days after sign-up |
+| `expired_member_sessions` | Santé member sessions, where `MEMBERS_ENABLED` is on | 30 days after they expired or were revoked. Does nothing, and reads no member table, while `MEMBERS_ENABLED` is off |
+| `expired_member_challenges` | Santé member sign-in code rows (they hold the contact a code went to), where `MEMBERS_ENABLED` is on | 30 days after they expired. Does nothing, and reads no member table, while `MEMBERS_ENABLED` is off |
 | `account_audit_events` | An account's audit events (sign-ins, sign-outs of other devices, linked sign-in providers, email and mobile changes, and the account and site history events) | 1 year after they were written. An `email_changed` event is kept 2 years: see "Security records" below |
 | `inbox_messages` | SMS inbox messages, received and sent, then any conversation left empty | 365 days after the message was stored. Not behind `RETENTION_ENABLED` and not behind `SMS_INBOX_ENABLED`: it runs wherever the inbox tables exist and does nothing where they do not. Started daily by the phone's `poll`, beside `sms_messages` (`docs/runbooks/sms-gateway.md`), and included in `manage.py run_retention` |
 | Contacts and groups (`inbox_contact`, `inbox_contactgroup`) | Nothing: no job deletes them | Kept until HQ staff delete them. Not deleted by any job and not in the account export. A person's request is carried out with `sms_inbox_delete` (`docs/runbooks/sms-gateway.md`) |
@@ -151,6 +153,15 @@ While `SANTE_CATALOG_ENABLED` is off the catalog tables are not read at all, bec
 - No Xendit key is stored (Xendit is hidden by Coach Ed's ruling of 2026-11-11), so there is none to blank or export.
 
 While `PAYMENT_METHODS_ENABLED` is off, disposal and export do not read the payment tables at all, because the code is released before migration `payments.0001` is applied. Turn it on in an environment only after that migration is applied there. Once it has been on in an environment, it is not turned off again without Coach Ed's ruling: a disposal run while it is off would leave saved account names and numbers in place.
+
+**Santé members.** Where `MEMBERS_ENABLED` is on (ClickUp z8uq9me7x8, Membership Package slice PK2):
+
+- A member belongs to a site, so an account disposal reaches the members of the account's sites. Every member session and every sign-in code row (challenge) of those sites is deleted. Each member's name and delivery address are blanked, and the email and mobile are replaced by values nobody can use (`deleted-member-<n>@deleted.invalid`, and a `+63900` number that is no handset's). Both contacts go back to pending. The row and its public id stay, because an order will point at its member. The counts gain `members`, `member_sessions` and `member_otp_challenges`, and the audit entry names the fields (name, mobile, email, delivery address), never a value. The contact audit, recovery checks and security holds keep only masked values and stay.
+- The replaced contacts are free again, so the real owner of an address can be registered on another store.
+- The export gains `members` (every member of the account's sites with name, contacts, delivery address, verification dates and source), `member_sessions` (dates and revoke reason only) and `member_contact_audits`. It never holds a token hash or a visitor address.
+- The members are the Subscriber's buyers. Whether a Subscriber's own export should carry them is a decision to confirm with Coach Ed before the first real member exists; this build follows the plan (members belong to the site, so disposal and export know them).
+
+While `MEMBERS_ENABLED` is off, disposal and export do not read the member tables at all, because the code is released before migration `members.0001` is applied. Turn it on in an environment only after that migration is applied there. Once it has been on, it is not turned off again without Coach Ed's ruling: a disposal run while it is off would leave members' names and contacts in place.
 
 SMS send records are not touched by a disposal: they hold the number a text went to and follow the SMS build's own 1-year rule.
 

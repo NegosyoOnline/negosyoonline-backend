@@ -145,6 +145,10 @@ PRIVATE_BLOB_READ_WRITE_TOKEN = os.environ.get("PRIVATE_BLOB_READ_WRITE_TOKEN", 
 PRIVATE_FILES_DIR = os.environ.get("PRIVATE_FILES_DIR", "").strip() or str(
     BASE_DIR / ".private-files"
 )
+# Santé member sign-in (apps/members), on the storefront surface below. "1" turns on its four
+# routes. Off, they answer the 404 of an unknown site and no member table is read or written.
+# Sign-in codes and limits live in the cache, so it needs REDIS_URL outside local work.
+MEMBERS_ENABLED = os.environ.get("MEMBERS_ENABLED", "").strip() == "1"
 # The storefront surface (/storefront/v1/), called only by the storefronts server. "1" turns
 # it on, and only while STOREFRONT_SERVER_SECRET holds at least 32 characters. Off, every path
 # under it answers 404. The secret is read here and nowhere else.
@@ -173,6 +177,7 @@ INSTALLED_APPS = [
     'apps.inbox',
     'apps.health',
     'apps.storefront',
+    'apps.members',
 ]
 
 AUTH_USER_MODEL = "operators.User"
