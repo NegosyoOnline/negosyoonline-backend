@@ -146,6 +146,6 @@ class AccessCommandTests(InboxTestCase):
                     self.run_command(action)
 
     def test_15_the_audit_actions_are_declared(self):
-        for action in ("sms_inbox_access", "sms_inbox_find"):
+        for action in ("sms_inbox_access", "sms_inbox_find", "sms_inbox_delete"):
             self.assertEqual(audit.ACTIONS[action], audit.KEPT)
         self.assertEqual(audit.ACTIONS["sms_inbox_open"], audit.PERSONAL)

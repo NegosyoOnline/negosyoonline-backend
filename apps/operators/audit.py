@@ -26,6 +26,7 @@ ACTIONS = {
     "sms_inbox_access": KEPT,
     "sms_inbox_open": PERSONAL,
     "sms_inbox_find": KEPT,
+    "sms_inbox_delete": KEPT,
     "retention_run": KEPT,
     "account_disposed": KEPT,
     "account_exported": KEPT,
