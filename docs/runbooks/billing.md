@@ -19,7 +19,7 @@ It is not a secret. It exists so the code can be deployed before the tables are 
 Each step is its own approval.
 
 1. Merge and deploy. The code is dark while `BILLING_ENABLED` is unset.
-2. Apply `billing.0001_initial` (`docs/runbooks/migrations.md`). It only adds three tables.
+2. Apply `billing.0001_initial` (`docs/runbooks/migrations.md`). It only adds three tables. **Done on staging on 2026-11-11.** Steps 3 to 6 are not approved and not done.
 3. Set `BILLING_ENABLED=1` on `api`. Never before step 2: site creation and the billing endpoints would fail on the missing tables. From this moment every new site gets its subscription when it is created.
 4. Dry-run the backfill and read the counts ("Backfill", below).
 5. Run the backfill with `--apply`.

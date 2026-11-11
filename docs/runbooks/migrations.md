@@ -60,7 +60,6 @@ Replace `<env>` with `staging` or `production`.
 
 ## Pending
 
-- `staging`: `billing.0001_initial` (Billing Build B1, ClickUp z8uq9mdwrv). It adds three tables and nothing else. Not run, not approved. Run it before `BILLING_ENABLED` is set (`docs/runbooks/billing.md`).
 - `production` has not been migrated at all (see Notes).
 
 ## History
@@ -73,3 +72,4 @@ Replace `<env>` with `staging` or `production`.
 - 2026-11-11: `notifications.0002_sms_gateway` was applied to `staging` by the coordinator session after Coach Ed approved that run, at commit `91aa0a8`. The plan read beforehand listed only that migration. Afterwards `migrate --plan` reported no pending operations and `/healthz/` returned ok. `SMS_GATEWAY_ENABLED` was not set.
 - 2026-11-11: `accounts.0003_accountmobile_mobileotpchallenge` was applied to `staging` by the coordinator session after Coach Ed approved that run, at commit `100c66f`. The plan read beforehand listed only that migration. Afterwards `migrate --plan` reported no pending operations and `/healthz/` returned ok. `SMS_GATEWAY_ENABLED` was not set.
 - 2026-11-11: `notifications.0003_sms_daily_limits_start_at_2000` was applied to `staging` by the coordinator session after Coach Ed approved that run ("Yes, run it"). It changes the starting value of the two SMS daily limits from 4,000 to 2,000 for a row created later; on PostgreSQL it runs no SQL (`sqlmigrate` prints `-- (no-op)` for both fields) and only records itself as applied. `production`: not run, not approved.
+- 2026-11-11: `billing.0001_initial` was applied to `staging` by the coordinator session after Coach Ed approved that run ("Yes, run it"), at commit `ccd19da`. The plan read beforehand listed only that migration (three models, four constraints). Afterwards `migrate --plan` reported no pending operations and `/healthz/` returned ok. `BILLING_ENABLED` was not set and no backfill was run. `production`: not run.
