@@ -167,5 +167,6 @@ To go back, remove the two services. Nothing else depends on them.
 
 ## Not in this runbook yet
 
-- The operator's review screen and the emails: later pull requests of B2a.
+- The operator's review of proofs (a Finance menu in the HQ dashboard, its own plan).
+- The emails: a later pull request of B2a.
 - Card payments, reminders by a gateway and statements: B2 and later.
