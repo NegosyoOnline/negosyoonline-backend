@@ -17,6 +17,8 @@ from django.utils import timezone
 from apps.billing import clock, methods, plan
 from apps.billing.models import BillingCycle, Subscription, SubscriptionTransition
 from apps.common.errors import ApiError
+from apps.operators import audit
+from apps.sites.models import Onboarding, Site
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +67,19 @@ class Position:
 
 
 NOT_SERVED = Position(state=None, storefront_served=False, billing_only=False)
+PAID_TERM_RUNNING = "paid_term_running"
+
+
+@dataclass(frozen=True)
+class DisposalStep:
+    """What an account disposal does to the account's subscriptions.
+
+    `cancelled` holds the public ids of the sites whose subscription it cancelled, or would
+    cancel on a dry run. `reasons` is empty when the disposal may proceed.
+    """
+
+    cancelled: tuple = ()
+    reasons: tuple = ()
 
 
 def _conflict(code, message):
@@ -154,6 +169,79 @@ def _ever_paid(subscription):
     return subscription.cycles.filter(settlement=Settlement.PAID).exists()
 
 
+def subscription_of(site):
+    """The site's subscription, or None: billing is off, or the site has none yet."""
+    if not settings.BILLING_ENABLED:
+        return None
+    return Subscription.objects.filter(site=site).first()
+
+
+def overview(site, at=None):
+    """What `GET billing/` answers for the site at `at`, or None. Writes nothing.
+
+    The state and the dates are the ones in force at `at`, even when the sweep has not yet
+    written them.
+    """
+    subscription = subscription_of(site)
+    if subscription is None:
+        return None
+    now = at or timezone.now()
+    due = _due(subscription, now)
+    state = DUE_TO_STATE[due[0]] if due else subscription.state
+    exempt = subscription.billing_exempt
+    service_end = subscription.service_ended_at
+    download_until, deletion_due = subscription.download_until, subscription.deletion_due_at
+    if due:
+        service_end = due[1]
+        download_until, deletion_due = _dates_after(subscription, service_end)
+    if state == State.CANCELLED:
+        served = now < service_end
+    else:
+        served = state not in ENDED_STATES
+    served = served or exempt
+    cycle = _latest_cycle(subscription)
+    next_due_at = attention_ends_at = None
+    if state == State.TRIAL_ACTIVE:
+        next_due_at = subscription.trial_end_at
+    elif state == State.ACTIVE:
+        next_due_at = cycle.end_at
+    elif state == State.PAYMENT_REQUIRES_ATTENTION:
+        next_due_at = subscription.attention_started_at
+        attention_ends_at = subscription.attention_started_at + plan.GRACE
+    return {
+        "state": state,
+        "storefront_served": served,
+        "billing_only": not served,
+        "plan": {
+            "name": plan.PLAN_NAME,
+            "price_centavos": plan.PRICE_CENTAVOS,
+            "currency": plan.CURRENCY,
+            "interval": "month",
+            "trial_days": plan.TRIAL_DAYS,
+        },
+        "trial_start_at": subscription.trial_start_at,
+        "trial_end_at": subscription.trial_end_at,
+        "current_cycle": {
+            "sequence": cycle.sequence,
+            "start_at": cycle.start_at,
+            "end_at": cycle.end_at,
+            "settlement": cycle.settlement,
+        },
+        "next_due_at": next_due_at,
+        "attention_ends_at": attention_ends_at,
+        "cancel_requested_at": subscription.cancel_requested_at,
+        "service_end_at": service_end,
+        "download_until": download_until,
+        "deletion_due_at": deletion_due,
+        "pay_by": deletion_due,  # the last date to pay is always the deletion date
+        "clocks_started": deletion_due is not None,
+        "billing_exempt": exempt,
+        "outstanding_centavos": 0,  # nothing can be owed before payment collection exists
+        "can_cancel": not exempt and state in FROM_STATES["cancelled"],
+        "can_reactivate": not exempt and state == State.CANCELLED and now < service_end,
+    }
+
+
 # Writing
 
 def _write(subscription, at, change, *, key=None):
@@ -233,12 +321,15 @@ def _end_service(subscription, at):
     A subscription that never paid gets no dates until payment collection is live (R-4a).
     """
     subscription.service_ended_at = at
+    subscription.download_until, subscription.deletion_due_at = _dates_after(subscription, at)
+
+
+def _dates_after(subscription, at):
+    """(download until, deletion due) for a service that ended at `at`."""
     ever_paid = _ever_paid(subscription)
     if not ever_paid and not plan.collection_live():
-        subscription.download_until = subscription.deletion_due_at = None
-        return
-    subscription.download_until = at + plan.DOWNLOAD_WINDOW
-    subscription.deletion_due_at = at + (
+        return None, None
+    return at + plan.DOWNLOAD_WINDOW, at + (
         plan.DELETION_AFTER_PAID if ever_paid else plan.DELETION_NEVER_PAID
     )
 
@@ -520,6 +611,106 @@ def reactivated(subscription, *, paid_at, reference):
         )
 
     return _write(subscription, paid_at, change, key=_paid_key(reference))
+
+
+# Joins with the other apps
+
+def backfill(now=None, *, apply=False):
+    """Give every site made before billing its subscription. Returns the counts.
+
+    Without `apply` it only counts. A removed site gets none. Each site is written in its own
+    transaction, exactly as site creation writes it, and a site that already has a
+    subscription is skipped, so a second run writes nothing.
+    """
+    if not settings.BILLING_ENABLED:
+        return {}
+    now = now or timezone.now()
+    counts = Counter()
+    missing = Site.objects.filter(deleted_at__isnull=True, subscription__isnull=True)
+    for site in missing.select_related("account").order_by("pk"):
+        trial_running = now < clock.trial_end(site.account.created_at)
+        if apply:
+            with transaction.atomic():
+                # The lock every site write and a disposal of this account take.
+                Onboarding.objects.select_for_update().filter(account=site.account_id).first()
+                still_missing = Site.objects.filter(
+                    pk=site.pk, deleted_at__isnull=True, subscription__isnull=True
+                ).exists()
+                if not still_missing:
+                    continue
+                start_subscription(site, site.account, actor=Actor.BACKFILL, now=now)
+        counts["sites_without_subscription"] += 1
+        counts["trial_still_running" if trial_running else "trial_already_ended"] += 1
+    return dict(counts)
+
+
+def set_exempt(site, *, operator, reason):
+    """Mark the site's subscription as never billed (an approved test site). Set once.
+
+    Returns False when it was already exempt, and then writes nothing. Nothing clears it.
+    """
+    reason = (reason or "").strip()
+    if operator is None or not reason:
+        raise ValueError("An exemption needs an operator and a reason.")
+    with transaction.atomic():
+        subscription = Subscription.objects.select_for_update().filter(site=site).first()
+        if subscription is None:
+            raise ValueError("This site has no subscription.")
+        if subscription.billing_exempt:
+            return False
+        subscription.billing_exempt = True
+        subscription.save(update_fields=["billing_exempt", "updated_at"])
+        audit.record(
+            operator, "billing_exempt_set", target_type="site", target_id=site.public_id, reason=reason,
+            detail={"state": subscription.state},
+        )
+    return True
+
+
+def prepare_disposal(account, now, actor=Actor.OPERATOR, dry_run=False):
+    """Cancel the account's subscriptions before its disposal, and say whether it may go on.
+
+    Call it inside the disposal's transaction. A subscription on trial, needing payment
+    attention or suspended is cancelled and service ends at once (a suspended one keeps its
+    dates). One inside a paid term is cancelled to the end of that term, and the disposal is
+    refused for now with `paid_term_running` and that date. An ended or exempt subscription is
+    left as it is. A dry run writes nothing and reports what a real run would do.
+    """
+    if not settings.BILLING_ENABLED:
+        return DisposalStep()
+    rows = Subscription.objects.filter(site__account=account).order_by("pk")
+    if not dry_run:
+        # Lock order everywhere: Account, then Onboarding, then Subscription.
+        Onboarding.objects.select_for_update().filter(account=account).first()
+        rows = rows.select_for_update(of=("self",))
+    cancelled, reasons = [], []
+    for subscription in rows.select_related("site"):
+        if subscription.billing_exempt:
+            continue
+        site_id = subscription.site.public_id
+        if dry_run:
+            due = _due(subscription, now)
+            state = DUE_TO_STATE[due[0]] if due else subscription.state
+        else:
+            catch_up(subscription, now)
+            state = subscription.state
+        if state == State.CANCELLED_NO_PAYMENT_METHOD:
+            continue
+        if state == State.CANCELLED:
+            if now < subscription.service_ended_at:
+                reasons.append(_term_running(site_id, subscription.service_ended_at))
+            continue
+        term_end = _latest_cycle(subscription).end_at if state == State.ACTIVE else None
+        if not dry_run:
+            cancel(subscription, now=now, actor=actor)
+        cancelled.append(site_id)
+        if term_end is not None and now < term_end:
+            reasons.append(_term_running(site_id, term_end))
+    return DisposalStep(tuple(cancelled), tuple(reasons))
+
+
+def _term_running(site_id, until):
+    return {"reason": PAID_TERM_RUNNING, "site": site_id, "until": until}
 
 
 # The sweep

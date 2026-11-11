@@ -110,7 +110,19 @@ The request reaches the DPO mailbox. Confirm who is asking before anything else.
 
 5. Running it again answers "already disposed of" and changes nothing.
 
-Not handled here yet, so check by hand before disposing: whether the subscriber still owes a final bill (ruling R-3; billing arrives with slice 4). SMS send records are not touched by a disposal: they hold the number a text went to and follow the SMS build's own 1-year rule.
+**Subscriptions.** Where `BILLING_ENABLED` is on, a disposal cancels the account's subscriptions first (`billing.services.prepare_disposal`; `docs/runbooks/billing.md`):
+
+- On trial, needing payment attention or suspended: the subscription is cancelled, service ends at once, and the disposal goes on. A suspended one keeps the dates its suspension recorded. The counts gain `subscriptions_cancelled`.
+- Inside a paid term: the subscription is cancelled to the end of that term, and the account is **not** disposed of. The command prints the cancellation, names the site and the date (`paid_term_running`), exits with an error and blanks nothing. The cancellation is kept. Run the command again after that date.
+- Already ended, exempt from billing, or no subscription: nothing is cancelled and the disposal goes on.
+
+The dry run cancels nothing. It prints `subscriptions_cancelled` and, when a real run would be refused, "A real run would be refused for now" with the site and the date.
+
+No billing row is deleted or blanked by a disposal: a subscription, its cycles and its transitions hold the site, states and dates only, and stay.
+
+What the billing step does not know yet, so check by hand before disposing: nothing can be owed until Billing Build B2 takes payments, so there is no final bill to wait for today (ruling R-3). B2 adds the refusal while a payment is open or held for review and the hold of the name and billing email until a final bill is settled; later builds add unpaid final usage and the wait for a delivered statement.
+
+SMS send records are not touched by a disposal: they hold the number a text went to and follow the SMS build's own 1-year rule.
 
 ## An export request
 

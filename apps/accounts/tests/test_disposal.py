@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from io import StringIO
+from unittest import mock
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -24,6 +25,7 @@ from apps.accounts.tests.disposal_base import (
     full_account,
     snapshot,
 )
+from apps.billing.services import DisposalStep
 from apps.common import retention
 from apps.notifications.models import EmailMessage, SmsMessage
 from apps.operators.models import OperatorAuditEntry
@@ -392,6 +394,29 @@ class NeverVerifiedRuleTests(DisposalTestCase):
         before["operators.OperatorAuditEntry"] = snapshot()["operators.OperatorAuditEntry"]
         self.assertEqual(snapshot(), before)
         self.assertFalse(disposed().exists())
+
+    def test_an_account_billing_refuses_for_now_is_skipped_and_the_rest_are_disposed_of(self):
+        """An unverified account cannot own a site, so billing never refuses one. The rule
+        carries on all the same if it ever does."""
+        self.build()
+        held = self.old[1]
+        refusal = DisposalStep(reasons=({"reason": "paid_term_running"},))
+
+        def step(account, now, dry_run=False):
+            return refusal if account.pk == held.pk else DisposalStep()
+
+        with mock.patch.object(rules.billing, "prepare_disposal", side_effect=step):
+            report = retention.run_all(now=self.now, only=[RULE])
+
+        self.assertEqual(report.counts, {RULE: 2})
+        kept = Account.objects.get(pk=held.pk)
+        self.assertFalse(rules.is_disposed(kept))
+        self.assertEqual(kept.email, held.email)
+        self.assertEqual(Session.objects.filter(account=kept).count(), 2)
+        for account in (self.old[0], self.old[2]):
+            self.assertTrue(rules.is_disposed(Account.objects.get(pk=account.pk)))
+        # The next run takes it once billing no longer refuses.
+        self.assertEqual(retention.run_all(now=self.now, only=[RULE]).counts, {RULE: 1})
 
     def test_the_other_rules_leave_accounts_alone(self):
         self.build()

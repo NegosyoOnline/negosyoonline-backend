@@ -60,7 +60,8 @@ Replace `<env>` with `staging` or `production`.
 
 ## Pending
 
-- None on `staging`. `production` has not been migrated at all (see Notes).
+- `staging`: `billing.0001_initial` (Billing Build B1, ClickUp z8uq9mdwrv). It adds three tables and nothing else. Not run, not approved. Run it before `BILLING_ENABLED` is set (`docs/runbooks/billing.md`).
+- `production` has not been migrated at all (see Notes).
 
 ## History
 
