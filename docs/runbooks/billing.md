@@ -75,7 +75,7 @@ railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e staging -s api -- 'uv run
 
 The sweep catches the stored rows up with the time: a trial past its end, a payment needing attention past 7 days, a paid cycle past its end plus 7 days. A site's state never waits for it, because every read computes the state from the current time; a late sweep shuts nobody early and serves nobody late.
 
-Until the `worker` and `beat` services exist ("Worker and beat", below), the sweep runs only by hand. Once they exist it also runs every 5 minutes; running it by hand stays safe.
+On staging the `worker` and `beat` services exist ("Worker and beat", below), so the sweep also runs every 5 minutes; running it by hand stays safe. Where they do not exist, the sweep runs only by hand.
 
 Print what is due. This writes nothing:
 
@@ -97,7 +97,7 @@ The output is a count per transition. A second run answers "Nothing is due."
 
 ## Worker and beat
 
-Two services run the sweep on a schedule: `worker` and `beat`. `worker` exists on staging. **`beat` does not exist until Coach Ed approves creating it.** Staging only.
+Two services run the sweep on a schedule: `worker` and `beat`. Both exist on staging, since 2026-11-11. **A new service, and any change to a service's Settings, needs Coach Ed's approval.** Staging only: production has no services.
 
 Each service's settings are typed into its Settings in the Railway dashboard, project `negosyoonline-backend`, staging environment. No file in this repository sets them: Railway stops reading `railway.toml` files on 2026-12-01, and the three this repository had were removed in Build B1a. This table is the record of what each service's Settings must hold.
 
@@ -118,23 +118,25 @@ No start command runs a migration. "Wait for CI" is off on all three.
 
 `api` has no health path on purpose. Railway's health check calls the service over plain HTTP, and the backend answers every plain-HTTP request with a redirect to HTTPS (`SECURE_SSL_REDIRECT`), so the check never gets its 200. With a health path set, the deployment of 2026-11-11 failed (`33d647de`, HTTP 301 on `/healthz/`); with it removed, the next one succeeded (`9753aa68`). Do not type a health path into `api` until `/healthz/` is exempt from that redirect (`SECURE_REDIRECT_EXEMPT`), which would be a task of its own. Meanwhile `/healthz/` is checked from outside over HTTPS after each deploy: `scripts/verify_deploy.sh` and the `verify-staging` workflow.
 
-To create `worker` or `beat`:
+To create a service like these again:
 
-1. Create the service from this repository, the same branch as `api`.
-2. Type the service's values from the table into its Settings. Leave the config file path empty.
-3. Give it the same variables as `api`. It needs `DATABASE_URL`, `REDIS_URL`, `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=false` and `BILLING_ENABLED` at the least.
+1. Duplicate an existing service in the dashboard and, before its first deploy, change the name and the start command. Duplicating is how the variables are copied without anyone reading or retyping a value: `beat` was made by duplicating `worker`. The copy has the same repository and branch (`main`).
+2. Check the service's values against the table in its Settings. Leave the config file path empty.
+3. Check it has the variables it needs, by name only: `DATABASE_URL`, `REDIS_URL`, `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=false` and `BILLING_ENABLED` at the least. `worker` and `beat` have the same variables. They do not have `SANTE_CATALOG_ENABLED` or `SANTE_SETTINGS_ENABLED`, which only `api` has.
 4. No public domain and no health path. `beat` runs as exactly one instance: two would queue every sweep twice (harmless to the data, since a second sweep finds nothing due, but wasteful).
 
 After changing a value: a change in the dashboard is staged. "Details" lists the staged changes and "Deploy Changes" applies them and redeploys the service. Read the value back from the service's Settings, and change this table in the same pull request or the next one, so the table and the dashboard never disagree. Every change to a service's Settings needs Coach Ed's approval.
 
 The queue uses the Redis server of `REDIS_URL` on the database number after the cache's (cache on 0, queue on 1), so clearing the cache never drops queued work. It needs no variable of its own. Nothing is stored about a finished job.
 
-While `BILLING_ENABLED` is unset on `worker`, every sweep it runs returns at once and reads nothing. So the services can be created before the switch is on.
+While `BILLING_ENABLED` is unset on `worker`, every sweep it runs returns at once and reads nothing. So the services can be created before the switch is on. On staging `BILLING_ENABLED` is set on `worker`.
 
 Check, in the service logs:
 
 - `worker`: a line listing `billing.sweep` under `[tasks]`, then `ready`. After `beat` is up, every 5 minutes: `Task billing.sweep[...] received` and `succeeded ...: {...}`. The braces hold a count per transition, or nothing when nothing was due. No log line holds a personal value.
 - `beat`: `beat: Starting...`, then `Scheduler: Sending due task billing-sweep (billing.sweep)` every 5 minutes. The first one comes 5 minutes after the start.
+
+Checked on staging, 2026-11-11: `beat` deployment `a1f38b2a` succeeded. At 13:21:25 +08:00 the `beat` log showed `Scheduler: Sending due task billing-sweep (billing.sweep)`, and in the same second the `worker` log showed the task received, `Billing sweep: nothing due`, and succeeded.
 
 If `worker` is down, queued sweeps are dropped after 5 minutes instead of piling up, and no site's state is wrong meanwhile: every read computes the state from the time. If `beat` is down, nothing is queued; run the sweep by hand.
 

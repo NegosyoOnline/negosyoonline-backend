@@ -2,7 +2,7 @@
 
 Date: 2026-11-11. ClickUp task: z8uq9me1un (https://app.clickup.com/t/z8uq9me1un), parent z8uq9m8h46.
 Branch: `chore/z8uq9me1un-railway-project-file`, cut from `origin/main` at `1ba9cc6`. The branch keeps its name; only this file was renamed.
-Status: **not approved.** A plan for Coach Ed. No code, no `railway*.toml` change, no Railway write.
+Status: approved by Coach Ed on 2026-11-11 and carried out. Pull request 74 merged as `e27d9bd`; `api` and `worker` run from their dashboard Settings; `beat` was created on staging on 2026-11-11 under its own approval. Section 10 records what changed on the way. The sections below are kept as written.
 
 This file replaces `2026-11-11-backend-billing-b1a-railway-project-file.md` (commit `2a7562b`), which planned the project-file route. Coach Ed ruled "Dashboard settings" on 2026-11-11, so that route is dropped from this task: no `.railway/railway.ts`, no Node package, no CLI update. The first version stays readable at `2a7562b`.
 
