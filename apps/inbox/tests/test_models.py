@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from apps.common.ids import is_public_id
 from apps.inbox import switch
-from apps.inbox.models import Conversation, ConversationMessage, InboxAccess
+from apps.inbox.models import Contact, ContactGroup, Conversation, ConversationMessage, InboxAccess
 from apps.notifications.tests.base import online_phone
 from apps.sites.tests.base import make_account, make_site
 
@@ -86,3 +86,60 @@ class RecordTests(TestCase):
     def test_10_the_switch_knows_the_message_table(self):
         self.assertEqual(switch.MESSAGE_TABLE, ConversationMessage._meta.db_table)
         self.assertIs(switch.tables_exist(), True)
+
+
+class ContactRecordTests(TestCase):
+    def setUp(self):
+        self.staff = get_user_model().objects.create_user("ana", password="pw", is_staff=True)
+
+    def contact(self, **fields):
+        fields.setdefault("owner_kind", "hq")
+        fields.setdefault("first_name", "Ana")
+        fields.setdefault("mobile", "+639170000101")
+        fields.setdefault("created_by", self.staff)
+        return Contact.objects.create(**fields)
+
+    def test_1_the_contacts_switch_is_off_unless_set(self):
+        self.assertIs(switch.contacts_on(), False)
+        with override_settings(SMS_CONTACTS_ENABLED=True):
+            self.assertIs(switch.contacts_on(), True)
+
+    def test_2_the_table_check_is_true_once_migrated(self):
+        self.assertIs(switch.contacts_tables_exist(), True)
+
+    def test_3_ids_have_their_prefixes(self):
+        contact = self.contact()
+        group = ContactGroup.objects.create(owner_kind="hq", name="Resellers")
+        self.assertTrue(is_public_id(contact.public_id, "cont"))
+        self.assertTrue(is_public_id(group.public_id, "grp"))
+
+    def test_4_an_hq_contact_cannot_belong_to_a_site(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.contact(site=make_site(make_account()))
+
+    def test_5_one_contact_per_number(self):
+        self.contact()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.contact(first_name="Ben")
+
+    def test_6_group_names_are_unique_ignoring_capitals(self):
+        ContactGroup.objects.create(owner_kind="hq", name="Resellers")
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            ContactGroup.objects.create(owner_kind="hq", name="RESELLERS")
+
+    def test_7_deleting_a_group_keeps_its_contacts_and_the_reverse(self):
+        group = ContactGroup.objects.create(owner_kind="hq", name="A")
+        contact = self.contact()
+        contact.groups.add(group)
+        group.delete()
+        self.assertTrue(Contact.objects.filter(pk=contact.pk).exists())
+        group = ContactGroup.objects.create(owner_kind="hq", name="A")
+        contact.groups.add(group)
+        contact.delete()
+        self.assertTrue(ContactGroup.objects.filter(pk=group.pk).exists())
+
+    def test_8_a_staff_user_who_created_a_contact_cannot_be_deleted(self):
+        from django.db.models import ProtectedError
+        self.contact()
+        with self.assertRaises(ProtectedError):
+            self.staff.delete()

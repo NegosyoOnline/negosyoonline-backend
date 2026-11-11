@@ -15,3 +15,15 @@ def tables_exist():
     """True once inbox.0001 is applied to this database. The code is released before its
     tables are created, so what must work with the switch off asks this first."""
     return MESSAGE_TABLE in connection.introspection.table_names()
+
+
+CONTACT_TABLE = "inbox_contact"
+
+
+def contacts_on():
+    return bool(settings.SMS_CONTACTS_ENABLED)
+
+
+def contacts_tables_exist():
+    """True once inbox.0002 is applied to this database. The code is released before it."""
+    return CONTACT_TABLE in connection.introspection.table_names()

@@ -100,6 +100,10 @@ SMS_GATEWAY_ENABLED = os.environ.get("SMS_GATEWAY_ENABLED", "").strip() == "1"
 # shown and `received` discards what a phone sends, as before the inbox existed. Texts already
 # stored are still deleted at 365 days, and on a person's request, whatever this says.
 SMS_INBOX_ENABLED = os.environ.get("SMS_INBOX_ENABLED", "").strip() == "1"
+# The SMS contacts and groups. "1" lets HQ staff keep contacts (a name with a mobile number).
+# Needs SMS_INBOX_ENABLED as well. Off, every contacts route answers 404 and no contact is
+# stored or shown. Contacts already stored are removed only on a person's request.
+SMS_CONTACTS_ENABLED = os.environ.get("SMS_CONTACTS_ENABLED", "").strip() == "1"
 # Account-side retention. "1" lets its rules delete and blank. Off, a run of them touches
 # nothing; only the dry run counts.
 RETENTION_ENABLED = os.environ.get("RETENTION_ENABLED", "").strip() == "1"
