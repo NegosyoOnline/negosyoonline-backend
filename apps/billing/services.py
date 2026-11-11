@@ -774,8 +774,28 @@ def _refuse_unpayable(subscription, now):
         raise _cancel_scheduled()
     if subscription.deletion_due_at is not None and now >= subscription.deletion_due_at:
         raise _conflict("past_deletion_date", "This site can no longer be paid for.")
-    if _latest_cycle(subscription).start_at > now:
+    latest = _latest_cycle(subscription)
+    if latest.start_at > now:
         raise _paid_ahead()
+    if _too_early(subscription, latest, now):
+        raise _conflict(
+            "too_early",
+            "This term can be paid for again from "
+            f"{_payable_from(latest).astimezone(clock.MANILA).date().isoformat()}.",
+        )
+
+
+def _too_early(subscription, latest, now):
+    """A running multi-month term cannot be paid for again until its last 30 days."""
+    return (
+        subscription.state == State.ACTIVE
+        and latest.term_months > 1
+        and latest.end_at - now > plan.RENEWAL_WINDOW
+    )
+
+
+def _payable_from(latest):
+    return latest.end_at - plan.RENEWAL_WINDOW
 
 
 def submit_transfer(
@@ -888,16 +908,10 @@ def _consent_shown(offered, state, subscription):
         return None
     start_at, anchor = _term_start(subscription, state)
     first_due = clock.cycle_end(start_at, anchor, offered.months) if start_at else None
-    follows = plan.PLANS[offered.renews_to]
     return {
         "required": True,
         "version": plan.CONSENT_VERSION,
-        "then": {
-            "plan": follows.code,
-            "amount_centavos": follows.price_centavos,
-            "interval": "month",
-            "first_due_at": first_due,
-        },
+        "then": _then(offered, first_due),
         "first_due_at": first_due,
     }
 
@@ -1072,6 +1086,20 @@ def term_running(subscription, at):
     ).exists()
 
 
+def _then(offered, end_at):
+    """What is due after the term `offered` buys. Monthly's own renewal is not described here."""
+    if offered is plan.MONTHLY:
+        return None
+    # After the promo's one term the price is the Monthly one; Annual renews as Annual.
+    follows = plan.PLANS[offered.renews_to]
+    return {
+        "plan": follows.code,
+        "amount_centavos": follows.price_centavos,
+        "interval": "year" if follows.months == 12 else "month",
+        "first_due_at": end_at,
+    }
+
+
 def payment_options(subscription, at=None):
     """What the Billing page needs to show how to pay, at `at`. Writes nothing.
 
@@ -1096,6 +1124,8 @@ def payment_options(subscription, at=None):
         reason = "past_deletion_date"
     elif latest.start_at > now:
         reason = "paid_ahead"
+    elif _too_early(subscription, latest, now) and state == State.ACTIVE:
+        reason = "too_early"
     offers = []
     if reason is None:
         start_at, anchor = None, None  # an ended site: the period starts at the confirmation
@@ -1117,19 +1147,16 @@ def payment_options(subscription, at=None):
                 "period_start_at": start_at,
                 "period_end_at": end_at,
                 "starts_at_confirmation": start_at is None,
+                "version": offered.version,
+                "term_months": offered.months,
+                "then": _then(offered, end_at),
                 "consent": _consent_shown(offered, state, subscription),
-                # After the promo's one term, the price is the Monthly one.
-                "then": None if offered is plan.MONTHLY else {
-                    "plan": plan.MONTHLY.code,
-                    "amount_centavos": plan.MONTHLY.price_centavos,
-                    "interval": "month",
-                    "first_due_at": end_at,
-                },
             })
     transfers = subscription.transfers.select_related("cycle")
     return {
         "payable": reason is None,
         "not_payable_reason": reason,
+        "payable_from": _payable_from(latest) if reason == "too_early" else None,
         "offers": offers,
         "transfer_accounts": plan.transfer_accounts(),
         "under_review": transfers.filter(status=TransferStatus.SUBMITTED).first(),

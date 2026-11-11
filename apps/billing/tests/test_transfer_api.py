@@ -21,11 +21,12 @@ PAYMENT_KEYS = {
     "cycle",
 }
 OPTION_KEYS = {
-    "payable", "not_payable_reason", "offers", "transfer_accounts", "under_review", "latest",
-    "proof_rules",
+    "payable", "not_payable_reason", "payable_from", "offers", "transfer_accounts",
+    "under_review", "latest", "proof_rules",
 }
 OFFER_KEYS = {
-    "plan", "name", "amount_centavos", "currency", "months", "period_start_at", "period_end_at",
+    "plan", "name", "amount_centavos", "currency", "months", "version", "term_months",
+    "period_start_at", "period_end_at",
     "starts_at_confirmation", "then", "consent",
 }
 
