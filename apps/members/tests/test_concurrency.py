@@ -71,7 +71,8 @@ class MemberConcurrencyTests(TransactionTestCase):
 
     def test_two_simultaneous_verifies_of_one_code_make_one_session(self):
         member = services.create_member(
-            self.site, full_name="Maria", mobile="09171234567", email="maria@buyer.test"
+            self.site, full_name="Maria", mobile="09171234567", email="maria@buyer.test",
+            email_state="pending",
         )
         code = issue_code(self.site, member.email)
 
@@ -89,7 +90,8 @@ class MemberConcurrencyTests(TransactionTestCase):
 
     def test_a_contact_release_racing_a_verify_leaves_no_live_session(self):
         member = services.create_member(
-            self.site, full_name="Maria", mobile="09171234567", email="maria@buyer.test"
+            self.site, full_name="Maria", mobile="09171234567", email="maria@buyer.test",
+            email_state="pending",
         )
         code = issue_code(self.site, member.email)
 
