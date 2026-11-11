@@ -21,6 +21,8 @@ Every step below that touches staging or production needs Coach Ed's approval fo
 
 To go back, unset `SMS_GATEWAY_ENABLED`. The tables stay; nothing reads them.
 
+`notifications.0004_alter_smsmessage_category` changes the allowed values of a send record's category only (it adds `inbox`); it is applied before `SMS_INBOX_ENABLED` is set. The code can be released before it is applied: no staff text can be sent until `SMS_INBOX_ENABLED` is set and access is granted.
+
 ## Phones
 
 Phones are managed only with `manage.py sms_device`, from a terminal. No browser page can add or change one. `--actor` is the staff user running the command; every action except `list` writes an operator audit row.
@@ -161,10 +163,20 @@ The app can forward the texts the SIM receives. A phone's own switch is **off** 
   uv run python manage.py sms_inbox_delete --actor USERNAME --confirm
   ```
 
-  Each run asks for the number: type it at the prompt, then Enter. The first run only counts; read the count, then run the second, which deletes for good. **The number is typed at the prompt and nowhere else: never as an argument, and never fed in through `echo`, `printf` or a here-string, which would leave it in the shell's history.** A Philippine mobile may be typed in any usual form. Any other number (a foreign mobile, a landline) is matched by its digits, so spaces, brackets and dashes do not matter, but the prefix does: try the number as the person wrote it, with and without its country code. The command works with the variable on or off, and each run writes one audit entry that holds counts and no number. On a shared environment a run with `--confirm` is done by whoever Coach Ed has answer that person's request, per request. **What it does not remove:** the copy in the phone's Messages app, which is deleted on the phone; the masked number in the audit record of each time a conversation was opened, which is blanked after a year; and a text that arrives afterwards.
+  Each run asks for the number: type it at the prompt, then Enter. The first run only counts; read the count, then run the second, which deletes for good. For a Philippine mobile it also deletes the send records of the staff texts sent to that number and drops one still waiting for the phone, so it is never sent; it leaves the send record of a sign-in code to that number, which goes at 365 days. If a text to that number is with the phone right now it stops and deletes nothing: run it again in 10 minutes. **The number is typed at the prompt and nowhere else: never as an argument, and never fed in through `echo`, `printf` or a here-string, which would leave it in the shell's history.** A Philippine mobile may be typed in any usual form. Any other number (a foreign mobile, a landline) is matched by its digits, so spaces, brackets and dashes do not matter, but the prefix does: try the number as the person wrote it, with and without its country code. The command works with the variable on or off, and each run writes one audit entry that holds counts and no number. On a shared environment a run with `--confirm` is done by whoever Coach Ed has answer that person's request, per request. **What it does not remove:** the copy in the phone's Messages app, which is deleted on the phone; the masked number in the audit record of each time a conversation was opened, replied to or written to, which is blanked after a year; the send record of a sign-in code sent to that number, which is deleted at 365 days; and a text that arrives afterwards.
 - A text the server cannot store (one with no sender, for one) is skipped and counted in one log line, `sms_incoming_skipped count=N`, and the phone drops it: it is then only in the phone's Messages app. `sms_incoming_rejected` means the phone sent something that is not a list of texts, which the app never does. Neither line holds a number or a text.
 - The commands: `sms_device incoming on|off`, which refuses `on` while the variable is off; `sms_inbox_access grant|revoke|list`, which refuses while the variable is off; `sms_inbox_delete`. Who is granted access, and whether they may send, is Coach Ed's decision, per person.
-- There is no screen yet: the staff routes and pages are later plans. No Django admin screen shows a conversation or a text.
+- There is no screen yet: the pages are the next plan. The staff routes exist (see "Staff texts" below). No Django admin screen shows a conversation or a text.
+
+## Staff texts
+
+- A staff member with send access may reply in a conversation or write a new text to one Philippine mobile. Both go through the send function: one SMS of at most 160 plain characters, no web link, no marketing.
+- A staff text waits up to 1 hour for the phone, is sent after every waiting code, and leaves no sooner than 18 to 25 seconds after the last staff text. One staff text is with the phone at a time.
+- 300 of the day's texts are kept for codes: a staff text is refused once the day's count reaches the limit less 300. The 300 is `RESERVED_FOR_CODES` in `apps/notifications/sms.py`; changing it is Coach Ed's ruling and a reviewed change.
+- One staff user may send 60 texts in an hour.
+- What is kept: the text, with who wrote it, in the inbox for 365 days; a send record with the full number and no text for 365 days; an audit entry with the masked number, blanked after a year (`admin_audit_personal_values`, see `retention.md`).
+- The six routes under `/staff/v1/inbox/`, each a `POST`, are closed while `SMS_INBOX_ENABLED` is off and to a staff user without access.
+- There is still no screen: the pages are the next plan.
 
 ## Local development
 
