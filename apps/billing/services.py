@@ -15,7 +15,7 @@ from django.db import transaction
 from django.db.models import Exists, Max, OuterRef, Q
 from django.utils import timezone
 
-from apps.billing import clock, methods, plan, proofs
+from apps.billing import clock, methods, plan, proofs, usage
 from apps.billing.models import (
     BankTransferEvent, BankTransferPayment, BillingCycle, RenewalConsent, Subscription,
     SubscriptionTransition,
@@ -300,7 +300,7 @@ def overview(site, at=None):
         "pay_by": deletion_due,  # the last date to pay is always the deletion date
         "clocks_started": deletion_due is not None,
         "billing_exempt": exempt,
-        "outstanding_centavos": 0,  # nothing can be owed before payment collection exists
+        "outstanding_centavos": usage.outstanding(subscription, now),
         "can_cancel": not exempt and state in FROM_STATES["cancelled"],
         "can_reactivate": not exempt and state == State.CANCELLED and now < service_end,
     }
@@ -453,8 +453,6 @@ def _open_first_cycle(subscription, settlement, **payment):
 
 
 def _lapse_pending(subscription):
-    from apps.billing import usage  # the ledger imports this module
-
     for cycle in subscription.cycles.filter(settlement=Settlement.PENDING):
         cycle.settlement = Settlement.LAPSED
         cycle.save()
@@ -683,8 +681,6 @@ def renewal_failed(subscription, *, at):
 
 def recovered(subscription, *, paid_at, reference, detail=None, bought=None):
     """A payment during the 7 days of attention. At or after them the site is suspended."""
-    from apps.billing import usage  # the ledger imports this module
-
     def change(subscription, key):
         _require(subscription, "recovered")
         cycle = subscription.cycles.get(settlement=Settlement.PENDING)
@@ -806,6 +802,20 @@ def _payable_from(latest):
     return latest.end_at - plan.RENEWAL_WINDOW
 
 
+def _usage_only_due(subscription, now):
+    """What a payment of overage alone would pay, or a refusal. The overage of a closed account
+    (a cancelled one, in or after its paid term) and of a running multi-month term, whose next
+    base payment is not yet open, is collected this way, with no base fee and no new cycle."""
+    if subscription.deletion_due_at is not None and now >= subscription.deletion_due_at:
+        raise _conflict("past_deletion_date", "This site can no longer be paid for.")
+    latest = _latest_cycle(subscription)
+    allowed = subscription.state == State.CANCELLED or _too_early(subscription, latest, now)
+    owed = usage.due(subscription, now) if allowed else usage.Due()
+    if not owed.centavos:
+        raise _invalid({"plan": "This plan is not offered."})
+    return owed
+
+
 def submit_transfer(
     subscription, account, *, plan_code, content, transferred_on, transfer_reference="",
     renewal_consent=None, consent_version=None, now=None,
@@ -830,9 +840,12 @@ def submit_transfer(
         fields["proof"] = "The file is too large."
     elif content_type is None:
         fields["proof"] = "The file must be a JPEG, a PNG or a PDF."
-    chosen = plan.PLANS.get(plan_code) if isinstance(plan_code, str) else None
-    if chosen is None:
-        fields["plan"] = "This plan is not offered."
+    only_usage = plan_code == plan.USAGE_ONLY and plan.usage_enabled()
+    chosen = None
+    if not only_usage:
+        chosen = plan.PLANS.get(plan_code) if isinstance(plan_code, str) else None
+        if chosen is None:
+            fields["plan"] = "This plan is not offered."
     if chosen is not None and chosen.needs_consent:
         if renewal_consent is not True and renewal_consent != "true":
             fields["renewal_consent"] = "The terms after the first term must be accepted."
@@ -853,16 +866,27 @@ def submit_transfer(
     sha256 = hashlib.sha256(content).hexdigest()
 
     def change(subscription):
-        _refuse_unpayable(subscription, now)
-        if chosen not in plan.offers(subscription, now):
-            raise _invalid({"plan": "This plan is not offered."})
+        if only_usage:
+            owed = _usage_only_due(subscription, now)
+            code, version, months = plan.USAGE_ONLY, None, None
+            amount = owed.centavos
+        else:
+            _refuse_unpayable(subscription, now)
+            if chosen not in plan.offers(subscription, now):
+                raise _invalid({"plan": "This plan is not offered."})
+            owed = usage.due(subscription, now)  # overage of ended periods rides on the term
+            code, version, months = chosen.code, chosen.version, chosen.months
+            amount = chosen.price_centavos + owed.centavos
         waiting = (
             subscription.transfers.select_for_update()
             .filter(status=TransferStatus.SUBMITTED)
             .first()
         )
         if waiting is not None:
-            if waiting.proof_sha256 == sha256 and waiting.plan_code == chosen.code:
+            if (
+                waiting.proof_sha256 == sha256 and waiting.plan_code == code
+                and waiting.amount_centavos == amount
+            ):
                 return waiting, False
             waiting.status, waiting.decided_at = TransferStatus.REPLACED, now
             waiting.save()
@@ -875,10 +899,12 @@ def submit_transfer(
         proofs.store().put(key, content)
         payment = BankTransferPayment.objects.create(
             subscription=subscription,
-            plan_code=chosen.code,
-            plan_version=chosen.version,
-            term_months=chosen.months,
-            amount_centavos=chosen.price_centavos,
+            plan_code=code,
+            plan_version=version,
+            term_months=months,
+            amount_centavos=amount,
+            usage_centavos=owed.centavos,
+            usage_line_max_id=owed.max_id,
             currency=plan.CURRENCY,
             transferred_on=transferred_on,
             transfer_reference=transfer_reference,
@@ -889,7 +915,7 @@ def submit_transfer(
             submitted_by=account,
             submitted_at=now,
         )
-        if chosen.needs_consent:
+        if chosen is not None and chosen.needs_consent:
             _record_consent(subscription, payment, chosen, account, now)
         _transfer_event(payment, "submitted", BankTransferEvent.Actor.OWNER)
         return payment, True
@@ -998,24 +1024,35 @@ def confirm_transfer(payment, operator, *, amount_received_centavos, now=None):
             raise _conflict(
                 "amount_mismatch", "The amount received is not the amount due for this payment."
             )
-        transition = _settle_transfer(subscription, row, now)
-        cycle = BillingCycle.objects.get(
-            subscription=subscription, sequence=transition.detail["cycle"]
-        )
+        if row.usage_centavos and usage.frozen_total(row) != row.usage_centavos:
+            raise _conflict(
+                "usage_changed", "The overage in this payment has changed. Reject it and ask "
+                "for a new proof."
+            )
+        cycle = None
+        if row.plan_code != plan.USAGE_ONLY:
+            transition = _settle_transfer(subscription, row, now)
+            cycle = BillingCycle.objects.get(
+                subscription=subscription, sequence=transition.detail["cycle"]
+            )
         row.status = TransferStatus.CONFIRMED
         row.decided_at, row.decided_by = now, operator
         row.amount_received_centavos = amount_received_centavos
         row.cycle = cycle
         row.save()
-        _transfer_event(
-            row, "confirmed", BankTransferEvent.Actor.OPERATOR, {"cycle": cycle.sequence}
-        )
+        settled_lines = usage.settle(row, now) if row.usage_centavos else 0
+        sequence = cycle.sequence if cycle else None
+        event = {"cycle": sequence}
+        if row.usage_centavos:
+            event["usage_lines"] = settled_lines
+        _transfer_event(row, "confirmed", BankTransferEvent.Actor.OPERATOR, event)
         audit.record(
             operator, "billing_payment_confirmed", target_type="site",
             target_id=subscription.site.public_id,
             detail={
                 "payment": row.public_id, "plan": row.plan_code,
-                "amount_centavos": row.amount_centavos, "cycle": cycle.sequence,
+                "amount_centavos": row.amount_centavos, "cycle": sequence,
+                **({"usage_centavos": row.usage_centavos} if row.usage_centavos else {}),
             },
         )
         return row
@@ -1135,6 +1172,13 @@ def payment_options(subscription, at=None):
     elif _too_early(subscription, latest, now) and state == State.ACTIVE:
         reason = "too_early"
     offers = []
+    owed = usage.due(subscription, now)
+    alone = (
+        owed.centavos > 0
+        and not subscription.billing_exempt
+        and (deletion_due is None or now < deletion_due)
+        and (state == State.CANCELLED or (state == State.ACTIVE and reason == "too_early"))
+    )
     if reason is None:
         start_at, anchor = None, None  # an ended site: the period starts at the confirmation
         if state == State.TRIAL_ACTIVE:
@@ -1149,7 +1193,8 @@ def payment_options(subscription, at=None):
             offers.append({
                 "plan": offered.code,
                 "name": offered.name,
-                "amount_centavos": offered.price_centavos,
+                "amount_centavos": offered.price_centavos + owed.centavos,
+                "usage_centavos": owed.centavos,
                 "currency": plan.CURRENCY,
                 "months": offered.months,
                 "period_start_at": start_at,
@@ -1166,6 +1211,7 @@ def payment_options(subscription, at=None):
         "not_payable_reason": reason,
         "payable_from": _payable_from(latest) if reason == "too_early" else None,
         "offers": offers,
+        "usage": {"centavos": owed.centavos, "lines": owed.lines, "payable_alone": alone},
         "transfer_accounts": plan.transfer_accounts(),
         "under_review": transfers.filter(status=TransferStatus.SUBMITTED).first(),
         "latest": transfers.filter(
@@ -1398,6 +1444,10 @@ def sweep(now=None, *, dry_run=False):
             code = "failed"
         if code:
             counts[code] += 1
+    if not dry_run and plan.usage_enabled():
+        written_off = usage.write_off_unreturned(now)  # R-4c
+        if written_off:
+            counts["usage_written_off"] += written_off
     result = dict(sorted(counts.items()))
     logger.info("Billing sweep%s: %s", " (dry run)" if dry_run else "", result or "nothing due")
     return result

@@ -13,10 +13,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from django.db import transaction
+from django.db.models import Count, Max, Sum
 from django.utils import timezone
 
 from apps.billing import clock, plan
-from apps.billing.models import BillingCycle, ChargeLine, Subscription, UsageEntry, UsageEvent
+from apps.billing.models import (
+    BankTransferPayment, BillingCycle, ChargeLine, Subscription, UsageEntry, UsageEvent,
+)
 from apps.sites.models import Site
 
 logger = logging.getLogger(__name__)
@@ -174,6 +177,8 @@ def _route(subscription, cycle, period_end_at, now):
         return Status.NEEDS_REVIEW, "after_service_end"  # L6, and L20 for a suspended site
     if now > period_end_at + plan.LATE_ADMISSION:
         return Status.NEEDS_REVIEW, "late_over_72h"  # L2
+    if closed_and_settled(subscription, now):
+        return Status.WRITTEN_OFF, "after_final_settlement"  # L16, L21: nothing amended
     if cycle.settlement == Settlement.PENDING:
         return Status.HELD, "cycle_pending"  # L36
     if cycle.settlement == Settlement.LAPSED:
@@ -198,3 +203,99 @@ def release_held(cycle, paid, *, now=None):
             entry, "released_paid" if paid else "written_off_lapsed", f"release:{entry.pk}",
             UsageEvent.Actor.SWEEP,
         )
+
+
+# Collections (Billing Build B4, PR 2). A collection takes the open lines of periods that have
+# ended when its proof is sent; a line made later has a higher id and waits for the next one.
+
+@dataclass(frozen=True)
+class Due:
+    centavos: int = 0
+    lines: int = 0
+    max_id: int = 0
+
+
+def _open_lines(subscription_id):
+    return ChargeLine.objects.filter(subscription_id=subscription_id, status=ChargeLine.Status.OPEN)
+
+
+def due(subscription, now):
+    """The overage a collection sent at `now` would include. Zero while the switch is off."""
+    if not plan.usage_enabled():
+        return Due()
+    rows = _open_lines(subscription.pk).filter(entry__occurred_at__lte=now)
+    found = rows.aggregate(total=Sum("amount_centavos"), top=Max("id"), count=Count("id"))
+    if found["total"] is None:
+        return Due()
+    return Due(found["total"], found["count"], found["top"])
+
+
+def frozen_total(payment):
+    """The open overage the proof `payment` froze: its lines that are still open."""
+    if not payment.usage_line_max_id:
+        return 0
+    rows = _open_lines(payment.subscription_id).filter(
+        id__lte=payment.usage_line_max_id, entry__occurred_at__lte=payment.submitted_at
+    )
+    return rows.aggregate(total=Sum("amount_centavos"))["total"] or 0
+
+
+def settle(payment, now):
+    """Close the lines `payment` froze as settled by it. The caller holds the subscription's lock
+    and has checked `frozen_total`."""
+    if not payment.usage_line_max_id:
+        return 0
+    count = 0
+    for line in _open_lines(payment.subscription_id).select_for_update().filter(
+        id__lte=payment.usage_line_max_id, entry__occurred_at__lte=payment.submitted_at
+    ):
+        line.status, line.settled_payment, line.closed_at = ChargeLine.Status.SETTLED, payment, now
+        line.save()
+        count += 1
+    return count
+
+
+def write_off_line(line, reason, now, *, actor=UsageEvent.Actor.SWEEP):
+    """Close an open line as written off, with its cause (L41). A closed line is left alone."""
+    if line.status != ChargeLine.Status.OPEN:
+        return False
+    line.status, line.closed_reason, line.closed_at = ChargeLine.Status.WRITTEN_OFF, reason, now
+    line.save()
+    _event(line.entry, f"line_written_off_{reason}", f"writeoff:{line.pk}", actor)
+    return True
+
+
+def closed_and_settled(subscription, now):
+    """L16, L21: the account is closed and its final usage collection was confirmed, so a later
+    eligible charge is a reasoned write-off and never a debit or an amendment."""
+    ended = subscription.service_ended_at
+    if subscription.state != Subscription.State.CANCELLED or ended is None or ended > now:
+        return False
+    return (
+        not _open_lines(subscription.pk).exists()
+        and subscription.transfers.filter(
+            plan_code=plan.USAGE_ONLY, status=BankTransferPayment.Status.CONFIRMED,
+            decided_at__gte=ended,
+        ).exists()
+    )
+
+
+def outstanding(subscription, now):
+    """The total of the open lines of ended periods: `outstanding_centavos` of GET billing/."""
+    return due(subscription, now).centavos
+
+
+def write_off_unreturned(now):
+    """R-4c: a suspended account that never came back owes nothing. At its deletion date the
+    open lines are written off. Returns the number written off. Safe to run twice."""
+    count = 0
+    stale = Subscription.objects.filter(
+        state=Subscription.State.SUSPENDED, deletion_due_at__lte=now,
+        charges__status=ChargeLine.Status.OPEN,
+    ).distinct()
+    for subscription_id in stale.values_list("pk", flat=True):
+        with transaction.atomic():
+            Subscription.objects.select_for_update().get(pk=subscription_id)
+            for line in _open_lines(subscription_id).select_for_update():
+                count += write_off_line(line, "suspension_unreturned", now)
+    return count

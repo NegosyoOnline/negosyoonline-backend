@@ -199,6 +199,9 @@ class BankTransferPayment(models.Model):
     cycle = models.OneToOneField(
         BillingCycle, null=True, blank=True, on_delete=models.PROTECT, related_name="transfer"
     )
+    # The overage inside `amount_centavos` and the highest charge line it covers (Billing B4).
+    usage_centavos = models.PositiveIntegerField(default=0)
+    usage_line_max_id = models.PositiveBigIntegerField(default=0)
 
     class Meta:
         constraints = [
@@ -207,11 +210,11 @@ class BankTransferPayment(models.Model):
                 condition=Q(status="submitted"),
                 name="billing_one_transfer_under_review",
             ),
-            # A confirmed payment settled a cycle, was decided by an operator, and the amount
-            # received is the amount due.
+            # A confirmed payment settled a cycle (a usage-only one settles charge lines
+            # instead), was decided by an operator, and the amount received is the amount due.
             models.CheckConstraint(
                 condition=~Q(status="confirmed") | (
-                    Q(cycle__isnull=False)
+                    (Q(cycle__isnull=False) | Q(plan_code="usage_only"))
                     & Q(decided_by__isnull=False)
                     & Q(amount_received_centavos=F("amount_centavos"))
                 ),

@@ -182,6 +182,7 @@ class PaymentOut(Schema):
     status: str
     plan: str
     amount_centavos: int
+    usage_centavos: int
     currency: str
     transferred_on: date
     transfer_reference: str
@@ -216,6 +217,7 @@ class OfferOut(Schema):
     plan: str
     name: str
     amount_centavos: int
+    usage_centavos: int
     currency: str
     months: int
     version: int
@@ -239,11 +241,18 @@ class ProofRulesOut(Schema):
     content_types: list[str]
 
 
+class UsageDueOut(Schema):
+    centavos: int
+    lines: int
+    payable_alone: bool
+
+
 class PaymentOptionsOut(Schema):
     payable: bool
     not_payable_reason: str | None
     payable_from: datetime | None
     offers: list[OfferOut]
+    usage: UsageDueOut
     transfer_accounts: list[TransferAccountOut]
     under_review: PaymentOut | None
     latest: PaymentOut | None
@@ -262,6 +271,7 @@ def _payment(payment):
         "status": payment.status,
         "plan": payment.plan_code,
         "amount_centavos": payment.amount_centavos,
+        "usage_centavos": payment.usage_centavos,
         "currency": payment.currency,
         "transferred_on": payment.transferred_on,
         "transfer_reference": payment.transfer_reference,
