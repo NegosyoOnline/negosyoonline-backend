@@ -2,7 +2,7 @@
 
 ClickUp task: z8uq9me128 "SMS inbox, reply and compose (HQ)" (https://app.clickup.com/t/z8uq9me128), a subtask of z8uq9md33v "NPC Build 1 — SMS Carrier & Data-Flow Controls".
 
-Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. One decision is open and is his: where the screens are served (section 3). The reserve for sign-in codes is settled (R20, section 18.10). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. Contacts and groups (section 19) were added by R16 to R19, so the scope is now three parts: the inbox, Bulk SMS and contacts. After approval comes a plan, also for approval, before any code.
+Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. Two decisions are open and are his: where the screens are served (section 3), and whether Contacts should also show registered Subscriber accounts (section 19.12). The reserve for sign-in codes is settled (R20, section 18.10). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. Contacts and groups (section 19) were added by R16 to R19, so the scope is now three parts: the inbox, Bulk SMS and contacts. His feedback on that mockup (R21) then moved Contacts out of SMS: it is its own item on the HQ main menu, a kept list of the people NegosyoOnline deals with, and not only the recipients of a bulk text. After approval comes a plan, also for approval, before any code.
 
 ## 1. Sources
 
@@ -45,8 +45,9 @@ The coordinator's readings recorded with those rulings, which this design confir
 | R18 | Contacts and groups are seen and edited by the same HQ staff who hold the SMS inbox permission. No separate contacts permission | "Same inbox staff" |
 | R19 | Staff may upload a CSV file of contacts (first name, last name, mobile number) into a chosen group | "Yes, allow CSV" |
 | R20 | Of the 2,000 texts a day, 300 are kept for sign-in codes | "Hold back 300" |
+| R21 | Contacts is its own item on the HQ main menu, not a button or page inside SMS. Staff open it directly to add and look up contacts. It is not only a recipient list for Bulk SMS | "As said, the contacts will be on the main menu, not inside the SMS. Okay, it must be on the main menu so that we will be able to add. We can check. It's not just for bulk sending. It is a kind of like a database of users of Negosyo Online." |
 
-R9 to R19 are each a comment on the Task, re-read there on 2026-11-11. R20 was relayed by the coordinator the same day as the Task's newest comment; this session did not re-read it there. Section 18 applies R10 to R15; section 19 applies R16 to R19.
+R9 to R21 are each a comment on the Task, re-read there on 2026-11-11. Section 18 applies R10 to R15 and R20; section 19 applies R16 to R19 and R21.
 
 ### 2.1 What R7 and R8 change in this design
 
@@ -338,7 +339,7 @@ Order on any environment: deploy dark; apply the two migrations; set `SMS_INBOX_
 
 ## 13. The screens and the mockup (R6)
 
-**The menu (R7).** The HQ side menu has one item, "Inbox", with the unread count. The page title is "Inbox". "New SMS" is not a menu item: it is a button on the SMS list, as actions are on the dashboard. The HQ home page gains one link to the Inbox, shown only to a user with access; nothing else on the existing HQ pages changes.
+**The menu (R7, R21).** The HQ side menu has two items of this design: "Inbox", with the unread count, and under it "Contacts" (section 19). On a phone both are in the bottom bar. Each is shown only to a user with access. The page title is "Inbox". "New SMS" is not a menu item: it is a button on the SMS list, as actions are on the dashboard. The HQ home page gains one link to the Inbox, shown only to a user with access; nothing else on the existing HQ pages changes.
 
 **The platform menu (R7).** At the top of every Inbox page is a horizontal menu: SMS, Facebook Messenger, Instagram, TikTok, Email, Web chat. It is the dashboard's Settings menu (the row that holds "Business Settings", "Plans", "Billing" and the rest; `.set-tabs` in `dash.css`), copied rule for rule: text links 15 pixels and semi-bold, 12 by 16 pixels of padding, 4 pixels apart, one thin line under the row, the current item in the brighter text colour with a 2-pixel blue underline, 24 pixels of space below. On a phone it behaves as the dashboard's does: the row stays on one line and is swiped sideways; the page itself does not scroll sideways.
 
@@ -406,8 +407,8 @@ Input for Coach Ed's wording. This is not wording, and this design edits no fili
 13. **Opting out (R13).** Every bulk text says "Reply STOP to opt out". A number that replies STOP is kept on a do-not-text list and is skipped by later bulk texts. **That list is kept past 365 days**, until the person asks otherwise, because deleting it would start the texts again. This is a second retention period beside point 6.
 14. **What a bulk send keeps.** The one text and its counts for 365 days; the list of numbers only until the batch ends; a send record per number for 365 days, as for every text.
 15. **The documents the Parent names:** register row 6; filing-store-sms; filing-subscriber-accounts-billing; filing-subscriber-stores; PIA 5; privacy manual s8; the Terms and Privacy provider list. This session did not read them.
-16. **Contacts (R16, R17).** For the first time a person's first and last name is stored together with their mobile number, with the groups staff put them in. Where the names and numbers come from (typed by staff, or a CSV file Coach Ed supplies; no link to TWCinc), what they are used for (choosing who gets a bulk text), and that **a contact is kept until HQ staff delete it**, with no automatic deletion. This is a third retention period beside points 6 and 13. No contact is stored in any environment before this wording is amended.
-17. **A contact's rights.** How a person asks to see, correct or delete their contact record. Staff can edit and delete a contact on the screen; deleting it does not remove their number from the do-not-text list.
+16. **Contacts (R16, R17, R21).** For the first time a person's first and last name is stored together with their mobile number, with the groups staff put them in. **What the list is:** a kept list of the people NegosyoOnline deals with, which HQ staff add to and look up. It is not only the recipients of the launch announcement, so the purpose stated must be that wider one; choosing who gets a bulk text is one use of it. Where the names and numbers come from: typed by staff, or a CSV file Coach Ed supplies. No link to TWCinc, and no link to Subscriber account records. **A contact is kept until HQ staff delete it**, with no automatic deletion. This is a third retention period beside points 6 and 13. No contact is stored in any environment before this wording is amended.
+17. **A contact's rights.** A person can be in Contacts without having an account, without having written to us and without knowing they are listed. How such a person is told, the basis for keeping them, and how they ask to see, correct or delete their contact record. Staff can edit and delete a contact on the screen; deleting it does not remove their number from the do-not-text list.
 
 ## 15. Tests the build would write
 
@@ -434,7 +435,7 @@ Input for Coach Ed's wording. This is not wording, and this design edits no fili
 - Showing a full number; deleting a conversation or a message by hand; exporting conversations.
 - Fixed templates, saved replies, attachments, MMS, texts longer than one SMS, sending to more than one number outside Bulk SMS (section 18).
 - Delivery receipts; notifications to staff when a text arrives; automatic refresh.
-- For contacts (section 19): any import from or sync with TWCinc, custom fields on a contact, putting a contact's name into a text (name merge), merging two contacts, exporting contacts, and showing a contact's name in the inbox beside a conversation.
+- For contacts (section 19): any link to Subscriber account records, and showing registered accounts in Contacts (an open question, 19.12); any import from or sync with TWCinc, custom fields on a contact, putting a contact's name into a text (name merge), merging two contacts, exporting contacts, and showing a contact's name in the inbox beside a conversation.
 - A second phone, SIM or line, for bulk texts included (R14); adding or removing a do-not-text number by hand; a link of any kind to TWCinc; order-status texts.
 - The privacy page and the NPC documents themselves.
 - Anything on staging or production.
@@ -444,6 +445,8 @@ Input for Coach Ed's wording. This is not wording, and this design edits no fili
 Verified by reading, on 2026-11-11: the Task and Parent with every comment; the code named in section 1 at `1ba9cc6`; the dashboard's styles at frontend `36d2ec4`, and its Settings menu and top bar (search, theme and bell buttons) at frontend `origin/main` `5802934`.
 
 Verified by opening the mockup's five pages (list, conversation, compose, "not yet available", Bulk SMS) in headless Chrome over `http://127.0.0.1:8765/`, with the DevTools protocol's device emulation (`Emulation.setDeviceMetricsOverride`; `mobile` true at 390 pixels), at 1280 and at 390 pixels wide, in the dark theme and in the light theme: on every page the document's `scrollWidth` equals its `clientWidth` (1280 and 390), so no page scrolls sideways. Every dark-theme screenshot was read at both widths and nothing overlaps. At 390 pixels the platform menu is 619 pixels of content in a 358-pixel row: it is swiped sideways inside its own row, as the dashboard's Settings menu is. The first attempt at the phone top bar with three buttons was 18 pixels too wide; it was fixed the way the dashboard does it (a narrower wordmark below 420 pixels) and measured again.
+
+After R21 (Contacts on the main menu), all nine pages were opened the same way at 1280 and 390 pixels in the dark theme: the side menu and the phone's bottom bar show "Inbox" and "Contacts" on every page; the four Contacts pages have no platform menu and mark "Contacts" as current; the SMS list's buttons stay on one line at 1280 pixels; no page scrolls sideways. The 1280 captures of the SMS list, Contacts and the edit form, and the 390 capture of Contacts, were read; the rest were measured. The light theme was not captured for this revision.
 
 Not verified:
 
@@ -545,7 +548,7 @@ What limits the risk without new scope: codes first, the cap, the gap, one batch
 ### 18.7 Who may send a batch, and the audit record
 
 - **A separate permission**, above send: `can_bulk` on the staff user's `InboxAccess` row for `sms`, which requires `can_send`. Granted by `sms_inbox_access grant --bulk`, audited, and Coach Ed names who holds it.
-- **A switch**, `SMS_BULK_ENABLED`, a new Railway variable, off. While off, the button and the page do not exist. It is turned on per environment with Coach Ed's approval, and only after the NPC and privacy wording covers the announcement (R11).
+- **A switch**, `SMS_BULK_ENABLED`, a new Railway variable, off. While off, the button and the page do not exist. Creating the variable in a Railway environment is Coach Ed's approval at build time; this design creates none. It is turned on per environment with Coach Ed's approval, and only after the NPC and privacy wording covers the announcement (R11).
 - **Audit**, through the operator audit record, never with the text and never with the list or any number:
 
 | Action | When | `detail` (kept) |
@@ -591,20 +594,24 @@ Settled by Coach Ed: "Hold back 300".
 - Of the 2,000 texts a day, 300 are for sign-in codes only.
 - Bulk SMS and single staff texts (a reply, a composed text) stop once 1,700 texts are used that day. The 1,700 counts every text sent that day, codes included. Applying the reserve to single staff texts is the coordinator's routine choice, so the reserve is truly for codes.
 - A batch is at most 1,700 less what is already used. A batch that was cut to that limit can still lose its last texts if codes are sent while it runs: they show "Not sent: today's limit reached" (18.3).
-- The 300 is a setting beside the daily cap in `SmsPolicy`, so the admin can change it without a release. Where it is stored is for the plan.
+- The 300 is a setting beside the daily cap in `SmsPolicy`, so the admin can change it without a release. Where it is stored is for the plan. Changing the value of the 300 is Coach Ed's ruling: it is an estimate made before any real sign-up volume, and no one else changes it.
 - The Bulk SMS page and the New SMS page say so in words.
 
 ## 19. Contacts and groups (R16 to R19)
 
-Added by R16, with R17 (kept until staff delete), R18 (the same inbox staff) and R19 (CSV upload into a group). Like the rest of this document it is for Coach Ed's approval and nothing is built. The mockup pages are `contacts.html`, `contact.html`, `groups.html` and `import.html`. With this the Task has three parts: the inbox, Bulk SMS and contacts.
+Added by R16, with R17 (kept until staff delete), R18 (the same inbox staff) and R19 (CSV upload into a group), and moved to the main menu by R21. Like the rest of this document it is for Coach Ed's approval and nothing is built. The mockup pages are `contacts.html`, `contact.html`, `groups.html` and `import.html`. With this the Task has three parts: the inbox, Bulk SMS and contacts.
 
 ### 19.1 What it is for
 
-A list of people HQ staff may send a bulk text to, sorted into groups, so a batch is sent to a group instead of a file each time. **Contacts are the first place in this tool, and in the SMS records, where a name is stored together with a mobile number.** The NPC and privacy wording must cover that before any contact is stored in any environment (section 14 points 16 and 17), the same "amend first" order as R1 and R11.
+A kept list of the people NegosyoOnline deals with, which HQ staff add to and look up (R21: "It's not just for bulk sending. It is a kind of like a database of users of Negosyo Online"). Contacts are sorted into groups, and Bulk SMS reads its groups from this list, so a batch is sent to a group instead of a file each time (R16). Sending is one use of the list, not its purpose.
+
+A contact is hand-entered or uploaded (19.3). It has no link to a Subscriber account record: Contacts does not read, show or match registered accounts. Whether it should is an open question for Coach Ed (19.12).
+
+**Contacts are the first place in this tool, and in the SMS records, where a name is stored together with a mobile number.** The NPC and privacy wording must cover that, with the wider purpose, before any contact is stored in any environment (section 14 points 16 and 17), the same "amend first" order as R1 and R11.
 
 ### 19.2 The screens
 
-A "Contacts" button on the SMS list, beside "Bulk SMS" and "New SMS". The Contacts page has two views, Contacts and Groups.
+"Contacts" is its own item in the HQ side menu, under "Inbox", and in the phone's bottom bar (R21). It is not a button or a page inside SMS: the SMS list keeps "Bulk SMS" and "New SMS" only. The Contacts pages do not carry the Inbox's platform menu; "Contacts" is the current menu item on each, and the add, edit and upload pages link back to Contacts. Under option A the pages would sit at `/contacts/` beside `/inbox/`; the exact paths are for the plan. The Contacts page has two views, Contacts and Groups.
 
 - **Contacts.** One row per contact: first and last name, the mobile number masked as everywhere else (section 9), the groups, and "Opted out of bulk SMS" when the number is on the do-not-text list. Find by name or by a full number; filter by group. Buttons: "Add contact" and "Upload a CSV file".
 - **Add or edit a contact.** First name, last name, mobile number, groups. The number is checked with `normalise_ph_mobile`; one contact per number, so a number already in contacts is refused with a link to that contact. The edit form shows the full number, because staff cannot correct what they cannot see; opening it is audited. "Delete contact" asks once.
@@ -637,7 +644,7 @@ A "Contacts" button on the SMS list, beside "Bulk SMS" and "New SMS". The Contac
 
 ### 19.6 Who may use it (R18)
 
-The same HQ staff who hold the SMS inbox permission, behind the two-step HQ sign-in, through the one access check of section 7.2. There is no separate contacts permission. This design reads R18 with the two existing levels: a staff user with read access sees contacts and groups; adding, editing, deleting and uploading need `can_send`, as every other change does. Sending to a group still needs `can_bulk` (18.7). Whether read-only staff should also edit is the coordinator's to confirm.
+The same HQ staff who hold the SMS inbox permission, behind the two-step HQ sign-in, through the one access check of section 7.2. There is no separate contacts permission (R18 stands after R21): the "Contacts" menu item is shown to those staff and to no one else. This design reads R18 with the two existing levels: a staff user with read access sees contacts and groups; adding, editing, deleting and uploading need `can_send`, as every other change does. Sending to a group still needs `can_bulk` (18.7). Whether read-only staff should also edit is the coordinator's to confirm.
 
 ### 19.7 Retention (R17)
 
@@ -651,10 +658,10 @@ Through the operator audit record. An entry holds who, when, ids and counts. It 
 
 | Action | When | `detail` (kept) |
 |---|---|---|
-| `sms_contact_open` | A contact's form is opened (the full number is shown) | The contact's id |
-| `sms_contact_add`, `sms_contact_edit`, `sms_contact_delete` | A contact is added, changed or deleted | The contact's id, which fields changed (their names, not their values), how many groups it is in |
-| `sms_contact_upload` | An upload is saved | The group's id, lines read, contacts added, already in contacts, lines refused, opted out |
-| `sms_group_add`, `sms_group_rename`, `sms_group_remove` | A group is added, renamed or removed | The group's id, how many contacts it held |
+| `contact_open` | A contact's form is opened (the full number is shown) | The contact's id |
+| `contact_add`, `contact_edit`, `contact_delete` | A contact is added, changed or deleted | The contact's id, which fields changed (their names, not their values), how many groups it is in |
+| `contact_upload` | An upload is saved | The group's id, lines read, contacts added, already in contacts, lines refused, opted out |
+| `contact_group_add`, `contact_group_rename`, `contact_group_remove` | A group is added, renamed or removed | The group's id, how many contacts it held |
 
 All are declared `KEPT`: they hold no personal value.
 
@@ -664,8 +671,8 @@ To the lists in sections 12 and 18.8, in the same new app, each needing the same
 
 | Item | Notes |
 |---|---|
-| `Contact` | Platform `sms`, owner `hq` (R0: a Site or Subscriber later), first name, last name, the normalised number (one per owner), who added it, the times |
-| `ContactGroup` | Platform `sms`, owner `hq`, the name (one per owner), the times. A contact belongs to any number of groups |
+| `Contact` | Owner `hq` (R0: a Site or Subscriber later), first name, last name, the normalised mobile number (one per owner), who added it, the times. No platform field, because Contacts is not part of SMS (R21), and no field that points at a Subscriber account |
+| `ContactGroup` | Owner `hq`, the name (one per owner), the times. A contact belongs to any number of groups |
 | `BulkBatch` | Gains its source and the chosen groups (18.8) |
 | Masking | A contact's number is masked in every list; the full number appears only on the contact's own form |
 | Export | Contacts are not in the account export in this build |
@@ -681,11 +688,15 @@ Tests the build would add: a contact needs a Philippine mobile and is unique by 
 | Section 14: points 1 to 15 | Points 16 and 17 |
 | 18.2: the numbers come from a file or a pasted list | Or from groups of contacts; one source per batch |
 | Section 16 | Lists what contacts leave out |
+| Section 13: one menu item, "Inbox"; the first contacts draft: a "Contacts" button on the SMS list | Two menu items, "Inbox" and "Contacts" (R21); no Contacts button on the SMS list; the Contacts pages have no platform menu |
+| The first contacts draft: a list of people to send a bulk text to | A kept list of the people NegosyoOnline deals with; Bulk SMS reads its groups from it (R21) |
 
 ### 19.11 Left out
 
-No import from or sync with TWCinc. No custom fields: a contact is a first name, a last name, a number and groups. No name merge: a text never carries a contact's name. Also not here: merging two contacts, exporting contacts, and showing a contact's name beside a conversation in the inbox.
+No link to Subscriber account records (19.12). No import from or sync with TWCinc. No custom fields: a contact is a first name, a last name, a number and groups. No name merge: a text never carries a contact's name. Also not here: merging two contacts, exporting contacts, and showing a contact's name beside a conversation in the inbox.
 
 ### 19.12 Still open
 
-Nothing in this section is open for Coach Ed: R17, R18 and R19 answered the three questions it raised. 18.10 is settled by R20. What is left for him is where the screens are served (section 3) and approval of the design and the look.
+One question is open for Coach Ed, raised by R21 and asked by the coordinator: **should Contacts also show registered Subscriber accounts**, or stay a list staff enter and upload by hand? Until he answers, this design keeps it hand-entered and uploaded, with no link to account records. Showing accounts would be a different thing to build and to state to the NPC: it would read the account records, show people who never were typed in, and need its own rules for masking, retention and who may see them.
+
+R17, R18 and R19 answered the three earlier questions and stand unchanged. 18.10 is settled by R20. Also left for him: where the screens are served (section 3) and approval of the design and the look.
