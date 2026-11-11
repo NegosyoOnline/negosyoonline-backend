@@ -67,3 +67,24 @@ class EmailCodeTests(SimpleTestCase):
 
         self.assertFalse(codes.check_code(EMAIL, code))
         self.assertTrue(codes.check_code(EMAIL, code, purpose="change:1"))
+
+
+class ClaimCodeTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_only_the_first_claim_of_a_code_wins(self):
+        code = codes.issue_code(EMAIL, IP)
+
+        self.assertTrue(codes.claim_code(EMAIL))
+        self.assertFalse(codes.claim_code(EMAIL))
+        self.assertFalse(codes.check_code(EMAIL, code))
+
+    def test_claiming_a_code_that_was_never_issued_loses(self):
+        self.assertFalse(codes.claim_code(EMAIL))
+
+    def test_a_claim_resets_the_attempt_count(self):
+        codes.issue_code(EMAIL, IP)
+        codes.check_code(EMAIL, "000000")
+        codes.claim_code(EMAIL)
+        self.assertEqual(cache.get(codes._key("attempts", "signin", EMAIL)), None)

@@ -25,6 +25,7 @@ from django.urls import URLPattern, re_path
 from ninja import NinjaAPI, Schema
 
 from apps.common.errors import ApiError, error_body, register_error_handlers
+from apps.members.api import router as members_router
 from apps.storefront import services
 from apps.storefront.auth import server_only
 
@@ -35,6 +36,7 @@ api = NinjaAPI(
     docs_url=None,
 )
 register_error_handlers(api)
+api.add_router("/member/", members_router)
 
 
 class BusinessOut(Schema):
