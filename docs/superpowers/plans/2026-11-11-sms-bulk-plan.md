@@ -25,7 +25,7 @@ Rulings applied, not reopened: R10 (bulk, in batches, the cap and the gap not ra
 |---|---|---|
 | 1 | Three records, `BulkBatch`, `BulkRecipient`, `DoNotText`, and `InboxAccess.can_bulk`, in one migration `inbox.0003_bulk` (section 4) | Design 18.8 |
 | 2 | A switch of its own, `SMS_BULK_ENABLED`, off, read in `config/settings.py` | Design 18.7 |
-| 3 | The STOP rule: an incoming text whose whole text is STOP puts the number on the do-not-text list, inside `storing.store` | Design 18.5 |
+| 3 | The STOP rule: an incoming text whose whole text is the word STOP (any case, with spaces or punctuation around it) puts the number on the do-not-text list, inside `storing.store` | Design 18.5 |
 | 4 | `apps/inbox/bulk.py`: the source reader, the check, the confirm, the batch driver (`feed`), the settle step, stop, the left-out file | Design 18.2 to 18.4, 18.10 |
 | 5 | `apps/inbox/bulk_staff.py`: seven POST staff routes under `/staff/v1/bulk/`, wired in by four added lines | Design 10, 18.2; the plan 4 and 6 pattern |
 | 6 | A purpose `inbox_bulk` in `apps/notifications/sms.py`; `services.py` gains three small functions | Design 18.8 |
@@ -53,7 +53,7 @@ Rulings applied, not reopened: R10 (bulk, in batches, the cap and the gap not ra
 | `config/settings.py` | **One added line**, `SMS_BULK_ENABLED`, beside `SMS_INBOX_ENABLED` and `SMS_CONTACTS_ENABLED` |
 | `apps/inbox/access.py` | `scope_for` reads only `can_send` from the row (C2) |
 | `apps/inbox/bulk.py`, `bulk_staff.py` | New |
-| `apps/inbox/storing.py` | The STOP rule (about 12 lines) |
+| `apps/inbox/storing.py` | The STOP rule (about 20 lines, one added import: `unicodedata`) |
 | `apps/inbox/staff.py` | `bulk_running` in the `status` answer |
 | `apps/inbox/reading.py`, `apps/inbox/contacts.py` | `opted_out` |
 | `apps/inbox/retention.py` | Rule `bulk_batches` |
@@ -106,7 +106,7 @@ Each is a routine detail inside the approved design, decided as the smallest saf
 | C13 | **`left-out` takes the same body as `check`**, builds the list again and answers the numbers beyond the cut as the text of a CSV file, full numbers, `Cache-Control: no-store`, to the staff user who sent the source. It writes `sms_inbox_bulk_left_out` (counts only). For a source of groups these are contacts' numbers, which is why it is audited | Design 10 ("full numbers: answered only to the staff user who ran it, no-store, audited with counts") | Design 10 |
 | C14 | **Results per number are masked and shown only while the rows exist** (`bulk/open/`, paged 100, with the cursor of `apps.common.pagination.page`). After the batch ends the page shows the batch's counts | Design 18.2 step 6, 18.4 | Design 18.2 |
 | C15 | **Stop** marks the batch stopped, marks every waiting recipient "not sent: stopped", takes back a text still waiting for the phone (`services.cancel_sms`), and leaves one already with the phone to finish; the batch frees the one-at-a-time rule at once. It is allowed on a waiting or sending batch only, and asks nothing twice (the page asks once) | Design 18.2 step 7, 18.2.1 | Design 18.2 |
-| C16 | **The do-not-text rule is `text.strip().casefold() == "stop"`**, for a sender that is a Philippine mobile. "STOP please", "stop." and a name sender do not list. The number is stored once (a unique `mobile`). It is written whenever the table exists and a text is stored, **whatever `SMS_BULK_ENABLED` says**, so a STOP that arrives before bulk is turned on is not lost | Design 18.5 | Design 18.5 |
+| C16 | **The do-not-text rule is: strip whitespace and leading and trailing punctuation from the text, then `casefold() == "stop"`** (NPC coordinator's requirement), for a sender that is a Philippine mobile. "stop", "STOP.", "Stop!" and " stop " list; "STOP please", "nostop" and a name sender do not. No other word lists (not "unsubscribe", not "end"). The number is stored once (a unique `mobile`). It is written whenever the table exists and a text is stored, **whatever `SMS_BULK_ENABLED` says**, so a STOP that arrives before bulk is turned on is not lost | Design 18.5 | Design 18.5 |
 | C17 | **The do-not-text list has no deletion path in this build**, not by a job, not by the Django admin, not by `sms_inbox_delete`. A person who asks to be forgotten is therefore a point for the NPC coordinator (section 7.3) | Design 14 point 13, 18.5, 16 | Design 18.5 |
 | C18 | **Bulk send records are staff-text records for deletion.** `inbox_bulk` joins `STAFF_PURPOSES`, so `sms_inbox_delete` deletes the number's bulk send records, drops one still waiting, and deletes the number's waiting `BulkRecipient` rows. Its audit detail gains `bulk_recipients` | A bulk send record is a send record with the number, as a staff text's is; plan 4 made the command remove those | Plan 4; design 18.4 |
 | C19 | **No cross-batch memory.** A second batch built from a list that holds a number already texted in an earlier batch texts it again. The left-out file is how a list is continued the next day | Design 19.5 ("a way to continue ... without the download is not designed here") | Design 19.5 |
@@ -251,7 +251,14 @@ class DoNotText(models.Model):
 
 ```python
 def _is_stop(text):
-    return text.strip().casefold() == "stop"
+    # whitespace and punctuation (Unicode category P*) at either end are dropped; nothing inside the text is
+    word = text.strip()
+    start, end = 0, len(word)
+    while start < end and unicodedata.category(word[start]).startswith("P"):
+        start += 1
+    while end > start and unicodedata.category(word[end - 1]).startswith("P"):
+        end -= 1
+    return word[start:end].strip().casefold() == "stop"
 
 ...
             if can_reply and _is_stop(text) and dnt_tables_exist():
@@ -261,7 +268,7 @@ def _is_stop(text):
 ```
 
   (`dnt_tables_exist()` is evaluated once per `store` call, above the loop, not once per text.) It is inside the same `transaction.atomic()`, so a text and its listing are stored together or not at all. No log line holds the number.
-- [ ] Tests (`test_stop_rule.py`, made-up numbers): `STOP`, `stop`, `  Stop  `, `STOP\n` list the sender; `STOP please`, `stop.`, `nostop`, an empty text and a text from `BDO` (a name) do not; the same number twice lists once; the text itself is stored and shown like any other; the list is written with `SMS_BULK_ENABLED` off; with the table missing (`mock` on `dnt_tables_exist`) the text is stored and nothing else happens; the number is in no log line (`assertNoLogs`).
+- [ ] Tests (`test_stop_rule.py`, made-up numbers): `STOP`, `stop`, `  Stop  `, `STOP\n`, `stop.`, `STOP!`, `Stop!!`, ` stop. ` list the sender; `STOP please`, `nostop`, `unsubscribe`, `end`, an empty text and a text from `BDO` (a name) do not; the same number twice lists once; the text itself is stored and shown like any other; the list is written with `SMS_BULK_ENABLED` off; with the table missing (`mock` on `dnt_tables_exist`) the text is stored and nothing else happens; the number is in no log line (`assertNoLogs`).
 
 ### Task 3: `apps/notifications`: the purpose and three functions
 
@@ -498,7 +505,7 @@ Running `inbox.0003` anywhere; `SMS_BULK_ENABLED` in any shared environment; any
 1. **The do-not-text list has no removal** (C17). A person who asks for "all my data" is answered with a number that stays. Is that acceptable wording, or is a command to remove a number, with its own audit entry, wanted?
 2. **C12:** the numbers of a finished batch are gone, so a failed number cannot be retried from the batch.
 3. **C13:** the left-out file hands staff full numbers of contacts for a source of groups.
-4. **C16:** "stop" only, in any case with spaces; "unsubscribe" and "end" do not list.
+4. **C16:** "stop" only, in any case, with whitespace and leading or trailing punctuation around it ("STOP.", "Stop!" list); "STOP please", "nostop", "unsubscribe" and "end" do not list. As the NPC coordinator required.
 
 ## 8. Review, overlap and order
 
