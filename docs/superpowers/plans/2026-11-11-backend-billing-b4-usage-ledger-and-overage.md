@@ -166,13 +166,13 @@ When the cycle that holds a `held` row resolves (hook in `services.recovered` an
 
 B2a's `submit_transfer` freezes `amount_centavos` = the plan price. B4 makes the frozen amount **price + the open overage that is due**, and keeps B2a's rule that only an operator's confirmation settles anything.
 
-- **What is due.** The `open` lines of periods that have ended at `now` and that no confirmed payment holds. A line of a period still running is not due, so a payment sent before the period ends does not include it; it is taken by the next collection (U5; **Question 2**).
+- **What is due.** The `open` lines of periods that have ended at `now` and that no confirmed payment holds. A line of a period still running is not due, so a payment sent before the period ends does not include it; it is taken by the next collection (U5; confirmed, Question 2).
 - **Freezing.** `BankTransferPayment` gains `usage_centavos` (the overage inside `amount_centavos`) and `usage_line_max_id` (the highest `ChargeLine.id` included; the period test above is repeated at confirmation). A replaced or rejected proof frees nothing, because nothing was attached; the next proof recomputes.
 - **Confirmation.** `confirm_transfer` recomputes the same set (`id <= usage_line_max_id`, period ended at the time frozen). If its total differs from `usage_centavos` the confirmation answers 409 `usage_changed` and settles nothing; the operator rejects it and the owner sends the new amount. Otherwise it settles the cycle (B2a) and marks each line `settled` with this payment, in one transaction, with the audit entry B2a already writes (its `detail` gains `usage_centavos`).
 - **`payment_options` and the owner's payment response** gain `usage: {centavos, lines}` so the page shows base and overage apart. `amount_centavos` per offer includes it.
 - **A late line.** A line created after a payment froze (an operator admitted a late order, section 8) has a higher id, so it is not in that payment. It stays `open` and is taken by the next collection, labelled `late_admitted` (L7, L12, L16: never an alteration of a settled amount).
-- **Final usage-only collection.** When service ends with a paid period (B1: cancelled paid cycle, or a final cycle) and open lines remain, the subscription can pay them with no further base fee: `plan_code = usage_only`, no cycle, `amount_centavos` = the lines. A failed or missing payment starts no new cycle (Task). Constraint `billing_transfer_confirmed_in_full` is replaced by one that allows a confirmed `usage_only` payment with no cycle. **Question 3** asks whether this payment route belongs in B4 or in B5's statements.
-- **Suspended, then cancelled, then paid (R-4d).** The lines of the last paid cycle stay `open` and are collected by the usage-only route. **Suspended and never back (R-4c):** the account owes nothing; the sweep writes the lines off with `closed_reason = suspension_unreturned` at `deletion_due_at` (B1 D14). **Question 4** confirms this reading.
+- **Final usage-only collection.** When service ends with a paid period (B1: cancelled paid cycle, or a final cycle) and open lines remain, the subscription can pay them with no further base fee: `plan_code = usage_only`, no cycle, `amount_centavos` = the lines. A failed or missing payment starts no new cycle (Task). Constraint `billing_transfer_confirmed_in_full` is replaced by one that allows a confirmed `usage_only` payment with no cycle. Ruled in B4 by the coordinator (Question 3).
+- **Suspended, then cancelled, then paid (R-4d).** The lines of the last paid cycle stay `open` and are collected by the usage-only route. **Suspended and never back (R-4c):** the account owes nothing; the sweep writes the lines off with `closed_reason = suspension_unreturned` at `deletion_due_at` (B1 D14). Confirmed by the coordinator (Question 4).
 - **Closed and settled (L16, L21).** If a line would be created for a subscription that is cancelled with no `open` line and a settled final usage collection, or whose period's lines were all settled and the account is closed, it is created as `written_off/after_final_settlement` at once. No debit statement, no amendment, a reasoned record.
 - `GET sites/{site_id}/billing/`'s `outstanding_centavos` (hard-coded 0 today, `services.py:302`) becomes the total of due `open` lines. The route's shape does not change.
 
@@ -187,7 +187,7 @@ Reasons `late_over_72h` and `payment_time_unavailable` need an operator. `after_
 | `finance/usage/review/admit/` | `late_over_72h` and `payment_time_unavailable` only. Needs a reason. Numbers the order into its cycle and creates its line, labelled `late_admitted` (section 7), or writes it off with `after_final_settlement` when section 7's closed-and-settled rule applies. The cycle must be `paid`; a `pending` one makes it `held`, a `lapsed` one `written_off/cycle_lapsed` |
 | `finance/usage/review/dismiss/` | Any `needs_review` row. Needs a reason. Becomes `written_off/reviewed_not_billable`: kept, never counted, never reactivates service |
 
-Each action takes the row lock, is idempotent under a key, writes a `UsageEvent` and one `OperatorAuditEntry` (`billing_usage_admitted`, `billing_usage_dismissed`, declared kept whole in `apps/operators/audit.py`, reason in the entry's `reason`). The HQ page for it is frontend work and needs its own task; where it sits is **Question 5**. There is no Django admin screen.
+Each action takes the row lock, is idempotent under a key, writes a `UsageEvent` and one `OperatorAuditEntry` (`billing_usage_admitted`, `billing_usage_dismissed`, declared kept whole in `apps/operators/audit.py`, reason in the entry's `reason`). The HQ page for it is frontend work and needs its own task; where it sits in the menu is that task's visual choice. There is no Django admin screen.
 
 ## 9. The owner's read: `GET sites/{site_id}/billing/usage/`
 
@@ -209,14 +209,14 @@ Signed in, through `site_for` (another account's or a removed site answers 404 b
 
 | Migration | Adds | Safe before it runs? |
 |---|---|---|
-| `0003_usage_ledger` (depends on `0002_bank_transfer`) | `UsageEntry`, `ChargeLine`, `UsageEvent`, their constraints | Yes. It only adds tables, and no code reads them while `BILLING_USAGE_ENABLED` is off |
-| `0004_transfer_usage` (depends on 0003) | `BankTransferPayment.usage_centavos` (default 0), `usage_line_max_id` (default 0), and the replaced `billing_transfer_confirmed_in_full` constraint (section 7). | Yes for the columns. The constraint swap is validated against existing rows, which satisfy both forms (confirmed rows all have a cycle) |
+| `0006_usage_ledger` (depends on B3's `0005_paid_cycle_has_snapshot`) | `UsageEntry`, `ChargeLine`, `UsageEvent`, their constraints | Yes. It only adds tables, and no code reads them while `BILLING_USAGE_ENABLED` is off |
+| `0007_transfer_usage` (depends on 0006) | `BankTransferPayment.usage_centavos` (default 0), `usage_line_max_id` (default 0), and the replaced `billing_transfer_confirmed_in_full` constraint (section 7). | Yes for the columns. The constraint swap is validated against existing rows, which satisfy both forms (confirmed rows all have a cycle) |
 
-Two migrations because the first only adds tables and the second touches a B2a table that staging already holds rows in; each can be run, and checked, on its own. If question 3 is answered "not in B4", `0004` loses the constraint swap and the `usage_only` plan. **Numbers are placeholders:** B3 and B5 also add `apps/billing` migrations; whichever merges second renames its file and its `dependencies` (section 11). Run on staging by the coordinator under the standing approval, never in production.
+Two migrations because the first only adds tables and the second touches a B2a table that staging already holds rows in; each can be run, and checked, on its own. If question 3 is answered "not in B4", `0007` loses the constraint swap and the `usage_only` plan. **Order ruled by the coordinator (2026-11-11):** B3's `0003` to `0005` (plan snapshot columns on `BillingCycle` and `BankTransferPayment`, `RenewalConsent`) merge first; B4 numbers from `0006`; B5 adds no billing migration. The numbers stay placeholders: if the order changes, the later file is renamed with its `dependencies`. **B4 adds no column to `BillingCycle`**; its tables point to a cycle by foreign key only. It reads B3's `term_months`. Run on staging by the coordinator under the standing approval, never in production.
 
 ## 11. Files touched and order against B3 and B5
 
-New: `apps/billing/usage.py`; `apps/billing/migrations/0003_usage_ledger.py`, `0004_transfer_usage.py`; `apps/billing/tests/test_usage_orders.py`, `test_usage_storage.py`, `test_usage_routes.py`, `test_usage_collection.py`, `test_usage_review.py`, `test_usage_api.py`, `test_usage_concurrency.py`; a `docs/runbooks/billing.md` section.
+New: `apps/billing/usage.py`; `apps/billing/migrations/0006_usage_ledger.py`, `0007_transfer_usage.py`; `apps/billing/tests/test_usage_orders.py`, `test_usage_storage.py`, `test_usage_routes.py`, `test_usage_collection.py`, `test_usage_review.py`, `test_usage_api.py`, `test_usage_concurrency.py`; a `docs/runbooks/billing.md` section.
 
 Changed in B4's pull requests, **shared with other builds**:
 
@@ -225,22 +225,23 @@ Changed in B4's pull requests, **shared with other builds**:
 | `apps/billing/models.py` | Three models; two columns on `BankTransferPayment` | B3 (plan/annual), B5 (statements, `BillingProfile`) |
 | `apps/billing/services.py` | `usage.release_held` hooks in `recovered` and `_lapse_pending`; `submit_transfer`, `payment_options`, `confirm_transfer` amounts; `overview.outstanding_centavos` | B3 (annual in `_settle_transfer`), B5 |
 | `apps/billing/plan.py` | The allowance and price constants, `STORAGE_METERED`, a `usage_only` pseudo-plan | B3 |
-| `apps/billing/clock.py` | `allowance_periods(cycle)` | B3 (`months`) |
+| `apps/billing/clock.py` | Nothing. B4 calls B3's `clock.allowance_periods(term_start, anchor_day, months, periods)` and reads the `term_months` snapshot B3 puts on the cycle | B3 owns it |
 | `apps/billing/api.py`, `staff.py` | The usage route; four staff routes | B5 |
 | `apps/operators/audit.py` | Two declared actions | Open PR #103 |
 | `config/settings.py` | `BILLING_USAGE_ENABLED` | Open PRs #103, #104 (added lines only; second to merge keeps both) |
 | Scope document | The amendment below | B1 amendment, B2a amendment |
 
 **Order.**
+0. **B3's pull request 1 (migrations `0003` to `0005`) before B4's first migration** (coordinator ruling).
 1. **B4 before B5.** B5 reads `ChargeLine` and the `usage_only` payment to print overage lines and the "labelled adjustment".
-2. **B4 and B3.** B3's plan (annual, the six-month promo term) and B4 meet at three points: `clock.allowance_periods` (B4 writes it for any `months`; B3 only has to set `months = 12`); `_settle_transfer` (B3 adds a plan, B4 does not touch the plan switch); `plan.PLANS`. They do not need to be serialised if each keeps to its lines. If B3 merges first, B4 rebases its `plan.py` and `models.py` edits; if B4 merges first, B3 does. The annual usage-only route (each monthly period's overage on a usage-only collection the following month) is **B3's pull request**, built on B4's `usage_only` payment and `allowance_periods`; B4 builds and tests the same route for the Launch Promo (U2).
-3. Migrations: `0003` and `0004` are written with the lowest free numbers at the time of the pull request. A conflict is resolved by renaming the later file and its `dependencies`, never by editing an applied one.
+2. **B4 and B3.** B3's plan (annual, the six-month promo term) and B4 meet at three points: `clock.allowance_periods` (B3 writes it in its pull request 4; B4's pull request 1 builds the one-month case locally behind the same signature until it lands, and drops that stub on rebase); `_settle_transfer` (B3 adds a plan, B4 does not touch the plan switch); `plan.PLANS`. They do not need to be serialised if each keeps to its lines. If B3 merges first, B4 rebases its `plan.py` and `models.py` edits; if B4 merges first, B3 does. The annual usage-only route (each monthly period's overage on a usage-only collection the following month) is **B3's pull request**, built on B4's `usage_only` payment; B4 builds and tests the same route for the Launch Promo (U2).
+3. Migrations: `0006` and `0007` are renamed if the order changes; never edit an applied one.
 
 **Pull requests** (each cut from the latest `origin/main`, small, dark behind `BILLING_USAGE_ENABLED`):
 
-1. **Ledger and order intake.** Tables, migration `0003`, `plan` constants, `allowance_periods`, `record_order`, `release_held`, the amendment. Tests: section 12 (orders).
+1. **Ledger and order intake.** Tables, migration `0006`, `plan` constants, `record_order`, `release_held`, the amendment. Tests: section 12 (orders).
 2. **Storage intake.** `record_storage_snapshot`, `STORAGE_METERED`. Tests: storage.
-3. **Collections.** Migration `0004`, the amounts in B2a's functions, the `usage_only` payment (if question 3 says so), the write-offs, `outstanding_centavos`.
+3. **Collections.** Migration `0007`, the amounts in B2a's functions, the `usage_only` payment (if question 3 says so), the write-offs, `outstanding_centavos`.
 4. **Review routes and the owner's read.** Staff routes, the two audit actions, `GET billing/usage/`, runbook.
 
 ## 12. Tests
@@ -300,14 +301,10 @@ Asked now: this plan; the two migrations (section 10); the flag `BILLING_USAGE_E
 
 Not covered, each his own yes, staging only: running either migration; setting the flag; any production action. Not changed: no job, no worker, no Railway variable beyond the flag. Billing and tax records are kept 5 years: nothing here deletes a row.
 
-## 15. Questions
+## 15. Questions and rulings
 
-Already put to the coordinator with this plan; each has a recommendation and what continues meanwhile.
+Answered by the coordinator on 2026-11-11 (routine, reversible): **Q2** a payment sent before its period ends leaves that period's overage to the next collection; **Q3** the usage-only final payment route is in B4; **Q4** the R-4c write-off at the deletion date, consistent with L36 and L21; **Q5** the review page's place in the menu is a visual choice for the frontend task, not this plan.
 
-1. **The Launch Promo's allowance.** Is it 1,000 orders and 5 GB per month of the six, or per six months? *Recommend per month* (U2), the rule the Task gives for the Annual Plan. If six months: one period of 1,000 across the term and the overage billed at term end.
-2. **A payment sent before its period ends.** It cannot include that period's overage. *Recommend* the overage is taken by the next collection (U5). The alternative, refusing early payment while overage is open, would change B2a.
-3. **Where does the usage-only payment live?** B4 (this plan: needs `0004`'s constraint swap and a `usage_only` plan) or B5 with the statements. *Recommend B4*, so final overage can be collected before statements exist.
-4. **R-4c.** For a paid site that is suspended and never returns, the plan writes its open lines off at the deletion date. Confirm this is the reading.
-5. **The review page.** The routes are under `finance/usage/review/...`; the frontend page is a separate task. Is it a second tab on the Finance page or a menu entry of its own?
+**Open, for Coach Ed with the approval of this plan:** **Q1, the Launch Promo's allowance.** Is it 1,000 orders and 5 GB per month of the six, or one allowance per six months? *Recommend per month* (U2): the rule the Task gives for the Annual Plan, and the same as B3's question 3. If per term: one period across the term and the overage billed at term end; U2, section 6.1 and the promo tests change, nothing else.
 
-Routine details I decided (reversible; listed for the coordinator's report): U4 numbering by arrival; U6 binary gigabyte; "arriving after service ended" means a placed time with no cycle, not a late receipt (that is the 72 hour rule); `dismiss` writes a row off rather than adding a fourth status; `UsageEvent` as a third table.
+Routine details I decided (reversible): U4 numbering by arrival; U6 binary gigabyte; "arriving after service ended" means a placed time with no cycle, not a late receipt (that is the 72 hour rule); `dismiss` writes a row off rather than adding a fourth status; `UsageEvent` as a third table.
