@@ -109,6 +109,10 @@ SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() ==
 # SANTE_SETTINGS_ENABLED is on too: the catalog reads the catalog owner row. Off, the
 # endpoints answer 404 and the catalog tables are not read or written.
 SANTE_CATALOG_ENABLED = os.environ.get("SANTE_CATALOG_ENABLED", "").strip() == "1"
+# A site's payment methods (its bank and e-wallet accounts for direct transfer). "1" turns
+# on their endpoints and admin lists. Off, the endpoints answer 404 and the payment tables
+# are not read or written.
+PAYMENT_METHODS_ENABLED = os.environ.get("PAYMENT_METHODS_ENABLED", "").strip() == "1"
 # The storefront surface (/storefront/v1/), called only by the storefronts server. "1" turns
 # it on, and only while STOREFRONT_SERVER_SECRET holds at least 32 characters. Off, every path
 # under it answers 404. The secret is read here and nowhere else.
@@ -132,6 +136,7 @@ INSTALLED_APPS = [
     'apps.billing',
     'apps.sante',
     'apps.catalog',
+    'apps.payments',
     'apps.notifications',
     'apps.health',
     'apps.storefront',

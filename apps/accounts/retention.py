@@ -22,6 +22,7 @@ from apps.common import retention
 from apps.common.disposal import DISPOSED_DOMAIN, disposed_address, is_disposed_address
 from apps.notifications import retention as email_records
 from apps.operators import audit
+from apps.payments import retention as payment_retention
 from apps.sante import retention as sante_retention
 from apps.sites import retention as site_retention
 
@@ -162,6 +163,7 @@ def _dispose(account, now, rule, actor, request_ref, dry_run):
             # Takes the lock every site write of this account takes, then blanks its sites.
             **site_retention.blank_sites_of(account, now, dry_run),
             **sante_retention.blank_settings_of(account, dry_run),
+            **payment_retention.blank_payments_of(account, now, dry_run),
             "email_send_records": email_records.delete_records_for(address, dry_run),
             "earlier_address_send_records": email_records.delete_earlier_records_for(
                 earlier, dry_run
@@ -188,7 +190,12 @@ def _dispose(account, now, rule, actor, request_ref, dry_run):
             target_type=TARGET,
             target_id=account.public_id,
             reason=f"{rule}: {request_ref}" if request_ref else rule,
-            detail={"counts": counts, "blanked": {**BLANKED, **sante_retention.blanked()}},
+            detail={
+                "counts": counts,
+                "blanked": {
+                    **BLANKED, **sante_retention.blanked(), **payment_retention.blanked(),
+                },
+            },
         )
         return counts
 
@@ -279,6 +286,8 @@ def export_account_data(account, *, actor, request_ref):
     }
     sante = sante_retention.export_settings_of(account)
     data.update(sante)
+    payments = payment_retention.export_payments_of(account)
+    data.update(payments)
     lists = (
         "policy_acceptances", "sign_in_providers", "sessions", "audit_events",
         "mobile_challenges", "email_send_records", "sites",
@@ -286,6 +295,7 @@ def export_account_data(account, *, actor, request_ref):
     counts = {name: len(data[name]) for name in lists}
     counts["mobile_numbers"] = 0 if mobile is None else 1
     counts.update({name: len(rows) for name, rows in sante.items()})
+    counts.update({name: len(rows) for name, rows in payments.items()})
     audit.record(
         actor,
         "account_exported",
