@@ -159,7 +159,7 @@ These are proposals for FAS-03/FAS-04 to turn into code; they let the matrix be 
 
 - **Balanced, positive, two-sided.** Each line is a debit or a credit of a positive whole number of centavos on a postable account. Debits equal credits in the journal.
 - **Entry date** is a calendar date in Asia/Manila (`settings.py:282`, USE_TZ true). Default for a payment: the Manila date of `decided_at`, with `transferred_on` and `transfer_reference` carried as memo fields (§7 Q3).
-- **Idempotency key.** A text key, unique across all journals, of the form `fas:v1:<event>:<source public_id>[:<suffix>]`. The key uses the row's `public_id` (for example `btp…`), never a database number [main: `common/ids.py`]. Posting twice with the same key and the same lines is a no-op; the same key with different lines is a hard error. `v1` is the rule version, so a later rule can post beside it without colliding.
+- **Idempotency key.** FAS-03 owns the format: `source_type:source_ref:source_event` (FAS-03 §2.3), unique per entity. `source_ref` is the row's `public_id` (for example `btp…`), never a database number [main: `common/ids.py`]. Posting twice with the same key and the same lines is a no-op; the same key with different lines is a hard error. The rule version is a column on the entry, not part of the key, so a later rule version cannot silently post a second entry for the same event; changing a posted result is a reversal plus a new entry. Event names below are mine and **to match FAS-03**.
 - **Source pointer.** Each journal stores source type and source public_id, plus the plan code snapshot and the cycle sequence if any, so a line traces back to a payment.
 - **Posted journals are never edited.** A correction is a new journal that reverses it, with a reason.
 - **Test data.** Nothing from a non-live environment posts (§6).
@@ -183,11 +183,28 @@ Every posting event is "a payment was confirmed" or "a month ended". Amounts bel
 | Which receiving account got the money | Nothing | **Missing in main; [proposed]** see §7 Q4 |
 | Live or test | Nothing on the payment or subscription | **Missing in main**; the ledger rule is environment-level (§6) |
 
+### 4.1a Accounts the rules post to automatically (`system_key`)
+
+FAS-03's account table has a `system_key`, so a posting rule names a key and never a code. Names are mine, **to match FAS-03** when it publishes them. Every other account is reached only by a manual journal.
+
+| system_key (proposed) | Code | Used by |
+|---|---|---|
+| `cash.bank_transfer_default` | 1020 | P1–P7: the debit for a confirmed payment (Q4) |
+| `cash.ewallet` | 1021 | Only once the receiving account is recorded on the payment (Q4); until then manual M9 |
+| `deferred.subscription` | 2030 | P1, P2, P4, P7 credit; R1 debit |
+| `revenue.monthly` | 4010 | R1 for `monthly` |
+| `revenue.launch_promo` | 4015 | R1 for `launch_promo` |
+| `revenue.annual` | 4020 | R1 for `annual` [PR 106] |
+| `revenue.overage_order` | 4030 | P4, P5 [PR 108] |
+| `revenue.overage_storage` | 4040 | P4, P5 [PR 108] |
+
+If a key has no account, or the account is inactive on the entry date, the posting fails loudly (the confirmation does not settle), as FAS-03 §9 intends.
+
 ### 4.2 P1: confirmed payment, monthly plan (1 month)
 
 - **Source row:** `BankTransferPayment`, `status = confirmed`, `plan_code = monthly`. [main]
 - **Posts when:** inside the same transaction as `confirm_transfer` (FAS-01 §3.2, proposed default), or never. A failed posting fails the confirmation.
-- **Key:** `fas:v1:pay:<payment.public_id>`.
+- **Key:** `billing.banktransferpayment:<payment public_id>:payment_confirmed` (format per FAS-03).
 - **Entry date:** Manila date of `decided_at`.
 - **Lines (centavos):** Dr 1020 249,900 / Cr 2030 249,900. No revenue yet.
 - **Then, month by month (R1, §4.7):** Dr 2030 / Cr 4010.
@@ -195,7 +212,7 @@ Every posting event is "a payment was confirmed" or "a month ended". Amounts bel
 ### 4.3 P2: confirmed payment, Launch Promo (6 months)
 
 - **Source row:** confirmed `BankTransferPayment`, `plan_code = launch_promo`, amount 499,900. [main] One payment, one six-month cycle (`services.py:859-860`).
-- **Key:** `fas:v1:pay:<payment.public_id>` (same pattern; the plan only changes the release account).
+- **Key:** as P1 (the plan only changes the release account).
 - **Lines:** Dr 1020 499,900 / Cr 2030 499,900.
 - **Then:** Dr 2030 / Cr **4015** across the cycle (R1).
 - **Never:** book the first monthly price as part of the promo. The promo is paid once; the first Monthly payment is a separate P1 at 249,900, with its own cycle starting at the promo's `end_at` [main: `renewed(early=True)`]. No entry is made for the conversion itself: no charge happens without a payment.
@@ -219,7 +236,7 @@ Early payments never debit revenue before service. A payment that lands in a dif
 All three rows below wait for [PR 108]; nothing exists in `main`.
 
 **P4: base plus overage in one payment.** The frozen amount is the price plus `usage_centavos`, and `confirm_transfer` marks each included `ChargeLine` `settled` with this payment. Source: the confirmed payment and its settled lines.
-- **Key:** `fas:v1:pay:<payment.public_id>` (one journal for the payment).
+- **Key:** as P1 (one journal for the payment).
 - **Lines, example** (20 orders over the limit at 500 each, 1 started GB at 3,000): Dr 1020 262,900 / Cr 2030 249,900 / Cr 4030 10,000 / Cr 4040 3,000.
 - **Check before posting:** `price + sum(settled lines by kind) = amount_received_centavos`. A mismatch posts nothing and is a visible exception.
 - **Overage is credited to revenue at confirmation, not to 2030.** The overage is for a period that has already ended (PR 108 counts only closed periods), so the service is delivered. This is the default; the alternative is in Q5.
@@ -238,7 +255,7 @@ All three rows below wait for [PR 108]; nothing exists in `main`.
 
 - **Source rows:** the paid cycle and its payment; a **recognition schedule** row per cycle and month [proposed; FAS-03/FAS-14 model it].
 - **Posts when:** after each Manila month ends (a scheduled job needs a Celery beat entry and Railway approval: a `config/settings.py` change that is not part of this PR).
-- **Key:** `fas:v1:rel:<payment.public_id>:<YYYY-MM>`. A rerun is a no-op.
+- **Key:** `billing.banktransferpayment:<payment public_id>:revenue_released_<YYYY-MM>` (the month is carried in the event; exact name **to match FAS-03**). A rerun is a no-op.
 - **Lines:** Dr 2030 `released` / Cr 4010, 4015 or 4020 by `plan_code`. `released` = cumulative earned at month end − already released.
 - **Cumulative earned, in whole centavos:** days elapsed counted in Manila calendar days from the date of `start_at` (included) to the date of `end_at` (excluded), over total days in the cycle. `earned(d) = round_half_up(amount × days(d) / total_days)`, and the last month releases whatever remains, so a cycle always totals exactly its amount. The 3:00 PM cutoff (`clock.py`) is ignored: a cycle's first and last calendar dates are whole service days, which reproduces the owner's examples.
 - **Monthly worked example:** 8 Nov to 8 Dec 2026, 30 days, 249,900. November 23 days: 191,590. December 7 days: 58,310.
@@ -314,12 +331,13 @@ I stayed inside this document. Where my rows lean on the other two builders' top
 
 **About FAS-03 (ledger data model, owner-only access, deployment):**
 1. Amounts are integer centavos in a wide integer column (not the 32-bit `PositiveIntegerField` the billing payment uses, which tops out near PHP 21.5 million). The default of FAS-01 Q2.
-2. A journal has: public id, entry date (Manila), source type and source public_id, event type, rule version, unique idempotency key, status (posted or reversed), a link to the journal it reverses, a reason; lines hold account, debit or credit centavos, and a memo.
+2. A journal has: public id, entry date (Manila), the three source columns (`source_type`, `source_ref`, `source_event`) with the key derived from them, a rule version column (not part of the key), status (posted or reversed), a link to the journal it reverses, a reason; lines hold account, debit or credit centavos, and a memo.
 3. The account table carries the columns in §2.1; the seed is the Launch accounts here, versioned, with "Later" accounts added by their own change.
 4. Payment posting happens in the same transaction as `confirm_transfer`, and fails it if no mapping or open period exists (FAS-01 Q8 default). Release (R1) is a scheduled job, which needs a beat entry; if FAS-03 chooses a different posting design, only §4.2's "Posts when" changes.
 5. A recognition schedule is stored per paid cycle and month so release is deterministic and auditable. It may be a table or derivable; the formula in §4.7 is what matters.
 6. Only an owner capability can view or enter journals, on every route, with an audit entry per read. Required action names must be declared in `apps/operators/audit.py` (contended by PRs 103/104; I propose none here).
-7. A switch exists and is on only in the live environment (§6). The year is closed by a report (3040 derived) or an explicit close; FAS-03/FAS-06 chooses.
+7. FAS-03 names the account type "income" where I wrote "revenue", and gives accounts a parent/header structure; I mean the same things, and FAS-03's names win. CI runs PostgreSQL (FAS-03 §2.5), so database-level guards on posted entries can be tested there; nothing here depends on them being untestable.
+8. A switch exists and is on only in the live environment (§6). The year is closed by a report (3040 derived) or an explicit close; FAS-03/FAS-06 chooses.
 
 **About FAS-02 (accounting policy matrix, opening balances):**
 1. The policy answers in §7 (Q1–Q3, Q5, Q6, Q8, Q12) come from FAS-02's matrix. If FAS-02's recommendation differs, the matrix rows follow the policy, not the other way round.
@@ -343,6 +361,6 @@ I stayed inside this document. Where my rows lean on the other two builders' top
 5. Paid in the grace days (`recovered`): catch-up release in the first open month.
 6. Overage (after PR 108): 262,900 splits 249,900 / 10,000 / 3,000; a split that does not sum is refused.
 7. Usage-only: no 2030 line and no schedule.
-8. Replay of a confirmation: one journal. Same key, different lines: error.
+8. Replay of a confirmation: one journal (the same `source_type:source_ref:source_event`). Same key, different lines: error.
 9. Rejected, replaced, mismatched, trial, exempt: zero journals.
 10. Debits equal credits in every journal; a posted journal cannot be changed.
