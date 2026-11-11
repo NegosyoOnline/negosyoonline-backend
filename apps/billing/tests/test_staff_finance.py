@@ -18,6 +18,7 @@ from apps.billing.tests.base import (
 )
 from apps.billing.tests.test_transitions import snapshot
 from apps.common.errors import ApiError
+from apps.inbox import contacts_staff
 from apps.inbox import staff as inbox_staff
 from apps.operators import staff_views
 from apps.operators.models import OperatorAuditEntry
@@ -64,7 +65,7 @@ class FinanceGateTests(FinanceTestCase):
         for path in staff.ROUTES:
             self.assertEqual(staff_views.ROUTES[path][0], "POST")
         self.assertEqual(
-            sorted(set(staff_views.ROUTES) - set(staff.ROUTES) - set(inbox_staff.ROUTES)),
+            sorted(set(staff_views.ROUTES) - set(staff.ROUTES) - set(inbox_staff.ROUTES) - set(contacts_staff.ROUTES)),
             ["console/", "me/", "sign-in/", "sign-in/code/", "sign-in/verify/", "sign-out/"],
         )
 
@@ -76,7 +77,7 @@ class FinanceGateTests(FinanceTestCase):
             self.assertNotIn(path, sign_in_routes)
         self.assertIs(staff_views.ROUTES["me/"][1], staff_views.me)
         self.assertIs(staff_views.ROUTES["console/"][1], staff_views.console)
-        self.assertEqual(len(staff_views.ROUTES), len(sign_in_routes) + len(staff.ROUTES) + len(inbox_staff.ROUTES))
+        self.assertEqual(len(staff_views.ROUTES), len(sign_in_routes) + len(staff.ROUTES) + len(inbox_staff.ROUTES) + len(contacts_staff.ROUTES))
 
     def test_the_finance_module_imports_nothing_from_the_staff_routes(self):
         with open(staff.__file__) as source:
