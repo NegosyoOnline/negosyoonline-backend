@@ -103,6 +103,8 @@ def _contact_values(fields):
         validate_email(values["email"])
     except ValidationError:
         errors["email"] = ["Please enter a valid email address."]
+    if not values["subject"]:
+        errors["subject"] = ["Please enter a subject."]
     if not values["message"]:
         errors["message"] = ["Please enter a message."]
     if errors:
@@ -128,11 +130,11 @@ def send_contact_message(site, fields, visitor_ip):
     send_email(
         to=to,
         category=CONTACT_CATEGORY,
-        subject=f"[{store}] New message from {values['name']}",
+        subject=f"[{store}] {values['subject']} (from {values['name']})",
         body=(
             f"New message from the {store} website contact form.\n\n"
             f"Name: {values['name']}\nEmail: {values['email']}\n"
-            f"Subject: {values['subject'] or '(none)'}\n\n{values['message']}\n"
+            f"Subject: {values['subject']}\n\n{values['message']}\n"
         ),
         sender_name=store,
         reply_to=values["email"],
