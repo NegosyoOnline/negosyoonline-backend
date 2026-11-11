@@ -3,21 +3,33 @@
 A label is for support, reporting and communications. It never authorizes anything: access to
 a Santé feature is decided by `services.site_for(..., template=templates.SANTE)`.
 """
+from django.conf import settings
 from django.db.models import BooleanField, Exists, ExpressionWrapper, OuterRef, Q
+from django.utils import timezone
 
 from apps.accounts.models import Account
+from apps.billing import services as billing
 from apps.sites import templates
 from apps.sites.models import Site
 
 SANTE_SITE_OWNER = "Santé Site Owner"
+# With billing on, the site's subscription must be in one of these states at this moment.
+SUBSCRIPTION_STATES = ("trial_active", "active", "payment_requires_attention")
 
-# The one place the rule lives. Billing adds the site's subscription state here when it exists.
-_ELIGIBLE_SITE = Q(template=templates.SANTE, deleted_at__isnull=True, operator_hold=False)
+
+def _eligible_site():
+    """The one place the rule lives: a Santé site that is not removed and not on operator hold
+    and, where billing is on, whose subscription is on trial, active or needing payment
+    attention at this moment."""
+    rule = Q(template=templates.SANTE, deleted_at__isnull=True, operator_hold=False)
+    if settings.BILLING_ENABLED:
+        rule &= billing.state_filter(timezone.now(), SUBSCRIPTION_STATES)
+    return rule
 
 
 def eligible_sante_sites():
-    """Santé sites that are not removed and not on operator hold."""
-    return Site.objects.filter(_ELIGIBLE_SITE)
+    """Santé sites that meet the rule above."""
+    return Site.objects.filter(_eligible_site())
 
 
 def with_sante_site_owner(accounts):
@@ -40,7 +52,7 @@ def with_counts_for_sante_site_owner(sites):
     """
     return sites.annotate(
         counts_for_sante_site_owner=ExpressionWrapper(
-            _ELIGIBLE_SITE & Q(account__closed_at__isnull=True), output_field=BooleanField()
+            _eligible_site() & Q(account__closed_at__isnull=True), output_field=BooleanField()
         )
     )
 

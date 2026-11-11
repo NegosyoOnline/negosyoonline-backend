@@ -11,7 +11,7 @@ from datetime import datetime
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Max, Q
+from django.db.models import Exists, Max, OuterRef, Q
 from django.utils import timezone
 
 from apps.billing import clock, methods, plan
@@ -64,6 +64,7 @@ class Position:
     billing_only: bool
     next_change_at: datetime | None = None  # when a served site would next go off
     subscription: Subscription | None = None
+    at: datetime | None = None  # the instant this was read for
 
 
 NOT_SERVED = Position(state=None, storefront_served=False, billing_only=False)
@@ -104,7 +105,7 @@ def _read_position(site, now):
     if subscription is None:
         return NOT_SERVED
     if subscription.billing_exempt:
-        return Position(subscription.state, True, False, None, subscription)
+        return Position(subscription.state, True, False, None, subscription, now)
     due = _due(subscription, now)
     state = DUE_TO_STATE[due[0]] if due else subscription.state
     if state == State.CANCELLED:
@@ -117,6 +118,7 @@ def _read_position(site, now):
         billing_only=not served,
         next_change_at=_next_change_at(subscription, state, now) if served else None,
         subscription=subscription,
+        at=now,
     )
 
 
@@ -167,6 +169,49 @@ def _latest_cycle(subscription):
 
 def _ever_paid(subscription):
     return subscription.cycles.filter(settlement=Settlement.PAID).exists()
+
+
+def state_filter(now, states):
+    """A condition on Site rows: the site's subscription is in one of `states` at `now`.
+
+    It mirrors `position` in one query, for a read over many sites. A site with no
+    subscription never matches. An exempt subscription matches on its stored state, as
+    `position` reports it. A trial past its end whose answer at trial end is not yet frozen
+    counts as having had no payment method, which is what `methods.active_at` answers in B1;
+    Billing Build B2 changes both together.
+    """
+    cutoff = now - plan.GRACE
+    cycle_still_in_grace = Exists(
+        BillingCycle.objects.filter(subscription=OuterRef("pk"), end_at__gt=cutoff)
+    )
+    trial = Q(state=State.TRIAL_ACTIVE)
+    had_method = Q(method_at_trial_end=Method.YES)
+    reported = {
+        State.TRIAL_ACTIVE: trial & (
+            Q(trial_end_at__gt=now) | (had_method & Q(trial_end_at__gt=cutoff))
+        ),
+        State.CANCELLED_NO_PAYMENT_METHOD: Q(state=State.CANCELLED_NO_PAYMENT_METHOD) | (
+            trial & Q(trial_end_at__lte=now) & ~had_method
+        ),
+        State.ACTIVE: Q(state=State.ACTIVE) & Q(cycle_still_in_grace),
+        State.PAYMENT_REQUIRES_ATTENTION: Q(
+            state=State.PAYMENT_REQUIRES_ATTENTION, attention_started_at__gt=cutoff
+        ),
+        State.SUSPENDED: (
+            Q(state=State.SUSPENDED)
+            | (trial & had_method & Q(trial_end_at__lte=cutoff))
+            | (Q(state=State.ACTIVE) & ~Q(cycle_still_in_grace))
+            | Q(state=State.PAYMENT_REQUIRES_ATTENTION, attention_started_at__lte=cutoff)
+        ),
+        State.CANCELLED: Q(state=State.CANCELLED),
+    }
+    computed = Q(pk__in=[])
+    for state in states:
+        computed |= reported[state]
+    condition = (Q(billing_exempt=True) & Q(state__in=list(states))) | (
+        Q(billing_exempt=False) & computed
+    )
+    return Q(Exists(Subscription.objects.filter(condition, site=OuterRef("pk"))))
 
 
 def subscription_of(site):
