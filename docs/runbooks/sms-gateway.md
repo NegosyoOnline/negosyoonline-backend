@@ -209,7 +209,7 @@ A Santé member's code goes by SMS through `send_sms` with no email fallback: `m
 - Paused or the platform limit reached: 503 `sms_paused`, checked before any member lookup, so it is the same for every input.
 - Phone offline: a member with a verified email is offered the email (sign-in only; the onboarding mobile never is, because it proves the phone). Otherwise the answer is the neutral one for a signed-out request and 503 `sms_unavailable` for an onboarding code.
 - The text names the store, never NegosyoOnline. A store name that is not plain GSM-7, holds a web address or pushes the text past 160 characters is replaced by "Your store".
-- A disposed member's number is never texted. The code rows are deleted 24 hours after they expire; the send records follow the 365-day rule below.
+- A disposed member's number is never texted. The code rows are deleted 30 days after they expire (TWCinc's R-CRED rule, `expired_member_challenges`); the send records follow the 365-day rule below.
 - Local test: the fake phone below prints the exact text.
 
 ## Local development

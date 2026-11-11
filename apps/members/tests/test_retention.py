@@ -172,7 +172,7 @@ class ExpiredSessionRuleTests(MembersDisposalTestCase):
         long_revoked, _ = sessions.create_session(self.site, self.member)
         MemberSession.objects.filter(pk=long_revoked.pk).update(revoked_at=self.now - old)
         recent_expired, _ = sessions.create_session(self.site, self.member)
-        MemberSession.objects.filter(pk=recent_expired.pk).update(expires_at=self.now - timedelta(hours=23))
+        MemberSession.objects.filter(pk=recent_expired.pk).update(expires_at=self.now - timedelta(days=5))
 
         self.assertEqual(self.run_rule(dry_run=True), 2)
         self.assertEqual(MemberSession.objects.count(), 6)
@@ -201,9 +201,9 @@ class ExpiredChallengeRuleTests(MembersDisposalTestCase):
     def test_it_is_registered(self):
         self.assertIn("expired_member_challenges", registry.names())
 
-    def test_a_code_row_is_deleted_a_day_after_it_expired(self):
-        MemberOtpChallenge.objects.filter(pk=self.challenge.pk).update(expires_at=self.now - timedelta(hours=25))
-        MemberOtpChallenge.objects.filter(pk=self.their_challenge.pk).update(expires_at=self.now - timedelta(hours=23))
+    def test_a_code_row_is_deleted_thirty_days_after_it_expired(self):
+        MemberOtpChallenge.objects.filter(pk=self.challenge.pk).update(expires_at=self.now - timedelta(days=31))
+        MemberOtpChallenge.objects.filter(pk=self.their_challenge.pk).update(expires_at=self.now - timedelta(days=5))
         self.assertEqual(self.run_rule(dry_run=True), 1)
         self.assertEqual(MemberOtpChallenge.objects.count(), 2)
         self.assertEqual(self.run_rule(), 1)
