@@ -1,19 +1,22 @@
 """The Subscriber's payment methods over HTTP, in the shapes the Payments page reads and
 sends: the on/off switch, bank and e-wallet accounts, Xendit shown as not set up and off,
-tenant isolation and the settings switch. Restates the API halves of TWCinc's
+an account's QR code image, tenant isolation and the settings switch. Restates the API halves of TWCinc's
 test_payment_settings for public ids, this backend's error shape and the 404 rule. TWCinc's
 Xendit key tests are not ported: Xendit is hidden by Coach Ed's ruling of 2026-11-11."""
+import re
+from unittest import mock
 
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.utils import timezone
 
+from apps.common import private_files
 from apps.payments import services
 from apps.payments.api import router
 from apps.payments.models import SitePaymentAccount, SitePaymentSettings
 from apps.payments.tests.base import (
     BANK, EWALLET, MISSING_ACCOUNT, MISSING_SITE, PaymentsApiTestCase, account_url,
-    accounts_url, make_payment_account, methods_url, payment_rows, payments_call,
+    accounts_url, make_payment_account, methods_url, payment_rows, payments_call, qr_file,
+    stored_files,
 )
 from apps.sante.tests.base import retemplate
 from apps.sites.models import Site
@@ -36,10 +39,6 @@ ROUTES = [
     ("POST", "/sites/{site_id}/payment-methods/accounts/"),
     ("POST", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
 ]
-
-
-def qr_file():
-    return SimpleUploadedFile("qr.png", b"\x89PNG\r\n\x1a\n" + b"0" * 32, content_type="image/png")
 
 
 class ReadTests(PaymentsApiTestCase):
@@ -173,19 +172,6 @@ class AccountTests(PaymentsApiTestCase):
         )
         self.assertFalse(SitePaymentAccount.objects.exists())
 
-    def test_a_qr_file_is_refused_with_a_field_error_and_nothing_is_saved_or_stored(self):
-        fields = self.fields(self.form({**BANK, "qr": qr_file()}))
-        self.assertEqual(
-            fields,
-            {"qr": ["QR code upload is not available yet. Save the account without a QR code."]},
-        )
-        self.assertFalse(SitePaymentAccount.objects.exists())
-        self.assertEqual(self.read(), EMPTY)
-
-    def test_a_qr_file_and_a_bad_field_are_both_named(self):
-        fields = self.fields(self.form({**BANK, "account_number": "", "qr": qr_file()}))
-        self.assertEqual(set(fields), {"account_number", "qr"})
-
     def test_a_server_owned_field_in_the_form_is_ignored(self):
         other = self.ben_with_site()[1]
         row = self.added(id="pay_mine", site=other.public_id, removed_at="2020-01-01", has_qr="1")
@@ -203,10 +189,9 @@ class AccountTests(PaymentsApiTestCase):
         self.assertEqual(response.json(), {**row, "account_name": "New Name"})
         self.assertEqual(self.read()["accounts"], [response.json()])
 
-    def test_a_change_with_a_qr_file_or_a_bad_number_is_refused_and_changes_nothing(self):
+    def test_a_change_with_a_bad_number_is_refused_and_changes_nothing(self):
         row = self.added(EWALLET)
         url = account_url(self.site_id, row["id"])
-        self.assertEqual(set(self.fields(self.form({**EWALLET, "qr": qr_file()}, url=url))), {"qr"})
         fields = self.fields(self.form({**EWALLET, "account_number": ""}, url=url))
         self.assertEqual(fields, {"account_number": ["Enter the account number."]})
         self.assertEqual(self.read()["accounts"], [row])
@@ -232,6 +217,158 @@ class AccountTests(PaymentsApiTestCase):
         self.error(self.form(BANK), 429, "rate_limited")
         self.assertEqual(self.get(self.url).status_code, 200)  # reading is not counted
         self.assertFalse(SitePaymentAccount.objects.exists())
+
+
+class QrTests(PaymentsApiTestCase):
+    """An account's QR code image (ClickUp z8uq9me7aq). Ports TWCinc's QR assertions in
+    test_account_fields_are_validated... and its ChangeAccountTests, for this backend's key
+    layout, error shape and private store."""
+
+    KEY = r"sante/qr/site-%d/[0-9a-f]{32}\.png"
+    TYPE = {"qr": ["Upload a JPEG, PNG or WebP image."]}
+    SIZE = {"qr": ["The file is too large. The limit is 2 MB."]}
+
+    def key_of(self, row):
+        return SitePaymentAccount.objects.get(public_id=row["id"]).qr_file_key
+
+    def assert_nothing_stored(self):
+        self.assertEqual(stored_files(self.private_dir), [])
+
+    def with_qr(self):
+        """An e-wallet account added with a QR, and its key."""
+        row = self.added({**EWALLET, "qr": qr_file()})
+        return row, self.key_of(row)
+
+    def test_an_account_added_with_a_qr_stores_it_under_the_sites_folder_and_reads_has_qr(self):
+        response = self.form({**BANK, "qr": qr_file()})
+        self.assertEqual(response.status_code, 201, response.content)
+        row = response.json()
+        self.assertTrue(row["has_qr"])
+        key = self.key_of(row)
+        self.assertTrue(re.fullmatch(self.KEY % self.site.pk, key), key)
+        self.assertEqual(stored_files(self.private_dir), [key])
+        self.assertEqual((self.private_dir / key).read_bytes(), qr_file().read())
+        self.assertEqual(self.read()["accounts"], [row])
+
+    def test_no_answer_carries_the_key_or_a_link_to_the_file(self):
+        row, key = self.with_qr()
+        url = account_url(self.site_id, row["id"])
+        answers = [
+            self.form({**BANK, "qr": qr_file()}), self.form({**EWALLET, "qr": qr_file()}, url=url),
+            self.get(self.url),
+        ]
+        for response in answers:
+            text = response.content.decode()
+            for private in ("qr_file_key", "sante/qr", key.rsplit("/", 1)[1], "blob", "http"):
+                self.assertNotIn(private, text)
+
+    def test_a_file_that_is_not_an_image_by_its_type_or_its_bytes_is_refused(self):
+        bad = (
+            qr_file(b"not an image at all", "image/png"),        # the bytes are not an image
+            qr_file(content_type="text/plain", name="qr.txt"),   # the declared type is not
+            qr_file(b"GIF89a" + b"0" * 32, "image/gif", "qr.gif"),
+            qr_file(b"%PDF-1.7 " + b"0" * 32, "application/pdf", "qr.pdf"),
+            qr_file(b"", "image/png"),
+            "a word, not a file",
+        )
+        for qr in bad:
+            with self.subTest(qr=str(qr)):
+                self.assertEqual(self.fields(self.form({**BANK, "qr": qr})), self.TYPE)
+        self.assertFalse(SitePaymentAccount.objects.exists())
+        self.assert_nothing_stored()
+
+    def test_a_file_over_2_mb_is_refused_and_one_of_exactly_2_mb_is_taken(self):
+        head = qr_file().read()
+        over = qr_file(head + b"0" * (services.QR_MAX - len(head) + 1))
+        self.assertEqual(self.fields(self.form({**BANK, "qr": over})), self.SIZE)
+        self.assertFalse(SitePaymentAccount.objects.exists())
+        self.assert_nothing_stored()
+        self.added({**BANK, "qr": qr_file(head + b"0" * (services.QR_MAX - len(head)))})
+
+    def test_a_bad_qr_and_a_bad_field_are_both_named_and_nothing_is_stored(self):
+        fields = self.fields(self.form({**BANK, "account_number": "", "qr": qr_file(b"x")}))
+        self.assertEqual(set(fields), {"account_number", "qr"})
+        fields = self.fields(self.form({**BANK, "account_number": "", "qr": qr_file()}))
+        self.assertEqual(set(fields), {"account_number"})
+        self.assertFalse(SitePaymentAccount.objects.exists())
+        self.assert_nothing_stored()
+
+    def test_a_multipart_change_without_a_qr_keeps_the_current_one(self):
+        row, key = self.with_qr()
+        response = self.form(
+            {**EWALLET, "account_name": "New Name"}, url=account_url(self.site_id, row["id"])
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {**row, "account_name": "New Name"})
+        self.assertEqual(self.key_of(row), key)
+        self.assertEqual(stored_files(self.private_dir), [key])
+
+    def test_a_multipart_change_with_a_qr_replaces_it_and_removes_the_old_file(self):
+        row, old_key = self.with_qr()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.form(
+                {**EWALLET, "qr": qr_file()}, url=account_url(self.site_id, row["id"])
+            )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()["has_qr"])
+        new_key = self.key_of(row)
+        self.assertNotEqual(new_key, old_key)
+        self.assertTrue(re.fullmatch(self.KEY % self.site.pk, new_key), new_key)
+        self.assertEqual(stored_files(self.private_dir), [new_key])
+
+    def test_a_qr_can_be_added_to_an_account_that_had_none(self):
+        row = self.added()
+        self.assertFalse(row["has_qr"])
+        response = self.form({**BANK, "qr": qr_file()}, url=account_url(self.site_id, row["id"]))
+        self.assertTrue(response.json()["has_qr"])
+        self.assertEqual(stored_files(self.private_dir), [self.key_of(row)])
+
+    def test_a_change_with_a_bad_number_or_a_bad_qr_changes_nothing_and_stores_nothing(self):
+        row, key = self.with_qr()
+        url = account_url(self.site_id, row["id"])
+        fields = self.fields(self.form({**EWALLET, "account_number": "", "qr": qr_file()}, url=url))
+        self.assertEqual(set(fields), {"account_number"})
+        self.assertEqual(self.fields(self.form({**EWALLET, "qr": qr_file(b"x")}, url=url)), self.TYPE)
+        self.assertEqual(self.read()["accounts"], [row])
+        self.assertEqual(self.key_of(row), key)
+        self.assertEqual(stored_files(self.private_dir), [key])
+
+    def test_an_account_that_is_not_found_answers_404_before_its_file_is_looked_at(self):
+        url = account_url(self.site_id, MISSING_ACCOUNT)
+        self.error(self.form({**BANK, "qr": qr_file(b"x")}, url=url), 404, "not_found")
+        self.error(self.form({**BANK, "qr": qr_file()}, url=url), 404, "not_found")
+        self.assert_nothing_stored()
+
+    def test_a_store_that_fails_is_a_field_error_and_nothing_is_saved(self):
+        failing = mock.Mock()
+        failing.put.side_effect = private_files.StoreError("down")
+        for store in (
+            mock.patch.object(private_files, "store", return_value=failing),
+            mock.patch.object(private_files, "store", side_effect=private_files.StoreUnavailable()),
+        ):
+            with store:
+                fields = self.fields(self.form({**BANK, "qr": qr_file()}))
+            self.assertEqual(
+                fields, {"qr": ["The QR code could not be saved. Try again in a moment."]}
+            )
+        self.assertFalse(SitePaymentAccount.objects.exists())
+        self.added()  # without a QR the account still saves
+
+    def test_a_removed_account_keeps_its_qr_file(self):
+        row, key = self.with_qr()
+        self.delete(account_url(self.site_id, row["id"]))
+        self.assertEqual(self.key_of(row), key)
+        self.assertEqual(stored_files(self.private_dir), [key])
+        self.assertEqual(self.read()["accounts"], [])
+
+    def test_each_sites_qr_is_in_its_own_folder_and_only_its_owner_sees_has_qr(self):
+        ben, theirs = self.ben_with_site()
+        row, key = self.with_qr()
+        self.assertIn(f"/site-{self.site.pk}/", key)
+        self.assertEqual(self.read(methods_url(theirs.public_id), client=ben)["accounts"], [])
+        url = account_url(theirs.public_id, row["id"])
+        self.error(self.form({**EWALLET, "qr": qr_file()}, url=url, client=ben), 404, "not_found")
+        self.assertEqual(stored_files(self.private_dir), [key])
 
 
 class IsolationTests(PaymentsApiTestCase):

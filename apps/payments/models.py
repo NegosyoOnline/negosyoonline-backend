@@ -36,6 +36,8 @@ class SitePaymentAccount(models.Model):
     account_type = models.CharField(max_length=8, choices=ACCOUNT_TYPES, blank=True, default="")
     account_name = models.CharField(max_length=120)
     account_number = models.CharField(max_length=40)
+    # The key of the account's QR code image in the private file store; empty when it has none.
+    qr_file_key = models.CharField(max_length=200, blank=True, default="", editable=False)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
     removed_at = models.DateTimeField(null=True, blank=True)

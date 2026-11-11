@@ -4,6 +4,8 @@ TWCinc's Xendit key tests are not ported: Xendit is hidden by Coach Ed's ruling 
 2026-11-11."""
 import json
 
+from unittest import mock
+
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
@@ -12,7 +14,8 @@ from apps.common.errors import ApiError
 from apps.payments import services
 from apps.payments.models import ImmutableRecordError, SitePaymentAccount, SitePaymentSettings
 from apps.payments.tests.base import (
-    BANK, EWALLET, make_payment_account, payment_rows, switched_on,
+    BANK, EWALLET, JPEG, WEBP, make_payment_account, payment_rows, qr_file, stored_files,
+    switched_on, use_local_private_store,
 )
 from apps.sites.tests.base import make_account, make_site
 
@@ -22,6 +25,7 @@ class PaymentsTestCase(TestCase):
     def setUp(self):
         self.account = make_account()
         self.site = make_site(self.account)
+        self.private_dir = use_local_private_store(self)
 
     def refused(self, call, *args, **kwargs):
         with self.assertRaises(ApiError) as refused:
@@ -168,11 +172,42 @@ class AccountTests(PaymentsTestCase):
                     self.assertEqual((error.status, error.code), (404, "not_found"))
         self.assertEqual(payment_rows(), before)
 
-    def test_a_qr_is_refused_as_a_field_and_nothing_is_saved(self):
+    def test_a_qr_that_is_not_a_file_is_refused_as_a_field_and_nothing_is_saved(self):
         for data, files in (({**BANK, "qr": "x"}, None), (BANK, {"qr": object()})):
             error = self.refused(services.add_account, self.account, self.site, data, files)
-            self.assertEqual(error.fields, {"qr": [services.QR_NOT_YET]})
+            self.assertEqual(error.fields, {"qr": ["Upload a JPEG, PNG or WebP image."]})
         self.assertFalse(SitePaymentAccount.objects.exists())
+
+    def test_a_jpeg_a_png_and_a_webp_are_each_stored_with_their_own_ending(self):
+        for upload, ending in (
+            (qr_file(), ".png"), (qr_file(JPEG, "image/jpeg", "qr.jpg"), ".jpg"),
+            (qr_file(WEBP, "image/webp", "qr.webp"), ".webp"),
+            (qr_file(JPEG, "image/png"), ".jpg"),  # the ending follows the bytes, not the name
+        ):
+            row = services.add_account(self.account, self.site, BANK, {"qr": upload})
+            self.assertTrue(row.qr_file_key.startswith(f"sante/qr/site-{self.site.pk}/"))
+            self.assertTrue(row.qr_file_key.endswith(ending), row.qr_file_key)
+            self.assertTrue(services.account_out(row)["has_qr"])
+        self.assertEqual(len(stored_files(self.private_dir)), 4)
+
+    def test_the_uploaded_file_is_discarded_when_the_save_fails(self):
+        files = {"qr": qr_file()}
+        with mock.patch.object(
+            SitePaymentAccount.objects, "create", side_effect=RuntimeError("database down")
+        ):
+            with self.assertRaises(RuntimeError):
+                services.add_account(self.account, self.site, BANK, files)
+        row = services.add_account(self.account, self.site, BANK, {"qr": qr_file()})
+        kept = [row.qr_file_key]
+        self.assertEqual(stored_files(self.private_dir), kept)
+        with mock.patch.object(SitePaymentAccount, "save", side_effect=RuntimeError("down")):
+            with self.assertRaises(RuntimeError):
+                services.update_account(
+                    self.account, self.site, row.public_id, BANK, {"qr": qr_file()}
+                )
+        row.refresh_from_db()
+        self.assertEqual([row.qr_file_key], kept)
+        self.assertEqual(stored_files(self.private_dir), kept)
 
     def test_the_model_clean_refuses_a_mismatch_and_allows_a_blank_bank_row(self):
         make = lambda kind, atype: SitePaymentAccount(  # noqa: E731

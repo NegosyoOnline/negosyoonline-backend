@@ -9,5 +9,8 @@ staticfiles/
 .coverage
 htmlcov/
 
+# Private files of a local run (apps/common/private_files.py)
+.private-files/
+
 # /handover session state files: local only, removed with the worktree
 docs/session-state/

@@ -11,6 +11,11 @@ Direct transfer (bank and e-wallet accounts) is the only method. Xendit is hidde
 2026-11-11): no key is stored, the read always shows it as not set up and off, and it cannot
 be switched on. The read keeps the `xendit` keys because the Payments page reads them.
 
+An account may carry a QR code image. It is a private file (apps.common.private_files): the
+row keeps its key, the read says only `has_qr`, and no link to it is ever answered. The file
+is stored before the row is locked, so no lock is held during an upload, and it is discarded
+if the save then fails.
+
 Lock order, as in apps.sante.services: the account's Onboarding row, then the Site row, then
 a payment row.
 """
@@ -21,6 +26,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.accounts.services import record_event
+from apps.common import private_files
 from apps.common.errors import ApiError
 from apps.payments.models import (
     BANK, CHECKING, EWALLET, SAVINGS, SitePaymentAccount, SitePaymentSettings,
@@ -29,7 +35,13 @@ from apps.sites.models import Onboarding, Site
 from apps.sites.services import site_for
 
 NUMBER_RE = re.compile(r"^[0-9 -]{1,40}$")
-QR_NOT_YET = "QR code upload is not available yet. Save the account without a QR code."
+QR_MAX = 2 * 1024 * 1024
+QR_FOLDER = "sante/qr"  # then site-<row id>/<random name>: Santé's own folder in the shared store
+QR_ERRORS = {
+    private_files.WRONG_TYPE: "Upload a JPEG, PNG or WebP image.",
+    private_files.TOO_LARGE: "The file is too large. The limit is 2 MB.",
+}
+QR_NOT_SAVED = "The QR code could not be saved. Try again in a moment."
 XENDIT_HIDDEN = "Xendit is not available yet."
 FIELD_ERRORS = {
     "kind": "Choose bank or e-wallet.",
@@ -118,8 +130,9 @@ def set_enabled(account, site, *, direct=None, xendit=None):
 # ---- bank and e-wallet accounts ----
 
 def clean_account(data, files=None):
-    """The account fields of a submitted form, or ApiError naming each bad field. A QR file
-    is refused: this slice stores no file."""
+    """(account fields, QR) of a submitted form, or ApiError naming each bad field. The QR is
+    None when no file was sent, else its (content, content type), checked: a JPEG, PNG or WebP
+    image of at most 2 MB."""
     data, cleaned, errors = data or {}, {}, {}
     kind = (data.get("kind") or "").strip()
     if kind not in (BANK, EWALLET):
@@ -141,11 +154,32 @@ def clean_account(data, files=None):
     if not NUMBER_RE.fullmatch(number) or not re.search(r"\d", number):
         errors["account_number"] = FIELD_ERRORS["account_number"]
     cleaned["account_number"] = number
-    if "qr" in data or (files is not None and "qr" in files):
-        errors["qr"] = QR_NOT_YET
+    qr, upload = None, (files or {}).get("qr")
+    if upload is not None or "qr" in data:  # `qr` sent as text is not a file
+        try:
+            qr = private_files.check(upload, allowed=private_files.IMAGE_TYPES, max_bytes=QR_MAX)
+        except private_files.FileRefused as refused:
+            errors["qr"] = QR_ERRORS[refused.reason]
     if errors:
         raise _invalid(errors)
-    return cleaned
+    return cleaned, qr
+
+
+def _store_qr(site, qr):
+    """The key of the stored QR image; "" when none was sent."""
+    if qr is None:
+        return ""
+    content, content_type = qr
+    try:
+        return private_files.save(f"{QR_FOLDER}/site-{site.pk}", content, content_type)
+    except private_files.StoreError:
+        raise _invalid({"qr": QR_NOT_SAVED}) from None
+
+
+def _listed(site, account_id):
+    return SitePaymentAccount.objects.filter(
+        site=site, public_id=account_id, removed_at__isnull=True
+    )
 
 
 def _account_event(account, event, site, row):
@@ -153,42 +187,55 @@ def _account_event(account, event, site, row):
     record_event(account, event, site=site.public_id, payment_account=row.public_id, kind=row.kind)
 
 
-@transaction.atomic
 def add_account(account, site, data, files=None):
-    cleaned = clean_account(data, files)
-    site = _locked_site(account, site)
-    row = SitePaymentAccount.objects.create(site=site, **cleaned)
-    _account_event(account, "payment_account_added", site, row)
+    cleaned, qr = clean_account(data, files)
+    key = _store_qr(site, qr)
+    try:
+        with transaction.atomic():
+            site = _locked_site(account, site)
+            row = SitePaymentAccount.objects.create(site=site, qr_file_key=key, **cleaned)
+            _account_event(account, "payment_account_added", site, row)
+    except BaseException:
+        private_files.discard(key)
+        raise
     return row
 
 
-@transaction.atomic
 def update_account(account, site, account_id, data, files=None):
     """Change an account that is still listed. A removed one, or another site's, is not found.
-    The 404 comes before the fields are looked at."""
-    site = _locked_site(account, site)
-    row = (
-        SitePaymentAccount.objects.select_for_update()
-        .filter(site=site, public_id=account_id, removed_at__isnull=True)
-        .first()
-    )
-    if row is None:
+    The 404 comes before the fields are looked at. No new QR keeps the current one; a new QR
+    replaces it, and the old file is removed once the change is committed."""
+    if not _listed(site, account_id).exists():
         raise not_found()
-    for field, value in clean_account(data, files).items():
-        setattr(row, field, value)
-    row.save()
-    _account_event(account, "payment_account_changed", site, row)
+    cleaned, qr = clean_account(data, files)
+    key = _store_qr(site, qr)
+    try:
+        with transaction.atomic():
+            site = _locked_site(account, site)
+            row = _listed(site, account_id).select_for_update().first()
+            if row is None:
+                raise not_found()
+            old_key = row.qr_file_key
+            for field, value in cleaned.items():
+                setattr(row, field, value)
+            if key:
+                row.qr_file_key = key
+            row.save()
+            _account_event(account, "payment_account_changed", site, row)
+            if key and old_key:
+                transaction.on_commit(lambda: private_files.discard(old_key))
+    except BaseException:
+        private_files.discard(key)
+        raise
     return row
 
 
 @transaction.atomic
 def remove_account(account, site, account_id):
+    """Mark an account removed. Its QR file is kept with the row, as the row is: a payment
+    proof will point at the account it was sent to. Account disposal removes the file."""
     site = _locked_site(account, site)
-    row = (
-        SitePaymentAccount.objects.select_for_update()
-        .filter(site=site, public_id=account_id, removed_at__isnull=True)
-        .first()
-    )
+    row = _listed(site, account_id).select_for_update().first()
     if row is None:
         raise not_found()
     row.removed_at = timezone.now()
@@ -205,7 +252,7 @@ def account_out(row):
         "account_name": row.account_name,
         "account_number": row.account_number,
         "account_number_last4": row.account_number[-4:],
-        "has_qr": False,  # no QR is stored until private file storage exists
+        "has_qr": bool(row.qr_file_key),  # the file's key and link are never answered
     }
 
 
