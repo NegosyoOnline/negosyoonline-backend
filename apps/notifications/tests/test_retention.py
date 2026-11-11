@@ -60,6 +60,46 @@ class EmailMessagesRetentionTests(TestCase):
         self.assertEqual(EmailMessage.objects.count(), 4)
 
 
+class EarlierAddressRecordsTests(TestCase):
+    """The send records of an address an account used before an email change (called only by
+    account disposal)."""
+
+    def setUp(self):
+        self.now = timezone.now()
+        self.changed_at = self.now - timedelta(days=10)
+        self.periods = [("old@example.test", self.changed_at)]
+
+    def record(self, category, offset, recipient="old@example.test"):
+        message = EmailMessage.objects.create(recipient=recipient, category=category)
+        EmailMessage.objects.filter(pk=message.pk).update(created_at=self.changed_at + offset)
+        return message.pk
+
+    def test_records_up_to_the_change_and_its_notice_are_deleted_and_no_others(self):
+        gone = [
+            self.record("signin_code", timedelta(0)),
+            self.record("signin_code", -timedelta(days=300), recipient="OLD@example.test"),
+            self.record("email_changed_notice", timedelta(hours=24)),
+        ]
+        stay = [
+            self.record("signin_code", SECOND),
+            self.record("email_changed_notice", timedelta(hours=24) + SECOND),
+            self.record("admin_signin_code", -timedelta(days=1)),
+            self.record("admin_lockout", -timedelta(days=1)),
+            self.record("signin_code", -timedelta(days=1), recipient="other@example.test"),
+        ]
+        dry = notifications_retention.delete_earlier_records_for(self.periods, dry_run=True)
+        self.assertEqual((dry, EmailMessage.objects.count()), (3, 8))
+        self.assertEqual(notifications_retention.delete_earlier_records_for(self.periods), 3)
+        self.assertFalse(EmailMessage.objects.filter(pk__in=gone).exists())
+        self.assertEqual(EmailMessage.objects.filter(pk__in=stay).count(), 5)
+
+    def test_no_earlier_address_deletes_nothing(self):
+        self.record("signin_code", timedelta(0))
+        self.assertEqual(notifications_retention.delete_earlier_records_for([]), 0)
+        self.assertEqual(notifications_retention.delete_earlier_records_for([], dry_run=True), 0)
+        self.assertEqual(EmailMessage.objects.count(), 1)
+
+
 @gateway_on
 class SmsRetentionTests(TestCase):
     """T-RET: the two SMS rules. They are not behind RETENTION_ENABLED, which is off here."""

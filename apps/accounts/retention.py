@@ -25,6 +25,11 @@ from apps.sites import retention as site_retention
 
 # An account whose email was never verified is disposed of this long after sign-up.
 NEVER_VERIFIED_AFTER = timedelta(days=30)
+# Security records: an account's audit events are deleted this long after they were written.
+EVENTS_KEPT = timedelta(days=365)
+# The exception: an email change names the old address, and a disposal needs it for as long as
+# a send record of that address can exist.
+EMAIL_CHANGE_KEPT = email_records.EMAIL_RECORD_LIFETIME
 NEVER_VERIFIED, REQUEST = "never_verified", "request"
 TARGET = "account"
 # The field names a disposal blanks, for its audit entry. Never a value.
@@ -52,6 +57,17 @@ def expired_subscriber_sessions(now, dry_run):
     return retention.remove(rows, dry_run)
 
 
+@retention.behind_switch
+def account_audit_events(now, dry_run):
+    """Account audit events, 1 year after they were written; email changes, 2 years."""
+    is_email_change = Q(event="email_changed")
+    rows = AccountAuditEvent.objects.filter(
+        (~is_email_change & Q(created_at__lte=now - EVENTS_KEPT))
+        | (is_email_change & Q(created_at__lte=now - EMAIL_CHANGE_KEPT))
+    )
+    return retention.remove(rows, dry_run)
+
+
 def is_disposed(account):
     """Closed, with the placeholder address. Both are written together, only by a disposal."""
     return account.closed_at is not None and is_disposed_address(account.email)
@@ -76,7 +92,8 @@ def _checked_ref(request_ref):
 def dispose_account(account, *, now, rule, actor=None, request_ref="", dry_run=False):
     """Blank the account's personal fields, remove its sign-in identities and sessions, and keep
     the row. Its mobile number and verification challenges are deleted, its sites are blanked
-    and closed, and its email send records deleted with it.
+    and closed, and its email send records deleted with it, those of the addresses it used
+    before an email change included.
 
     Returns the count per table, or None when the account is already disposed of. A dry run
     returns the same counts and changes nothing. A real run needs RETENTION_ENABLED and writes
@@ -95,6 +112,12 @@ def dispose_account(account, *, now, rule, actor=None, request_ref="", dry_run=F
         identities = ExternalIdentity.objects.filter(account=account)
         acceptances = PolicyAcceptance.objects.filter(account=account, ip__isnull=False)
         email_changes = AccountAuditEvent.objects.filter(account=account, event="email_changed")
+        # Read before the details are blanked: the addresses the account used before.
+        earlier = [
+            (detail["old"], changed_at)
+            for detail, changed_at in email_changes.values_list("detail", "created_at")
+            if detail.get("old") and detail["old"].lower() != address.lower()
+        ]
         # Read directly, never behind sms_on(): a skipped table would leave the number behind.
         mobiles = AccountMobile.objects.filter(account=account)
         mobile_challenges = MobileOtpChallenge.objects.filter(account=account)
@@ -108,6 +131,9 @@ def dispose_account(account, *, now, rule, actor=None, request_ref="", dry_run=F
             # Takes the lock every site write of this account takes, then blanks its sites.
             **site_retention.blank_sites_of(account, now, dry_run),
             "email_send_records": email_records.delete_records_for(address, dry_run),
+            "earlier_address_send_records": email_records.delete_earlier_records_for(
+                earlier, dry_run
+            ),
         }
         if dry_run:
             return counts
@@ -231,3 +257,4 @@ def export_account_data(account, *, actor, request_ref):
 
 retention.register("expired_subscriber_sessions", expired_subscriber_sessions)
 retention.register("never_verified_accounts", never_verified_accounts)
+retention.register("account_audit_events", account_audit_events)

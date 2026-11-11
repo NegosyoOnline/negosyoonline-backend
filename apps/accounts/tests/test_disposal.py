@@ -41,6 +41,7 @@ COUNTS = {
     "business_profiles": 1,
     "web_addresses_retired": 1,
     "email_send_records": 1,
+    "earlier_address_send_records": 0,
 }
 KEPT_ACCOUNT = ("public_id", "email_verified_at", "created_at", "referral_code", "referred_by_id")
 
@@ -167,6 +168,88 @@ class DisposeAccountTests(DisposalTestCase):
             list(EmailMessage.objects.filter(recipient=EMAIL).values_list("category", flat=True)),
             ["admin_signin_code"],
         )
+
+    def email_changes(self, *changes):
+        """Replace the account's email changes with these (old, new, days ago) ones."""
+        AccountAuditEvent.objects.filter(account=self.account, event="email_changed").delete()
+        for old, new, days_ago in changes:
+            event = AccountAuditEvent.objects.create(
+                account=self.account, event="email_changed", detail={"old": old, "new": new}
+            )
+            AccountAuditEvent.objects.filter(pk=event.pk).update(
+                created_at=self.now - timedelta(days=days_ago)
+            )
+
+    def sent(self, recipient, category, days_ago, minutes_later=0):
+        row = EmailMessage.objects.create(recipient=recipient, category=category)
+        EmailMessage.objects.filter(pk=row.pk).update(
+            created_at=self.now - timedelta(days=days_ago) + timedelta(minutes=minutes_later)
+        )
+        return row.pk
+
+    def test_send_records_of_every_earlier_address_are_deleted(self):
+        """The account went first@ -> second@ -> its address today."""
+        first, second = "first@example.test", "second@example.test"
+        self.email_changes((first, second, 20), (second, EMAIL, 10))
+        gone = [
+            self.sent(first, "signin_code", 30),
+            self.sent("First@Example.test", "signin_code", 25),
+            self.sent(first, "email_changed_notice", 20, minutes_later=1),
+            self.sent(second, "email_change_code", 20, minutes_later=-1),
+            self.sent(second, "signin_code", 15),
+            self.sent(second, "email_changed_notice", 10, minutes_later=1),
+        ]
+        stay = [
+            self.sent(first, "admin_signin_code", 30),
+            self.sent(second, "admin_lockout", 15),
+            # Someone else signed up with the first address after the account left it.
+            self.sent(first, "signin_code", 5),
+            self.sent(first, "email_changed_notice", 3),
+        ]
+        newcomer = Account.objects.create(email=first)
+        before_other = self.rows_of_other()
+
+        counts = self.dispose()
+
+        self.assertEqual(counts, {**COUNTS, "account_audit_events": 2,
+                                  "earlier_address_send_records": 6})
+        self.assertFalse(EmailMessage.objects.filter(pk__in=gone).exists())
+        self.assertEqual(EmailMessage.objects.filter(pk__in=stay).count(), 4)
+        self.assertEqual(Account.objects.get(pk=newcomer.pk).email, first)
+        self.assertEqual(self.rows_of_other(), before_other)
+        entry = disposed().get()
+        self.assertEqual(entry.detail["counts"]["earlier_address_send_records"], 6)
+        text = json.dumps([entry.reason, entry.detail])
+        self.assertNotIn("first@", text)
+        self.assertNotIn("second@", text)
+
+    def test_the_dry_run_counts_the_earlier_addresses_and_changes_nothing(self):
+        self.email_changes(("first@example.test", EMAIL, 10))
+        self.sent("first@example.test", "signin_code", 30)
+        before = snapshot()
+        expected = {**COUNTS, "earlier_address_send_records": 1}
+        self.assertEqual(self.dispose(dry_run=True), expected)
+        self.assertEqual(snapshot(), before)
+        self.assertEqual(self.dispose(), expected)
+
+    def test_an_address_the_account_came_back_to_is_counted_once(self):
+        """ana@ -> away@ -> ana@: the records of ana@ are the current address's, not earlier."""
+        self.email_changes((EMAIL, "away@example.test", 20), ("away@example.test", EMAIL, 10))
+        self.sent("away@example.test", "signin_code", 15)
+        expected = {**COUNTS, "account_audit_events": 2, "earlier_address_send_records": 1}
+        self.assertEqual(self.dispose(dry_run=True), expected)
+        self.assertEqual(self.dispose(), expected)
+        self.assertEqual(
+            list(EmailMessage.objects.exclude(recipient=OTHER_EMAIL)
+                 .values_list("recipient", "category")),
+            [(EMAIL, "admin_signin_code")],
+        )
+
+    def test_an_email_change_with_no_detail_is_skipped(self):
+        AccountAuditEvent.objects.filter(account=self.account, event="email_changed").update(
+            detail={}
+        )
+        self.assertEqual(self.dispose(), COUNTS)
 
     def test_no_personal_value_of_the_account_is_left_anywhere(self):
         # The other account holds the same test values, and the admin records are not ours.

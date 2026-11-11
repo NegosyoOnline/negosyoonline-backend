@@ -23,8 +23,17 @@ Migration `accounts.0003` (the mobile number tables) must be applied in an envir
 | `expired_django_sessions` | Django's session rows (admin list notices; never a sign-in) | 30 days after they expired |
 | `email_messages` | Email send records | 2 years after they were written |
 | `never_verified_accounts` | Nothing: it disposes of accounts whose email was never verified, as in "What disposal does" below | 30 days after sign-up |
+| `account_audit_events` | An account's audit events (sign-ins, sign-outs of other devices, linked sign-in providers, email and mobile changes, and the account and site history events) | 1 year after they were written. An `email_changed` event is kept 2 years: see "Security records" below |
 
 No rule touches a billing or tax record, an SMS record, a recovery code or the audit record. Only `never_verified_accounts` touches an account or a site.
+
+## Security records
+
+Security records are kept 1 year. In this backend they are the account audit events, deleted by `account_audit_events`. The admin sign-in entries of the admin audit log are kept as rows (ruling D4).
+
+One deliberate exception, approved by Coach Ed on 2026-11-11: an `email_changed` event is kept 2 years, not 1. It holds the old and the new address, and it is the only record of an address an account used before. A disposal reads it to delete the send records of that address, and those send records live 2 years. After 2 years no such send record can exist, and the event is deleted.
+
+The IP address on a policy acceptance is proof of consent, not a security record. No rule touches it; a disposal blanks it.
 
 ## Procedure
 
@@ -66,8 +75,11 @@ One account at a time, in one transaction. The rows stay; the personal values go
 | Business profile | Business and registered name, TIN, DTI number, BIR number, address, complaints contact, privacy email | The row, the shipping estimates |
 | Web address | Retired | The name stays taken and is never reissued |
 | Email send records to the account's address | Deleted, except hq sign-in codes and lockout notices | |
+| Email send records to an address the account used before an email change | Deleted when written up to the moment of that change, plus the change notice sent to the old address; hq sign-in codes and lockout notices stay. Later records to that address are not touched: it may belong to another account by then | |
 
 Each disposal writes one audit entry, action `account_disposed`: the operator (none when the never-verified rule did it), the account's public id, the rule and the request reference, the count per table and the names of the blanked fields. Never a personal value.
+
+An earlier address is found only while its `email_changed` event exists (2 years). A code sent to a new address that was never confirmed is not tied to the account; its send record follows the 2-year rule.
 
 Afterwards the account cannot sign in, and `send_email` refuses its placeholder address: no email goes out and no send record is written. A person who signs up again with the same address is a new account.
 
