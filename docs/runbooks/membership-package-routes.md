@@ -15,6 +15,8 @@ Errors have the repository shape `{"error": {"code", "message", "fields"?}}`; `f
 | `checkout/code/verify/` | `token, code` | `{status: "verified"}` |
 | `checkout/place/` | multipart: `token, submit_key, account_id, reference_number, amount_sent, sender_bank, sender_first_name, sender_last_name, sender_account_number, transferred_at, proof` (file, 4 MB) | `{order_number, replay}` |
 
+Shapes found by the scripted flow: `delivery_address` is an object (omit it when empty), `agreement_version_id` is the active version's id as a string, `account_id` is the payment account's public id (`pay_...`), `transferred_at` is `YYYY-MM-DDTHH:MM` (Manila).
+
 Codes: `invalid_contact` 422 (with `fields`), `contact_in_use`, `checkout_expired` 409, `checkout_used` 409, `no_contact` 409, `mobile_not_verified` 409, `method_unavailable` 409, `store_unavailable` 503, agreement and enrollment refusals as the sub-spec.
 
 ## Onboarding after payment (PK7)
@@ -40,7 +42,7 @@ Each of these answers the same state, so the page re-renders from it:
 | `onboarding/email/send/` | `{token}` |
 | `onboarding/email/verify/` | `{token, code}` |
 | `onboarding/address/` | `{token, receiver_name, receiver_mobile, line, province, city, barangay, landmark, postal_code?}` |
-| `onboarding/details/` | `{token, dob_year, dob_month, dob_day, desired_username, alternate_username, terms}` |
+| `onboarding/details/` | `{token, dob_year, dob_month, dob_day (strings), desired_username, alternate_username, terms}` |
 
 `onboarding/completed/` `{token}` -> `{result: "issued"|"open"|"stale"|"spent", session_token}`. The POST alone issues the member session, once per checkout token; `session_token` is non-empty only when `result` is `issued`. `open` goes back to onboarding, `stale` to the closed-checkout page, `issued` and `spent` to the member dashboard (clear the checkout cookie).
 
