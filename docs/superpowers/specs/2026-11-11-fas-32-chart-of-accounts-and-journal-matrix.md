@@ -159,7 +159,7 @@ These are proposals for FAS-03/FAS-04 to turn into code; they let the matrix be 
 
 - **Balanced, positive, two-sided.** Each line is a debit or a credit of a positive whole number of centavos on a postable account. Debits equal credits in the journal.
 - **Entry date** is a calendar date in Asia/Manila (`settings.py:282`, USE_TZ true). Default for a payment: the Manila date of `decided_at`, with `transferred_on` and `transfer_reference` carried as memo fields (§7 Q3).
-- **Idempotency key.** FAS-03 owns the format: `source_type:source_ref:source_event` (FAS-03 §2.3), unique per entity. `source_ref` is the row's `public_id` (for example `btp…`), never a database number [main: `common/ids.py`]. Posting twice with the same key and the same lines is a no-op; the same key with different lines is a hard error. The rule version is a column on the entry, not part of the key, so a later rule version cannot silently post a second entry for the same event; changing a posted result is a reversal plus a new entry. Event names below are mine and **to match FAS-03**.
+- **Idempotency key.** FAS-03 owns the format: `source_type:source_ref:source_event` (FAS-03 §2.3), unique per book (a book is one environment). `source_ref` is the row's `public_id` (for example `btp…`), never a database number [main: `common/ids.py`]. Posting twice with the same key and the same lines is a no-op; the same key with different lines is a hard error. The rule version is a column on the entry, not part of the key, so a later rule version cannot silently post a second entry for the same event; changing a posted result is a reversal plus a new entry. The event names are final: `payment_confirmed` and `revenue_released_<YYYY-MM>`.
 - **Source pointer.** Each journal stores source type and source public_id, plus the plan code snapshot and the cycle sequence if any, so a line traces back to a payment.
 - **Posted journals are never edited.** A correction is a new journal that reverses it, with a reason.
 - **Test data.** Nothing from a non-live environment posts (§6).
@@ -185,7 +185,7 @@ Every posting event is "a payment was confirmed" or "a month ended". Amounts bel
 
 ### 4.1a Accounts the rules post to automatically (`system_key`)
 
-FAS-03's account table has a `system_key`, so a posting rule names a key and never a code. Names are mine, **to match FAS-03** when it publishes them. Every other account is reached only by a manual journal.
+FAS-03's account table has a `system_key`, so a posting rule names a key and never a code. These names are final; FAS-03 adopts them. Every other account is reached only by a manual journal.
 
 | system_key (proposed) | Code | Used by |
 |---|---|---|
@@ -204,7 +204,7 @@ If a key has no account, or the account is inactive on the entry date, the posti
 
 - **Source row:** `BankTransferPayment`, `status = confirmed`, `plan_code = monthly`. [main]
 - **Posts when:** inside the same transaction as `confirm_transfer` (FAS-01 §3.2, proposed default), or never. A failed posting fails the confirmation.
-- **Key:** `billing.banktransferpayment:<payment public_id>:payment_confirmed` (format per FAS-03).
+- **Key:** `billing.banktransferpayment:<payment public_id>:payment_confirmed` .
 - **Entry date:** Manila date of `decided_at`.
 - **Lines (centavos):** Dr 1020 249,900 / Cr 2030 249,900. No revenue yet.
 - **Then, month by month (R1, §4.7):** Dr 2030 / Cr 4010.
@@ -255,12 +255,12 @@ All three rows below wait for [PR 108]; nothing exists in `main`.
 
 - **Source rows:** the paid cycle and its payment; a **recognition schedule** row per cycle and month [proposed; FAS-03/FAS-14 model it].
 - **Posts when:** after each Manila month ends (a scheduled job needs a Celery beat entry and Railway approval: a `config/settings.py` change that is not part of this PR).
-- **Key:** `billing.banktransferpayment:<payment public_id>:revenue_released_<YYYY-MM>` (the month is carried in the event; exact name **to match FAS-03**). A rerun is a no-op.
+- **Key:** `billing.banktransferpayment:<payment public_id>:revenue_released_<YYYY-MM>` (the month is carried in the event). A rerun is a no-op.
 - **Lines:** Dr 2030 `released` / Cr 4010, 4015 or 4020 by `plan_code`. `released` = cumulative earned at month end − already released.
 - **Cumulative earned, in whole centavos:** days elapsed counted in Manila calendar days from the date of `start_at` (included) to the date of `end_at` (excluded), over total days in the cycle. `earned(d) = round_half_up(amount × days(d) / total_days)`, and the last month releases whatever remains, so a cycle always totals exactly its amount. The 3:00 PM cutoff (`clock.py`) is ignored: a cycle's first and last calendar dates are whole service days, which reproduces the owner's examples.
 - **Monthly worked example:** 8 Nov to 8 Dec 2026, 30 days, 249,900. November 23 days: 191,590. December 7 days: 58,310.
 - **Early end of service [proposed, FAS-02 P-03]:** if service ends before the cycle's `end_at` with no refund, the unreleased remainder is released on the date service ends. Under [PR 106] a cancellation keeps service to the term end, so this does not trigger there; it applies only if some later rule ends service early.
-- **Catch-up:** if the schedule's earlier months are already closed, the catch-up posts into the first open month (a closed-month rule is FAS-06's).
+- **Catch-up:** if the schedule's earlier months are already closed, the catch-up posts into the first period in state `open` (period states are `open`, `soft_closed` and `locked`; the rules for them are FAS-06's).
 - **Trial and not-billable cycles** have no payment and no schedule.
 - A cycle whose `end_at` changes after payment (the pending cycle in `recovered()` can be re-ended, `services.py:676-680`) is read at posting time, in the same transaction that created the payment's journal, so the schedule is built from the final cycle.
 
@@ -331,12 +331,12 @@ I stayed inside this document. Where my rows lean on the other two builders' top
 
 **About FAS-03 (ledger data model, owner-only access, deployment):**
 1. Amounts are integer centavos in a wide integer column (not the 32-bit `PositiveIntegerField` the billing payment uses, which tops out near PHP 21.5 million). The default of FAS-01 Q2.
-2. A journal has: public id, entry date (Manila), the three source columns (`source_type`, `source_ref`, `source_event`) with the key derived from them, a rule version column (not part of the key), status (posted or reversed), a link to the journal it reverses, a reason; lines hold account, debit or credit centavos, and a memo.
+2. A journal has: public id, entry date (Manila), the three source columns (`source_type`, `source_ref`, `source_event`) with the key derived from them, a rule version column (not part of the key), status `draft` or `posted` only (a posted row never changes; "reversed" is derived from the linked reversal entry), a link to the journal it reverses, a reason; lines hold account, debit or credit centavos, and a memo.
 3. The account table carries the columns in §2.1; the seed is the Launch accounts here, versioned, with "Later" accounts added by their own change.
 4. Payment posting happens in the same transaction as `confirm_transfer`, and fails it if no mapping or open period exists (FAS-01 Q8 default). Release (R1) is a scheduled job, which needs a beat entry; if FAS-03 chooses a different posting design, only §4.2's "Posts when" changes.
 5. A recognition schedule is stored per paid cycle and month so release is deterministic and auditable. It may be a table or derivable; the formula in §4.7 is what matters.
 6. Only an owner capability can view or enter journals, on every route, with an audit entry per read. Required action names must be declared in `apps/operators/audit.py` (contended by PRs 103/104; I propose none here).
-7. FAS-03 names the account type "income" where I wrote "revenue", and gives accounts a parent/header structure; I mean the same things, and FAS-03's names win. CI runs PostgreSQL (FAS-03 §2.5), so database-level guards on posted entries can be tested there; nothing here depends on them being untestable.
+7. Accounts have a parent/header structure in FAS-03, as the headers in §2.1. CI runs PostgreSQL (FAS-03 §2.5), so database-level guards on posted entries can be tested there; nothing here depends on them being untestable.
 8. A switch exists and is on only in the live environment (§6). The year is closed by a report (3040 derived) or an explicit close; FAS-03/FAS-06 chooses.
 
 **About FAS-02 (accounting policy matrix, opening balances):**
