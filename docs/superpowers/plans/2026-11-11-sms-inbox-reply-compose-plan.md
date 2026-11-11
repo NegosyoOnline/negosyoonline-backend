@@ -58,7 +58,7 @@ Rulings applied, not reopened: R3 (explicit permission, every reply and composed
 | `apps/operators/audit.py` | Two added lines in `ACTIONS` |
 | `apps/operators/staff_views.py` | **Four added lines, none changed** (section 3.1) |
 | `apps/billing/tests/test_staff_finance.py` | **One import and two assertions changed** (section 3.1). The billing coordinator's file |
-| `docs/runbooks/sms-gateway.md`, `docs/runbooks/migrations.md` | Task 6 |
+| `docs/runbooks/sms-gateway.md`, `docs/runbooks/migrations.md`, `docs/runbooks/retention.md` | Task 6 (`retention.md`: the `admin_audit_personal_values` row and the sentence after the table name `sms_inbox_reply` and `sms_inbox_compose` as well as `sms_inbox_open`) |
 
 No file under `config/`, `apps/billing` other than that one test file, or the frontend repository.
 
@@ -259,7 +259,7 @@ def _paced():
 
 ### Task 2: replying and composing
 
-**Files:** new `apps/inbox/sending.py`, `apps/inbox/tests/test_sending.py`; `apps/operators/audit.py`; `apps/inbox/tests/test_access.py` (`test_15`).
+**Files:** new `apps/inbox/sending.py`, `apps/inbox/tests/test_sending.py` (including `test_15`, which imports `apps.operators.retention`); `apps/operators/audit.py`; `apps/inbox/tests/test_access.py` (`test_15`).
 
 In `audit.py`, after `"sms_inbox_delete": KEPT,`: `"sms_inbox_reply": PERSONAL,` and `"sms_inbox_compose": PERSONAL,`.
 
@@ -281,6 +281,7 @@ In `audit.py`, after `"sms_inbox_delete": KEPT,`: `"sms_inbox_reply": PERSONAL,`
 | `test_12_a_request_still_being_sent_and_one_that_was_refused` | With the cache entry present and empty: `request_in_progress`, 409, nothing sent. After a refused send the same id sends |
 | `test_13_no_text_and_no_full_number_in_an_entry_or_a_log` | `json.dumps` of every entry's `detail`, `personal` and `target_id` holds neither the text nor the number in any form; `assertNoLogs("apps.inbox", "DEBUG")` |
 | `test_14_the_send_and_its_inbox_row_are_one_transaction` | With `ConversationMessage.objects.create` patched to raise: no send record is left, no entry, and the request id may be used again |
+| `test_15_the_masked_number_of_a_reply_and_a_composed_text_is_blanked_after_a_year` | One `sms_inbox_reply` entry and one `sms_inbox_compose` entry made by a real reply and a real compose, then `admin_audit_personal_values(now, dry_run=False)` run with `now` 366 days later (the rule of `apps/operators/retention.py`): both entries' `personal` is `{}` and `personal_blanked_at` is set; their `detail`, `target_id` and `action` are exactly as before. Run the day before (364 days): neither is touched. A dry run counts 2 and changes nothing. The class assertion of `test_access.py` alone does not prove this, so this test runs the command itself |
 
 The refusals:
 
@@ -731,20 +732,21 @@ Tests: the output lines and `detail` of plan 3's tests 1, 2, 4, 5, 8, 10 and 12 
 
 ### Task 6: the runbooks
 
-**Files:** `docs/runbooks/sms-gateway.md`, `docs/runbooks/migrations.md`.
+**Files:** `docs/runbooks/sms-gateway.md`, `docs/runbooks/migrations.md`, `docs/runbooks/retention.md`.
 
 - [ ] `sms-gateway.md`, a new section "Staff texts" after "Incoming texts: the three switches", saying:
   - A staff member with send access may reply in a conversation or write a new text to one Philippine mobile. Both go through the send function: one SMS of at most 160 plain characters, no web link, no marketing.
   - A staff text waits up to 1 hour for the phone, is sent after every waiting code, and leaves no sooner than 18 to 25 seconds after the last staff text.
   - 300 of the day's texts are kept for codes: a staff text is refused once the day's count reaches the limit less 300. The 300 is `RESERVED_FOR_CODES` in `apps/notifications/sms.py`; changing it is Coach Ed's ruling and a reviewed change.
   - One staff user may send 60 texts in an hour.
-  - What is kept: the text, with who wrote it, in the inbox for 365 days; a send record with the full number and no text for 365 days; an audit entry with the masked number, blanked after a year.
+  - What is kept: the text, with who wrote it, in the inbox for 365 days; a send record with the full number and no text for 365 days; an audit entry with the masked number, blanked after a year (`admin_audit_personal_values`, see `retention.md`).
   - The six routes under `/staff/v1/inbox/`, each a `POST`, closed while `SMS_INBOX_ENABLED` is off and to a staff user without access.
   - There is still no screen: the pages are the next plan.
 - [ ] In "Incoming texts: the three switches", the deletion bullet: the command also deletes the send records of staff texts to that number and drops one still waiting; it stops if a text to that number is with the phone, to be run again in 10 minutes; "what it does not remove" gains the send records of codes sent to that number (deleted at 365 days) and the masked number in the audit entries of replies and composed texts (blanked after a year).
 - [ ] In "Release order" or beside it, one line: `notifications.0004_alter_smsmessage_category` changes the allowed values of a send record's category only; it is applied before `SMS_INBOX_ENABLED` is set.
 - [ ] `migrations.md`, at the end of "History", exactly: "2026-11-11: `inbox.0001_initial` was applied to `staging` at commit `b6d37a4`. The plan read beforehand listed only that migration. Afterwards `migrate --plan` reported no pending operations and `/healthz/` returned ok."
-- [ ] Commit: `docs(runbooks): staff texts, the inbox routes, and inbox.0001 on staging [z8uq9me128]`.
+- [ ] `retention.md`: in the `admin_audit_personal_values` row, after "`sms_inbox_open` entries (the masked number of the conversation that was opened)", add "and of the `sms_inbox_reply` and `sms_inbox_compose` entries (the masked number the text was sent to)"; in the sentence after the table, "the `sms_inbox_open` entries" becomes "the `sms_inbox_open`, `sms_inbox_reply` and `sms_inbox_compose` entries". Their `personal` is blanked 1 year after the entry; the rule needs no code change, because it reads every action declared `PERSONAL` (task 2).
+- [ ] Commit: `docs(runbooks): staff texts, the inbox routes, retention of the reply and compose entries, and inbox.0001 on staging [z8uq9me128]`.
 
 ### Task 7: the whole check
 
