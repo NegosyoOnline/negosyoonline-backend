@@ -116,6 +116,19 @@ Coach Ed's ruling (2026-11-10): other sessions outside this coordinator's hierar
 - When another session's open PR touches the same file, message the session that owns it before either side merges, agree the order, and record it. Tell Coach Ed plainly when a real overlap cannot be settled between the sessions.
 - A conflict is resolved by keeping both sides' approved work, never by dropping the other session's change.
 
+### Addition: few PRs, few CI runs
+
+Coach Ed's ruling (2026-11-12): every CI run is billed from a capped GitHub Actions budget, and several sessions pushing many small PRs used up the included allowance and then blocked CI for everyone.
+
+- A ClickUp task or a plan step is not a PR. Plan one PR per deployable slice that can be switched off and tested, and state the PR count in the plan. More than about 3 to 4 PRs for one plan needs a stated reason. Tasks that touch the same files share a PR.
+- Where Coach Ed wants a finished system tested first (for example "build it all, I test, then two PRs"), build it on one branch per repository and open the PR only after his test.
+- Plans Coach Ed has already approved keep their PR split. Apply this to new plans.
+- One open PR at a time per repository, across every session. Before a PR is created, list the open PRs (`gh pr list --state open`; no CI cost). If one is open, the builder waits: it keeps building and testing on its branch, and creates its PR only when none is open, after fetching `origin/main` and updating its branch. A PR created that way is never behind `main`, so it needs no update and no second CI run. Pushing a branch without a PR starts no CI.
+- Merge an open PR promptly once its checks are green and you have reviewed it, because every queued session waits on it. Do not leave a PR open while it waits for something that is not CI or your review; a PR needing Coach Ed's visual acceptance is not opened until he has accepted.
+- Never update a branch or re-run CI to refresh a PR. Re-run only after a failure you understand. If two PRs were created at the same moment, the later one updates once after the earlier one merges. A hotfix that cannot wait is the one exception: take it to Coach Ed.
+- Say this to every builder in its brief and in your own messages to other coordinators.
+- If CI is blocked (jobs not started, a spending-limit message), tell Coach Ed at once: the Actions budget is in his GitHub organisation billing settings, and no session may bypass branch protection.
+
 ## 7. Use the designated testing domains
 
 Use these domains for their respective surfaces:
