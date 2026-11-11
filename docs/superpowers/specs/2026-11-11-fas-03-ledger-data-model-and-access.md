@@ -10,7 +10,7 @@ Tags: **[I]** inspected by me at the path given; **[P]** proposed by me; **[A]**
 
 ## 0. Summary
 
-1. **One new Django app, `apps/ledger`**, tables prefixed `ledger_`, seven tables in the first migration: `AccountingEntity` (the book), `Account`, `FiscalPeriod`, `JournalEntry`, `JournalLine`, `LedgerEvent` (append-only change history) and `LedgerAccess` (who may open the books). Amounts are `BigIntegerField` centavos. The chart itself (which accounts exist) is data from FAS-32, never in the migration.
+1. **One new Django app, `apps/ledger`**, tables prefixed `ledger_`, eight tables in the first migration: `AccountingEntity` (the book), `GLAccount`, `FiscalPeriod`, `JournalEntry`, `JournalLine`, `RecognitionSchedule` (deferred-revenue release rows), `LedgerEvent` (append-only change history) and `LedgerAccess` (who may open the books). Amounts are `BigIntegerField` centavos. The chart itself (which accounts exist) is data from FAS-32, never in the migration.
 2. **One writer, `apps/ledger/posting.py`.** Draft, edit, post, reverse. Posting is one transaction under a row lock on the book: balance check, period check, idempotent replay with payload comparison, a gapless posting sequence number and a hash seal. No other module writes a journal row; a test enforces that.
 3. **A posted entry is immutable in two layers.** Django (model and queryset guards) and PostgreSQL (triggers, added in a second migration). **Correction to FAS-01 §6.4:** CI is not SQLite-only. `.github/workflows/ci.yml` has a second job, `postgres-and-redis`, that runs the whole test suite against PostgreSQL 16 [I]. Trigger tests can therefore run in CI.
 4. **The billing hook goes inside the `confirm_transfer` transaction** (recommended), through one small registry in billing so that the ledger and PR 107 do not both rewrite the function. A ledger failure then refuses the confirmation instead of leaving a payment with no entry. This is a money rule; Coach Ed decides (Q2).
@@ -27,6 +27,7 @@ Each has a recommended default. None is decided here.
 | Q1 | **Who may open the books, and where does the rule attach?** Options: (a) a capability argument on the shared staff gate `_for_staff`; (b) a `LedgerAccess` row per staff user, checked by a wrapper the ledger applies to every one of its routes; (c) a Django group or permission; (d) a check inside each handler. | (b). Section 5 gives the reasons. A superuser has no access without a row. | (a) is the strongest attachment but edits the gate that billing, inbox and contacts also use; it can be added later on top of (b). (c) and (d) are weaker (section 5.2). |
 | Q2 | **Does the journal entry for a confirmed payment commit with the confirmation, or afterwards?** | Inside the same transaction. If the ledger cannot post (no account mapping, period locked, switch half set), the operator's confirmation is refused with a clear error and nothing is half-written. | "Afterwards" keeps confirmation independent of the books but needs an outbox, retries and a daily check, and the books can lag. Section 3.5. |
 | Q3 | **Who owns the books, and is there ever a second reader?** Which staff users get `owner`? Is a CPA read-only login wanted, and when? | One owner (Coach Ed's own staff identity). No CPA login until one is named, and not before billing and inbox routes gain their own access rows (section 5.6). | n/a |
+| Q5 | **Which receiving account does a payment's cash go to?** (FAS-01 U2; FAS-02 and FAS-32 both need the answer.) | Operator chooses on the confirm screen from the configured accounts; stored on the payment (a billing change, section 3.7). Until that is approved: debit the one default account and correct with a reclass journal. | Section 3.7 gives the three options. |
 | Q4 | **May a live book exist on staging?** | No. `rehearsal` books only on staging; `live` only where `LEDGER_LIVE_BOOKS=1`, and no staging entry is ever copied to a live book. | A staging "dress rehearsal with real figures" would need a written exception. |
 
 Routine decisions I took (reversible, inside scope) are in section 10 with what, why and source.
@@ -50,6 +51,8 @@ erDiagram
     GLAccount ||--o{ GLAccount : "parent"
     FiscalPeriod ||--o{ JournalEntry : "posted into"
     JournalEntry ||--|{ JournalLine : has
+    JournalEntry ||--o{ RecognitionSchedule : "creates deferred balance"
+    AccountingEntity ||--o{ RecognitionSchedule : has
     GLAccount ||--o{ JournalLine : "posted to"
     JournalEntry ||--o| JournalEntry : "reverses"
     User ||--o{ LedgerAccess : "may open"
@@ -70,7 +73,8 @@ One row per set of books. NegosyoOnline's own business is one row; the table exi
 |---|---|---|
 | `public_id` | char(40), unique | `ent_...` |
 | `name` | char(120) | e.g. "NegosyoOnline" |
-| `kind` | char(12): `live`, `rehearsal` | Section 7. Immutable after creation (Django guard). |
+| `kind` | char(12): `live`, `rehearsal` | The environment label (section 6.4). Immutable after creation (Django guard). |
+| `books_start_date` | date | The first day of the books (FAS-02 P-02: the first day of the month of the first live confirmed payment). Entries dated before it are refused (writer and trigger). Set once by `ledger_open_book`; not changeable once any entry is posted. |
 | `currency` | char(3), default `PHP` | Check: equals `PHP` for now. One currency per book. |
 | `first_fiscal_month` | smallint, default 1 | Check 1..12. Calendar year Jan to Dec per the FAS-00 contract. |
 | `next_posting_seq` | bigint, default 1 | The counter the writer increments under the row lock (section 3.3). |
@@ -81,22 +85,22 @@ Constraints: partial unique on `kind` where `kind='live'` (at most one live book
 
 #### `ledger_account` (`GLAccount`): the chart as data
 
-Rows are created by FAS-32's approved list through the account service (FAS-05), never by a migration (no seed without approval). The model does not know any account.
+Rows are created by FAS-32's approved list through the account service (FAS-05), never by a migration (no seed without approval). The model does not know any account (FAS-32 supplies the list; Launch accounts first, "Later" accounts added by their own ordinary change).
 
 | Field | Type | Notes |
 |---|---|---|
 | `public_id` | char(40), unique | `gla_...` |
 | `entity` | FK `AccountingEntity` | |
-| `code` | char(16) | Text, not a number. Unique with `entity`. Stable: the writer refuses to change a code once a line points at the account. |
-| `system_key` | char(40), null | A stable name the posting rules use instead of a code (for example the account that receives bank-transfer cash). Unique with `entity` where not null. **[A]** FAS-32 names the keys (section 9). |
+| `code` | char(16) | Text, not a number (FAS-32: a stable four-digit string). Unique with `entity`. Never reused or re-meant: the writer refuses to change a code once a line points at the account. Posting rules refer to accounts by code (FAS-32); the rules module checks at start-up that every code it uses exists and is postable. |
 | `name` | char(160) | |
-| `type` | char(10): `asset`, `liability`, `equity`, `income`, `expense` | The five classes of a double-entry book. "Direct costs", "other" and the like are reporting groups, not types. |
-| `normal_side` | char(6): `debit`, `credit` | Check: `asset` and `expense` are `debit`; `liability`, `equity`, `income` are `credit`. FAS-03 asks for a stored normal balance. |
+| `type` | char(10): `asset`, `liability`, `equity`, `revenue`, `expense` | The five classes (FAS-32 §2.1 uses `revenue`). "Direct costs", "other" and the like are reporting groups, not types. |
+| `normal_side` | char(6): `debit`, `credit` | Check: for a non-contra account `asset` and `expense` are `debit` and `liability`, `equity`, `revenue` are `credit`; a contra account (below) has the opposite side. FAS-03 asks for a stored normal balance. |
+| `is_contra` | bool | A contra account (for example accumulated depreciation) keeps its own normal side (FAS-32 §2.1). |
 | `reporting_group` | char(60), blank | Free text from FAS-32 (for example "Direct costs"). Not constrained by the schema. |
 | `parent` | FK self, null | The hierarchy. |
-| `is_header` | bool | A header groups children and takes no line (the writer refuses; a PostgreSQL trigger repeats the check). |
+| `is_postable` | bool | False for a header (FAS-32: 1000, 2000... are not postable). A line never points at a non-postable account (writer refuses; the trigger repeats it). |
 | `effective_from`, `effective_to` | date, null | The dates between which a line may post. `effective_to >= effective_from`. FAS-03 asks for effective dates. |
-| `is_active` | bool | An account is deactivated, never deleted. `delete()` raises. |
+| `status` | char(8): `active`, `retired` | An account is retired (with `effective_to` set), never deleted. `delete()` raises. A retired account takes no new line. |
 
 A balance is never stored on an account.
 
@@ -110,7 +114,7 @@ Monthly periods; a year is the twelve rows of one `year`.
 | `entity` | FK | |
 | `year`, `month` | smallint | Unique with `entity`. Check `month` 1..12. |
 | `start_date`, `end_date` | date | Manila calendar dates, derived once at creation. |
-| `status` | char(12): `open`, `soft_closed`, `locked` | The states come from FAS-06 [A]; the column accepts exactly these three. |
+| `status` | char(8): `open`, `closed`, `locked` | The names FAS-02 and FAS-32 use. What `closed` still allows (for example an owner adjustment) is FAS-06's rule; the schema stores the state only. Posting into `closed` or `locked` fails loudly unless FAS-06 allows the kind. |
 | `status_changed_at`, `status_changed_by` | | The full history is in `LedgerEvent`. |
 
 The writer creates a missing period (status `open`) under the book lock when a posting needs it; creating a period is not a policy choice. Moving a period to `locked` and reopening it are FAS-06's operations and are only through the period service (which writes a `LedgerEvent`). A period is never deleted.
@@ -122,8 +126,12 @@ The writer creates a missing period (status `open`) under the book lock when a p
 | `public_id` | char(40), unique | `jrn_...` |
 | `entity` | FK | |
 | `status` | char(8): `draft`, `posted` | Two values only. A reversed entry stays `posted`; its reversal is another entry (below). |
-| `kind` | char(12): `manual`, `system`, `reversal`, `adjustment`, `opening` | `system` = written from a source event by a hook. |
-| `entry_date` | date | The accounting date in Manila time. Decides the period. |
+| `kind` | char(10): `normal`, `opening`, `reversal`, `adjustment` | The four kinds of FAS-02 and FAS-32. Whether a hook or a person wrote it is `source_type` (blank = a person) and `created_by`. |
+| `reason` | text, blank | Mandatory (check) for `reversal` and `adjustment`; optional otherwise. |
+| `evidence_ref` | char(120), blank | A reference to the evidence (a document id, a bank reference). Becomes a link to `FinancialDocument` in a later stage. |
+| `rule_version` | char(8), blank | `v1` for an entry from FAS-32's rules; a later rule posts beside it without a key clash. |
+| `plan_code`, `cycle_sequence` | char(20), smallint null | Snapshot at posting, so a line traces back to a plan and cycle without reading billing. |
+| `entry_date` | date | The accounting date, a Manila calendar date. Decides the period. Not before the book's `books_start_date`. The moment it was written is `created_at`; the moment it was posted is `posted_at` (both full timestamps, so date and instant are separate). |
 | `memo` | char(240), blank | |
 | `period` | FK `FiscalPeriod`, null | Null while draft; set at posting; never changed. |
 | `posting_seq` | bigint, null | Gapless per book, assigned at posting under the lock. Unique with `entity` where not null. |
@@ -131,17 +139,17 @@ The writer creates a missing period (status `open`) under the book lock when a p
 | `created_by` | FK `User`, null | |
 | `idempotency_key` | char(160) | Unique with `entity`. Mandatory for every entry (a draft too). See below. |
 | `payload_hash` | char(64) | SHA-256 of the canonical form of `entry_date`, `kind`, `memo` and the lines (account public id, side, amount, line memo, in line order). Used for replay comparison. |
-| `source_type`, `source_ref`, `source_event` | char(40), char(64), char(40); blank | The source link (section 2.4). Unique together with `entity` where `source_type` is not blank. |
+| `source_type`, `source_ref`, `source_event` | char(40), char(64), char(40); blank | The source link (section 2.4): type, the source row's public id, and the event (`pay`, `rel`...). Unique together with `entity` where `source_type` is not blank. |
 | `reverses` | one-to-one self, null | On a reversal entry: the entry it reverses. One-to-one means an entry can be reversed once. |
 | `total_centavos` | bigint | Sum of debits = sum of credits, written at posting. Check `>= 0`. |
 | `seal` | char(64), blank | Section 2.5. |
 | `created_at` | datetime | |
 
-Constraints: `status='posted'` requires `period`, `posting_seq`, `posted_at`, `seal` not null and `total_centavos > 0` (check); `kind='reversal'` iff `reverses` is not null (check); idempotency uniqueness as above. Indexes: `(entity, entry_date)`, `(entity, status)`, `(period)`.
+Constraints: at most one `opening` entry per book (partial unique on `entity` where `kind='opening'`: the "opening marker"); `status='posted'` requires `period`, `posting_seq`, `posted_at`, `seal` not null and `total_centavos > 0` (check); `kind='reversal'` iff `reverses` is not null (check); idempotency uniqueness as above. Indexes: `(entity, entry_date)`, `(entity, status)`, `(period)`.
 
-**Idempotency.** For an entry written from a source event the key is derived: `"<source_type>:<source_ref>:<source_event>"` (for example `billing.banktransferpayment:btp_xxxxxxxx:payment_confirmed`; the payment's `public_id` is already one-to-one with a confirmation [I FAS-01 §3.2]). For a manual entry the staff app sends a random client key with the request, so a double click or a retried request cannot post twice. The key is the replay handle; the payload hash is the replay *check* (section 3.4).
+**Idempotency.** The key is FAS-32's: `fas:v1:pay:<payment public_id>` for a confirmed payment and `fas:v1:rel:<payment public_id>:<YYYY-MM>` for a month's release (`v1` is the rule version). It uses the row's public id, never a database number. The key is unique per book (and a book is one environment, so it is unique across the journals that matter). For a manual entry the staff app sends a random client key with the request (`man:<uuid>`), so a double click or a retried request cannot post twice. The opening entry has the fixed key `fas:v1:open`, plus the unique-opening constraint above. The key is the replay handle; the payload hash is the replay *check* (section 3.4): same key and same lines is a no-op, same key and different lines is an error.
 
-**Reversal.** A posted entry is never edited. Reversing it creates a new entry of `kind='reversal'` whose lines are the original's with sides swapped, `reverses` pointing at the original, its own date and period. Whether an entry "is reversed" is the existence of that one row (`reverses` unique), never a flag on the original. A corrected replacement is a separate `adjustment` or `manual` entry.
+**Reversal.** A posted entry is never edited. Reversing it creates a new entry of `kind='reversal'` whose lines are the original's with sides swapped, `reverses` pointing at the original, its own date and period. Whether an entry "is reversed" is the existence of that one row (`reverses` unique), never a flag on the original. A corrected replacement is a separate `adjustment` or `normal` entry.
 
 #### `ledger_line` (`JournalLine`)
 
@@ -156,6 +164,24 @@ Constraints: `status='posted'` requires `period`, `posting_seq`, `posted_at`, `s
 Indexes: `(account, entry)` for balances and drilldown; `(entry, line_no)` is the unique one. Sub-centavo amounts do not exist: any allocation rounds in the *caller*, by FAS-02's rule [A], before the writer sees it.
 
 No dimension columns (party, product, site) in v1. A later stage adds nullable reference columns to the line by its own migration if FAS-24/25 need them (placeholders, section 2.6).
+
+#### `ledger_recognition` (`RecognitionSchedule`): release of deferred revenue
+
+FAS-32 §4.7 releases a paid cycle's amount from deferred revenue to revenue month by month, by Manila calendar days of the service period, cumulative, round half up, the last month taking the remainder. It needs a schedule per paid cycle and month. **Stored, not derived** [P]: a cycle's `end_at` can change after payment (`recovered()` re-ends a pending cycle, `services.py:676-680` [I]), so the schedule must be fixed from the final cycle at the moment the payment's journal is posted, and an auditor must be able to read what was planned.
+
+| Field | Type | Notes |
+|---|---|---|
+| `entity` | FK | |
+| `payment_ref` | char(64) | The payment's public id. |
+| `period_month` | char(7) | `YYYY-MM`. Unique with `entity`, `payment_ref`. |
+| `service_start`, `service_end` | date | Manila calendar dates of the cycle (start included, end excluded), copied at posting. |
+| `amount_to_release_centavos` | bigint | The cumulative-earned increment for this month, computed once by the rule (no arithmetic at release time). Check `> 0`. |
+| `payment_entry` | FK `JournalEntry` | The journal that created the deferred balance. |
+| `created_at` | datetime | |
+
+Rows are written in the same transaction as the payment's journal (by the hook, through the writer module) and are never changed. A month is *released* when the journal with key `fas:v1:rel:<payment_ref>:<YYYY-MM>` exists; "unreleased" is the set of schedule rows without that journal. The schedule rows for a payment sum to the payment amount (check in the writer). The release job posts those whose month has ended; if the month is closed it posts into the first open month (FAS-32; the closed-month rule is FAS-06's).
+
+**Which stage adds the beat entry.** The schedule table is in `ledger.0001` and the hook that writes it is S2-B. The release *job* is not stage 2: it is FAS-14, first as a terminal command `ledger_release_due` (same idempotent writer, runnable by hand), then as a beat entry in `CELERY_BEAT_SCHEDULE` (a `config/settings.py` edit and a Railway change that needs Coach Ed; worker and beat run on staging only [FAS-01 §6.2]).
 
 #### `ledger_event` (`LedgerEvent`): the change history
 
@@ -187,7 +213,7 @@ Modelled on `inbox.InboxAccess` [I `inbox/models.py:111-121`].
 
 ### 2.4 The source link to a `BankTransferPayment`
 
-[P] **Loose reference, not a foreign key.** The entry stores `source_type="billing.banktransferpayment"`, `source_ref=<payment public_id>` (`btp_...` [I `models.py:158`, `services.py:744`]) and `source_event="payment_confirmed"`. Reasons:
+[P] **Loose reference, not a foreign key.** The entry stores `source_type="billing.banktransferpayment"`, `source_ref=<payment public_id>` (`btp_...` [I `models.py:127`, `services.py:744`]) and `source_event="pay"`. Reasons:
 
 - The journal must not make billing's migrations wait for ledger's, or the reverse. Billing has three plans that change `BankTransferPayment` (PRs 106, 107, 108, FAS-01 §8); a foreign key adds a cross-app migration dependency to each of them.
 - The ledger switch can be off while billing is on. A foreign key would make every billing migration and test require the ledger tables.
@@ -214,7 +240,7 @@ The same three columns carry later sources (an expense bill, a bank statement li
 - `BEFORE INSERT OR UPDATE OR DELETE` on `ledger_line`: raise unless the parent entry is `draft`; on insert and update, raise if the account is a header, belongs to another book than the entry, or the entry date is outside the account's effective dates.
 - `BEFORE UPDATE OR DELETE` and `BEFORE TRUNCATE` on `ledger_event`: raise.
 - A `CONSTRAINT TRIGGER ... DEFERRABLE INITIALLY DEFERRED` on `ledger_entry` (after insert or update, when `NEW.status='posted'`): the lines must number at least two, and `SUM(debit) = SUM(credit) = NEW.total_centavos`. It runs at commit, so lines may be inserted in any order before it.
-- The period lock is checked in the same posted-transition trigger: the period must be `open` (or `soft_closed` with the entry kind allowed by FAS-06 [A]).
+- The period lock is checked in the same posted-transition trigger: the period must be `open` (or `closed` with an entry kind FAS-06 allows [A]).
 
 **Layer 3: tamper evidence.** `seal = sha256(previous_seal || entity public id || posting_seq || payload_hash || entry_date || total_centavos)`, computed at posting under the book lock, `last_seal` kept on the entity. A check command (FAS-06) recomputes the chain and reports the first mismatch. This detects a change made by someone who disabled the triggers, which a database owner can do: the application connects as the database owner on Railway, so the triggers defend against the application and against mistakes, not against a database administrator. A separate, less privileged database role would defend against that too; it is a Railway change and out of scope here.
 
@@ -231,7 +257,6 @@ Named so that later designs do not collide with them. None is created, migrated 
 | `Supplier`, `SupplierBill`, `BillPayment` | FAS-09 | Accounts payable. A bill posts a `source_type="ledger.supplierbill"` entry. |
 | `Asset`, `DepreciationRun`, `Loan`, `OwnerContribution` | FAS-11 | Fixed assets, loans, equity. |
 | `FinancialDocument` | FAS-09 and later | A receipt or file linked to an entry or a bill, stored through `apps/common/private_files.py` [I]; never a public address. |
-| `RecognitionSchedule` | FAS-14 | Release of deferred revenue by period. |
 | `TaxPolicy`, `TaxRecord`, `WithholdingCredit` | FAS-20/21 | Policy is a CPA call. |
 | `SaaSSnapshot` | FAS-24 | Metrics. |
 | Line dimension columns | FAS-24/25 | Nullable references on `ledger_line`, by their own migration. |
@@ -264,7 +289,7 @@ Before anything is written (and again in the PostgreSQL trigger):
 One `transaction.atomic()`:
 1. `AccountingEntity.objects.select_for_update().get(pk=...)`. This lock serialises all posting in the book, which is the cost of a gapless number and a hash chain; the owner-only business posts a handful of entries a day, so contention is not a concern.
 2. Replay check (section 3.4).
-3. Find or create the `FiscalPeriod` for `entry_date`; refuse if `locked` (`period_locked`, 409). A `soft_closed` period accepts only the entry kinds FAS-06 names [A].
+3. Find or create the `FiscalPeriod` for `entry_date`; refuse if `locked` (`period_locked`, 409). A `closed` period accepts only the entry kinds FAS-06 names [A]; anything else fails loudly, including a confirmed payment.
 4. Re-validate the entry and lines against the *current* account rows (an account may have been deactivated since the draft).
 5. Assign `posting_seq = entity.next_posting_seq`, increment it; compute `total_centavos`, `seal`; set `status='posted'`, `period`, `posted_at`, `posted_by`; update `entity.last_seal`.
 6. Write the `LedgerEvent` (`entry_posted`, with `payload_hash`).
@@ -291,7 +316,7 @@ ledger_hook.on_payment_confirmed(row, cycle, now)   # may be None for a usage_on
 ```
 
 - It does nothing at all while the ledger or its billing posting is off (`LEDGER_ENABLED` / `LEDGER_POST_BILLING_ENABLED`, section 6.1), and imports the ledger lazily so billing runs without the ledger tables.
-- It builds the lines from the matrix FAS-32 delivers [A], with `source_type/ref/event` as in 2.4, `entry_date` = the Manila date of `now` (the confirmation moment) [A, FAS-02], and calls `posting.post_new(...)`.
+- It builds the lines from FAS-32's rows P1 to P3 (Dr bank or e-wallet account / Cr 2030 deferred revenue), with `source_type/ref/event` as in 2.4, key `fas:v1:pay:<payment public_id>`, `rule_version=v1`, the `plan_code` and cycle sequence snapshot, and `entry_date` = the Manila date of `decided_at` (FAS-32 §3 default), and calls `posting.post_new(...)`. In the same transaction it writes the cycle's `RecognitionSchedule` rows from the *final* cycle.
 - It writes only to ledger tables and takes the book lock *after* the subscription lock; the ledger never takes a subscription lock, so lock order is always subscription then book and a deadlock cannot form.
 - A failure raises `ApiError`; `_write` rolls back the whole confirmation. The operator sees a clear error; the payment stays `submitted` and nothing is half-posted.
 - A replayed confirmation returns early at `if row.status == CONFIRMED: return row` before the hook is reached, and if it did reach it, 3.4 returns the same entry.
@@ -316,6 +341,20 @@ ledger_hook.on_payment_confirmed(row, cycle, now)   # may be None for a usage_on
 ### 3.6 Reversal
 
 `reverse(entry, entry_date, reason)` in one transaction under the book lock: refuse if the entry is a draft, already reversed (`reverses` unique), or is itself a reversal; build the mirrored lines; post as `kind='reversal'` with key `reverse:<original public id>`; write a `LedgerEvent` carrying the reason. The reversal's date must be in a period the writer may post to; if the original's period is locked the reversal goes in the first open period (the caller chooses the date). A reversal of a cash entry that has been *reconciled* (FAS-08) needs FAS-08's rule; v1 refuses nothing on that ground because reconciliation does not exist yet. Refunds do not exist in billing (FAS-01 §4); a refund paid outside the system is a manual entry with a reason (FAS-01 §11.2 Q10 default).
+
+### 3.7 Which receiving account got the money (FAS-01 U2)
+
+FAS-02 and FAS-32 both need the debit line to name a bank or e-wallet account. `BankTransferPayment` stores no account (no such field in `models.py:130-212` [I]); the accounts are the environment variable `BILLING_TRANSFER_ACCOUNTS` (a JSON list with `kind`, `provider_name`, `account_name`, `account_number`; `plan.py:66-87` [I]). Options:
+
+| | What | For | Against |
+|---|---|---|---|
+| **A. Field on the payment, set at confirmation** | A new nullable column on `billing_banktransferpayment` (for example the index or a stable id of the chosen account), filled in `confirm_transfer`. | The fact is stored with the payment, in one place, and the hook reads it; reconciliation (FAS-08) can use it. | **A billing change with a migration.** It needs Coach Ed's approval (a migration the approved plan does not already specify is not covered by the standing approval), and sequencing with PRs 106, 107 and 108, which all change this table and `services.py`. `confirm_transfer` gains a parameter, so the staff confirm route and HQ page change too. |
+| **B. Operator chooses on the confirm screen** | The same as A seen from the screen: the confirm dialog gains an account choice sent to `confirm_transfer`. A without B stores nothing the operator chose; B without A has nowhere to keep the choice except the journal. | The operator knows where the money landed. | If stored only on the journal's memo, billing keeps no record. B is the *input* of A, not an alternative to it. |
+| **C. Default to one account; correct later** | No billing change. The hook debits the book's default receiving account (a ledger setting naming one `GLAccount`); a wrong guess is fixed by FAS-32's manual reclass journal M9 (Dr right account / Cr wrong account). | Needs no migration and no change to PR 106 to 108; works from day one. | The books are wrong until someone corrects them; the correction is manual, and nothing proves the money really landed in the default account. |
+
+**Recommendation.** Start with **C** (the default account is `1020`, per FAS-32), because it unblocks FAS-12 and the hook with no billing migration, and at launch there is likely one receiving account. Plan **A with B** as a separate billing change, in the same PR as, or right after, whichever of PR 107/108 lands next, so `services.py` and the confirm route change once. When A lands, the hook reads the stored account and the default becomes the fallback for payments confirmed earlier. The ledger design does not depend on the choice: the hook's account lookup is one function.
+
+**This is a billing change.** Option A adds a column to a table other sessions are changing, so it is not decided here and not covered by any existing approval: it needs Coach Ed's approval of the migration and the coordinator's sequencing against PRs 106, 107 and 108. This is Q5 in section 1.
 
 ## 4. Reads and reports
 
@@ -398,7 +437,7 @@ Each is written by the piece the plan assigns (section 8). Under the standing ap
 
 | # | Migration | Content | Reversible | Notes |
 |---|---|---|---|---|
-| 1 | `ledger.0001_initial` | The seven tables, constraints and indexes of section 2.3. Depends on `operators` (the `User`) only. No data. | Yes (drop tables) | Additive; safe with every switch off. |
+| 1 | `ledger.0001_initial` | The eight tables, constraints and indexes of section 2.3. Depends on `operators` (the `User`) only. No data. | Yes (drop tables) | Additive; safe with every switch off. |
 | 2 | `ledger.0002_postgres_guards` | The triggers of 2.5, PostgreSQL only; no-op on SQLite. | Yes (drop triggers) | Separate so it can be reviewed and rolled back alone, and so that a trigger bug never blocks the schema. |
 | 3+ | later stage migrations | Each adds its own tables (`ledger.0003_...`). | Yes | Only by the stage that needs them; section 2.6. |
 
@@ -431,7 +470,7 @@ For the coordinator to apply once Coach Ed approves; I do not edit the scope doc
 
 **Section 6, Data model: add `ledger`.**
 
-> **ledger** (private, NegosyoOnline's own books; never reachable by a Subscriber or a Member): `AccountingEntity` (the book: kind `live` or `rehearsal`, currency PHP), `GLAccount` (the chart, as rows), `FiscalPeriod` (monthly; open, soft closed, locked), `JournalEntry` and `JournalLine` (double-entry, centavos in 64-bit integers; a posted entry is balanced, numbered, sealed and never changed or deleted; corrected only by a reversal), `LedgerEvent` (append-only change history) and `LedgerAccess` (which staff users may open the books and at which level). A journal entry from a source event stores the source as type, reference and event name, with a unique idempotency key.
+> **ledger** (private, NegosyoOnline's own books; never reachable by a Subscriber or a Member): `AccountingEntity` (the book: kind `live` or `rehearsal`, currency PHP), `GLAccount` (the chart, as rows), `FiscalPeriod` (monthly; open, soft closed, locked), `JournalEntry` and `RecognitionSchedule` (the planned monthly release of deferred revenue), `JournalLine` (double-entry, centavos in 64-bit integers; a posted entry is balanced, numbered, sealed and never changed or deleted; corrected only by a reversal), `LedgerEvent` (append-only change history) and `LedgerAccess` (which staff users may open the books and at which level). A journal entry from a source event stores the source as type, reference and event name, with a unique idempotency key.
 
 **Section 8, API contract: add.**
 
@@ -470,24 +509,30 @@ The risk in running FAS-04, FAS-05 and FAS-06 as three parallel builders is not 
 
 Why no more migrations after S2-0: every table stage 2 needs is in `0001`, so five builders never race for `0003`. A later stage that adds tables (FAS-08, FAS-09...) takes the next number one at a time.
 
-## 9. Assumptions about FAS-32 and FAS-02
+## 9. Assumptions about FAS-32 and FAS-02 (reconciled with their reports of 2026-11-11)
 
-### FAS-32 (chart of accounts and event-to-journal matrix)
+Read from `origin/docs/z8uq9md624-fas-32-coa-journal-matrix` (sections 2.1, 3, 4.7, 6, 8) and `origin/docs/z8uq9md5dd-fas-02-policy-and-opening-balances` (section 5). This document now carries what they assume of it:
 
-- Each account has a text `code`, a `name`, one of the five `type` values, a `normal_side`, a `reporting_group` label, an optional parent and header flag, and effective dates. Codes are stable.
-- Posting rules refer to accounts by `system_key` (for example one key for the bank-transfer cash account, one for deferred revenue), so the hook does not hard-code codes. FAS-32 should name every key the matrix uses.
-- The matrix gives, for the event "payment confirmed" (and its plan/term variants), the debit and credit lines as a function of the payment's `plan_code`, `amount_centavos` and term; amounts are whole centavos that sum to the payment amount (the matrix does the rounding, not the writer).
-- The matrix has **no** line for E2 to E7 of FAS-01 §3.1 (they move no money).
-- FAS-32 does not ask the schema for dimensions (party, product) in v1.
+| Their assumption | How this design meets it |
+|---|---|
+| Integer centavos, wide column; a line is a positive debit or credit on a postable account | 2.3 `JournalLine` (bigint, one positive side); `GLAccount.is_postable` |
+| Account columns: code, name, type, normal balance, postable, status, reporting group, effective dates, contra flag | 2.3 `GLAccount`. Type names `revenue`, not `income`. |
+| Journal: Manila date plus separate timestamp; kind normal, opening, reversal, adjustment; reversal link; reason; evidence reference; source type and public id; plan code snapshot; rule version | 2.3 `JournalEntry` |
+| Idempotency keys `fas:v1:pay:<id>` and `fas:v1:rel:<id>:<YYYY-MM>`; same key and lines is a no-op, different lines an error; one opening journal per book | 2.3 (key, partial unique on `opening`), 3.4 |
+| Revenue release by Manila days, cumulative, round half up, last month the remainder; a schedule per cycle and month; month-end job | 2.3 `RecognitionSchedule` (stored, written with the payment journal); the job is FAS-14, a command first and a beat entry later |
+| Periods open, closed, locked, checked in the posting transaction; books-start date; no entry before it | 2.3 `FiscalPeriod.status`, `AccountingEntity.books_start_date`; 3.3 |
+| Book environment label; posting on only in live; no staging entry copied | `AccountingEntity.kind`, 6.1, 6.4 |
+| Receiving account | 3.7 (options, recommendation C then A+B, Coach Ed's approval needed for any billing column) |
+| Posting inside the confirmation transaction, failing loudly | 3.5, recommended; Q2 |
+| Owner-only on create, review, post, close, reopen; opening journal only by the owner capability | Section 5; the route table puts `entries/post`, `periods/*` and the opening journal at `owner` level |
 
-### FAS-02 (accounting policy and opening balances)
+**Where this design goes further or differs.**
+- FAS-32 §4.7 says the schedule is "proposed; FAS-03/FAS-14 model it". Modelled here as a stored table in `ledger.0001`.
+- FAS-32 §8 lists status "posted or reversed" on the journal. Here a posted journal has no `reversed` status, because the row cannot change; "reversed" is the existence of the linked reversal (2.3). Reports and screens derive it.
+- FAS-32 and FAS-02 expect the key to be unique "across all journals". Here it is unique per book; since a book is one environment and there is at most one live book, the difference is nil in practice.
+- FAS-02's "year is closed by a report or an explicit close" (FAS-32 §8 item 7) is FAS-06/FAS-28's; the schema carries nothing for it in v1.
 
-- The entry date of a system cash entry is the Manila date of the confirmation (`decided_at`), not `transferred_on` (the Subscriber's date). If FAS-02 decides otherwise, only the hook's date expression changes.
-- Revenue for a prepaid cycle is **not** recognised by the hook: the hook books cash against a deferred balance, and releases happen in scheduled entries later (FAS-14), per FAS-01 §11.2 Q1's default.
-- Rounding for any allocation is defined by FAS-02 and applied by the *caller*; the writer accepts integer centavos only.
-- Opening balances are ordinary entries of `kind='opening'` posted through the same writer into the first period, dated the first book date; they are immutable like any other. If FAS-02 needs a separate, lockable opening period, it is a value of `FiscalPeriod` created by the same service with no schema change.
-- The soft-close rule (which entry kinds a `soft_closed` period accepts) is FAS-02/FAS-06's; the schema only stores the status.
-- The calendar is Jan to Dec, Manila dates (FAS-00 contract).
+**Still assumed, not in their documents.** The soft-close rule (which kinds a `closed` period accepts) is FAS-06's; rounding for any allocation is defined by FAS-02/FAS-32 and applied by the caller (the schedule rows are computed once, by the rule); the calendar is Jan to Dec, Manila dates.
 
 ## 10. Routine decisions I took
 
@@ -502,6 +547,7 @@ Why no more migrations after S2-0: every table stage 2 needs is in `0001`, so fi
 | R7 | PostgreSQL triggers in a separate migration, tested by the existing PostgreSQL CI job | The job exists; a trigger-only guard is no longer untestable | `.github/workflows/ci.yml` [I] |
 | R8 | Three switches, one per decision (app, billing hook, live books) | Each can be turned on or off alone; follows the existing pattern | `settings.py:112-147` [I] |
 | R9 | 404 for no access, 403 for a viewer on a write route | The route looks absent to the unauthorised, as with billing off | `staff.py:_route` [I] |
+| R13 | Dropped a planned `system_key` column: FAS-32's four-digit codes are stable and never re-meant, so rules refer to codes | Fewer columns; one less thing to keep in step | FAS-32 §2.1 |
 | R10 | Chart rows are never in a migration | No seed without approval; the list is FAS-32's | `CLAUDE.md`, FAS-03 task |
 | R11 | Drafts can be discarded (deleted) with a `LedgerEvent`; posted entries never | "Drafts are editable" | FAS-03 task |
 | R12 | One currency per book, `PHP`, enforced by check | Single-currency business; a second currency is a new decision | FAS-00 contract |
@@ -510,7 +556,7 @@ Why no more migrations after S2-0: every table stage 2 needs is in `0001`, so fi
 
 - **U1.** Resolved: the PostgreSQL CI job is a required check for `main` (section 2.5).
 - **U2.** How many staff identities exist and who they are (FAS-01 U3): decides who could hold `owner`.
-- **U3.** The content of the FAS-32 matrix and FAS-02 policy (sections 9): this design only assumes their shape.
+- **U3.** Whether FAS-02/FAS-32 change after the coordinator's reconciliation (section 9 reflects them as read on 2026-11-11).
 - **U4.** Whether PR 107's build will land before the ledger hook (section 3.5): the coordinator's call.
 - **U5.** I did not run any test, command, migration or query, and read no staging or production data.
 
