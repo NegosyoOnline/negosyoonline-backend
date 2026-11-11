@@ -139,7 +139,8 @@ class EntryTests(ConstraintCase):
         self.draft()
         self.accepted(self.draft)
         bank = make_account(self.entity, "1", "asset")
-        a, b = self.draft(lines=[(bank, 5, 0)]), self.draft(lines=[(bank, 5, 0)])
+        rev = make_account(self.entity, "2", "revenue")  # balanced: PostgreSQL checks at teardown
+        a, b = (self.draft(lines=[(bank, 5, 0), (rev, 0, 5)]) for _ in range(2))
         force_post(a, self.period, 7)
         with self.assertRaises(IntegrityError), transaction.atomic():
             force_post(b, self.period, 7)
