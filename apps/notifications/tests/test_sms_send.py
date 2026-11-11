@@ -56,6 +56,17 @@ class SendSmsRefusesMistakesTests(SmsTestCase):
             "Track it at https://example.test/t/1",
             "Track it at www.example.test",
             "Track it at example.com/t/1",
+            "Track it at http://example.test/t/1",
+            "Track it at HTTPS://Example.test/t/1",
+            "Track it at Http://example.test",
+            "Track it at WWW.Example.test",
+            "Track it at example.com",
+            "Track it at EXAMPLE.COM",
+            "Track it at Example.Com/t/1",
+            "Track it at shop.example.ph",
+            "Track it at bit.ly/abc",
+            "Track it at (example.com)",
+            "Track it at\nexample.com",
             "Salamat ❤",  # not a plain SMS character: it would no longer fit one SMS
         )
         for text in bad:
@@ -200,9 +211,10 @@ class SendSmsControlsTests(SmsTestCase):
         self.assertEqual(send_code().outcome, sms.QUEUED)
         self.assertEqual(sms.platform_count(), 3)
 
-    def test_the_default_limits_are_4000_and_4000(self):
+    def test_a_fresh_policy_row_starts_at_2000_and_2000(self):
+        self.assertFalse(SmsPolicy.objects.exists())
         policy = sms.policy()
-        self.assertEqual((policy.platform_daily_limit, policy.site_daily_limit), (4000, 4000))
+        self.assertEqual((policy.platform_daily_limit, policy.site_daily_limit), (2000, 2000))
         self.assertFalse(policy.sending_stopped)
         self.assertEqual(SmsPolicy.objects.count(), 1)
 
@@ -352,7 +364,7 @@ class SendSmsKeepsNoTextTests(SmsTestCase):
             send_status(self.site)
             set_policy(sending_stopped=False, platform_daily_limit=0)
             send_code()
-            set_policy(platform_daily_limit=4000)
+            set_policy(platform_daily_limit=2000)
             SmsDevice.objects.update(last_contact_at=None)
             send_code()
             with mock.patch("apps.notifications.services.send_mail", side_effect=OSError("down")):

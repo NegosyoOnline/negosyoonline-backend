@@ -58,6 +58,10 @@ Replace `<env>` with `staging` or `production`.
 - Migrations do not roll back automatically. Keep each release backward compatible with the previous one.
 - Production has not been migrated and has no verified health URL yet. Do not run this against `production` until that environment is set up and Coach Ed approves.
 
+## Pending
+
+- `notifications.0003_sms_daily_limits_start_at_2000`: not applied to `staging` or `production`. It changes the starting value of the two SMS daily limits from 4,000 to 2,000 for a row created later. On PostgreSQL it runs no SQL (`sqlmigrate` prints `-- (no-op)` for both fields) and only records itself as applied. Until it is applied, `migrate --plan` lists it; nothing fails meanwhile. Its staging run is its own approval.
+
 ## History
 
 - 2026-11-10: the 18 built-in Django migrations (`contenttypes`, `auth`, `admin`, `sessions`) were applied to `staging`. Afterwards `migrate --plan` reported no pending operations and `/healthz/` returned ok.

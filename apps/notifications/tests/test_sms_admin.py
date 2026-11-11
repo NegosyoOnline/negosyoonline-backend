@@ -93,7 +93,7 @@ class SmsAdminTests(SmsAdminCase):
     def test_4_changing_the_settings_writes_an_audit_row_with_before_and_after(self):
         response = self.hq_post(
             self.url("smspolicy", "change", self.policy.pk),
-            {"sending_stopped": "on", "platform_daily_limit": "4000", "site_daily_limit": "150"},
+            {"sending_stopped": "on", "platform_daily_limit": "2000", "site_daily_limit": "150"},
         )
 
         self.assertEqual(response.status_code, 302)
@@ -106,7 +106,7 @@ class SmsAdminTests(SmsAdminCase):
         self.assertEqual(
             entry.detail,
             {
-                "before": {"sending_stopped": False, "site_daily_limit": 4000},
+                "before": {"sending_stopped": False, "site_daily_limit": 2000},
                 "after": {"sending_stopped": True, "site_daily_limit": 150},
             },
         )
@@ -115,7 +115,7 @@ class SmsAdminTests(SmsAdminCase):
     def test_4_saving_the_settings_unchanged_writes_no_audit_row(self):
         self.hq_post(
             self.url("smspolicy", "change", self.policy.pk),
-            {"platform_daily_limit": "4000", "site_daily_limit": "4000"},
+            {"platform_daily_limit": "2000", "site_daily_limit": "2000"},
         )
         self.assertFalse(OperatorAuditEntry.objects.filter(action="sms_policy_change").exists())
 
