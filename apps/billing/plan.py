@@ -17,6 +17,8 @@ TRIAL_DAYS = 14
 
 TRIAL = timedelta(days=TRIAL_DAYS)
 GRACE = timedelta(days=7)  # L11: no payment outcome by the due date plus 7 days: suspended
+# A multi-month term can be paid for again only this close to its end (Coach Ed, 2026-11-11).
+RENEWAL_WINDOW = timedelta(days=30)
 DOWNLOAD_WINDOW = timedelta(days=30)
 DELETION_AFTER_PAID = timedelta(days=90)
 DELETION_NEVER_PAID = timedelta(days=30)  # L75
@@ -86,14 +88,21 @@ ACCOUNT_FIELDS = ("kind", "provider_name", "account_name", "account_number")
 def offers(subscription, now):
     """The plans this subscription can buy at `now`, in the order the page shows them.
 
-    Monthly is always offered. The Launch Promo is offered while its switch is on, and only to
+    Monthly is always offered, Annual after it while its switch works. The Launch Promo is offered while its switch is on, and only to
     a subscription that has never had a paid cycle, so it is bought at most once. Its end
     date is not named yet; none is in code.
     """
     offered = [MONTHLY]
     if promo_open(subscription):
         offered.insert(0, LAUNCH_PROMO)
+    if annual_open():
+        offered.append(ANNUAL)
     return offered
+
+
+def annual_open():
+    """Whether Annual is offered: its switch is on and a payment can be taken."""
+    return bool(settings.BILLING_ANNUAL_ENABLED) and collection_live()
 
 
 def promo_open(subscription):

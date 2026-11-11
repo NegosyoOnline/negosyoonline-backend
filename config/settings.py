@@ -117,6 +117,9 @@ BILLING_BANK_TRANSFER_ENABLED = os.environ.get("BILLING_BANK_TRANSFER_ENABLED", 
 # The six-month Launch Promo (PHP 4,999.00 once). "1" offers it, to a site that never had a
 # paid cycle, wherever paying by bank transfer is on.
 BILLING_LAUNCH_PROMO_ENABLED = os.environ.get("BILLING_LAUNCH_PROMO_ENABLED", "").strip() == "1"
+# The Annual Plan (PHP 24,990.00 for twelve months). "1" offers it beside Monthly, wherever
+# paying by bank transfer is on. Off, `plan=annual` is refused and GET /v1/plan/ omits it.
+BILLING_ANNUAL_ENABLED = os.environ.get("BILLING_ANNUAL_ENABLED", "").strip() == "1"
 # The accounts Subscribers send their payment to, as a JSON list of objects with `kind`
 # ("bank" or "ewallet"), `provider_name`, `account_name` and `account_number`. Never in code.
 BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").strip()
