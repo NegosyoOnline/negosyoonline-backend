@@ -304,3 +304,147 @@ class RenewalConsent(models.Model):
 
     def __str__(self):
         return f"Consent for payment {self.payment_id}"
+
+
+class UsageEntry(models.Model):
+    """One storage snapshot the ledger has decided about. Never deleted.
+
+    A snapshot at or below the allowance, or never measured, has no row. Write only through
+    apps.billing.usage; a row changes only along the routes recorded as UsageEvent rows.
+    """
+
+    class Kind(models.TextChoices):
+        STORAGE = "storage"  # the only meter: NegosyoOnline does not meter orders or video
+
+    class Status(models.TextChoices):
+        COUNTED = "counted"
+        HELD = "held"  # the cycle is pending (L36)
+        NEEDS_REVIEW = "needs_review"
+        NOT_BILLABLE = "not_billable"
+        WRITTEN_OFF = "written_off"
+
+    subscription = models.ForeignKey(
+        Subscription, on_delete=models.PROTECT, related_name="usage_entries"
+    )
+    cycle = models.ForeignKey(
+        BillingCycle, null=True, blank=True, on_delete=models.PROTECT, related_name="usage_entries"
+    )
+    period_index = models.PositiveSmallIntegerField(null=True, blank=True)  # 1-based
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.STORAGE)
+    source_reference = models.CharField(max_length=64, unique=True)
+    quantity = models.PositiveBigIntegerField()  # the measured bytes
+    occurred_at = models.DateTimeField()
+    received_at = models.DateTimeField()
+    status = models.CharField(max_length=15, choices=Status.choices)
+    reason = models.CharField(max_length=30, blank=True)
+    detail = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [
+            # One snapshot per period, ever: a second is a replay and nothing recomputes it.
+            models.UniqueConstraint(
+                fields=["cycle", "period_index", "kind"], name="billing_usage_one_per_period"
+            ),
+            models.CheckConstraint(condition=Q(quantity__gt=0), name="billing_usage_quantity_positive"),
+        ]
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("A usage record is kept and cannot be deleted.")
+
+    def __str__(self):
+        return f"Usage {self.source_reference}"
+
+
+class ChargeLine(models.Model):
+    """One overage charge. Its amount and source never change; it is closed once, settled by a
+    confirmed payment or written off with its cause, and never reopened."""
+
+    class Kind(models.TextChoices):
+        OVERAGE_STORAGE = "overage_storage"
+
+    class Status(models.TextChoices):
+        OPEN = "open"
+        SETTLED = "settled"
+        WRITTEN_OFF = "written_off"
+
+    FROZEN = (
+        "subscription_id", "cycle_id", "period_index", "entry_id", "kind", "quantity",
+        "amount_centavos", "currency", "labels",
+    )
+
+    subscription = models.ForeignKey(Subscription, on_delete=models.PROTECT, related_name="charges")
+    cycle = models.ForeignKey(BillingCycle, on_delete=models.PROTECT, related_name="charges")
+    period_index = models.PositiveSmallIntegerField()
+    entry = models.OneToOneField(UsageEntry, on_delete=models.PROTECT, related_name="charge")
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.OVERAGE_STORAGE)
+    quantity = models.PositiveIntegerField()  # the started GB charged
+    amount_centavos = models.PositiveIntegerField()
+    currency = models.CharField(max_length=3, default="PHP")
+    status = models.CharField(max_length=15, choices=Status.choices, default=Status.OPEN)
+    settled_payment = models.ForeignKey(
+        BankTransferPayment, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="charges",
+    )
+    closed_at = models.DateTimeField(null=True, blank=True)
+    closed_reason = models.CharField(max_length=40, blank=True)
+    labels = models.JSONField(default=list, blank=True)  # for example ["late_admitted"]
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=Q(amount_centavos__gt=0), name="billing_charge_positive"),
+            models.CheckConstraint(
+                condition=~Q(status="settled") | Q(settled_payment__isnull=False),
+                name="billing_charge_settled_has_payment",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="written_off") | ~Q(closed_reason=""),
+                name="billing_charge_written_off_has_cause",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            old = ChargeLine.objects.get(pk=self.pk)
+            for name in self.FROZEN:
+                if getattr(old, name) != getattr(self, name):
+                    raise RuntimeError(f"A charge line cannot change its {name}.")
+            if old.status != self.Status.OPEN and (
+                old.status != self.status or old.settled_payment_id != self.settled_payment_id
+                or old.closed_reason != self.closed_reason
+            ):
+                raise RuntimeError("A closed charge line cannot be changed or reopened.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("A charge line is kept and cannot be deleted.")
+
+    def __str__(self):
+        return f"Charge {self.pk} of subscription {self.subscription_id}"
+
+
+class UsageEvent(models.Model):
+    """Append-only. One row per usage decision, written once under its idempotency key."""
+
+    class Actor(models.TextChoices):
+        INTAKE = "intake"
+        SWEEP = "sweep"
+        OPERATOR = "operator"
+
+    entry = models.ForeignKey(UsageEntry, on_delete=models.PROTECT, related_name="events")
+    code = models.CharField(max_length=40)
+    actor = models.CharField(max_length=10, choices=Actor.choices)
+    idempotency_key = models.CharField(max_length=120, unique=True)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+    detail = models.JSONField(default=dict, blank=True)
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise RuntimeError("A usage event cannot be changed.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("A usage event is kept and cannot be deleted.")
+
+    def __str__(self):
+        return f"{self.code} on usage {self.entry_id}"

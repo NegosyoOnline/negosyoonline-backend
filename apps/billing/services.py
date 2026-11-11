@@ -453,7 +453,12 @@ def _open_first_cycle(subscription, settlement, **payment):
 
 
 def _lapse_pending(subscription):
-    subscription.cycles.filter(settlement=Settlement.PENDING).update(settlement=Settlement.LAPSED)
+    from apps.billing import usage  # the ledger imports this module
+
+    for cycle in subscription.cycles.filter(settlement=Settlement.PENDING):
+        cycle.settlement = Settlement.LAPSED
+        cycle.save()
+        usage.release_held(cycle, paid=False)
 
 
 def start_subscription(site, account, *, actor=Actor.SITE_CREATION, now=None):
@@ -678,6 +683,8 @@ def renewal_failed(subscription, *, at):
 
 def recovered(subscription, *, paid_at, reference, detail=None, bought=None):
     """A payment during the 7 days of attention. At or after them the site is suspended."""
+    from apps.billing import usage  # the ledger imports this module
+
     def change(subscription, key):
         _require(subscription, "recovered")
         cycle = subscription.cycles.get(settlement=Settlement.PENDING)
@@ -688,6 +695,7 @@ def recovered(subscription, *, paid_at, reference, detail=None, bought=None):
         for name, value in plan.snapshot(paid_for).items():
             setattr(cycle, name, value)
         cycle.save()
+        usage.release_held(cycle, paid=True)
         subscription.attention_started_at = None
         return _apply(
             subscription, "recovered", State.ACTIVE, key, paid_at, Actor.PAYMENT,
