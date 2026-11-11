@@ -127,6 +127,7 @@ States, carried from legacy: `trial_active`, `active`, `payment_requires_attenti
   - a trial that reaches day 14 with no active payment method becomes `cancelled_no_payment_method`, with no charge and no statement;
   - after service end: a 30-day download window; the deletion date is 30 days after service end for a website whose trial ended without any payment, and 90 days otherwise (L75). A suspension counts as the end of the service for these dates (R-4b), and a cancellation after a suspension does not restart them. The never-paid dates start only once payment collection is live (R-4a). Payment is accepted only before the deletion date (D1). Billing and tax records are kept 5 years and no clock here touches them.
 - The retry schedule after a failed payment (legacy: retries after 1, 3 and 5 days) is not confirmed. It moves to the Billing Build B2 plan.
+- At launch a subscription is paid by bank transfer with proof, confirmed by an operator (Billing Build B2a, z8uq9me581), behind the switch `BILLING_BANK_TRANSFER_ENABLED`, off by default. An upload is never a payment: only the operator's recorded confirmation settles a cycle. A proof under review at the trial-end instant counts as the payment method for the 7 days and no longer. The Launch Promo is PHP 4,999.00 once for six months, ending on the exact six-month date, then PHP 2,499.00 monthly. A first site created after its trial ended has 30 days to pay from its own creation.
 
 ## 8. API contract
 
@@ -138,7 +139,7 @@ All paths are under `/v1/`. Errors use one shape: `{"error": {"code": "...", "me
 | Sign-in | `POST auth/email-code/request/`, `POST auth/email-code/verify/`, `GET auth/google/start/`, `GET auth/google/callback/`, `GET auth/facebook/start/`, `GET auth/facebook/callback/`, `POST auth/facebook/confirm-email/`, `POST auth/logout/` |
 | Account | `GET me/`, `GET account/setup/`, `GET PATCH account/`, `POST account/email/start/`, `POST account/email/confirm/`, `GET account/sessions/`, `POST account/sessions/sign-out-others/`, `POST account/connections/{provider}/start/`, `POST account/connections/{provider}/disconnect/`, `POST account/mobile/start/`, `POST account/mobile/verify/`, `GET account/referrals/` |
 | Sites | `GET POST sites/`, `POST sites/subdomain-check/`, `GET PATCH sites/{site_id}/`, `GET PATCH sites/{site_id}/business-profile/` |
-| Billing | `GET sites/{site_id}/billing/`, `PUT sites/{site_id}/billing/profile/`, `POST sites/{site_id}/billing/payment-method/setup/`, `POST sites/{site_id}/billing/cancel/`, `POST sites/{site_id}/billing/reactivate/`, `GET sites/{site_id}/billing/usage/`, `GET sites/{site_id}/billing/statements/`, `GET sites/{site_id}/billing/statements/{number}/`, `GET sites/{site_id}/billing/statements/{number}/pdf/` |
+| Billing | `GET sites/{site_id}/billing/`, `PUT sites/{site_id}/billing/profile/`, `POST sites/{site_id}/billing/payment-method/setup/`, `POST sites/{site_id}/billing/cancel/`, `POST sites/{site_id}/billing/reactivate/`, `GET sites/{site_id}/billing/payment/`, `GET POST sites/{site_id}/billing/payments/`, `GET sites/{site_id}/billing/payments/{payment_id}/`, `GET sites/{site_id}/billing/payments/{payment_id}/proof/`, `GET sites/{site_id}/billing/usage/`, `GET sites/{site_id}/billing/statements/`, `GET sites/{site_id}/billing/statements/{number}/`, `GET sites/{site_id}/billing/statements/{number}/pdf/` |
 | Webhooks | `POST webhooks/xendit/`, `POST webhooks/facebook/data-deletion/` |
 
 `public/sites/by-host/` is the storefront lookup. It is unauthenticated and cacheable, returns only public branding, template and availability, and answers 404 for unknown, reserved or unavailable hosts.
@@ -146,6 +147,7 @@ All paths are under `/v1/`. Errors use one shape: `{"error": {"code": "...", "me
 The SMS gateway phone uses three calls that are outside `/v1/` and are not in the OpenAPI description: `POST /gateway/v1/poll`, `POST /gateway/v1/report` and `POST /gateway/v1/received`. They carry the phone's own token, not a subscriber's session.
 
 Payments and webhooks:
+- At launch the only way to pay a subscription is a bank transfer with proof (B2a); it calls no provider. The three lines below are Billing Build B2, built when a gateway is approved.
 - Xendit is the provider. Card details are entered on Xendit's hosted page; the API never sees card numbers.
 - Webhooks: body size cap, constant-time check of the callback token, insert into `WebhookEvent`, and a duplicate event answers 200 without reprocessing. Events are matched only by our own reference.
 - Every charge carries an idempotency key, so a retry can never double-charge.
@@ -159,8 +161,9 @@ Each slice has its own plan, tests and approval. Migrations are a reviewed relea
 3. **Sites and subdomains.** Site, Subdomain ledger, trial subscription start, subdomain check, site creation and settings, business profile, public host lookup.
 4. **Billing.** Six builds, each with its own ClickUp task, plan and approval:
    - B1 (z8uq9mdwrv): subscription lifecycle and cycles, state transitions, cancel and reactivate, the public host lookup. Adds the worker and beat services and the task queue dependency.
-   - B2 (z8uq9mdwrw): payment method and collection. Xendit customer and card setup, webhook inbox, charging and retries.
-   - B3 (z8uq9mdwry): Annual Plan and the six-month Launch Promo.
+   - B2a (z8uq9me581): launch payment by bank transfer with proof, confirmed by an operator, and the six-month Launch Promo. Built before B2.
+   - B2 (z8uq9mdwrw): payment method and collection. Xendit customer and card setup, webhook inbox, charging and retries. Built when a gateway is approved.
+   - B3 (z8uq9mdwry): Annual Plan.
    - B4 (z8uq9mdwrz): usage ledger and overage (item 5).
    - B5 (z8uq9mdwt0): Billing Statements (item 6).
    - B6 (z8uq9mdwt1): referral codes and Subscription Credits (item 7).
@@ -282,3 +285,4 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
   - Planned backend apps, named only: Santé settings, catalog, members, orders, pack, product checkout, earnings. Naming them here approves none of them. Each model, migration, dependency, variable and service still needs its own approval.
   - Open, and not approved by this entry: where private files live; per-site Xendit keys and webhook; whether E8 earnings is approved for porting.
 - 2026-11-11: the storefront surface and its server secret, from ClickUp task z8uq9me4yt (Santé port slice 3). Coach Ed approved the secret's two variables for staging on 2026-11-11 ("Approved", z8uq9m92fv comment 1100430000488789), which answers "The secret itself is not yet approved" in the entry above; he sets the values himself. The surface is `/storefront/v1/` in `apps/storefront`, outside `/v1/`, behind the switch `STOREFRONT_ENABLED`, off by default, and the credential is `STOREFRONT_SERVER_SECRET`, the same name on Railway `api` and on the Vercel storefronts project. It refuses a site that is not served exactly as `GET /v1/public/sites/by-host/` decides it. No model, migration or dependency. Turning the switch on in staging is its own approval; production is not covered. Runbook: `docs/runbooks/storefront.md`.
+- 2026-11-11: Billing Build B2a, launch payment by bank transfer with proof and the six-month Launch Promo, from ClickUp task z8uq9me581. Coach Ed approved the plan `docs/superpowers/plans/2026-11-11-backend-billing-b2a-bank-transfer-launch-promo.md`, its migration `billing.0002_bank_transfer` and this amendment on 2026-11-11 ("Approve all as recommended", recorded in comment 1100430000489390). Sections 7, 8 and 9 were updated. Proofs are confirmed in the Django admin for launch. The answer to B1's D2 gap: a first site created after its trial ended has 30 days to pay from its own creation. Not approved by this entry, each still his own yes: the receiving account, the private proof store with its token and any dependency, each variable and switch in a shared environment, the wording of the emails, the promo's end date, and every production action.

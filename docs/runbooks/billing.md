@@ -14,6 +14,22 @@ Every step below that touches staging or production needs Coach Ed's approval fo
 
 It is not a secret. It exists so the code can be deployed before the tables are created.
 
+### Bank transfer with proof (Billing Build B2a)
+
+None of these is set anywhere. Setting any of them in a shared environment needs Coach Ed's approval for that variable. Production is not covered.
+
+| Name | Meaning |
+|---|---|
+| `BILLING_BANK_TRANSFER_ENABLED` | `1` lets a Subscriber pay by bank transfer with proof, and only while `BILLING_ENABLED` is on, `BILLING_TRANSFER_ACCOUNTS` holds a complete account and a proof store is available. Unset, or with any of those missing: nothing can be submitted, confirmed or rejected, and the three tables of `billing.0002_bank_transfer` are not read or written. |
+| `BILLING_TRANSFER_ACCOUNTS` | The account or accounts Subscribers pay to, as a JSON list of objects with exactly `kind` (`bank` or `ewallet`), `provider_name`, `account_name` and `account_number`. Coach Ed supplies the values; none is in code. A value that is not such a list counts as empty and is logged as an error. |
+| `BILLING_PROOF_DIR` | A local folder for proof files, used only while `DJANGO_DEBUG` is on. It is for a developer's machine. A shared environment needs the approved private store, which is not built yet, so the switch cannot work on staging or production today. |
+
+`manage.py check` fails with `billing.E001` (no complete account) or `billing.E002` (no proof store) when the switch is on without them.
+
+Order on staging, each step its own approval: merge and deploy; the coordinator applies `billing.0002_bank_transfer`; the private store is approved and built; the receiving account is set; only then the switch.
+
+The day the switch first works, the next sweep writes one `clocks_started` transition for each ended subscription that never paid and has no dates: its download and deletion dates become that sweep's time plus 30 days (R-4a). It happens once per subscription and turning the switch off does not take the dates back. Run `billing_sweep --dry-run` first to see the count.
+
 ## Order on staging
 
 Each step is its own approval. All six steps are done on staging, each with Coach Ed's approval at the time. That covers staging only: in any other environment each step is again its own approval, and **none of this is done on production**, which has no services.
@@ -91,9 +107,11 @@ railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e staging -s api -- uv run 
 
 The output is a count per transition. A second run answers "Nothing is due."
 
+A proof of payment waiting for an operator holds a trial past its end for the 7 days and no longer. It does not hold a paid cycle past its due date plus 7 days. A payment confirmed after a suspension starts a new paid cycle at the confirmation time.
+
 ## An account disposal
 
-`manage.py dispose_account` cancels the account's subscriptions first. See "A request to delete an account" in `docs/runbooks/retention.md`.
+`manage.py dispose_account` cancels the account's subscriptions first. It is refused with `payment_under_review` while a site of the account has a proof of payment waiting for an operator; confirm or reject the proof first. See "A request to delete an account" in `docs/runbooks/retention.md`.
 
 ## Worker and beat
 
@@ -146,4 +164,5 @@ To go back, remove the two services. Nothing else depends on them.
 
 ## Not in this runbook yet
 
-- Payments, payment methods, reminders and statements: B2 and later.
+- The Subscriber's payment routes, the Launch Promo, the operator's review list in the Django admin, and the emails: later pull requests of B2a.
+- Card payments, reminders by a gateway and statements: B2 and later.

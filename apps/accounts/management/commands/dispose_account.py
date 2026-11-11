@@ -23,6 +23,11 @@ def _reason(reason):
             f"Site {reason['site']} is the Santé catalog owner. An operator must name another "
             "catalog owner site in the admin first."
         )
+    if reason["reason"] == "payment_under_review":
+        return (
+            f"Site {reason['site']} has a proof of payment under review. An operator must "
+            "confirm or reject it first."
+        )
     return (
         f"Site {reason['site']} is inside a paid term that runs until "
         f"{timezone.localtime(reason['until']).isoformat()} ({reason['reason']})."

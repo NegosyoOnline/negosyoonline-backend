@@ -466,6 +466,18 @@ class LifecycleTests(TransferCase):
             step.reasons, ({"reason": "payment_under_review", "site": subscription.site.public_id},)
         )
 
+    def test_a_real_disposal_is_refused_and_cancels_nothing_while_a_proof_waits(self):
+        from apps.accounts.management.commands.dispose_account import _reason
+
+        subscription = make_subscription()
+        submit(subscription, T0 + days(3))
+
+        step = services.prepare_disposal(subscription.site.account, T0 + days(4))
+
+        self.assertEqual((step.cancelled, len(step.reasons)), ((), 1))
+        self.assertEqual(fresh(subscription).state, State.TRIAL_ACTIVE)
+        self.assertIn("proof of payment under review", _reason(step.reasons[0]))
+
     def test_a_site_made_after_its_trial_ended_has_30_days_to_pay_from_its_creation(self):
         made_at = T0 + days(50)
         subscription = make_subscription(now=made_at)
@@ -489,7 +501,7 @@ class LifecycleTests(TransferCase):
 class ClocksStartedTests(TestCase):
     def test_the_clocks_start_once_when_collection_goes_live_and_are_not_taken_back(self):
         never_paid = make_subscription()
-        paid = make_suspended("ben@example.test", "bens-store")
+        paid = make_suspended(email="ben@example.test", name="bens-store")
         services.sweep(now=TRIAL_END)
         self.assertIsNone(fresh(never_paid).deletion_due_at)
         paid_dates = fresh(paid).deletion_due_at
