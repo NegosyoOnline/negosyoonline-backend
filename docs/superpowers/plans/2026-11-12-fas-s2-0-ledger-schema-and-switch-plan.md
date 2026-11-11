@@ -16,13 +16,13 @@ Status: **plan only; nothing in it is built.** The SQL of section 5 was run on a
 
 ## Deviations from FAS-03 section 2.5
 
-Coach Ed approves this plan, so the two places where it departs from the approved text are named here. The coordinator agreed both on 2026-11-12. The FAS-03 spec is not edited in this PR.
+Coach Ed approves this plan, so the two places where it departs from the approved text are named here. Coach Ed's approval of this plan accepts both. The FAS-03 spec is not edited in this PR.
 
 ### Deviation 1: no TRUNCATE trigger on `ledger_event`
 
 - **Design text (2.5, layer 2):** "`BEFORE UPDATE OR DELETE` and `BEFORE TRUNCATE` on `ledger_event`: raise."
 - **This plan instead:** the `BEFORE UPDATE OR DELETE` trigger only (`ledger_event_append_only`, section 5.2). No TRUNCATE trigger and no session-setting bypass.
-- **Why:** Django's `TransactionTestCase` teardown runs one `TRUNCATE` over every table of every installed app, and `apps/sante`, `apps/catalog` and `apps/sites` each have such tests. With the trigger, the existing PostgreSQL CI job fails at the first teardown after `apps.ledger` is installed, and so would S2-A's two-thread test. **Evidence**, run 2026-11-12 on a scratch PostgreSQL 14 (`postgresql://postgres@127.0.0.1:5499/scratch`, nothing shared): `uv run python manage.py test apps.sites.tests.test_concurrency --keepdb` passed (`OK`); after adding `CREATE TRIGGER ... BEFORE TRUNCATE ON sites_site FOR EACH STATEMENT` (a stand-in table, the ledger tables not existing yet, raising with the same `RAISE EXCEPTION ... ERRCODE 'check_violation'` as section 5.2) the same command ended `FAILED (errors=1)` with `psycopg.errors.CheckViolation: ledger: the change history is append-only` raised through `django.db.utils.IntegrityError` in the teardown `flush` ("Database ... couldn't be flushed"). The build repeats this on the real `ledger_event` in task 5, step 1; if it does not fail there, the trigger is kept as designed.
+- **Why:** Django's `TransactionTestCase` teardown runs one `TRUNCATE` over every table of every installed app, and `apps/sante`, `apps/catalog` and `apps/sites` each have such tests. With the trigger, the existing PostgreSQL CI job fails at the first teardown after `apps.ledger` is installed, and so would S2-A's two-thread test. **Evidence**, run 2026-11-12 on a scratch PostgreSQL 14 started for the purpose (`DATABASE_URL=postgresql://postgres@127.0.0.1:5499/scratch`; nothing shared, dropped afterwards). Command, run twice with `--keepdb`: `uv run python manage.py test apps.sites.tests.test_concurrency --keepdb` passed (`OK`); after adding `CREATE TRIGGER ... BEFORE TRUNCATE ON sites_site FOR EACH STATEMENT` (a stand-in table, the ledger tables not existing yet, raising with the same `RAISE EXCEPTION ... ERRCODE 'check_violation'` as section 5.2) the same command ended `FAILED (errors=1)` with `psycopg.errors.CheckViolation: ledger: the change history is append-only` and `django.db.utils.IntegrityError: ledger: the change history is append-only` raised through `django.db.utils.IntegrityError` in the teardown `flush` ("Database ... couldn't be flushed"). Task 5, step 1 re-checks it on the real `ledger_event` once `0001` exists; if it does not fail there, the trigger is kept as designed.
 - **Protection lost:** a session that is the table owner can empty `ledger_event` with `TRUNCATE`, which the design's trigger would have stopped. `UPDATE` and `DELETE` of its rows stay refused by the database and by every Django path.
 - **Alternative not taken:** keep the trigger and let it pass when a session setting (for example `ledger.allow_truncate`) is `on`, set by the test runner. It needs a test-only hook that every test run, including `manage.py test apps.billing` alone, must set, and it is a switch that disables the protection. The design's layer 3 already says the triggers defend against the application and mistakes, not against the database owner, who can drop a trigger as easily; the seal chain (S2-A, FAS-06) is what reveals a tampered history.
 
@@ -89,17 +89,16 @@ No other file changes. In particular not `docs/runbooks/` (the accounting runboo
 
 ## 3. Decisions and conflicts to read before building
 
-### 3.1 The two deviations
+### 3.1 Deviations from FAS-03 section 2.5
 
-See "Deviations from FAS-03 section 2.5" above (no TRUNCATE trigger; the period trigger refuses only `locked`). If either is overruled, only section 5.2 and task 5 change.
+The two deviations (no TRUNCATE trigger; the period trigger refuses only `locked`) are set out above with their reasons, the protection lost and the alternatives not taken. If either is overruled, only section 5.2 and task 5 change.
 
-### 3.2 Routine decisions
+### 3.2 Routine decisions (D2 to D10; D1 was moved to the deviations)
 
 Each is reversible and inside the approved design; the report to the coordinator repeats them.
 
 | # | Decision | Why | Source |
 |---|---|---|---|
-| D1 | Deviation 2 above: the period trigger refuses `locked` only | see Deviations | FAS-03 2.5 |
 | D2 | Every choice column gets an enumerated `CheckConstraint` (`kind`, `status`, `type`, `normal_side`, `level`) | The triggers compare against literals such as `'posted'`; a value outside the vocabulary must not exist | Design 2.5 (the guarantees rest on those values) |
 | D3 | A new `JournalEntry` can only be inserted as `draft` (Django guard); a posted entry arises only by the draft-to-posted update | Closes inserting a row already posted. On PostgreSQL the deferred balance trigger and the line trigger already make such a row useless | Design 2.5 layer 1 |
 | D4 | The commit-time trigger also re-checks every line against its account (header, other book, effective dates) | The line trigger runs when a line is written; an entry date edited afterwards must be caught at the transition | Design 2.5 layer 2 (line rules) |
@@ -499,7 +498,7 @@ Run all commands from the repository root with `uv run`. Branch: `feat/z8uq9md5d
   - `test_4_the_tables_are_empty_after_migrate` (a count of zero on each, so no migration seeds a row);
   - `test_5_migration_0001_holds_only_schema_operations` (import it, every operation is `CreateModel`, `AddConstraint` or `AddIndex`; none is `RunPython` or `RunSQL`);
   - `test_6_migration_0002_depends_only_on_0001` and `test_7_migration_0002_uses_no_app_import` (the source text has no `from apps` and no `import apps`);
-  - `test_8_no_other_app_imports_ledger` (a scan of the source tree: no module outside `apps/ledger` contains `apps.ledger` or `from apps import ledger`, so S2-0 changes no behaviour elsewhere);
+  - `test_8_no_other_app_imports_ledger` (a scan of the source tree: no module outside `apps/ledger` contains `apps.ledger` or `from apps import ledger`, so S2-0 changes no behaviour elsewhere). This holds only for S2-0: S2-B (the billing hook registry) and S2-C (the one line in `apps/operators/staff_views.py`) must import the ledger, and each narrows this test to its named import sites in its own PR. It is not a rule against them;
   - `test_9_the_schema_names_no_tax_or_receiving_account` (no field name in any ledger model contains `tax`, `suspense`, or `receiving`; ruling 11, 12, 14);
   - `test_10_with_every_switch_off_nothing_outside_the_app_reaches_a_ledger_table` (with `connection.execute_wrapper` recording statements, call `GET /healthz/` and one billing service call; no recorded statement mentions `ledger_`; the strongest form available before routes exist).
 - [ ] **Step 2: run** the suite on SQLite; commit.
