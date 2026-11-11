@@ -131,6 +131,14 @@ What the billing step does not know yet, so check by hand before disposing: noth
 
 While `SANTE_SETTINGS_ENABLED` is off, disposal and export do not read the Santé tables at all, because the code is released before migration `sante.0001` is applied. So turn it on in an environment only after that migration is applied there. Once it has been on in an environment, it is not turned off again without Coach Ed's ruling: a disposal run while it is off would leave a saved sponsor ID in place and would not refuse the catalog owner's account.
 
+**Shared Santé catalog.** Where `SANTE_CATALOG_ENABLED` is on (ClickUp z8uq9m92f1, port slice 2):
+
+- The catalog belongs to no account. A disposal deletes and blanks nothing in it: every product and every revision stays as it was, including the revisions written from a disposed account's site. A revision names its writer by the account's and the site's row number only; it holds no name, email, number or address.
+- The account that owns the catalog owner site is still refused, as above, until another owner site is named. The products then stay with the catalog and the new owner site edits them.
+- The export holds no catalog row: products and revisions are not an account's data.
+
+While `SANTE_CATALOG_ENABLED` is off the catalog tables are not read at all, because the code is released before migration `catalog.0001` is applied. Turn it on in an environment only after that migration is applied there and `SANTE_SETTINGS_ENABLED` is on.
+
 SMS send records are not touched by a disposal: they hold the number a text went to and follow the SMS build's own 1-year rule.
 
 ## An export request

@@ -101,6 +101,10 @@ BILLING_ENABLED = os.environ.get("BILLING_ENABLED", "").strip() == "1"
 # Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints and admin
 # lists. Off, the endpoints answer 404 and the Santé tables are not read or written.
 SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() == "1"
+# The shared Santé catalog. "1" turns on its endpoints and admin lists, and only while
+# SANTE_SETTINGS_ENABLED is on too: the catalog reads the catalog owner row. Off, the
+# endpoints answer 404 and the catalog tables are not read or written.
+SANTE_CATALOG_ENABLED = os.environ.get("SANTE_CATALOG_ENABLED", "").strip() == "1"
 
 
 # Application definition
@@ -118,6 +122,7 @@ INSTALLED_APPS = [
     'apps.sites',
     'apps.billing',
     'apps.sante',
+    'apps.catalog',
     'apps.notifications',
     'apps.health',
 ]
