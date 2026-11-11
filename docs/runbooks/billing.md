@@ -10,7 +10,7 @@ Every step below that touches staging or production needs Coach Ed's approval fo
 
 | Name | Meaning |
 |---|---|
-| `BILLING_ENABLED` | `1` turns billing on. Unset: site creation writes no subscription, the billing endpoints answer 404, an account disposal skips its billing step, and every command below says the switch is off and reads and writes nothing. |
+| `BILLING_ENABLED` | `1` turns billing on. Unset: site creation writes no subscription, the billing endpoints answer 404, the by-host lookup answers 404 for every host, no owner endpoint is limited to Billing, the "Santé Site Owner" label ignores subscriptions, an account disposal skips its billing step, and every command below says the switch is off and reads and writes nothing. |
 
 It is not a secret. It exists so the code can be deployed before the tables are created.
 
@@ -23,7 +23,7 @@ Each step is its own approval.
 3. Set `BILLING_ENABLED=1` on `api`. Never before step 2: site creation and the billing endpoints would fail on the missing tables. From this moment every new site gets its subscription when it is created.
 4. Dry-run the backfill and read the counts ("Backfill", below).
 5. Run the backfill with `--apply`.
-6. Check: `GET /v1/sites/{site_id}/billing/` for a test site, signed in as its owner.
+6. Check: `GET /v1/sites/{site_id}/billing/` for a test site, signed in as its owner. Then `GET /v1/public/sites/by-host/?host=NAME.PARENT` with no sign-in, where `NAME` is that site's web address and `PARENT` is the value of `SITE_PARENT_HOST`: 200 with seven public fields for a site on trial, and the plain 404 for an ended one and for a name nobody holds.
 
 To go back, unset `BILLING_ENABLED`. The tables and their rows stay; nothing reads them.
 
@@ -31,7 +31,13 @@ To go back, unset `BILLING_ENABLED`. The tables and their rows stay; nothing rea
 
 A site's trial counts from its account's creation date, not from the site's creation or from the day billing is switched on. So when the backfill is applied, every site whose account is older than 14 days is ended at once (`cancelled_no_payment_method`), and nothing brings it back until B2 takes payments, except an exemption (below). A site whose account is younger than 14 days stays on trial until its own day 14.
 
-Until the availability part of B1 (the by-host lookup and the Billing-only rule) is deployed, an ended site shows the ended state only on `GET billing/`; nothing else is turned off yet.
+From the moment the switch is on, an ended or suspended site (one whose `GET billing/` answers `billing_only: true`):
+
+- is not served: `GET /v1/public/sites/by-host/` answers 404 for its host, the same 404 as for a name nobody holds. A served site's answer may be cached for at most 60 seconds, and never past the moment it goes off; a 404 for 30 seconds. The lookup has no rate limit of its own.
+- is limited to Billing for its owner: `PATCH sites/{site_id}/` and `GET` and `PATCH sites/{site_id}/business-profile/` answer 403 `billing_only`. Sign-in, the account endpoints, `GET sites/`, `GET sites/{site_id}/`, `GET account/setup/` and the billing endpoints answer as before.
+- no longer counts for the "Santé Site Owner" label. A cancellation still inside its paid period is served and not limited, but does not count for the label either. An exempt site counts by its stored state, so one exempted after it ended is served and gets no label.
+
+A site with no subscription (made before billing and not yet backfilled) is not served by the by-host lookup and gets no label, but its owner is not limited to Billing. So between step 3 and step 5 no older site is served.
 
 A never-paid subscription that ends before payment collection is live has no download date, no deletion date and no last date to pay: `GET billing/` answers `clocks_started: false`. B2 starts those clocks on the day collection goes live.
 
