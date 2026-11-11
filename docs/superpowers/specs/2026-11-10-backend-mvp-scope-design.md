@@ -78,10 +78,10 @@ One line per table. Money is stored as integer centavos with a currency code. Le
 - `SiteBusinessProfile`: site (one each), business name, TIN, DTI number, address, shipping estimates.
 
 **billing**
-- `Subscription`: site (one each), state, trial start and end, attention, cancel and service-end dates. The only place trial dates live.
-- `SubscriptionTransition`: subscription, from state, to state, trigger, idempotency key (unique), at.
-- `BillingCycle`: subscription, sequence, start, end, settlement (`pending`, `paid`, `lapsed`).
-- `UsageEntry`: cycle, kind (`orders`, `storage`, `video`), quantity, source reference (unique).
+- `Subscription`: site (one each), state, trial start and end, the frozen answer to whether a payment method was active at trial end, the anchor day, attention, cancel and service-end dates, the download and deletion dates, `billing_exempt`. The only place trial dates live.
+- `SubscriptionTransition`: subscription, code, from state, to state, actor, idempotency key (unique), `effective_at` (when the change took effect by rule), recorded_at, detail.
+- `BillingCycle`: subscription, sequence, kind (`trial`, `paid`), start, end, settlement (`not_billable`, `pending`, `paid`, `lapsed`), paid_at, payment reference.
+- `UsageEntry`: cycle, kind (`orders`, `storage`), quantity, source reference (unique).
 - `ChargeLine`: cycle, kind (`base`, `overage`, `referral_credit`), amount.
 - `ReferralCredit`: referrer account, referred account (unique), amount, applied cycle.
 - `BillingProfile`: site (one each), company name, TIN, address.
@@ -118,13 +118,15 @@ Not rebuilt from legacy: launch gate, platform switches, per-account gate except
 States, carried from legacy: `trial_active`, `active`, `payment_requires_attention`, `suspended`, `cancelled`, `cancelled_no_payment_method`.
 
 - Signup creates the Account only. Creating the first site creates the Site, its Subdomain and its Subscription in one transaction.
-- The 14-day trial is counted from account creation, as in legacy. The Subscription copies those dates when it is created. If the first site is created after the 14 days have passed, the subscription starts in `cancelled_no_payment_method` and the site goes live once a card is added and the first charge succeeds.
+- The 14-day trial is counted from account creation, as in legacy. The Subscription copies those dates when it is created. If the first site is created after the 14 days have passed, the subscription starts in `cancelled_no_payment_method` and the site goes live once a card is added and the first charge succeeds. Its dates count from the trial end, not from the site's creation (section 12, 2026-11-11, D2).
 - A storefront is served only when the site is not deleted, has no operator hold, and its subscription is `trial_active`, `active` or `payment_requires_attention`. This fixes a legacy gap where billing state never drove storefront availability.
-- Billing values carried from legacy, to be confirmed in the slice 4 plan before they are coded:
-  - plan: PHP 2,499 per month, monthly anniversary cycles;
-  - included per cycle: 1,000 orders, 5 GB storage, 50 GB video; overage PHP 5 per order, PHP 30 per GB storage, PHP 10 per GB video;
-  - failed payment: retries after 1, 3 and 5 days, then a 7-day attention period before suspension;
-  - after cancellation: 30-day download window, deletion at 90 days.
+- Billing values, confirmed by the Billing Build B1 plan (section 12, 2026-11-11):
+  - plan: PHP 2,499 per month; cycles renew at 3:00 PM Asia/Manila on the anchor day of each month, or the month's last day when that day does not exist;
+  - included per cycle: 1,000 orders and 5 GB storage; overage PHP 5 per order and PHP 30 per GB storage. Video is not in the launch product: no allowance, meter or charge (contract D6, D9);
+  - no payment outcome by the due date plus 7 days: suspended. The storefront is served during the trial, a paid cycle and the 7-day attention period. State is computed from the current time, never from how far the sweep has run;
+  - a trial that reaches day 14 with no active payment method becomes `cancelled_no_payment_method`, with no charge and no statement;
+  - after service end: a 30-day download window; the deletion date is 30 days after service end for a website whose trial ended without any payment, and 90 days otherwise (L75). A suspension counts as the end of the service for these dates (R-4b), and a cancellation after a suspension does not restart them. The never-paid dates start only once payment collection is live (R-4a). Payment is accepted only before the deletion date (D1). Billing and tax records are kept 5 years and no clock here touches them.
+- The retry schedule after a failed payment (legacy: retries after 1, 3 and 5 days) is not confirmed. It moves to the Billing Build B2 plan.
 
 ## 8. API contract
 
@@ -155,7 +157,13 @@ Each slice has its own plan, tests and approval. Migrations are a reviewed relea
 1. **Foundation.** App layout, custom `operators.User`, Django Ninja, error shape, public ids, settings for origins, test tooling, OpenAPI published.
 2. **Accounts and sign-in.** Account, email code, sessions, policy acceptance, account settings, then Google, then Facebook.
 3. **Sites and subdomains.** Site, Subdomain ledger, trial subscription start, subdomain check, site creation and settings, business profile, public host lookup.
-4. **Billing core.** Xendit customer and card setup, webhook inbox, cycles, charging and retries, state transitions, cancel and reactivate. Adds the worker and beat services and the task queue dependency.
+4. **Billing.** Six builds, each with its own ClickUp task, plan and approval:
+   - B1 (z8uq9mdwrv): subscription lifecycle and cycles, state transitions, cancel and reactivate, the public host lookup. Adds the worker and beat services and the task queue dependency.
+   - B2 (z8uq9mdwrw): payment method and collection. Xendit customer and card setup, webhook inbox, charging and retries.
+   - B3 (z8uq9mdwry): Annual Plan and the six-month Launch Promo.
+   - B4 (z8uq9mdwrz): usage ledger and overage (item 5).
+   - B5 (z8uq9mdwt0): Billing Statements (item 6).
+   - B6 (z8uq9mdwt1): referral codes and Subscription Credits (item 7).
 5. **Usage and overage.** Usage entries and overage charge lines.
 6. **Statements.** Numbered statements, PDF, email delivery.
 7. **Referrals.** Referrer lookup at signup, credit ledger applied to the base charge.
@@ -175,7 +183,7 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
 ## 11. Open decisions
 
 - ~~SMS provider for mobile OTP (blocks slice 8 only).~~ Answered on 2026-11-10: NegosyoOnline's own phone gateway on a Globe SIM. See section 12.
-- Confirmation of the billing values in section 7 (blocks slice 4 only).
+- ~~Confirmation of the billing values in section 7 (blocks slice 4 only).~~ Answered on 2026-11-11 by the Billing Build B1 amendment (section 12), except the retry schedule after a failed payment, which the B2 plan confirms.
 - Where statement PDFs are stored (blocks slice 6 only).
 
 ## 12. Amendments
@@ -245,3 +253,22 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
     - This phase adds no "Santé setup" link or button, because the page does not exist. The entry point is added by the Santé task that ships the page.
     - Santé features must not use "Santé Site Owner" for any decision. If Santé needs "does this account have a Santé site", it asks the Site table through the sites service.
 - 2026-11-11: the SMS daily limits start at 2,000 per site and 2,000 for the platform, not 4,000 (Coach Ed, 2026-11-11: "for the fair-use limits, let's start with 2000 sms per day with the same sending interval"; ClickUp task z8uq9md33v). The SMS gateway entry above was updated. The sending interval is unchanged. Migration `notifications.0003_sms_daily_limits_start_at_2000`.
+- 2026-11-11: Billing Build B1, subscription lifecycle and cycles, from ClickUp task z8uq9mdwrv and Coach Ed's approval of its plan on 2026-11-11 ("Approve as recommended"). Plan: `docs/superpowers/plans/2026-11-11-backend-billing-b1-subscription-lifecycle.md`. Sections 6, 7, 9 and 11 were updated.
+  - Rulings, each in section 2 of the plan:
+    - D1: payment is accepted until the deletion date of that site: day 44 for a trial that ended with no payment method (14 + 30), service end + 90 days if the site ever paid.
+    - D2: for a first site created after the 14 days, the dates count from the trial end, not from the site's creation. The gap this leaves (a first site created after its own deletion date) is not built in B1 and is decided with B2.
+    - D3: the task queue is Celery, with Redis as the broker through `REDIS_URL`.
+    - D4: two Railway services, `worker` and `beat`, on staging, and the variable `BILLING_ENABLED`, off by default. While it is off, site creation writes no subscription, the billing endpoints and the host lookup answer 404, and the sweep does nothing.
+    - D5: one migration, three tables, in `apps/billing` only.
+    - D6: the subscriptions of sites made before B1 are written by a command, not a migration.
+    - D7: `billing_exempt` on the subscription marks an approved test site, which is served and never billed. It is set once by a terminal command with an operator, a reason and an audit entry, and is never cleared.
+    - D8: before payments exist, reactivate only withdraws a scheduled cancellation inside the paid period; otherwise it answers 409 `payment_required`.
+    - D9: a cancellation after the renewal time with no recorded payment outcome ends service at once; the pending base fee is not due; the 90-day clock starts.
+    - D10: the trial reminder emails are B2's.
+    - D11: a suspended or ended site answers 403 `billing_only` on `PATCH sites/{site_id}/` and `GET`/`PATCH sites/{site_id}/business-profile/`. The site list, site detail, `account/setup/`, the account endpoints and the billing endpoints answer as before.
+    - D12: this amendment.
+    - D13: the disposal step. An account disposal first cancels the account's subscriptions (`prepare_disposal`). Inside a paid term it cancels at the end of the term and the disposal is refused for now with `paid_term_running`; otherwise service ends at once and the disposal proceeds. Billing rows are never deleted or blanked by a disposal.
+    - D14: a suspension records its dates (R-4b, R-4c, R-4d): payment is refused at or after the deletion date, and a later cancellation does not restart the clock.
+    - D15: a never-paid subscription keeps its download and deletion dates empty until payment collection is live (R-4a), so it has no last date to pay. B2 starts those clocks on the go-live day.
+  - The approval covers the plan with these rulings, this amendment, the migration file `apps/billing/migrations/0001_initial.py` and the Celery dependency.
+  - The approval does not cover, and each is still Coach Ed's own yes, on staging only: running the migration, setting `BILLING_ENABLED`, running the backfill (dry run included), creating the `worker` service, creating the `beat` service, any other variable. Production is not part of it.
