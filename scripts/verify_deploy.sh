@@ -5,7 +5,7 @@ set -euo pipefail
 
 url="${1:?usage: verify_deploy.sh <healthz-url> [expected-commit-prefix]}"
 expected="${2:-}"
-attempts=30
+attempts=18
 delay=10
 
 for i in $(seq 1 "$attempts"); do
