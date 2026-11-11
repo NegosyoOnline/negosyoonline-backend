@@ -21,6 +21,7 @@ Scope: backend (this repo) and frontend (`negosyoonline-frontend`) delivery to s
 - No CD. Staging Vercel builds were triggered through the API. Railway staging deploys separately.
 - The backend repo has a GitHub `staging` environment. The frontend repo has none.
 - `railway.toml` starts Gunicorn and deliberately does not run migrations.
+  - Note, 2026-11-11: since Billing Build B1a each service's build and start commands are set in its Settings in the Railway dashboard and recorded in `docs/runbooks/billing.md`. `railway.toml` was removed.
 
 ## Decisions
 
