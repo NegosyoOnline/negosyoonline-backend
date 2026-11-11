@@ -104,9 +104,6 @@ Print exactly two things:
 
 Then one of two endings.
 
-**Automatic, when a helper session is ready** (coordinator brief, section 8, "Coordinator"). This is the one exception to the cost rule: two more calls, in one final message and in this order.
+**Automatic, when a manager session exists** (coordinator brief, section 8). Send the manager one message with SendMessage: first line "Handover written, ready to be cleared", then the absolute state file path and the resume prompt exactly as printed. Then stop. Do not clear yourself and send nothing else: the manager clears this session once it is idle and sends the resume prompt back.
 
-1. Send the helper session the resume prompt, unchanged, with SendMessage. The helper waits 10 seconds and sends it back to this session.
-2. Clear this session: `clear_session` with "self". It takes effect when this turn ends, so end the turn at once. If the app's hook refuses the call, re-issue it with exactly the input the error quotes.
-
-**By hand, otherwise** (no helper session, this session is served to Remote Control, or the clear is refused). Say plainly: `/clear`, then paste this. The paste is required: nothing else tells the next session where the state file is.
+**By hand, otherwise** (no manager session, this session is served to Remote Control, or the manager cannot clear it). Say plainly: `/clear`, then paste this. The paste is required: nothing else tells the next session where the state file is.
