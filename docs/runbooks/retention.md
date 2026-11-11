@@ -77,6 +77,7 @@ One account at a time, in one transaction. The rows stay; the personal values go
 | Sites of the account | Store email and mobile, social links; the name becomes `Deleted site #<row number>`; the site is closed | The row, template, dates |
 | Business profile | Business and registered name, TIN, DTI number, BIR number, address, complaints contact, privacy email | The row, the shipping estimates |
 | Web address | Retired | The name stays taken and is never reissued |
+| Santé site settings, where `SANTE_SETTINGS_ENABLED` is on | The sponsor ID | The row |
 | Email send records to the account's address | Deleted, except hq sign-in codes and lockout notices | |
 | Email send records to an address the account used before an email change | Deleted when written up to the moment of that change, plus the change notice sent to the old address; hq sign-in codes and lockout notices stay. Later records to that address are not touched: it may belong to another account by then | |
 
@@ -121,6 +122,14 @@ The dry run cancels nothing. It prints `subscriptions_cancelled` and, when a rea
 No billing row is deleted or blanked by a disposal: a subscription, its cycles and its transitions hold the site, states and dates only, and stay.
 
 What the billing step does not know yet, so check by hand before disposing: nothing can be owed until Billing Build B2 takes payments, so there is no final bill to wait for today (ruling R-3). B2 adds the refusal while a payment is open or held for review and the hold of the name and billing email until a final bill is settled; later builds add unpaid final usage and the wait for a delivered statement.
+
+**Santé settings.** Where `SANTE_SETTINGS_ENABLED` is on (ClickUp z8uq9m92ez, port slice 1):
+
+- An account that owns the Santé catalog owner site is **not** disposed of. This is checked before the subscriptions, so nothing is cancelled and nothing is blanked. The command names the site (`catalog_owner`) and exits with an error; the dry run prints "A real run would be refused for now". An operator first names another catalog owner site, or clears it, in the admin list "Santé catalog owner"; then run the command again.
+- Otherwise the sponsor ID of each of the account's sites is blanked and the row is kept. The counts gain `sante_site_settings`, and the audit entry names the field, never the value.
+- The export gains `sante_site_settings`: per Santé site its public id, the sponsor ID, when it was last changed and whether it is the catalog owner.
+
+While `SANTE_SETTINGS_ENABLED` is off, disposal and export do not read the Santé tables at all, because the code is released before migration `sante.0001` is applied. So turn it on in an environment only after that migration is applied there. Once it has been on in an environment, it is not turned off again without Coach Ed's ruling: a disposal run while it is off would leave a saved sponsor ID in place and would not refuse the catalog owner's account.
 
 SMS send records are not touched by a disposal: they hold the number a text went to and follow the SMS build's own 1-year rule.
 
