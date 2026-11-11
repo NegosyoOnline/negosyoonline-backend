@@ -6,7 +6,7 @@ from django.test.utils import CaptureQueriesContext
 from apps.common.errors import ApiError
 from apps.inbox import contacts
 from apps.inbox.models import Contact
-from apps.inbox.tests.contacts_base import ContactsCase
+from apps.inbox.tests.contacts_base import ContactsCase, without_ids
 
 FILE = (
     "First,Last,Mobile,Notes\n"
@@ -43,7 +43,7 @@ class CheckTests(UploadCase):
             {"lines": 7, "new": 2, "existing": 0, "repeated": 1, "refused_count": 4},
         )
         self.assertEqual([r["line"] for r in answer["refused"]], [4, 5, 6, 7])
-        text = json.dumps(answer)
+        text = without_ids(json.dumps(answer))
         for value in NAMES:
             self.assertNotIn(value, text)
         self.assertEqual(
