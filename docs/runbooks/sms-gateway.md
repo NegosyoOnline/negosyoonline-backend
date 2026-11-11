@@ -134,17 +134,36 @@ The gateway counts as online while the system phone asked for texts in the last 
 
 To find out why: `sms_device list` shows the phone's last contact. On the phone, check power, the internet connection, and that the app's service is running and holds its SMS permission.
 
-## Incoming texts: the switch stays off
+## Incoming texts: the three switches
 
-The app can forward the texts the SIM receives, behind a per-phone switch that is **off** for every new phone:
+The app can forward the texts the SIM receives. A phone's own switch is **off** for every new phone.
 
-```bash
-uv run python manage.py sms_device incoming off --name system --actor USERNAME
-```
+- **A text a phone receives is stored only when three switches are all on:** `SMS_GATEWAY_ENABLED`, `SMS_INBOX_ENABLED`, and the phone's own switch. Each variable is Coach Ed's approval per environment. The phone's switch is his approval each time, **and only after the NPC and privacy wording is amended**.
+- With any of them off, `POST /gateway/v1/received` answers 204 and drops the body unread, and `poll` tells the phone not to forward.
+- What is stored when all are on: the sender's number, the full text, the arrival time and the SIM slot, for 365 days. **Every text the SIM receives is stored**, including the carrier's notices, wrong numbers and one-time codes other services send to that SIM. Nothing filters them.
+- The order to turn it on in an environment: the `inbox.0001` migration applied, `SMS_INBOX_ENABLED=1` set, access granted, then the phone's switch.
+- **To stop taking texts in, turn the phone's switch off.** It is audited:
 
-- **Leave it off for the system phone.** A SIM receives texts that have nothing to do with NegosyoOnline, and the NPC filing describes a phone that only sends.
-- Whatever the switch says, the server stores nothing a phone forwards: `POST /gateway/v1/received` answers 204 and drops the body unread. There is no inbox table.
-- Before the switch is ever turned on for any phone, the filing and policy wording must be checked first (register row 6, filing-store-sms, filing-subscriber-accounts-billing, filing-subscriber-stores, PIA 5, privacy manual s8, the Terms and Privacy provider list), and the Dedicated SMS Line add-on must have built the inbox. Turning it on is Coach Ed's own approval.
+  ```bash
+  uv run python manage.py sms_device incoming off --name system --actor USERNAME
+  ```
+
+  **Intake is stopped by the phone's switch, not by unsetting the variable.** Unsetting `SMS_INBOX_ENABLED` hides the inbox from staff and does also stop storing, but it leaves the phone's switch recorded as on and is written to no audit record. Either way the phone deletes at once whatever it had not yet handed over.
+- **What is already stored stays stored when the variable is unset, and is still deleted at 365 days.** The retention rule `inbox_messages` runs wherever the inbox tables exist, whatever the variable says. It is started by the phone's `poll`; in an environment where `SMS_GATEWAY_ENABLED` is off no phone polls, so run `manage.py run_retention --only inbox_messages` there by hand (`docs/runbooks/retention.md`), or the texts stay past 365 days.
+- **A person asks for their texts to be deleted.** Count first, then delete:
+
+  ```bash
+  uv run python manage.py sms_inbox_delete --actor USERNAME
+  ```
+
+  ```bash
+  uv run python manage.py sms_inbox_delete --actor USERNAME --confirm
+  ```
+
+  Each run asks for the number: type it at the prompt, then Enter. The first run only counts; read the count, then run the second, which deletes for good. **The number is typed at the prompt and nowhere else: never as an argument, and never fed in through `echo`, `printf` or a here-string, which would leave it in the shell's history.** A Philippine mobile may be typed in any usual form. Any other number (a foreign mobile, a landline) is matched by its digits, so spaces, brackets and dashes do not matter, but the prefix does: try the number as the person wrote it, with and without its country code. The command works with the variable on or off, and each run writes one audit entry that holds counts and no number. On a shared environment a run with `--confirm` is done by whoever Coach Ed has answer that person's request, per request. **What it does not remove:** the copy in the phone's Messages app, which is deleted on the phone; the masked number in the audit record of each time a conversation was opened, which is blanked after a year; and a text that arrives afterwards.
+- A text the server cannot store (one with no sender, for one) is skipped and counted in one log line, `sms_incoming_skipped count=N`, and the phone drops it: it is then only in the phone's Messages app. `sms_incoming_rejected` means the phone sent something that is not a list of texts, which the app never does. Neither line holds a number or a text.
+- The commands: `sms_device incoming on|off`, which refuses `on` while the variable is off; `sms_inbox_access grant|revoke|list`, which refuses while the variable is off; `sms_inbox_delete`. Who is granted access, and whether they may send, is Coach Ed's decision, per person.
+- There is no screen yet: the staff routes and pages are later plans. No Django admin screen shows a conversation or a text.
 
 ## Local development
 
@@ -167,4 +186,5 @@ The app's debug build can take the fake phone's place on an Android emulator: `a
 - `sms_messages` deletes SMS send records 365 days after they were written. `mobile_challenges` deletes mobile verification challenges 24 hours after they expired. Both are in `apps/notifications/retention.py`.
 - Neither rule is behind `RETENTION_ENABLED`. While `SMS_GATEWAY_ENABLED` is off, both do nothing and read no table.
 - Until a beat service exists, the phone's `poll` starts the run: the first `poll` of each Manila day runs these two rules once, in the background, and writes one `retention_run` audit entry. A day with no `poll` has no run; the next run removes everything that is due. The daily start covers these two rules only: every other retention rule stays manual until slice 4.
+- The same daily start also runs `inbox_messages` (`apps/inbox/retention.py`), which deletes SMS inbox messages 365 days after they were stored and runs wherever the inbox tables exist: see "Incoming texts" above.
 - To run or count by hand, see `docs/runbooks/retention.md`.
