@@ -16,7 +16,7 @@ Every step below that touches staging or production needs Coach Ed's approval fo
 1. Deploy. The code is dark while `SMS_GATEWAY_ENABLED` is unset.
 2. Apply the `apps/notifications` SMS migration and the `apps/accounts` mobile migration, `accounts.0003_accountmobile_mobileotpchallenge` (`docs/runbooks/migrations.md`). Each run is its own approval. Until `accounts.0003` is applied, deleting a subscriber account in the admin fails, because the delete looks for that account's rows in the two mobile tables. The Subscribers list allows it in two places: the "Delete selected" action on the list and the Delete button on an account's page.
 3. Confirm `REDIS_URL` is set, then set `SMS_GATEWAY_ENABLED=1`. Never before step 2: the send function, mobile verification and the lists would fail on the missing tables.
-4. Add the phone (below) and enter its token in the app.
+4. Set up the phone's own controls ("Before a phone is added", below), then add the phone and enter its token in the app.
 5. Check: `sms_device list` shows a recent `last_contact`, and the admin's SMS phones list shows the phone.
 
 To go back, unset `SMS_GATEWAY_ENABLED`. The tables stay; nothing reads them.
@@ -36,6 +36,23 @@ uv run python manage.py sms_device list
 - `add` prints the phone's token **once**. Enter it in the app straight away. Only its SHA-256 is stored, so a lost token cannot be shown again: rotate it. Never paste a token into chat, a ticket or a commit.
 - **The first phone added that is still active is the system phone, and it is the only one that is handed texts.** `list` marks it `sends=True`. A second phone can connect but sends nothing.
 - A phone's row never holds its SIM's number.
+
+### Before a phone is added
+
+The phone's own Messages app keeps a copy of every text the gateway app sends, with the number and the code. Android does this itself and the gateway app cannot turn it off. Coach Ed accepted this on 2026-11-11 ("Approve plan") with the two controls below in the set-up notes. Both are done on the phone, by hand, before `sms_device add`.
+
+**Status: to be verified on the real phone. Neither step has been done; no phone exists yet.**
+
+1. **Screen lock.** Set a screen lock on the phone and record its type (PIN, password, pattern or fingerprint) in the table below. Never record the PIN or password itself.
+2. **Auto-delete of old texts.** In the phone's Messages app, turn on the setting that deletes old texts by itself, and record its period in the table below. **If the phone's Messages app has no auto-delete, stop and tell the coordinator before adding the phone:** the NPC filing wording depends on this control.
+
+| Control | Value | Verified on the real phone |
+|---|---|---|
+| Phone model and Android version | not known yet | no |
+| Screen lock type | not set yet | no |
+| Messages app auto-delete period | not set yet | no |
+
+A phone with a screen lock starts the gateway app again after a restart only once it has been unlocked. Until then the server sees it as offline.
 
 ### Rotating a token
 
