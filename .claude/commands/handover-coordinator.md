@@ -104,7 +104,7 @@ Print exactly two things:
 
 Then one of two endings.
 
-**Automatic, when a helper session is ready** (coordinator brief, section 9, "the coordinator hands itself over"). This is the one exception to the cost rule: two more calls, in one final message and in this order.
+**Automatic, when a helper session is ready** (coordinator brief, section 8, "Coordinator"). This is the one exception to the cost rule: two more calls, in one final message and in this order.
 
 1. Send the helper session the resume prompt, unchanged, with SendMessage. The helper waits 10 seconds and sends it back to this session.
 2. Clear this session: `clear_session` with "self". It takes effect when this turn ends, so end the turn at once. If the app's hook refuses the call, re-issue it with exactly the input the error quotes.
