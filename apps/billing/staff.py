@@ -1,0 +1,185 @@
+"""The Finance routes: where an operator reviews bank transfer proofs in the HQ staff app.
+
+They are in no URL list. `apps.operators.staff_views` registers `ROUTES` under /staff/v1/
+and calls each handler with the staff user of a session that passed both steps; the allowed
+Origin, the method and the session are checked there and nowhere else. A handler answers as
+if it did not exist while bank transfer is off, and reads no billing table then.
+
+Every route is a POST with a small JSON body, the ones that only read too: the staff app
+puts no value in an address or a query string. Nothing here settles anything itself:
+`services.confirm_transfer` and `services.reject_transfer` do, and write the audit entries.
+"""
+import json
+
+from django.http import HttpResponse, JsonResponse
+from django.utils import timezone
+
+from apps.billing import plan, services
+from apps.billing.models import BankTransferPayment
+from apps.common.errors import ApiError, error_body
+from apps.common.pagination import page
+
+MAX_BODY = 2048
+PROOF_FILE_NAMES = {
+    "image/jpeg": "proof.jpg", "image/png": "proof.png", "application/pdf": "proof.pdf",
+}
+Status = BankTransferPayment.Status
+
+
+def _now():
+    return timezone.now()
+
+
+def _iso(value):
+    return value.isoformat() if value is not None else None
+
+
+def _invalid(field, message):
+    return ApiError(
+        "invalid_request", "Some values are missing or invalid.", fields={field: [message]}
+    )
+
+
+def _body(request):
+    """The JSON object sent, or {} when there is none, it is too large or it is not one."""
+    try:
+        if int(request.META.get("CONTENT_LENGTH") or 0) > MAX_BODY:
+            return {}
+        data = json.loads(request.body)
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _route(view):
+    """A handler as staff_views calls it: closed while bank transfer is off, and a refusal
+    from a service answered in the one error shape."""
+    def handler(request, operator):
+        try:
+            if not plan.collection_live():
+                raise ApiError("not_found", "Not found.", status=404)
+            return view(_body(request), operator)
+        except ApiError as refusal:
+            return JsonResponse(
+                error_body(refusal.code, refusal.message, refusal.fields), status=refusal.status
+            )
+    return handler
+
+
+def _payment_of(body):
+    payment_id = body.get("payment")
+    if not isinstance(payment_id, str) or not payment_id:
+        raise _invalid("payment", "Name the payment.")
+    return services.transfer_for_operator(payment_id)
+
+
+def _payment(payment):
+    """A payment as Finance sees it. Never where the file is kept, its hash or an account."""
+    bought = plan.PLANS[payment.plan_code]
+    site = payment.subscription.site
+    rejected = payment.status == Status.REJECTED
+    cycle = payment.cycle
+    return {
+        "id": payment.public_id,
+        "status": payment.status,
+        "site": {"id": site.public_id, "name": site.display_name},
+        "plan": {"code": bought.code, "name": bought.name, "months": bought.months},
+        "amount_centavos": payment.amount_centavos,
+        "currency": payment.currency,
+        "transferred_on": payment.transferred_on.isoformat(),
+        "transfer_reference": payment.transfer_reference,
+        "submitted_at": _iso(payment.submitted_at),
+        "decided_at": _iso(payment.decided_at),
+        "decided_by": payment.decided_by.username if payment.decided_by else None,
+        "amount_received_centavos": payment.amount_received_centavos,
+        "reject_reason": payment.reject_reason if rejected else None,
+        "reject_note": payment.reject_note if rejected else None,
+        "proof": {"content_type": payment.proof_content_type, "size_bytes": payment.proof_size},
+        "cycle": cycle and {
+            "sequence": cycle.sequence, "start_at": _iso(cycle.start_at),
+            "end_at": _iso(cycle.end_at),
+        },
+    }
+
+
+@_route
+def queue(body, operator):
+    status = body.get("status")
+    if not isinstance(status, str) or status not in Status.values:
+        raise _invalid("status", "Choose one of the listed statuses.")
+    limit = body.get("limit")
+    if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int)):
+        raise _invalid("limit", "Enter a whole number.")
+    cursor = body.get("cursor") or ""
+    if not isinstance(cursor, str):
+        raise ApiError("invalid_cursor", "That page marker is not valid.")
+    items, next_cursor = page(
+        services.review_queue(status), limit=limit, cursor=cursor, prefix="btp"
+    )
+    return JsonResponse({
+        "items": [_payment(payment) for payment in items],
+        "next_cursor": next_cursor,
+        "under_review_count": services.review_queue(Status.SUBMITTED).count(),
+    })
+
+
+@_route
+def detail(body, operator):
+    payment = _payment_of(body)
+    subscription = payment.subscription
+    return JsonResponse({
+        **_payment(payment),
+        # Shown here only, never in the queue: a wrong amount is settled with the Subscriber
+        # outside the system (Coach Ed, 2026-11-11).
+        "subscriber_email": subscription.site.account.email,
+        "subscription": {
+            "state": subscription.state,
+            "trial_end_at": _iso(subscription.trial_end_at),
+            "service_ended_at": _iso(subscription.service_ended_at),
+        },
+        "history": [
+            {"code": event.code, "actor": event.actor, "at": _iso(event.recorded_at)}
+            for event in payment.events.order_by("pk")
+        ],
+    })
+
+
+@_route
+def proof(body, operator):
+    """The file itself, in this answer only. It has no address. Each read is audited."""
+    payment = _payment_of(body)
+    content, content_type = services.proof_for_operator(payment, operator)
+    response = HttpResponse(content, content_type=content_type)
+    response["Cache-Control"] = "no-store"
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Content-Disposition"] = f'inline; filename="{PROOF_FILE_NAMES[content_type]}"'
+    return response
+
+
+@_route
+def confirm(body, operator):
+    payment = _payment_of(body)
+    amount = body.get("amount_received_centavos")
+    if isinstance(amount, bool) or not isinstance(amount, int):
+        raise _invalid("amount_received_centavos", "Enter the amount received, in centavos.")
+    services.confirm_transfer(payment, operator, amount_received_centavos=amount, now=_now())
+    return JsonResponse(_payment(services.transfer_for_operator(payment.public_id)))
+
+
+@_route
+def reject(body, operator):
+    payment = _payment_of(body)
+    reason, note = body.get("reason"), body.get("note", "")
+    if not isinstance(reason, str):
+        raise _invalid("reason", "Choose one of the listed reasons.")
+    services.reject_transfer(payment, operator, reason=reason, note=note, now=_now())
+    return JsonResponse(_payment(services.transfer_for_operator(payment.public_id)))
+
+
+ROUTES = {
+    "finance/payments/list/": queue,
+    "finance/payments/detail/": detail,
+    "finance/payments/proof/": proof,
+    "finance/payments/confirm/": confirm,
+    "finance/payments/reject/": reject,
+}
