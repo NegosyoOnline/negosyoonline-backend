@@ -13,7 +13,7 @@ from apps.billing.api import router as billing_router
 from apps.billing.models import Subscription
 from apps.billing.tests.base import days, method_on_file
 from apps.catalog.api import router as catalog_router
-from apps.catalog.tests.base import VALID_CREATE, designate, make_product
+from apps.catalog.tests.base import catalog_call
 from apps.sante.api import router as sante_router
 from apps.sites.api import router as sites_router
 from apps.sites.models import Site, SiteBusinessProfile
@@ -57,35 +57,23 @@ class BillingOnlyTestCase(SitesApiTestCase):
         self.clock = patcher.start()
         self.addCleanup(patcher.stop)
         self.at(self.start + days(1))
-        # The catalog routes work only for the catalog owner site, on a product that exists.
-        self.product = make_product()
-        self.creates = 0
-        designate(self.site)
 
     def at(self, moment):
         self.clock.now.return_value = moment
         return moment
 
     def call(self, method, template, client=None, site_id=None):
-        path = "/v1" + template.replace("{site_id}", site_id or self.site_id).replace(
-            "{product_id}", self.product.public_id
-        )
+        path = "/v1" + template.replace("{site_id}", site_id or self.site_id)
+        if "/catalog/" in path:
+            return catalog_call(self, method, path, client=client)
         if method == "GET":
             return self.get(path, client=client)
-        if "/catalog/" in path:
-            return self.send(method.lower(), path, self.catalog_body(method), client=client)
         body = PROFILE_BODY if "business-profile" in path else SITE_BODY
         if "/sante/" in path:
             body = SANTE_BODY
         if "billing" in path:
             body = None
         return self.send(method.lower(), path, body, client=client)
-
-    def catalog_body(self, method):
-        if method == "PATCH":  # the values on file: it works and changes nothing
-            return {"revision": 1, "name": self.product.name}
-        self.creates += 1  # a new code each time, so a repeated create is never a 409
-        return {**VALID_CREATE, "code": f"FX-NEW-{self.creates}"}
 
     def assert_worked(self, method, template, response):
         expected = 201 if (method, template) in CREATED else 200
@@ -227,7 +215,6 @@ class BillingOnlyTests(BillingOnlyTestCase):
         other = site.public_id
 
         self.assert_turned_off()
-        designate(site)  # the catalog routes work for the catalog owner site only
         for method, template in TURNED_OFF:
             with self.subTest(method=method, template=template):
                 self.assert_worked(method, template, self.call(method, template, site_id=other))

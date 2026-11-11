@@ -58,6 +58,27 @@ def make_product(code="FX-ALPHA", name="Fixture Alpha", srp_centavos=9999, rate=
     return product
 
 
+def catalog_call(case, method, path, client=None):
+    """Call a catalog route for a test that walks every route under a site (Billing's
+    inventory). It only prepares data: the site in the path is named the catalog owner, one
+    product is made per test, and {product_id} is filled in. It never touches a subscription
+    or a switch."""
+    site = Site.objects.filter(public_id=path.split("/sites/")[1].split("/")[0]).first()
+    if site is not None and sante.catalog_owner_site() != site:
+        designate(site)
+    if not hasattr(case, "catalog_product"):
+        case.catalog_product, case.catalog_creates = make_product(), 0
+    path = path.replace("{product_id}", case.catalog_product.public_id)
+    if method == "GET":
+        return case.get(path, client=client)
+    if method == "PATCH":  # the values on file: it works and changes nothing
+        body = {"revision": 1, "name": case.catalog_product.name}
+    else:  # a new code each time, so a repeated create is never a 409
+        case.catalog_creates += 1
+        body = {**VALID_CREATE, "code": f"FX-NEW-{case.catalog_creates}"}
+    return case.send(method.lower(), path, body, client=client)
+
+
 def retemplate(site, template="other"):
     """Make this a site of another template, which the API cannot create in the MVP."""
     Site.objects.filter(pk=site.pk).update(template=template)

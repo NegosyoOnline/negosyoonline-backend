@@ -7,13 +7,16 @@ from django.test import override_settings
 
 from apps.billing.tests.base import days
 from apps.catalog.tests.base import (
-    VALID_CREATE, catalog_rows, product_url, products_url, retemplate, revisions_url,
+    VALID_CREATE, catalog_rows, designate, make_product, product_url, products_url, retemplate, revisions_url,
 )
 from apps.sites.tests.test_billing_only import MESSAGE, BillingOnlyTestCase as BillingOnlyBase
 
 
 class CatalogBillingOnlyTests(BillingOnlyBase):
-    """The base names self.site the catalog owner and makes self.product."""
+    def setUp(self):
+        super().setUp()
+        designate(self.site)
+        self.product = make_product()
 
     def calls(self, client=None, create=None):
         product_id = self.product.public_id
