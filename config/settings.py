@@ -163,6 +163,18 @@ STOREFRONT_ENABLED = os.environ.get("STOREFRONT_ENABLED", "").strip() == "1"
 STOREFRONT_SERVER_SECRET = os.environ.get("STOREFRONT_SERVER_SECRET", "").strip()
 
 
+# The Financial Accounting System's books (apps/ledger). "1" turns on the ledger app: its
+# writer and its staff routes. Off, every ledger route answers 404 and no ledger table is
+# read or written.
+LEDGER_ENABLED = os.environ.get("LEDGER_ENABLED", "").strip() == "1"
+# "1" lets a confirmed bank-transfer payment post its journal entry inside the confirmation.
+# Counts only while LEDGER_ENABLED is on. Off, a confirmation behaves as it did before.
+LEDGER_POST_BILLING_ENABLED = os.environ.get("LEDGER_POST_BILLING_ENABLED", "").strip() == "1"
+# "1" lets a live book be opened and posted to. Set only where the real books live, which is
+# nowhere yet: staging holds rehearsal books only.
+LEDGER_LIVE_BOOKS = os.environ.get("LEDGER_LIVE_BOOKS", "").strip() == "1"
+
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -185,6 +197,7 @@ INSTALLED_APPS = [
     'apps.health',
     'apps.storefront',
     'apps.members',
+    'apps.ledger',
 ]
 
 AUTH_USER_MODEL = "operators.User"
