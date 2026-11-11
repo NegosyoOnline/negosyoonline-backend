@@ -112,6 +112,17 @@ The output is a count per transition. A second run answers "Nothing is due."
 
 A proof of payment waiting for an operator holds a trial past its end for the 7 days and no longer. It does not hold a paid cycle past its due date plus 7 days. A payment confirmed after a suspension starts a new paid cycle at the confirmation time.
 
+## The Finance routes (reviewing a proof)
+
+An operator reviews proofs on the Finance page of the HQ staff app. The page calls five routes on the hq host, under `/staff/v1/finance/payments/`: `list/`, `detail/`, `proof/`, `confirm/` and `reject/`. Each is a `POST` with a small JSON body and needs the staff app's Origin and a session that passed both sign-in steps. There is no terminal command for confirming or rejecting a proof (Coach Ed, 2026-11-11).
+
+- `confirm/` needs the amount received, typed by the operator, equal to the amount due. It settles exactly one cycle and writes `billing_payment_confirmed` to the admin audit log. Confirming the same payment again changes nothing.
+- `reject/` needs a reason and changes nothing about the subscription. It writes `billing_payment_rejected`. The Subscriber sees the reason and the note and can send another proof.
+- `proof/` answers the file itself, which has no address. Each read writes `billing_proof_viewed`.
+- A proof the Subscriber replaced cannot be confirmed or rejected: the answer is `not_under_review`, and the newer proof is its own payment.
+
+The routes do not exist while `HQ_STAFF_ORIGIN` is unset, and answer 404 and read no billing table while bank transfer is off. So they are closed wherever no proof store is available, which today is every shared environment. The page itself is a later pull request in the frontend.
+
 ## An account disposal
 
 `manage.py dispose_account` cancels the account's subscriptions first. It is refused with `payment_under_review` while a site of the account has a proof of payment waiting for an operator; confirm or reject the proof first. See "A request to delete an account" in `docs/runbooks/retention.md`.
@@ -167,6 +178,6 @@ To go back, remove the two services. Nothing else depends on them.
 
 ## Not in this runbook yet
 
-- The operator's review of proofs (a Finance menu in the HQ dashboard, its own plan).
+- The Finance page itself, in the HQ staff app: a later pull request, in the frontend.
 - The emails: a later pull request of B2a.
 - Card payments, reminders by a gateway and statements: B2 and later.

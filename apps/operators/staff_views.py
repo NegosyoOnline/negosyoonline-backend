@@ -18,6 +18,7 @@ from django.utils import timezone
 from django.utils.cache import patch_vary_headers
 
 from apps.accounts.sessions import client_ip
+from apps.billing import staff as billing_staff
 from apps.common.errors import error_body
 from apps.operators import audit, background, hq_auth, hq_views, two_step
 
@@ -178,6 +179,22 @@ ROUTES = {
     "me/": ("GET", me),
     "console/": ("GET", console),
 }
+
+
+def _for_staff(view):
+    """A route another app owns. It is called with the staff user of a session that passed
+    both steps, and never without one."""
+    def gated(request):
+        session, refusal = _gate(request)
+        if refusal:
+            return refusal
+        return view(request, session.identity.user)
+    return gated
+
+
+ROUTES.update(
+    {path: ("POST", _for_staff(view)) for path, view in billing_staff.ROUTES.items()}
+)
 
 
 def _answer(request, allowed):

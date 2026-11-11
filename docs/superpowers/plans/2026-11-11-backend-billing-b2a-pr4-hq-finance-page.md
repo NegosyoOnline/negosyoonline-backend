@@ -4,6 +4,16 @@ Status: **plan only, for Coach Ed's approval.** No code, migration, variable or 
 
 ClickUp task: z8uq9me581 (https://app.clickup.com/t/z8uq9me581). Read against backend `origin/main` at `e65fb96` and frontend `origin/main` at `b8bf183`.
 
+## Answers, 2026-11-11
+
+Coach Ed approved this plan at `e06ed33`: "Approve as recommended" (ClickUp z8uq9me581, comment 1100430000490108).
+
+- **Q1: (a).** Every two-step verified staff identity may confirm and reject, each action audited. No permission table and no migration.
+- **Q2: yes.** The Subscriber's account email is on the one-payment answer (`detail/`) only, as `subscriber_email`, never in the queue.
+- **Q3: yes** to the one CSP line, `img-src 'self' blob:`.
+
+Corrections found while building the routes: the registration in `staff_views.py` (3.1) is 17 added lines, not 16, with the text unchanged; and `plan.name` for the promo is "NegosyoOnline Launch Promo (6 Months)", as `plan.py` names it, not "Launch Promo" as the example in 5.2 shows.
+
 ## 1. Sources
 
 - Coach Ed, 2026-11-11, coordinator chat: "lets build now the finance page.. other session needs this".

@@ -1061,6 +1061,28 @@ def proof_for_operator(payment, operator):
     return content, payment.proof_content_type
 
 
+def review_queue(status):
+    """The payments in one status, for the Finance page. Nothing is read while collection
+    is off."""
+    _require_transfers()
+    return BankTransferPayment.objects.filter(status=status).select_related(
+        "subscription__site", "cycle", "decided_by"
+    )
+
+
+def transfer_for_operator(payment_id):
+    """One payment by its public id, for the Finance page. Any other id is not found."""
+    _require_transfers()
+    payment = None
+    if is_public_id(payment_id, "btp"):
+        payment = BankTransferPayment.objects.select_related(
+            "subscription__site__account", "cycle", "decided_by"
+        ).filter(public_id=payment_id).first()
+    if payment is None:
+        raise ApiError("not_found", "Not found.", status=404)
+    return payment
+
+
 # Joins with the other apps
 
 def backfill(now=None, *, apply=False):
