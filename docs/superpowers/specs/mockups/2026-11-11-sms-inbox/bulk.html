@@ -62,15 +62,15 @@
           <li class="batch">
             <div class="batch-main">
               <span class="batch-title">Today, 9:12 AM · Launch list A, Launch list B<span class="chip chip-info"><span class="dot"></span>Still sending</span></span>
-              <span class="item-sub">396 of 1,786 sent, 16 not sent, 1,374 waiting. About 8 hours left. Started by sample.staff.</span>
-              <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="1786" aria-valuenow="412" aria-label="412 of 1,786 handled"><span style="width:23%"></span></div>
+              <span class="item-sub">396 of 1,486 sent, 16 not sent, 1,074 waiting. About 6 hours left. Started by sample.staff.</span>
+              <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="1486" aria-valuenow="412" aria-label="412 of 1,486 handled"><span style="width:28%"></span></div>
             </div>
             <div class="batch-end"><a class="no-btn no-btn-ghost" href="#b3-h">View</a><button class="no-btn no-btn-ghost stop" type="button">Stop sending</button></div>
           </li>
           <li class="batch">
             <div class="batch-main">
               <span class="batch-title">Yesterday, 8:40 AM · CSV file<span class="chip chip-ok">Finished</span></span>
-              <span class="item-sub">1,902 of 1,902 handled: 1,889 sent, 13 not sent. Started by sample.staff.</span>
+              <span class="item-sub">1,640 of 1,640 handled: 1,629 sent, 11 not sent. Started by sample.staff.</span>
             </div>
             <div class="batch-end"><a class="no-btn no-btn-ghost" href="#">View</a></div>
           </li>
@@ -83,7 +83,7 @@
           </li>
         </ul>
       </section>
-      <p class="mock-note"><strong>Mockup note.</strong> This page shows one batch at three moments. Steps 1 and 2 are before it was confirmed, when 214 of 2,000 texts were used and 1,786 were left. The list above and step 3 are later, while it is sending: 396 sent, so 610 used.</p>
+      <p class="mock-note"><strong>Mockup note.</strong> This page shows one batch at three moments. Steps 1 and 2 are before it was confirmed, when 214 texts were used and 1,486 were left for bulk. The list above and step 3 are later, while it is sending: 396 sent, so 610 used.</p>
       <div class="cols">
         <form class="dash-card form-card" action="#" onsubmit="return false" aria-labelledby="b1-h">
           <h2 id="b1-h"><span class="step">1</span>New batch: write the text and choose who gets it</h2>
@@ -132,7 +132,8 @@
               <li>Sign-in codes always go first.</li>
               <li>One text every 18 to 25 seconds.</li>
               <li>Counts toward the 2,000 texts a day shared with codes.</li>
-              <li>Sent in batches. A batch never goes over the texts left today.</li>
+              <li>300 texts a day are kept for sign-in codes. Bulk SMS stops at 1,700.</li>
+              <li>Sent in batches. A batch never goes over the texts left for bulk today.</li>
               <li>Numbers that replied STOP are skipped.</li>
               <li>Recorded with your name and the count, never the text.</li>
             </ul>
@@ -145,23 +146,22 @@
           <div><dt>Contacts in the 2 groups</dt><dd>2,348</dd></div>
           <div><dt>After duplicates</dt><dd>2,330</dd></div>
           <div><dt>After opt-outs</dt><dd>2,293</dd></div>
-          <div><dt>Texts left today</dt><dd>1,786</dd></div>
-          <div><dt>This batch</dt><dd>1,786</dd></div>
-          <div><dt>For a later batch</dt><dd>507</dd></div>
+          <div><dt>Texts left for bulk today</dt><dd>1,486</dd></div>
+          <div><dt>This batch</dt><dd>1,486</dd></div>
+          <div><dt>For a later batch</dt><dd>807</dd></div>
         </dl>
         <div class="banner">
           <h2>These groups do not fit in today's texts</h2>
-          <p class="dash-copy">This batch is cut to the first <strong>1,786</strong> numbers, all the texts left today (214 of 2,000 are used). The other <strong>507</strong> are not sent; download them as a CSV file for a later batch.</p>
+          <p class="dash-copy">This batch is cut to the first <strong>1,486</strong> numbers, all the texts left for bulk today: 214 of 1,700 are used, and 300 of the 2,000 are kept for sign-in codes. The other <strong>807</strong> are not sent; download them as a CSV file for a later batch.</p>
         </div>
-        <p class="dash-copy">About <strong>10 to 11 hours</strong> to send, at one text every 18 to 25 seconds. Launch list A and Launch list B hold 2,348 contacts: 18 are in both groups and get one text, and <strong>37 were skipped</strong> because they replied STOP.</p>
-        <p class="mock-note"><strong>Open point.</strong> As drawn, this batch leaves no texts for sign-in codes today. How many to keep back for codes is not decided.</p>
+        <p class="dash-copy">About <strong>7 to 10 hours</strong> to send, at one text every 18 to 25 seconds. Launch list A and Launch list B hold 2,348 contacts: 18 are in both groups and get one text, and <strong>37 were skipped</strong> because they replied STOP.</p>
         <div class="field">
-          <label for="b-confirm">Type 1786 to confirm</label>
+          <label for="b-confirm">Type 1486 to confirm</label>
           <input class="input narrow" id="b-confirm" inputmode="numeric" autocomplete="off">
         </div>
         <div class="form-foot">
-          <span class="status-actions"><a class="no-btn no-btn-ghost" href="#">Download the 507 not in this batch</a></span>
-          <button class="no-btn no-btn-primary" type="button">Send this batch of 1,786</button>
+          <span class="status-actions"><a class="no-btn no-btn-ghost" href="#">Download the 807 not in this batch</a></span>
+          <button class="no-btn no-btn-primary" type="button">Send this batch of 1,486</button>
         </div>
       </section>
       <section class="dash-card form-card wide" aria-labelledby="b3-h">
@@ -169,12 +169,12 @@
           <h2 id="b3-h"><span class="step">3</span>Progress of the batch being sent</h2>
           <button class="no-btn no-btn-ghost stop" type="button">Stop sending</button>
         </div>
-        <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="1786" aria-valuenow="412" aria-label="412 of 1,786 handled"><span style="width:23%"></span></div>
+        <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="1486" aria-valuenow="412" aria-label="412 of 1,486 handled"><span style="width:28%"></span></div>
         <div class="strip">
           <span class="chip chip-ok">396 sent</span>
-          <span class="chip chip-warn">1,374 waiting</span>
+          <span class="chip chip-warn">1,074 waiting</span>
           <span class="chip chip-neutral">16 not sent</span>
-          <span class="chip chip-neutral">About 8 hours left</span>
+          <span class="chip chip-neutral">About 6 hours left</span>
         </div>
         <ul class="list results">
           <li><span class="item-num">+63 900 ••• 0101</span><span class="chip chip-ok">Sent</span></li>

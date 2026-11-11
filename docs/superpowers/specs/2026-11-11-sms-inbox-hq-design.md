@@ -2,7 +2,7 @@
 
 ClickUp task: z8uq9me128 "SMS inbox, reply and compose (HQ)" (https://app.clickup.com/t/z8uq9me128), a subtask of z8uq9md33v "NPC Build 1 — SMS Carrier & Data-Flow Controls".
 
-Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. One decision is open and is his: where the screens are served (section 3). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. Contacts and groups (section 19) were added by R16 to R19, so the scope is now three parts: the inbox, Bulk SMS and contacts. After approval comes a plan, also for approval, before any code.
+Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. One decision is open and is his: where the screens are served (section 3). The reserve for sign-in codes is settled (R20, section 18.10). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. Contacts and groups (section 19) were added by R16 to R19, so the scope is now three parts: the inbox, Bulk SMS and contacts. After approval comes a plan, also for approval, before any code.
 
 ## 1. Sources
 
@@ -44,8 +44,9 @@ The coordinator's readings recorded with those rulings, which this design confir
 | R17 | A contact is kept until HQ staff delete it. No automatic deletion. Texts stay on the 365-day rule | "Until staff delete" |
 | R18 | Contacts and groups are seen and edited by the same HQ staff who hold the SMS inbox permission. No separate contacts permission | "Same inbox staff" |
 | R19 | Staff may upload a CSV file of contacts (first name, last name, mobile number) into a chosen group | "Yes, allow CSV" |
+| R20 | Of the 2,000 texts a day, 300 are kept for sign-in codes | "Hold back 300" |
 
-R9 to R19 are each a comment on the Task, re-read there on 2026-11-11. Section 18 applies R10 to R15; section 19 applies R16 to R19.
+R9 to R19 are each a comment on the Task, re-read there on 2026-11-11. R20 was relayed by the coordinator the same day as the Task's newest comment; this session did not re-read it there. Section 18 applies R10 to R15; section 19 applies R16 to R19.
 
 ### 2.1 What R7 and R8 change in this design
 
@@ -211,7 +212,7 @@ The link gate, the 160-character rule, the daily counts, the kill switch, the en
 - **A code is always first.** Staff texts use the existing `reply` sending class, which is handed to the phone after every waiting code. A code's gap stays 0, and the phone's gap clock ignores texts without a gap, so a staff text never delays a code.
 - **The sending interval applies to staff texts.** R4 says staff texts "keep the sending interval", which is the random 18 to 25 seconds of Coach Ed's earlier ruling. A staff text therefore carries that gap: the phone sends it no sooner than 18 to 25 seconds after the last paced text it sent, and the server hands the phone one paced text at a time. The first text after a quiet spell leaves on the phone's next poll, about 5 seconds.
 - **This differs from the Gateway design, and is reported, not hidden.** Its section 6.7 gave the `reply` class no gap, written for the add-on before R4 existed. R4 is later and explicit, so this design follows R4. If Coach Ed meant replies to leave at once, it is a one-word change to the two purposes.
-- **The cap.** Each staff text takes one slot of the platform's 2,000 a day (Manila time), the same count codes use. Consequence, stated plainly: staff texts and codes share one allowance, so a day of heavy staff texting leaves fewer slots for codes. The admin can change the limit or stop all sending in seconds (`SmsPolicy`).
+- **The cap.** Each staff text takes one slot of the platform's 2,000 a day (Manila time), the same count codes use. Consequence, stated plainly: staff texts and codes share one allowance, so a day of heavy staff texting leaves fewer slots for codes. **300 of the 2,000 are kept for sign-in codes (R20):** a reply, a composed text and a bulk text are refused once 1,700 texts are used that day, with "Today's limit for staff texts is reached. 300 texts are kept for sign-in codes." Codes may use all 2,000. The admin can change the limit or stop all sending in seconds (`SmsPolicy`).
 - **One text, one number.** (This paragraph is about reply and compose. Bulk SMS, section 18, is the one path with a list, with its own controls.) The compose form takes one number. There is no list, no paste of many numbers, no upload and no "send to all". This, the audit record and a limit of 60 staff texts per staff user per hour are what stand between "any Philippine mobile" and bulk sending. Marketing stays forbidden; the compose page says so. Code cannot recognise a marketing text, so the audit record is the control.
 
 ### 6.4 The Philippine mobile check
@@ -493,7 +494,7 @@ At the top of the Bulk SMS page, newest first. One row per batch: when it was co
 | Finished | Every text has a final result, or the batch's day ended (18.3) | "Finished", sent and not sent |
 
 - Stop is offered only on a waiting or sending row, to a staff user with the bulk permission, and asks once before it stops. It is audited (`sms_inbox_bulk_stop`, 18.7).
-- While a batch is waiting or sending, the "Bulk SMS" button on the SMS list carries a small chip, "Sending 396 of 1,786", so staff with the bulk permission see it without opening the page. It sits on the button so the status chips and the buttons stay on one line (R9).
+- While a batch is waiting or sending, the "Bulk SMS" button on the SMS list carries a small chip, "Sending", so staff with the bulk permission see it without opening the page. It sits on the button so the status chips and the buttons stay on one line (R9).
 - The counts are read when the page is loaded; the page does not need script to show them. Whether it refreshes itself is for the plan.
 - A row stays as long as its batch record does: 365 days (18.4).
 
@@ -507,15 +508,15 @@ At the top of the Bulk SMS page, newest first. One row per batch: when it was co
 
 ### 18.3 Batches (R10)
 
-- One bulk send is one batch. A batch never goes over the texts left today under the 2,000-a-day cap. The cap and the 18 to 25 second gap are the existing ones; nothing raises them.
-- When the list is larger than what is left, the batch is **cut to fit**: it takes the first numbers in the list up to what is left, says so with both counts, and offers the numbers it left out as a download for a later batch. When no texts are left today, the batch is refused.
+- One bulk send is one batch. A batch never goes over the texts left for bulk today: 1,700 less what is already used, because 300 of the 2,000 a day are kept for sign-in codes (R20, 18.10). The cap and the 18 to 25 second gap are the existing ones; nothing raises them.
+- When the list is larger than what is left, the batch is **cut to fit**: it takes the first numbers in the list up to what is left, says so with both counts, and offers the numbers it left out as a download for a later batch. When none are left for bulk today, the batch is refused.
 - One batch at a time. A second cannot start while one is sending.
 - A batch belongs to the day it was confirmed (Manila time). Whatever has not been sent when the day ends is marked "Not sent" and can be downloaded for a later batch.
 - Codes are always first (section 6.3): bulk texts use the paced class behind every waiting code, one at a time. A code asked for while a batch runs takes a slot of the same 2,000, so the last texts of a batch that was cut to the very limit can be refused by the cap; they show "Not sent: today's limit reached".
 - A staff text waits for the phone at most 1 hour (section 6.1), and at this gap the phone sends about 145 to 200 texts an hour. So a batch is not queued all at once: its texts are handed to the queue a few at a time. How that is driven without a new worker (the phone's own poll is the proposal) is for the plan to confirm.
 - The 60-an-hour limit per staff user (section 6.3) applies to replies and composed texts only. A batch is limited by the cap, the gap and one batch at a time.
 
-In numbers: a full day's 2,000 texts take about 10 to 14 hours of sending. The mockup's example is a list of 2,293 numbers on a day when 214 texts are used: the batch is cut to 1,786, takes about 10 to 11 hours, and leaves 507 for a later batch. A list of more than 2,000 numbers takes at least two days.
+In numbers: a full day's 1,700 bulk texts take about 8.5 to 12 hours of sending. The mockup's example is a list of 2,293 numbers on a day when 214 texts are used: the batch is cut to 1,486, takes about 7 to 10 hours, and leaves 807 for a later batch. A list of more than 1,700 numbers takes at least two days.
 
 ### 18.4 The numbers and where they come from (R12)
 
@@ -525,7 +526,7 @@ In numbers: a full day's 2,000 texts take about 10 to 14 hours of sending. The m
 - The batch keeps its list of numbers only while it needs them: the rows are deleted when the batch has finished or was stopped and its last text has a final result. After that the screen shows the batch's counts, not its numbers.
 - What stays, as for every text the gateway sends: one send record per text (the number, the purpose, the result, no text), deleted at 365 days by the existing rule and shown masked in the admin's SMS list.
 - The batch keeps its one text and its counts for 365 days, as staff texts are kept (R2).
-- A bulk text does not open a conversation in the inbox, so 1,786 announcements do not bury the list. If a recipient writes back, their text arrives as an ordinary conversation.
+- A bulk text does not open a conversation in the inbox, so 1,486 announcements do not bury the list. If a recipient writes back, their text arrives as an ordinary conversation.
 
 ### 18.5 STOP and the do-not-text list (R13)
 
@@ -570,7 +571,7 @@ To the list in section 12, all in the new app and each needing the same approval
 
 Whether these tables are in `inbox.0001_initial` or a second migration is for the plan.
 
-Tests the build would add to section 15: the opt-out line is always present and counted; a text over 138 characters is refused; the list is checked, de-duplicated and stripped of opted-out numbers; a batch larger than the texts left is cut and says so; a batch with nothing left is refused; a second batch is refused while one runs; a code is handed out before a waiting bulk text; stop sends nothing more, from the list and from the progress; a CSV with a header row and extra columns yields only its first column's numbers; a file over 1 MB is refused; the list of bulk sends shows each state and holds no number and no text; STOP in any case with spaces lists the number, and "STOP please" does not; a listed number can still be replied to; a batch is refused while incoming texts are not stored, while `SMS_BULK_ENABLED` is off, and for a user without `can_bulk`; the recipient rows are gone after the batch ends; no audit entry, log line or page after the check holds a full number, and none holds the text.
+Tests the build would add to section 15: the opt-out line is always present and counted; a text over 138 characters is refused; the list is checked, de-duplicated and stripped of opted-out numbers; a batch larger than the texts left for bulk is cut and says so; a batch with nothing left is refused; a staff text and a bulk text are refused at 1,700 used while a code is still sent; a second batch is refused while one runs; a code is handed out before a waiting bulk text; stop sends nothing more, from the list and from the progress; a CSV with a header row and extra columns yields only its first column's numbers; a file over 1 MB is refused; the list of bulk sends shows each state and holds no number and no text; STOP in any case with spaces lists the number, and "STOP please" does not; a listed number can still be replied to; a batch is refused while incoming texts are not stored, while `SMS_BULK_ENABLED` is off, and for a user without `can_bulk`; the recipient rows are gone after the batch ends; no audit entry, log line or page after the check holds a full number, and none holds the text.
 
 ### 18.9 What this changes in the earlier sections
 
@@ -583,9 +584,15 @@ Tests the build would add to section 15: the opt-out line is always present and 
 | Section 11: everything goes at 365 days | The do-not-text list does not |
 | Section 16: no broadcast or marketing text; no sending to more than one number | Bulk SMS for the launch announcement is in scope. Everything else on those lines stays out |
 
-### 18.10 Still open
+### 18.10 Texts kept for sign-in codes (R20)
 
-One point, raised by this design and not ruled on: **how many texts a day are kept back for sign-in codes.** As drawn, a batch may use every text left that day, and a code asked for afterwards is refused until the next day. Should a batch stop short of the cap, and by how many?
+Settled by Coach Ed: "Hold back 300".
+
+- Of the 2,000 texts a day, 300 are for sign-in codes only.
+- Bulk SMS and single staff texts (a reply, a composed text) stop once 1,700 texts are used that day. The 1,700 counts every text sent that day, codes included. Applying the reserve to single staff texts is the coordinator's routine choice, so the reserve is truly for codes.
+- A batch is at most 1,700 less what is already used. A batch that was cut to that limit can still lose its last texts if codes are sent while it runs: they show "Not sent: today's limit reached" (18.3).
+- The 300 is a setting beside the daily cap in `SmsPolicy`, so the admin can change it without a release. Where it is stored is for the plan.
+- The Bulk SMS page and the New SMS page say so in words.
 
 ## 19. Contacts and groups (R16 to R19)
 
@@ -681,4 +688,4 @@ No import from or sync with TWCinc. No custom fields: a contact is a first name,
 
 ### 19.12 Still open
 
-Nothing in this section is open for Coach Ed: R17, R18 and R19 answered the three questions it raised. The one open point of the design is still 18.10, how many texts a day are kept back for sign-in codes.
+Nothing in this section is open for Coach Ed: R17, R18 and R19 answered the three questions it raised. 18.10 is settled by R20. What is left for him is where the screens are served (section 3) and approval of the design and the look.
