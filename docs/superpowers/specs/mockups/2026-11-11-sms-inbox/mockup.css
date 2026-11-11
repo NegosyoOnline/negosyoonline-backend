@@ -1,4 +1,4 @@
-/* Mockup only: the SMS inbox for HQ staff, drawn in the Subscriber dashboard's visual design.
+/* Mockup only: the Inbox for HQ staff (SMS is the one working platform), drawn in the Subscriber dashboard's visual design.
    Colours, type, radii and component shapes are copied by hand from the dashboard's
    apps/dash/public/assets/css/dash.css (frontend repository, 36d2ec4). Not application code. */
 
@@ -114,6 +114,14 @@ body.dash-app .side-nav a[aria-current="page"] { background: var(--primary); col
 body.dash-app .tabs a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 56px; padding: 4px 2px; border-radius: 6px; color: var(--c-meta); font-size: 14px; font-weight: 600; text-decoration: none; }
 body.dash-app .tabs a[aria-current="page"] { color: #fff; }
 .tabs svg { width: 22px; height: 22px; }
+
+/* Horizontal platform menu inside Inbox: copied from the dashboard's Settings menu (.set-tabs, dash.css at frontend 5802934). */
+body.dash-app .set-tabs { display: flex; width: fit-content; max-width: 100%; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; margin: 0 0 24px; border-bottom: 1px solid var(--c-block-line, #22305F); }
+body.dash-app .set-tabs a { flex: 0 0 auto; padding: 12px 16px; border-bottom: 2px solid transparent; color: var(--text-2); font-size: 15px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+body.dash-app .set-tabs a:hover { color: var(--text); }
+body.dash-app .set-tabs a[aria-current="page"] { color: var(--text); border-bottom-color: var(--primary, #2A50D0); }
+.empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; max-width: 720px; }
+.empty h2 { margin: 0; }
 
 /* view head */
 .dash-eyebrow { font-size: 14px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--meta); }
