@@ -103,7 +103,7 @@ Each is a reversible detail inside the design, chosen as the smallest that holds
 | C14 | **New (review change 1).** The retention rule and the deletion command decide by whether the inbox table exists (one read of the database's table names), not by `SMS_INBOX_ENABLED` | Section 3.2 |
 | C15 | **New (review change 4).** `sms_inbox_delete` reads the number from standard input, never from an argument | An argument would be kept in the shell's history and shown in the process list of the machine it runs on |
 | C16 | **New (review change 4).** `sms_inbox_delete` only counts unless `--confirm` is given; each run, counting or deleting, writes one `sms_inbox_delete` audit entry with the counts and no number | A deletion cannot be undone and a mistyped number can be another person's. The count is the check before it. A count also confirms that a person wrote to us, so it is recorded like a `find` |
-| C17 | **New (review change 4).** `sms_inbox_delete` deletes conversations owned by `hq` only, on every phone line; it matches a Philippine mobile in any form `normalise_ph_mobile` accepts, and any other sender of 7 or more digits exactly as it was stored | Every conversation of this build is owned by `hq` (R0). A Site's conversations will be the Subscriber's to delete (the add-on's decision). A foreign number or a landline is stored as received, so it can only be matched as received |
+| C17 | **New (review change 4).** `sms_inbox_delete` deletes conversations owned by `hq` only, on every phone line; it matches a Philippine mobile in any form `normalise_ph_mobile` accepts, and any other number (a foreign mobile, a landline) **by its digits**: the digits typed equal the digits of the stored sender, everything that is not a digit dropped from both | Every conversation of this build is owned by `hq` (R0). A Site's conversations will be the Subscriber's to delete (the add-on's decision). Staff only ever see such a number masked, and the person asking writes it their own way, so nobody can know the spaces and punctuation it was stored with (the coordinator's change A after its read). The comparison is done in Python over the `hq` conversations that cannot be replied to, which is small at launch volume. **Limit:** the same number written with a different prefix (`+1 415…`, `001 415…`, `415…`) has different digits and is not matched; the operator tries the forms the person gives |
 
 ### 3.1 What the phone app does with each answer from `received`
 
@@ -1104,11 +1104,11 @@ and the docstrings of the module and of `start_daily` say "the SMS rules" in pla
 Design 14 point 9: "This build has no delete screen". This command is how a person's request to delete their texts before 365 days is carried out until a screen exists. It must be deployed in an environment before `sms_device incoming on` is run there (6.2); it arrives in the same build as the storing, so it always is.
 
 ```text
-manage.py sms_inbox_delete --actor USERNAME             count only; the number is typed when asked
+manage.py sms_inbox_delete --actor USERNAME             count only; the number is typed at the prompt
 manage.py sms_inbox_delete --actor USERNAME --confirm   delete
 ```
 
-The number is read from standard input and is never an argument (C15). Nothing the command prints, logs or records holds it.
+The number is typed at the command's prompt and is never an argument (C15). **It is not put into the command line any other way either:** not through `echo`, `printf` or a here-string, each of which leaves it in the shell's history exactly as an argument would. The command reads standard input, so the tests can supply it; that is not advice for an operator. Nothing the command prints, logs or records holds it.
 
 - [ ] **Step 1: the failing tests**, class `DeleteCommandTests(InboxTestCase)`, with texts stored through `storing.store` and the number given by patching `sys.stdin` with an `io.StringIO`:
 
@@ -1118,8 +1118,9 @@ The number is read from standard input and is never an argument (C15). Nothing t
 | `test_2_with_confirm_it_deletes` | The conversation and its two messages are gone; another number's conversation and messages stay. Output "Deleted: 1 conversation, 2 messages." One entry with `change` `delete` and the same counts |
 | `test_3_every_form_of_a_philippine_mobile_matches` | `09189990000`, `639189990000`, `+63 918 999 0000` and `9189990000` each find the conversation of `+639189990000` |
 | `test_4_both_phone_lines_are_covered` | The same number has a conversation on each of two phones: both are deleted, `conversations` 2 |
-| `test_5_a_number_that_is_not_a_philippine_mobile_matches_as_stored` | A conversation stored from `+14155550123` is found and deleted by typing `+14155550123`, and not by typing `14155550123` |
-| `test_6_anything_that_is_not_a_full_number_is_refused` | `GLOBE`, `8080`, `0918`, an empty line and a 40-character run of digits: `CommandError` "Type one full number.", nothing deleted, no audit entry |
+| `test_5_a_number_that_is_not_a_philippine_mobile_matches_by_its_digits` | A conversation stored from `+14155550123` is found by typing `+14155550123`, `+1 415 555 0123`, `+1 (415) 555-0123` and `1.415.555.0123`. One stored from `0281234567` is found by typing `(02) 8123-4567`; one stored from `(02) 8123-4567` is found by typing `0281234567`. Typing `+14155550124` or `4155550123` finds neither: "No conversation is stored for that number.", both counts 0. With `--confirm`, only the matched conversation is deleted |
+| `test_5b_digits_never_match_a_name_or_a_philippine_mobile` | A conversation stored from the sender name `BDO1234567` (7 digits, `can_reply` false) is found by typing `1234567`: it is a number by the rule of C13 and is treated as one. A conversation stored from `GLOBE2024` (4 digits) is never found. The conversation of `+639189990000` is not found by typing `+1 639 189 990 000`: a sender that can be replied to is matched only through `normalise_ph_mobile` |
+| `test_6_anything_that_is_not_a_full_number_is_refused` | `GLOBE`, `8080`, `0918`, an empty line and a run of 40 digits: `CommandError` "Type one full number.", nothing deleted, no audit entry |
 | `test_7_the_number_is_nowhere` | For a count and for a delete: the typed number, in any form, is not in standard output, not in standard error, and not in `json.dumps` of the entry's `detail` and `personal`; `assertNoLogs(level="DEBUG")`. The command has no `--number` option: `call_command("sms_inbox_delete", "--number", "x", ...)` raises |
 | `test_8_it_works_while_the_inbox_is_off` | `SMS_INBOX_ENABLED=False`, the table present: `--confirm` deletes, and the entry is written |
 | `test_9_with_no_table_it_refuses` | `switch.tables_exist` patched to answer false: `CommandError` "The inbox tables do not exist here, so no text is stored.", `assertNumQueries(0)`, standard input is not read |
@@ -1138,8 +1139,9 @@ texts is carried out. Works with SMS_INBOX_ENABLED on or off, wherever the table
     manage.py sms_inbox_delete --actor USERNAME             count only
     manage.py sms_inbox_delete --actor USERNAME --confirm   delete
 
-The number is typed when asked, or piped in. It is never an argument, so it is not left in
-the shell's history, and nothing this command prints, logs or records holds it.
+The number is typed at the prompt. It is never an argument, and it must not be put into the
+command line through echo or a here-string either: all of those leave it in the shell's
+history. Nothing this command prints, logs or records holds it.
 """
 import sys
 
@@ -1149,12 +1151,16 @@ from django.db import transaction
 
 from apps.common.phones import normalise_ph_mobile
 from apps.inbox.models import Conversation, ConversationMessage
-from apps.inbox.reading import is_a_number
+from apps.inbox.reading import NUMBER_DIGITS, is_a_number
 from apps.inbox.switch import SMS, tables_exist
 from apps.operators import audit
 
 TARGET = "conversation"
 MAX_CONTACT = 32
+
+
+def _digits(value):
+    return "".join(character for character in value if character.isdigit())
 
 
 def _count(number, one):
@@ -1175,13 +1181,9 @@ class Command(BaseCommand):
         if actor is None:
             raise CommandError("--actor must be an active staff user.")
         self.stderr.write("Type the full number, then Enter:")
-        contact = self._contact(sys.stdin.readline())
+        number, digits = self._typed(sys.stdin.readline())
         with transaction.atomic():
-            found = list(
-                Conversation.objects.select_for_update()
-                .filter(platform=SMS, owner_kind=Conversation.Owner.HQ, contact=contact)
-                .values_list("pk", flat=True)
-            )
+            found = self._matching(number, digits)
             messages = ConversationMessage.objects.filter(conversation__in=found).count()
             if confirm:
                 Conversation.objects.filter(pk__in=found).delete()  # its messages go with it
@@ -1201,16 +1203,28 @@ class Command(BaseCommand):
         else:
             self.stdout.write(f"Found: {counts}. Nothing was deleted. Run again with --confirm to delete them.")
 
-    def _contact(self, typed):
-        """The number as a conversation holds it. The error never repeats what was typed."""
+    def _typed(self, typed):
+        """What was typed, as a Philippine mobile or else as its digits. The error never
+        repeats it."""
         typed = typed.replace("\x00", "").strip()
         try:
-            return normalise_ph_mobile(typed)
+            return normalise_ph_mobile(typed), None
         except ValueError:
             pass
-        if not is_a_number(typed) or len(typed) > MAX_CONTACT:
+        digits = _digits(typed)
+        if not NUMBER_DIGITS <= len(digits) <= MAX_CONTACT:
             raise CommandError("Type one full number.")
-        return typed
+        return None, digits
+
+    def _matching(self, number, digits):
+        """The ids of this number's conversations, locked. A Philippine mobile is stored in
+        one form. Any other number is stored as it was received and staff only see it masked,
+        so it is matched by its digits, whatever spaces and punctuation either side has."""
+        mine = Conversation.objects.select_for_update().filter(platform=SMS, owner_kind=Conversation.Owner.HQ)
+        if number is not None:
+            return list(mine.filter(contact=number).values_list("pk", flat=True))
+        others = mine.filter(can_reply=False).values_list("pk", "contact")
+        return [pk for pk, contact in others if is_a_number(contact) and _digits(contact) == digits]
 ```
 
 What the command does **not** remove, said in the runbook (task 10) so that nobody answers a deletion request with this command alone:
@@ -1234,7 +1248,7 @@ What the command does **not** remove, said in the runbook (task 10) so that nobo
   - The order to turn it on: migration applied, variable set, access granted, then the phone's switch.
   - **To stop taking texts in, turn the phone's switch off** (`sms_device incoming off`, audited). **Intake is stopped by the phone's switch, not by unsetting the variable.** Unsetting `SMS_INBOX_ENABLED` hides the inbox from staff and does also stop storing, but it leaves the phone's switch recorded as on and is written to no audit record. Either way the phone deletes at once whatever it had not yet handed over.
   - **What is already stored stays stored when the variable is unset, and is still deleted at 365 days.** The retention rule `inbox_messages` runs wherever the tables exist, whatever the variable says. It is started by the phone's poll; in an environment where `SMS_GATEWAY_ENABLED` is off no phone polls, so run `manage.py run_retention --only inbox_messages` there by hand, or the texts stay past 365 days.
-  - **A person asks for their texts to be deleted:** `manage.py sms_inbox_delete --actor USERNAME`, type the number when asked, read the count, then the same with `--confirm`. The number is typed, never put on the command line. It works with the variable on or off. What it does not remove: the copy in the phone's Messages app, the masked number in the audit record (blanked after a year), and a text that arrives afterwards.
+  - **A person asks for their texts to be deleted:** `manage.py sms_inbox_delete --actor USERNAME`, type the number at the prompt, read the count, then the same with `--confirm`. **The number is typed at the prompt and nowhere else: never as an argument, and never fed in through `echo`, `printf` or a here-string, which would leave it in the shell's history.** A Philippine mobile may be typed in any usual form. Any other number (a foreign mobile, a landline) is matched by its digits, so spaces, brackets and dashes do not matter, but the prefix does: try the number as the person wrote it, with and without its country code. It works with the variable on or off. What it does not remove: the copy in the phone's Messages app, the masked number in the audit record (blanked after a year), and a text that arrives afterwards.
   - A text the server cannot store (no sender, for one) is skipped and counted in one log line, `sms_incoming_skipped count=N`, and the phone drops it: it is then only in the phone's Messages app. `sms_incoming_rejected` means the phone sent something that is not a list of texts, which the app never does.
   - The commands: `sms_device incoming on|off`, which refuses `on` while the variable is off; `sms_inbox_access grant|revoke|list`, which refuses while the variable is off; `sms_inbox_delete`. Who is granted access is Coach Ed's decision, per person.
   - There is no screen yet: the staff routes and pages are later plans. No Django admin screen shows a conversation or a text.
