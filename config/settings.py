@@ -113,6 +113,11 @@ SANTE_CATALOG_ENABLED = os.environ.get("SANTE_CATALOG_ENABLED", "").strip() == "
 # on their endpoints and admin lists. Off, the endpoints answer 404 and the payment tables
 # are not read or written.
 PAYMENT_METHODS_ENABLED = os.environ.get("PAYMENT_METHODS_ENABLED", "").strip() == "1"
+# The storefront surface (/storefront/v1/), called only by the storefronts server. "1" turns
+# it on, and only while STOREFRONT_SERVER_SECRET holds at least 32 characters. Off, every path
+# under it answers 404. The secret is read here and nowhere else.
+STOREFRONT_ENABLED = os.environ.get("STOREFRONT_ENABLED", "").strip() == "1"
+STOREFRONT_SERVER_SECRET = os.environ.get("STOREFRONT_SERVER_SECRET", "").strip()
 
 
 # Application definition
@@ -134,6 +139,7 @@ INSTALLED_APPS = [
     'apps.payments',
     'apps.notifications',
     'apps.health',
+    'apps.storefront',
 ]
 
 AUTH_USER_MODEL = "operators.User"
