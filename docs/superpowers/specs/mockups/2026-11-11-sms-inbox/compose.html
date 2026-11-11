@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
-<title>New text | Inbox mockup</title>
+<title>New SMS | Inbox mockup</title>
 <!-- MOCKUP ONLY. Static page with made-up data: no real number, no real text, no application code.
      Design: docs/superpowers/specs/2026-11-11-sms-inbox-hq-design.md (ClickUp z8uq9me128). -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -33,10 +33,10 @@
   </aside>
   <header class="topbar dash-chrome">
     <a class="wordmark" href="index.html" aria-label="NegosyoOnline HQ home"><svg viewBox="0 0 224 200" aria-hidden="true" focusable="false"><path fill="#FFFFFF" d="M0 0H64L160 103V0H224V200H160L64 97V200H0Z"/><path fill="#C59A3B" d="M64 0L160 103V200L64 97Z"/></svg><span>NegosyoOnline</span></a>
-    <div class="top-actions"><button type="button" class="icon-btn" data-theme-toggle aria-label="Switch between dark and light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg></button><span class="acct-btn" aria-label="Signed in as sample.staff">SS</span></div>
+    <div class="top-actions"><a class="icon-btn" href="index.html#find-number" aria-label="Search: find a full mobile number"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></a><button type="button" class="icon-btn" data-theme-toggle aria-label="Switch between dark and light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></button><a class="icon-btn bell" href="index.html" aria-label="Notifications: 2 unread conversations"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="bell-dot" aria-hidden="true"></span></a><span class="acct-btn" aria-label="Signed in as sample.staff">SS</span></div>
   </header>
   <div class="col">
-    <div class="desk-switch"><button type="button" class="icon-btn" data-theme-toggle aria-label="Switch between dark and light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg></button></div>
+    <div class="desk-switch"><a class="icon-btn" href="index.html#find-number" aria-label="Search: find a full mobile number"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></a><button type="button" class="icon-btn" data-theme-toggle aria-label="Switch between dark and light theme"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></button><a class="icon-btn bell" href="index.html" aria-label="Notifications: 2 unread conversations"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg><span class="bell-dot" aria-hidden="true"></span></a></div>
     <main class="view" id="main">
       <nav class="set-tabs" aria-label="Inbox platforms">
         <a href="index.html" aria-current="page">SMS</a>
@@ -48,9 +48,7 @@
       </nav>
       <div class="view-head">
         <a class="back" href="index.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6"/></svg>SMS</a>
-        <p class="dash-eyebrow">HQ · SMS</p>
-        <h1>New text</h1>
-        <p class="view-sub">Send one text to one Philippine mobile number from the NegosyoOnline phone.</p>
+        <h1>New SMS</h1>
       </div>
       <div class="cols">
         <form class="dash-card form-card" action="#" onsubmit="return false">
@@ -66,7 +64,7 @@
           </div>
           <div class="form-foot">
             <span class="counter" id="text-count" aria-live="polite">0 / 160</span>
-            <button class="no-btn no-btn-primary" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 12l16-8-6 16-3-7z"/></svg>Send text</button>
+            <button class="no-btn no-btn-primary" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 12l16-8-6 16-3-7z"/></svg>Send SMS</button>
           </div>
         </form>
         <div class="aside">
@@ -74,7 +72,7 @@
             <h2 id="rules-h">Before you send</h2>
             <ul>
               <li>No marketing or promotions. Service messages only.</li>
-              <li>One number at a time. There is no bulk sending.</li>
+              <li>One number at a time on this form.</li>
               <li>No web links. A text with a link is refused.</li>
               <li>The text is kept for 365 days, and who sent it is recorded.</li>
             </ul>
@@ -104,7 +102,7 @@
           </div>
           <div class="form-foot">
             <span class="counter" id="text-bad-count">0 / 160</span>
-            <button class="no-btn no-btn-primary" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 12l16-8-6 16-3-7z"/></svg>Send text</button>
+            <button class="no-btn no-btn-primary" type="submit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 12l16-8-6 16-3-7z"/></svg>Send SMS</button>
           </div>
         </form>
         <div class="aside"></div>
