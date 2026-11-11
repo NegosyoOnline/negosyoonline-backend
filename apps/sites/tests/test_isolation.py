@@ -323,7 +323,11 @@ class BillingIsolationTests(SitesApiTestCase):
             ],
             "A billing route was added or removed: add it to the isolation tests.",
         )
-        self.assertEqual(len(billing_router.path_operations), 7, "every billing route is under a site")
+        # The one route outside a site is the public plan list (Billing Build B3): it names no
+        # site, needs no sign-in and reads no billing table.
+        outside = [p for p in billing_router.path_operations if "{site_id}" not in p]
+        self.assertEqual(outside, ["/plan/"])
+        self.assertEqual(len(billing_router.path_operations), 8)
 
     def test_another_accounts_site_is_404_on_every_billing_route_and_changes_nothing(self):
         before = billing_snapshot()
