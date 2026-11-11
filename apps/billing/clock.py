@@ -31,3 +31,14 @@ def cycle_end(start_at, anchor, months=1):
     month += 1
     day = min(anchor, calendar.monthrange(year, month)[1])
     return datetime.combine(datetime(year, month, day), CUTOFF, tzinfo=MANILA)
+
+
+def allowance_periods(term_start, anchor, months, periods):
+    """The monthly allowance periods of a term, as [(start, end), ...].
+
+    Period k ends at `cycle_end(term_start, anchor, k)`, not one month after period k-1, so
+    the shortening of a short month never carries forward. Period 1 starts at `term_start`,
+    and `periods` must equal `months` for the last to end with the term.
+    """
+    ends = [cycle_end(term_start, anchor, k) for k in range(1, periods + 1)]
+    return list(zip([term_start, *ends[:-1]], ends))
