@@ -4,11 +4,15 @@ Every endpoint is signed-in only and reaches its site through
 site_for(account, site_id, template=templates.SANTE), so a missing site, a removed site,
 another account's site and a site that is not a Santé site all answer the same 404. While
 SANTE_SETTINGS_ENABLED is off every route answers that 404 too, signed in or not.
+
+These are owner functions, so they follow Billing's rule (plan D11): once the site's
+subscription is suspended or ended they answer 403 `billing_only`, after the 404 check.
 """
 from ninja import Router, Schema
 from pydantic import ConfigDict
 
 from apps.accounts.api import signed_in
+from apps.billing import services as billing
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
 from apps.sante import services
@@ -43,7 +47,15 @@ class SanteSettingsOut(Schema):
 
 
 def _site(request, site_id):
-    return site_for(request.account, site_id, template=templates.SANTE)
+    """The signed-in account's Santé site, unless the site is limited to Billing. With billing
+    off nothing is refused."""
+    site = site_for(request.account, site_id, template=templates.SANTE)
+    if billing.position(site).billing_only:
+        raise ApiError(
+            "billing_only", "This site is limited to Billing until its subscription continues.",
+            status=403,
+        )
+    return site
 
 
 @router.get("/sites/{site_id}/sante/settings/", response=SanteSettingsOut)
