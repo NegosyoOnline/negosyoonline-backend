@@ -123,7 +123,7 @@ The text is in section 9. It is committed with the first pull request once the p
 
 - **Q1 (answered by the coordinator, 2026-11-11: confirmed; no endpoint or task reaches these functions in B1). Where B1 stops and B2 starts.** The Task gives B2 "the payment-time rules". B1 cannot meet its own acceptance ("a paying site is never shut by sweep lag", "a paid-cycle cancel keeps service to period end") without paid cycles. This plan therefore writes, in B1, the transitions a payment outcome causes (first payment, renewal, failure, recovery, reactivation), each as one service function that takes the outcome time and our reference. B1 calls them only from tests. B2 owns everything that decides what the outcome is: the provider, the attempt, the amount, the authenticated time, held and disputed payments, and the automatic restore after suspension with its guards (L33, L35, L37, L39, L40). Confirm this split.
 - **Q2 (answered: B1 does it, behind `BILLING_ENABLED`). The Santé Site Owner label.** Scope section 12 says the label gains the subscription condition "when Billing exists", in `apps/sites/labels.py`. This plan does it in B1 (section 6.4). That file belongs to the Onboarding coordinator. Confirm B1 does it, or that their session does.
-- **Q3 (being agreed by the coordinator; pull request 1 goes first and touches none of their files). Order with the Onboarding coordinator** for `apps/sites/services.py`, `apps/sites/api.py` and `apps/sites/labels.py` (section 12).
+- **Q3 (answered, 2026-11-11: whichever pull request merges second merges `main` first and keeps both sides; the Onboarding sessions have nothing open or unpushed in these three files and add no route under `sites/{site_id}/`). Order with the Onboarding coordinator** for `apps/sites/services.py`, `apps/sites/api.py` and `apps/sites/labels.py` (section 12).
 - **Q4 (answered: confirmed, all left out). Left out of B1 on purpose:** `GET plan/`, `PUT billing/profile/` and the `BillingProfile` table (B5 needs them for statements), `billing/usage/`, `billing/statements/`, `billing/payment-method/setup/`, a schedule for `run_retention`, and moving the sign-in emails from the web thread to the queue. Say if any belongs in B1.
 
 ## 4. Deliverable, acceptance and scope, traced
@@ -307,11 +307,15 @@ Not built in B1: `billing/profile/`, `billing/payment-method/setup/`, `billing/u
 
 ### 6.4 The label
 
-`apps/sites/labels.py`: the eligible-site rule gains "and the site's subscription is on trial, active or needing payment attention at this moment". Because the label is one database query over many accounts, billing exposes `services.served_filter(now)`, a query condition that mirrors `position`. A test builds one subscription for every row of the table in 5.3 and asserts the condition and `position` agree on each. With `BILLING_ENABLED` off the label behaves as today.
+`apps/sites/labels.py`: the eligible-site rule gains "and the site's subscription is on trial, active or needing payment attention at this moment". Coach Ed's Phase 6 rule stays exactly as it is: the account is not closed and owns a Santé site that is not removed and not on hold; the label is for operators only, is worked out on each read, is never stored and is never returned to the Subscriber. The Billing condition is added to that rule and replaces no part of it.
+
+The condition is on the state, as scope section 12 words it, so a cancellation still inside its paid period (state `cancelled`, storefront still served) does not count. Because the label is one database query over many accounts, billing exposes `services.state_filter(now, states)`, a query condition that mirrors `position`. A test builds one subscription for every row of the table in 5.3 and asserts the condition and `position` report the same state on each. With `BILLING_ENABLED` off the label behaves as today.
 
 ### 6.5 The Billing-only rule (D11)
 
 `apps/sites/api.py`: the three endpoints named in D11 call one helper that raises 403 `billing_only` when `position` says so. With `BILLING_ENABLED` off the helper does nothing.
+
+Not changed by B1, whatever the subscription state: `GET sites/`, `GET sites/{site_id}/` and `GET account/setup/`. They answer exactly as today for a suspended or ended site: the same status, the same fields, no new `state`, no new `blocked_reason`, no refusal. The dashboard shows "We couldn't load your setup" for an unknown `state` or `blocked_reason` or a failed `GET sites/`, so a new value there would break it. The Billing-only fact is read from `GET sites/{site_id}/billing/` only. `apps/sites/onboarding.py` is not touched.
 
 ### 6.6 The "nothing owed" check (R-3)
 
@@ -426,6 +430,8 @@ All in `apps/billing/tests/` unless a file says otherwise. Time is always passed
 - The response never holds a database row number.
 - By-host: 200 for trial, active, attention and a cancellation still inside its paid period; 404 for suspended, cancelled after service end, cancelled for no payment method, removed, held, retired name, reserved name, unknown name, wrong parent host, malformed host, missing host, no subscription, switch off, and a forced error in the billing read. All 404 bodies are identical. The 200 body holds only the listed fields. `max-age` never passes the next boundary.
 - Billing-only (D11): the three endpoints answer 403 when suspended or ended and work otherwise; the route inventory test.
+- For a suspended site and for an ended site, `GET sites/`, `GET sites/{site_id}/` and `GET account/setup/` answer byte for byte what they answer for the same site on trial: same status, same keys, same `state` and `blocked_reason`.
+- `apps/sites/tests/test_isolation.py` already fails when a site route is added without the foreign, missing and removed-site 404 checks, and holds `test_a_patch_to_my_second_site_leaves_my_first_site_unchanged`. The billing routes are added to those checks. The by-host tests and the route inventory test sit beside the existing tests; none is replaced, removed or loosened.
 - OpenAPI: the new paths are in `/v1/openapi.json`.
 
 **Label** (`apps/sites/tests/test_labels.py`): the parity test of 6.4; existing label tests still pass with the switch off.
