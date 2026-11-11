@@ -63,6 +63,8 @@ Each is a separate yes. The recommended answer is what the rest of the plan assu
 - It is a management command, not a migration: `manage.py billing_backfill_subscriptions`. Without `--apply` it only prints the counts. It can be run again safely: a site that already has a subscription is skipped.
 - For each site that is not removed and has no subscription it writes exactly what site creation writes (section 5), with the trial starting at the account's creation date. A site whose 14 days have already passed gets the ended state, with the clocks of D2.
 - Removed sites (their account was disposed of) get no subscription. They are never served and owe nothing.
+- **Effect on staging.** When `BILLING_ENABLED` is set and the backfill runs, every existing site whose account is older than 14 days goes off at once (storefront 404, owner Billing-only), and nothing can bring it back until B2 takes payments, except the exemption in D7 (a). A site whose account is younger than 14 days stays on until its own day 14.
+- How many sites that is: not known. Nothing has been run against staging. The dry run prints the count per resulting state, and it runs only after Coach Ed approves it.
 - Order on staging: merge, run the migration, set `BILLING_ENABLED=1`, dry-run the backfill, read the counts, run it with `--apply`.
 
 ### D7. Test sites are never billed (Q1), but the new backend has no test-site mark
@@ -110,12 +112,19 @@ The text is in section 9. It is committed with the first pull request once the p
 - **Consequence.** A person who asks for deletion during a trial or a paid period must cancel first (or an operator does it for them; see section 13). A suspended subscriber must cancel before disposal, because a suspended site "may retain an outstanding payment record" (L20). This matches the ruling that a deletion request from an active subscriber is a cancellation scheduled for the end of the paid term, with no immediate deletion.
 - Billing rows are never deleted or blanked by a disposal. They hold no personal value: only the site, states, dates and amounts. The 5-year rule for billing and tax records is untouched.
 
+### D14. What ends a suspension that is never paid or cancelled (two sources disagree)
+
+- **Contract r25.** Nothing ends it. A suspension has no deletion date and no last date to pay (quotes in section 5.4).
+- **Legacy code, not in the contract.** A comment in the legacy `billing.py` cites rulings "R-4, R-4a, R-4b (Coach Ed 2026-11-03)": the data of a suspended site may be disposed of 90 days after the day of suspension if it ever paid, 30 days if it never paid; and a cancellation after a suspension does not restart that clock, the earlier date wins. The contract r25 does not contain the label R-4b. This session has not seen the ruling itself, only the code comment.
+- **Where they differ for B1.** (1) Whether a suspended subscription has a deletion date and so a last date to pay. (2) The clock of a cancellation made while suspended: the table in 5.4 starts it at the cancellation; R-4b would keep the earlier date, counted from the suspension.
+- **Not chosen here.** The plan follows the contract, the Task's named source, and writes no new rule. No subscription can be suspended on staging before B2 records payments, so this can be settled as a point for B2 without holding B1. If Coach Ed confirms R-4b, B1 changes only two things: the subscription records the suspension-based dates when it is suspended, and the "suspended" row of the cancellation table keeps the earlier date.
+
 ## 3. Questions for the coordinator (not for Coach Ed unless the coordinator says so)
 
-- **Q1. Where B1 stops and B2 starts.** The Task gives B2 "the payment-time rules". B1 cannot meet its own acceptance ("a paying site is never shut by sweep lag", "a paid-cycle cancel keeps service to period end") without paid cycles. This plan therefore writes, in B1, the transitions a payment outcome causes (first payment, renewal, failure, recovery, reactivation), each as one service function that takes the outcome time and our reference. B1 calls them only from tests. B2 owns everything that decides what the outcome is: the provider, the attempt, the amount, the authenticated time, held and disputed payments, and the automatic restore after suspension with its guards (L33, L35, L37, L39, L40). Confirm this split.
-- **Q2. The Santé Site Owner label.** Scope section 12 says the label gains the subscription condition "when Billing exists", in `apps/sites/labels.py`. This plan does it in B1 (section 6.4). That file belongs to the Onboarding coordinator. Confirm B1 does it, or that their session does.
-- **Q3. Order with the Onboarding coordinator** for `apps/sites/services.py`, `apps/sites/api.py` and `apps/sites/labels.py` (section 12).
-- **Q4. Left out of B1 on purpose:** `GET plan/`, `PUT billing/profile/` and the `BillingProfile` table (B5 needs them for statements), `billing/usage/`, `billing/statements/`, `billing/payment-method/setup/`, a schedule for `run_retention`, and moving the sign-in emails from the web thread to the queue. Say if any belongs in B1.
+- **Q1 (answered by the coordinator, 2026-11-11: confirmed; no endpoint or task reaches these functions in B1). Where B1 stops and B2 starts.** The Task gives B2 "the payment-time rules". B1 cannot meet its own acceptance ("a paying site is never shut by sweep lag", "a paid-cycle cancel keeps service to period end") without paid cycles. This plan therefore writes, in B1, the transitions a payment outcome causes (first payment, renewal, failure, recovery, reactivation), each as one service function that takes the outcome time and our reference. B1 calls them only from tests. B2 owns everything that decides what the outcome is: the provider, the attempt, the amount, the authenticated time, held and disputed payments, and the automatic restore after suspension with its guards (L33, L35, L37, L39, L40). Confirm this split.
+- **Q2 (answered: B1 does it, behind `BILLING_ENABLED`). The Santé Site Owner label.** Scope section 12 says the label gains the subscription condition "when Billing exists", in `apps/sites/labels.py`. This plan does it in B1 (section 6.4). That file belongs to the Onboarding coordinator. Confirm B1 does it, or that their session does.
+- **Q3 (being agreed by the coordinator; pull request 1 goes first and touches none of their files). Order with the Onboarding coordinator** for `apps/sites/services.py`, `apps/sites/api.py` and `apps/sites/labels.py` (section 12).
+- **Q4 (answered: confirmed, all left out). Left out of B1 on purpose:** `GET plan/`, `PUT billing/profile/` and the `BillingProfile` table (B5 needs them for statements), `billing/usage/`, `billing/statements/`, `billing/payment-method/setup/`, a schedule for `run_retention`, and moving the sign-in emails from the web thread to the queue. Say if any belongs in B1.
 
 ## 4. Deliverable, acceptance and scope, traced
 
@@ -247,6 +256,16 @@ Where a cancellation ends service:
 | Paid cycle ended, no outcome yet (D9) | At once | 90 days |
 
 Both `cancelled` states refuse a second cancel with 409 `already_cancelled`.
+
+**A suspension that is never paid and never cancelled (see D14).**
+
+| State | What ends it in B1 | Last date to pay | Deletion date |
+|---|---|---|---|
+| `suspended`, never paid for again, never cancelled | Nothing. It stays `suspended` until the owner cancels or a payment succeeds | None | None |
+
+- The contract r25 sets no end. G4a, row "No outcome by the scheduled date plus 7 days": "No deletion clock, because a suspension deletes nothing". Its purge section (line 274): "A suspended site that was never cancelled has no `deletion_due_at`, so nothing is purged". It names no automatic cancellation and no limit, and its only payment refusal point is the deletion date, which a suspended site does not have.
+- So D1's rule sets no last date for a suspended site: B1's `reactivated` function accepts a payment on a suspended subscription whenever it comes. B1 writes no automatic cancellation of a suspension.
+- Consequence, for Coach Ed to see: a suspended subscription never becomes "ended", so the "nothing owed" check (D13) refuses to dispose of that account until the owner or an operator cancels it, and B1 has no operator route to cancel (section 13).
 
 "Ever paid" is read from the cycles: at least one with settlement `paid`.
 
@@ -471,7 +490,7 @@ Not touched: `apps/notifications` (so nothing of the SMS coordinator's, and neit
 
 ## 14. Approvals this plan asks for, each separate
 
-1. The plan itself, with the answers to D1, D2, D7, D8, D9, D10, D11, D13.
+1. The plan itself, with the answers to D1, D2, D7, D8, D9, D10, D11, D13. D14 may wait for B2.
 2. The scope amendment text (D12).
 3. Creating the migration file (D5).
 4. The new dependency (D3).
