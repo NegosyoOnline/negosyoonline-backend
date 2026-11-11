@@ -74,6 +74,7 @@ Read at `1c1eff8`. Each row matters to this plan.
 | 6 | The design's proposed names put the staff app at `hq-staging.negosyonline.com` (22.7). That name is `HQ_HOST` on staging today (relayed in design 22.5, not checked by this session). The two cannot hold the same name at once | The proof cannot use the final names without doing plan 10's rename first. Section 7.2 sets out two arrangements; which one is used is Coach Ed's |
 | 7 | `checks.hq_host_problem` refuses an `HQ_HOST` that sits under `SITE_PARENT_HOST` with a name a Subscriber could take. `is_reserved("hq-api-staging")` and `is_reserved("hq-app-staging")` are both false by reading `apps/sites/subdomains.py`; so is `is_reserved("hq-staging")`, which is accepted on staging today | A sibling of `hq-staging` under the same parent meets this rule the same way `hq-staging` does. Not run against staging's real `SITE_PARENT_HOST`, whose value this session has not seen (section 8) |
 | 8 | The hourly limit counts the caller's IP from `X-Real-IP` (`apps/accounts/sessions.client_ip`) | Unchanged. The staff page calls the backend straight from the browser (design 21.1), so the IP is the staff member's, as today |
+| 9 | `HqHostMiddleware` is second in `MIDDLEWARE` on `origin/main` at `1c1eff8`, after `SecurityMiddleware` only. An answer it gives itself never reaches the eight entries after it: `ApiOriginMiddleware` (which passes on anything outside `/v1/`), `SessionMiddleware`, `CommonMiddleware`, `CsrfViewMiddleware`, `AuthenticationMiddleware`, `HqUserMiddleware`, `MessageMiddleware` and `XFrameOptionsMiddleware` | **A staff answer skips all eight.** `SecurityMiddleware` still runs, so the https redirect, HSTS and `X-Content-Type-Options: nosniff` apply. What each skipped one would have done, and what replaces it: the form token is replaced by the origin rule; `HqUserMiddleware`'s session read is done by the routes themselves with the same function; `X-Frame-Options` is set by `dispatch` on every staff answer (the coordinator's decision); the routes use no Django session, user, message or trailing-slash redirect. Tests in task 2 hold the two headers |
 
 Nothing else in the design's reading of sections 20 and 22 was found wrong: the six functions it names exist with the signatures used below, no model or audit action changes, and no migration is needed.
 
@@ -116,7 +117,7 @@ Lines are only added. Nothing is reordered or restructured, so another session's
 | `SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]` (PR 78) | `config/settings.py` | The existing test `test_only_the_exact_healthz_path_is_exempt` in `apps/health/tests.py`, which stays unedited and passes; the new test `test_health_over_plain_http_is_untouched` in task 2; and the diff check in task 4 step 5 |
 | `healthcheck.railway.app` in the allowed hosts | Not in the code. It is in the Railway variable `DJANGO_ALLOWED_HOSTS` (`README.md` line 31, `docs/runbooks/billing.md`). `config/settings.py` only reads that variable into `ALLOWED_HOSTS` | The build edits no line that reads or builds `ALLOWED_HOSTS`, and the new setting is never appended to it: the new test `test_the_staff_origin_changes_no_allowed_host` in task 2. This plan sets or changes no Railway variable other than `HQ_STAFF_ORIGIN`, and never `DJANGO_ALLOWED_HOSTS` (7.3). On staging, step 1 of 7.4 confirms the deployment passed Railway's health check |
 
-The present value of `DJANGO_ALLOWED_HOSTS` on staging was not read by this session.
+The present value of `DJANGO_ALLOWED_HOSTS` on staging was not read by this session. The NPC coordinator checked on 2026-11-11, by name, that it lists `healthcheck.railway.app` on staging `api` (relayed, 7.3).
 
 ## 5. The routes
 
@@ -174,6 +175,7 @@ Rules that cover every route:
 | The Django pages are unchanged | With the variable set, the Django sign-in still works and still needs its form token |
 | Health | With the variable set, `/healthz/` answers 200 on the default host and on `healthcheck.railway.app`, over plain http with the redirect on; `SECURE_REDIRECT_EXEMPT` is `[r"^healthz/$"]`; the staff origin adds no allowed host |
 | A failing route | 500 `server_error` as JSON, with the two headers |
+| Skipped middleware | Every staff answer, refusals and errors included, carries `X-Frame-Options: DENY` (set by `dispatch`) and `X-Content-Type-Options: nosniff` (from `SecurityMiddleware`) |
 
 ---
 
@@ -517,6 +519,25 @@ class StaffOriginTests(StaffTestCase):
         self.assertEqual(response["Access-Control-Allow-Origin"], STAFF)
         self.assertEqual(response["Content-Type"], "application/json")
 
+    def test_every_staff_answer_may_not_be_framed_or_sniffed(self):
+        # X-Frame-Options is set by dispatch(): XFrameOptionsMiddleware is skipped.
+        # X-Content-Type-Options comes from SecurityMiddleware, which still runs.
+        answers = [
+            self.call("GET", "/staff/v1/me/"),                                  # 401
+            self.call("POST", "/staff/v1/sign-in/", {"email": "nobody@example.test"}),  # 204
+            self.call("OPTIONS", "/staff/v1/sign-in/", "POST"),                 # preflight
+            self.call("GET", "/staff/v1/nothing/"),                             # 404
+            self.call("GET", "/staff/v1/me/", origin="https://dash.example.test"),  # 403
+            self.call("GET", "/staff/v1/me/", origin=None),                     # 403
+        ]
+        with mock.patch("apps.operators.staff_views.hq_views.load_session", side_effect=RuntimeError):
+            with self.assertLogs("apps.operators.staff_views", "ERROR"):
+                answers.append(self.call("GET", "/staff/v1/me/"))               # 500
+        for response in answers:
+            with self.subTest(status=response.status_code):
+                self.assertEqual(response["X-Frame-Options"], "DENY")
+                self.assertEqual(response["X-Content-Type-Options"], "nosniff")
+
     def test_a_failing_route_answers_a_plain_json_error(self):
         with mock.patch("apps.operators.staff_views.hq_views.load_session", side_effect=RuntimeError):
             with self.assertLogs("apps.operators.staff_views", "ERROR"):
@@ -549,27 +570,26 @@ class StaffOriginTests(StaffTestCase):
             self.assertEqual(self.client.get("/staff/v1/me/", HTTP_HOST=HQ).status_code, 301)
 
     def test_the_staff_origin_changes_no_allowed_host(self):
-        import importlib
-        import os
+        from pathlib import Path
 
         from django.conf import settings
 
-        from config import settings as module
-
-        # HQ_STAFF_ORIGIN is a plain string read from its own variable. It is never a host
-        # this service answers on, so loading the settings with it set adds no allowed host.
-        with mock.patch.dict(os.environ, {"HQ_STAFF_ORIGIN": STAFF}):
-            reloaded = importlib.reload(module)
-        try:
-            self.assertEqual(reloaded.HQ_STAFF_ORIGIN, STAFF)
-            self.assertNotIn("hq-app.example.test", reloaded.ALLOWED_HOSTS)
-            self.assertEqual(reloaded.SECURE_REDIRECT_EXEMPT, [r"^healthz/$"])
-        finally:
-            importlib.reload(module)
-        self.assertEqual(settings.HQ_STAFF_ORIGIN, STAFF)  # this class's own override
+        # Read as text: the settings module is never loaded a second time inside the suite.
+        source = (Path(settings.BASE_DIR) / "config" / "settings.py").read_text()
+        code = [line for line in source.splitlines() if not line.lstrip().startswith("#")]
+        self.assertEqual(
+            [line for line in code if "HQ_STAFF_ORIGIN" in line],
+            ['HQ_STAFF_ORIGIN = os.environ.get("HQ_STAFF_ORIGIN", "").strip()'],
+        )
+        self.assertEqual(
+            [line for line in code if "SECURE_REDIRECT_EXEMPT" in line],
+            ['SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]'],
+        )
+        # Under this class's override the staff host is still not a host the service answers on.
+        self.assertNotIn("hq-app.example.test", settings.ALLOWED_HOSTS)
 ```
 
-If reloading `config.settings` inside a test proves unreliable in this repository (the builder says so if it does), `test_the_staff_origin_changes_no_allowed_host` is replaced by reading the file: assert that the only line of `config/settings.py` naming `HQ_STAFF_ORIGIN` is the assignment of 4.1, and that no line containing `ALLOWED_HOSTS` names it.
+The settings file is read as text on purpose. Loading `config.settings` again inside the suite would re-read the environment and re-run that module's side effects in CI, so no test does it.
 
 - [ ] **Step 2: Run them and see them fail**
 
@@ -582,7 +602,9 @@ Expected: `StaffRoutesOffTests` pass already (nothing is built, which is the poi
 """The staff routes: what the staff app on Vercel calls on the hq host, under /staff/v1/.
 
 They are in no URL list. HqHostMiddleware hands them here, and only while HQ_STAFF_ORIGIN is
-usable, so with it unset the hq host answers as if this file did not exist. Django's form token
+usable, so with it unset the hq host answers as if this file did not exist. An answer from
+here passes back through SecurityMiddleware only: no middleware listed after HqHostMiddleware
+runs for it, which is why dispatch() sets X-Frame-Options itself. Django's form token
 cannot be held by a page on another host; the one allowed Origin, required on every call,
 takes its place. The codes are checked by hq_auth and two_step, as on the Django pages, and
 the cookies are the same two cookies.
@@ -695,6 +717,8 @@ def dispatch(request, origin):
         response["Access-Control-Allow-Origin"] = origin
         response["Access-Control-Allow-Credentials"] = "true"
     patch_vary_headers(response, ["Origin"])
+    # XFrameOptionsMiddleware comes after HqHostMiddleware and never sees a staff answer.
+    response["X-Frame-Options"] = "DENY"
     return response
 ```
 
@@ -727,7 +751,7 @@ The lines that set `Cache-Control` and `X-Robots-Tag` after it are not changed, 
 - [ ] **Step 5: Run the tests and see them pass**
 
 Run: `uv run python manage.py test apps.operators.tests.test_staff_routes -v 2`
-Expected: OK. In `test_any_other_origin_is_refused_on_every_route` the four POST routes are not in `ROUTES` yet; they still answer 403, because the origin is checked first.
+Expected: OK. In `test_any_other_origin_is_refused_on_every_route` the four POST routes are not in `ROUTES` yet; they still answer 403, because the origin is checked first. In `test_every_staff_answer_may_not_be_framed_or_sniffed` the `sign-in/` call answers 404 until task 3 and 204 after it; the test holds the two headers on whatever status comes back.
 
 - [ ] **Step 6: Run the whole operators suite, to see the Django pages untouched**
 
@@ -1157,6 +1181,10 @@ The staff app's pages call `/staff/v1/` on the hq host. Those routes check the s
 To stop every staff call at once, for example if the staff app's deploy is in doubt: delete `HQ_STAFF_ORIGIN` and redeploy. The hq pages keep working. To also end every live session of a person, run `admin_identity reset` for them.
 
 Setting or deleting `HQ_STAFF_ORIGIN` on staging or production needs Coach Ed's approval each time.
+
+On production it also waits for the NPC wording amendment: from the day it is set, Vercel serves the page where both admin codes are typed, and the NPC drafts describe one Django sign-in surface. Staging is not affected.
+
+The audit record does not say which way a sign-in came in. A sign-in through the staff app's page and one through the hq pages are both written with the surface `hq`.
 ```
 
 - [ ] **Step 4: Run every check the repository's CI runs**
@@ -1306,7 +1334,9 @@ Not set and not changed: `HQ_HOST`, `DJANGO_ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGIN
 
 Under arrangement B the rows would instead be: `HQ_HOST=hq-api-staging.negosyonline.com`; `HQ_STAFF_ORIGIN=https://hq-staging.negosyonline.com`; the Railway custom domain `hq-api-staging.negosyonline.com` added to the service and `hq-staging.negosyonline.com` removed from it; DNS for both names; the Vercel domain `hq-staging.negosyonline.com`. Each is his approval.
 
-Which Railway service answers `HQ_HOST` on staging was not looked up by this session. The coordinator confirms it before row 4.
+Facts from the NPC coordinator's work of 2026-11-11, relayed by the coordinator and not checked by this session: the staging `api` service has Healthcheck Path `/healthz/` with a timeout of 120, so a deployment that breaks `/healthz/` does not go live; and `DJANGO_ALLOWED_HOSTS` on staging `api` lists `healthcheck.railway.app`, checked by name.
+
+Still unread by anyone for this plan: the value of `HQ_HOST` on staging, and which custom domains that service holds. The coordinator confirms both before row 4.
 
 ### 7.4 The steps
 
@@ -1389,9 +1419,10 @@ Unverified after this plan is built, said plainly:
 - **The browser's cookie behaviour**, until section 7 is run. Tests use Django's test client, which is not a browser and applies no `SameSite` or `__Host-` rule.
 - **Phones** (row 10 of 7.1), until plan 2's sign-in page exists.
 - **Staging's real values.** This session has not seen `HQ_HOST`, `SITE_PARENT_HOST`, `DASHBOARD_URL`, `SITE_URL` or `API_ALLOWED_ORIGINS` on staging. Whether a proposed name passes the start-up check there is known only when the service log is read in step 2 of 7.4. Whether `hq-api-staging` passes the `HQ_HOST` check was reasoned from `is_reserved`, not run.
-- **Which Railway service answers the HQ host**, and whether the deploy runs `manage.py check`. A running service does not stop on a bad value: it logs one line and leaves the routes off.
+- **The value of `HQ_HOST` on staging and which custom domains its service holds**, and whether the deploy runs `manage.py check`. A running service does not stop on a bad value: it logs one line and leaves the routes off.
 - **The code in this plan** has not been run. The builder runs each test before and after each change and reports the real output; where a test in this plan is wrong, the builder says so and corrects the test to the behaviour of section 5, not the other way round.
 - **Section 21's rules on the Vercel project** (who can deploy, previews, no third-party script). They are plan 2's to check against the real project.
+- **The audit record cannot tell the two ways in apart.** A sign-in made through the Vercel page and one made through the Django pages are both written with the surface `hq` (design 22.5), by the same functions. So if a Vercel deploy were ever compromised, which is the cost R26 accepted, the sign-ins made with captured codes would look like ordinary ones in the record. Marking the way in would mean a change to `two_step` and `hq_auth`, which this plan leaves alone; it is listed in 9.4 as a separate decision.
 - **The cost R26 accepted** is not reduced by anything here. From the day a staff origin is set on an environment, whoever controls the page at that origin can capture both codes as typed.
 
 ## 9. For Coach Ed
@@ -1406,17 +1437,24 @@ Unverified after this plan is built, said plainly:
 6. Reads are held to the origin rule as well as writes, so a route answers nothing to an address typed into a browser.
 7. The staff origin must be a sibling name of the HQ host. Stricter than a browser needs; simple to check; refuses every preview address.
 8. Locally, with `DEBUG` on, the origin may be `http` with a port.
-9. The routes are answered inside `HqHostMiddleware`, not through the URL list, so that the variable being unset leaves today's behaviour exactly as it is.
+9. The routes are answered inside `HqHostMiddleware`, not through the URL list, so that the variable being unset leaves today's behaviour exactly as it is. **Its cost, plainly:** a staff answer skips every middleware after the second: `ApiOriginMiddleware` (which passes on anything outside `/v1/`), `SessionMiddleware`, `CommonMiddleware`, `CsrfViewMiddleware`, `AuthenticationMiddleware`, `HqUserMiddleware`, `MessageMiddleware` and `XFrameOptionsMiddleware` (finding 9 of section 3). `SecurityMiddleware` still applies.
+10. The coordinator's decision on the choice that offered: `dispatch` sets `X-Frame-Options: DENY` on every staff answer, since `XFrameOptionsMiddleware` is skipped.
 
-### 9.2 What approving this plan approves
+### 9.2 One thing he should know before approving
+
+The audit record will not show whether a person signed in through the Vercel page or through the Django pages: both are recorded as `hq`. If the staff app's deploy were ever compromised, sign-ins made with captured codes would look like ordinary sign-ins. Recording the way in is possible, is not built by this plan, and is his to ask for (9.4).
+
+### 9.3 What approving this plan approves
 
 - Building tasks 1 to 5 on a build branch: one new setting, one new file of routes, one new branch in `HqHostMiddleware`, one new check, one new test file, the runbook lines.
 - A build PR, reviewed by the NPC coordinator before merge, merged by the coordinator on green CI after the overlap check.
 - That merge reaching staging by the usual deploy, **with `HQ_STAFF_ORIGIN` unset**, which changes nothing a person or a browser can see.
 
-### 9.3 What stays a separate approval, each asked on its own
+### 9.4 What stays a separate approval, each asked on its own
 
 - Setting `HQ_STAFF_ORIGIN` on staging (7.3 row 4), and every later change of it.
+- Setting `HQ_STAFF_ORIGIN` on production. Besides his approval, **it waits for the NPC wording amendment**, which is the NPC coordinator's later plan, on hold until plans 10 and 11 have dates. The reason: from the day it is set, Vercel serves the page where both admin codes are typed, and the NPC drafts describe one Django sign-in surface. Staging is not affected by this.
+- Whether the audit record should mark which way a sign-in came in (section 8 and 9.2). Not built here: it would change `two_step` and `hq_auth`, which this plan leaves alone.
 - The DNS record and the Vercel project or domain for the proof page (7.3 rows 2 and 3).
 - Which arrangement of names the proof uses (7.2), and the final host names (design 22.7), which plan 10 asks.
 - What to do if the proof fails (7.6).
