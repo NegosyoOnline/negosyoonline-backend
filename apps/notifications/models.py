@@ -109,10 +109,10 @@ class SmsPolicy(models.Model):
         default=False, help_text="Stops every text at once. Texts already waiting expire unsent."
     )
     platform_daily_limit = models.PositiveIntegerField(
-        default=4000, help_text="Texts a day (Manila time), all sites and all codes together."
+        default=2000, help_text="Texts a day (Manila time), all sites and all codes together."
     )
     site_daily_limit = models.PositiveIntegerField(
-        default=4000, help_text="Order-status texts a day (Manila time) for one site."
+        default=2000, help_text="Order-status texts a day (Manila time) for one site."
     )
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -63,7 +63,7 @@ In the admin lists on hq: SMS settings, tick "Sending stopped", save. It takes e
 - the phone is handed nothing and is told to ask every 30 seconds instead of every 5;
 - texts already waiting are left to expire.
 
-Untick it to start again. Every change to SMS settings is written to the operator audit log with the values before and after. The two daily limits (4,000 for the platform, 4,000 for one site, counted by the Manila day) are on the same page.
+Untick it to start again. Every change to SMS settings is written to the operator audit log with the values before and after. The two daily limits (they start at 2,000 for the platform and 2,000 for one site, counted by the Manila day) are on the same page.
 
 ## When the phone is offline
 
