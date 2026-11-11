@@ -20,6 +20,7 @@ from apps.billing.models import (
     BankTransferEvent, BankTransferPayment, BillingCycle, Subscription, SubscriptionTransition,
 )
 from apps.common.errors import ApiError
+from apps.common.ids import is_public_id
 from apps.operators import audit
 from apps.sites.models import Onboarding, Site
 
@@ -257,12 +258,16 @@ def overview(site, at=None):
     else:
         served = state not in ENDED_STATES
     served = served or exempt
-    cycle = _latest_cycle(subscription)
+    latest = _latest_cycle(subscription)
+    # A cycle paid ahead has not started yet: the current one is the one that is running.
+    cycle = latest
+    if latest.start_at > now:
+        cycle = subscription.cycles.filter(start_at__lte=now).order_by("-sequence").first() or latest
     next_due_at = attention_ends_at = None
     if state == State.TRIAL_ACTIVE:
         next_due_at = subscription.trial_end_at
     elif state == State.ACTIVE:
-        next_due_at = cycle.end_at
+        next_due_at = latest.end_at
     elif state == State.PAYMENT_REQUIRES_ATTENTION:
         next_due_at = subscription.attention_started_at
         attention_ends_at = subscription.attention_started_at + plan.GRACE
@@ -721,7 +726,10 @@ def _require_operator(operator):
 
 
 def _invalid(fields):
-    return ApiError("invalid_request", "Some of the details are not valid.", fields=fields)
+    return ApiError(
+        "invalid_request", "Some values are missing or invalid.",
+        fields={name: [message] for name, message in fields.items()},
+    )
 
 
 def _transfer_event(payment, code, actor, detail=None):
@@ -804,6 +812,10 @@ def submit_transfer(
             waiting.status, waiting.decided_at = TransferStatus.REPLACED, now
             waiting.save()
             _transfer_event(waiting, "replaced", BankTransferEvent.Actor.OWNER)
+        # The file is stored before its row, inside the transaction: a row never points at a
+        # missing file. If the transaction then fails, a file with no row is left under a
+        # random key that nothing can reach; the private store's build decides how such
+        # files are cleared.
         key = proofs.new_key()
         proofs.store().put(key, content)
         payment = BankTransferPayment.objects.create(
@@ -932,6 +944,89 @@ def reject_transfer(payment, operator, *, reason, note="", now=None):
             detail={"payment": row.public_id, "reason": reason},
         )
     return row
+
+
+def payment_options(subscription, at=None):
+    """What the Billing page needs to show how to pay, at `at`. Writes nothing.
+
+    As `overview`, it reports the state in force at `at` even when the sweep has not yet
+    written it.
+    """
+    _require_transfers()
+    now = at or timezone.now()
+    due = _due(subscription, now)
+    state = DUE_TO_STATE[due[0]] if due else subscription.state
+    service_end, deletion_due = subscription.service_ended_at, subscription.deletion_due_at
+    if due:
+        service_end = due[1]
+        deletion_due = _dates_after(subscription, service_end)[1]
+    latest = _latest_cycle(subscription)
+    reason = None
+    if subscription.billing_exempt:
+        reason = "billing_exempt"
+    elif state == State.CANCELLED and now < service_end:
+        reason = "cancel_scheduled"
+    elif deletion_due is not None and now >= deletion_due:
+        reason = "past_deletion_date"
+    elif latest.start_at > now:
+        reason = "paid_ahead"
+    offers = []
+    if reason is None:
+        start_at, anchor = None, None  # an ended site: the period starts at the confirmation
+        if state == State.TRIAL_ACTIVE:
+            start_at = subscription.trial_end_at
+            anchor = clock.anchor_day(start_at)
+        elif state == State.ACTIVE:
+            start_at, anchor = latest.end_at, subscription.anchor_day
+        elif state == State.PAYMENT_REQUIRES_ATTENTION:
+            start_at, anchor = latest.start_at, subscription.anchor_day
+        for offered in plan.offers(subscription, now):
+            offers.append({
+                "plan": offered.code,
+                "name": offered.name,
+                "amount_centavos": offered.price_centavos,
+                "currency": plan.CURRENCY,
+                "months": offered.months,
+                "period_start_at": start_at,
+                "period_end_at": clock.cycle_end(start_at, anchor) if start_at else None,
+                "starts_at_confirmation": start_at is None,
+                "then": None,
+            })
+    transfers = subscription.transfers.select_related("cycle")
+    return {
+        "payable": reason is None,
+        "not_payable_reason": reason,
+        "offers": offers,
+        "transfer_accounts": plan.transfer_accounts(),
+        "under_review": transfers.filter(status=TransferStatus.SUBMITTED).first(),
+        "latest": transfers.filter(
+            status__in=(TransferStatus.CONFIRMED, TransferStatus.REJECTED)
+        ).order_by("-pk").first(),
+        "proof_rules": {"max_bytes": proofs.MAX_BYTES, "content_types": list(proofs.CONTENT_TYPES)},
+    }
+
+
+def transfers_of(subscription):
+    """The subscription's payments, for its owner. Nothing is read while collection is off."""
+    _require_transfers()
+    return subscription.transfers.select_related("cycle")
+
+
+def transfer_of(subscription, payment_id):
+    """One payment of this subscription by its public id. Any other id is not found."""
+    payment = None
+    if is_public_id(payment_id, "btp"):
+        payment = transfers_of(subscription).filter(public_id=payment_id).first()
+    if payment is None:
+        raise ApiError("not_found", "Not found.", status=404)
+    return payment
+
+
+def proof_for_owner(subscription, payment_id):
+    """The proof file as (content, content type), for the owner of the subscription it was
+    sent for. The payment is found first, so no file is read for another id."""
+    payment = transfer_of(subscription, payment_id)
+    return proofs.store().get(payment.proof_key), payment.proof_content_type
 
 
 def proof_for_operator(payment, operator):

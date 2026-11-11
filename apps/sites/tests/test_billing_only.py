@@ -50,6 +50,12 @@ STAYS_ON = [
     ("GET", "/sites/{site_id}/billing/"),
     ("POST", "/sites/{site_id}/billing/cancel/"),
     ("POST", "/sites/{site_id}/billing/reactivate/"),
+    # Paying by bank transfer (B2a): a suspended or ended site must still be able to pay.
+    ("GET", "/sites/{site_id}/billing/payment/"),
+    ("GET", "/sites/{site_id}/billing/payments/"),
+    ("POST", "/sites/{site_id}/billing/payments/"),
+    ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"),
+    ("GET", "/sites/{site_id}/billing/payments/{payment_id}/proof/"),
 ]
 MESSAGE = "This site is limited to Billing until its subscription continues."
 SANTE_BODY = {"sponsor_id": "TAKEN-1"}

@@ -313,12 +313,17 @@ class BillingIsolationTests(SitesApiTestCase):
             sorted(billing_routes()),
             [
                 ("GET", "/sites/{site_id}/billing/"),
+                ("GET", "/sites/{site_id}/billing/payment/"),
+                ("GET", "/sites/{site_id}/billing/payments/"),
+                ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"),
+                ("GET", "/sites/{site_id}/billing/payments/{payment_id}/proof/"),
                 ("POST", "/sites/{site_id}/billing/cancel/"),
+                ("POST", "/sites/{site_id}/billing/payments/"),
                 ("POST", "/sites/{site_id}/billing/reactivate/"),
             ],
             "A billing route was added or removed: add it to the isolation tests.",
         )
-        self.assertEqual(len(billing_router.path_operations), 3, "every billing route is under a site")
+        self.assertEqual(len(billing_router.path_operations), 7, "every billing route is under a site")
 
     def test_another_accounts_site_is_404_on_every_billing_route_and_changes_nothing(self):
         before = billing_snapshot()
@@ -358,6 +363,10 @@ class BillingIsolationTests(SitesApiTestCase):
             with self.subTest(method=method, template=template):
                 # Reactivate on a running trial is refused by the rule, not by the site.
                 expected = 409 if template.endswith("reactivate/") else 200
+                if "/billing/payment" in template:
+                    # Bank transfer is switched off here, so its routes are 404 for the
+                    # owner too; apps/billing/tests/test_transfer_api.py covers them on.
+                    expected = 404
                 response = self.call(method, path, client=self.ben)
                 self.assertEqual(response.status_code, expected, response.content)
 

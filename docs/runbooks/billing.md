@@ -26,6 +26,8 @@ None of these is set anywhere. Setting any of them in a shared environment needs
 
 `manage.py check` fails with `billing.E001` (no complete account) or `billing.E002` (no proof store) when the switch is on without them.
 
+While the switch works, a signed-in Subscriber reaches five routes under `/v1/sites/{site_id}/billing/`: `payment/` (how to pay), `payments/` (list, and `POST` to send a proof), `payments/{payment_id}/` and `payments/{payment_id}/proof/`. Otherwise each answers 404. A proof file has no address of its own; it is sent only through the last route, to the Subscriber it belongs to.
+
 Order on staging, each step its own approval: merge and deploy; the coordinator applies `billing.0002_bank_transfer`; the private store is approved and built; the receiving account is set; only then the switch.
 
 The day the switch first works, the next sweep writes one `clocks_started` transition for each ended subscription that never paid and has no dates: its download and deletion dates become that sweep's time plus 30 days (R-4a). It happens once per subscription and turning the switch off does not take the dates back. Run `billing_sweep --dry-run` first to see the count.
@@ -164,5 +166,5 @@ To go back, remove the two services. Nothing else depends on them.
 
 ## Not in this runbook yet
 
-- The Subscriber's payment routes, the Launch Promo, the operator's review list in the Django admin, and the emails: later pull requests of B2a.
+- The Launch Promo, the operator's review list in the Django admin, and the emails: later pull requests of B2a.
 - Card payments, reminders by a gateway and statements: B2 and later.
