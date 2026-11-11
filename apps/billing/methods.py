@@ -1,10 +1,24 @@
 """Payment methods, as the lifecycle needs to ask about them.
 
-B1 has no payment-method table, so the answer is always no. Billing Build B2 replaces the
-body with a read of the payment-method history as of that instant.
+At launch the only way to pay is a bank transfer with proof (Billing Build B2a), so "a
+payment method was active" means: a proof was waiting for review at that instant.
 """
+from django.db.models import Q
+
+from apps.billing import plan
+from apps.billing.models import BankTransferPayment
+
+
+def under_review_at(instant):
+    """A condition on payments: sent by `instant` and not yet decided at it."""
+    return Q(submitted_at__lte=instant) & (Q(decided_at__isnull=True) | Q(decided_at__gt=instant))
 
 
 def active_at(site, instant):
-    """Whether the site had an active payment method at that instant."""
-    return False
+    """Whether the site had a proof under review at that instant. Reads nothing while
+    payment collection is off."""
+    if not plan.collection_live():
+        return False
+    return BankTransferPayment.objects.filter(
+        under_review_at(instant), subscription__site=site
+    ).exists()

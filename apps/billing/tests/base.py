@@ -1,10 +1,16 @@
 """Helpers shared by the billing tests. Time is always passed in; no test reads the clock."""
+import json
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from unittest import mock
+
+from django.test import override_settings
 
 from apps.accounts.models import Account
 from apps.billing import clock, services
 from apps.billing.models import Subscription
+from apps.operators.models import User
+from apps.sites.models import Site
 from apps.sites.tests.base import make_account, make_site
 
 MANILA = clock.MANILA
@@ -38,6 +44,9 @@ def make_subscription(email="ana@example.test", name="anas-store", start=T0, now
     Account.objects.filter(pk=account.pk).update(created_at=start)
     account.refresh_from_db()
     site = make_site(account, name=name)
+    # The site's own creation time is part of the dates of a never-paid site (B2a, question 9).
+    Site.objects.filter(pk=site.pk).update(created_at=now or start)
+    site.refresh_from_db()
     return services.start_subscription(site, account, now=now or start)
 
 
@@ -67,3 +76,51 @@ def make_suspended(**kwargs):
     subscription = make_attention(**kwargs)
     services.sweep(now=CYCLE_1_END + days(7))
     return fresh(subscription)
+
+
+# Bank transfer (Billing Build B2a)
+
+JPEG = b"\xff\xd8\xff\xe0" + b"proof-one" * 20
+PNG = b"\x89PNG\r\n\x1a\n" + b"proof-two" * 20
+PDF = b"%PDF-1.7\n" + b"proof-three" * 20
+TEST_ACCOUNTS = json.dumps([
+    {"kind": "bank", "provider_name": "Test Bank", "account_name": "Test Receiver",
+     "account_number": "0000 0000 00"},
+])
+
+
+class MemoryProofStore:
+    def __init__(self):
+        self.files = {}
+
+    def put(self, key, content):
+        self.files[key] = bytes(content)
+
+    def get(self, key):
+        return self.files[key]
+
+
+@contextmanager
+def transfers_on():
+    """Bank transfer switched on, with a made-up receiving account and a store in memory."""
+    store = MemoryProofStore()
+    with override_settings(
+        BILLING_BANK_TRANSFER_ENABLED=True, BILLING_TRANSFER_ACCOUNTS=TEST_ACCOUNTS
+    ), mock.patch("apps.billing.proofs.store", return_value=store), mock.patch(
+        "apps.billing.proofs.available", return_value=True
+    ):
+        yield store
+
+
+def make_operator(username="op"):
+    return User.objects.create(username=username, is_staff=True)
+
+
+def submit(subscription, at, content=JPEG, plan_code="monthly", **fields):
+    """The owner sends a proof at `at`. Returns the payment."""
+    payment, _ = services.submit_transfer(
+        subscription, subscription.site.account, plan_code=plan_code, content=content,
+        transferred_on=fields.pop("transferred_on", at.astimezone(MANILA).date()),
+        now=at, **fields,
+    )
+    return payment

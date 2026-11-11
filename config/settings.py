@@ -102,6 +102,16 @@ RETENTION_ENABLED = os.environ.get("RETENTION_ENABLED", "").strip() == "1"
 # Billing. "1" turns on the subscription lifecycle. Off, site creation writes no subscription,
 # the sweep does nothing, and the billing tables are not read or written.
 BILLING_ENABLED = os.environ.get("BILLING_ENABLED", "").strip() == "1"
+# Paying a subscription by bank transfer with proof (Billing Build B2a). "1" turns it on, and
+# only while BILLING_ENABLED is on, a receiving account is set and a proof store is available.
+# Off, its routes answer 404 and its tables are not read or written.
+BILLING_BANK_TRANSFER_ENABLED = os.environ.get("BILLING_BANK_TRANSFER_ENABLED", "").strip() == "1"
+# The accounts Subscribers send their payment to, as a JSON list of objects with `kind`
+# ("bank" or "ewallet"), `provider_name`, `account_name` and `account_number`. Never in code.
+BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").strip()
+# A local folder for proof files. Used only while DEBUG is on: a shared environment needs the
+# approved private store, which is not built yet.
+BILLING_PROOF_DIR = os.environ.get("BILLING_PROOF_DIR", "").strip()
 # Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints and admin
 # lists. Off, the endpoints answer 404 and the Santé tables are not read or written.
 SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() == "1"
