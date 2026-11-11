@@ -2,7 +2,7 @@
 
 Date: 2026-11-11. ClickUp task: z8uq9me2g0 (https://app.clickup.com/t/z8uq9me2g0), parent z8uq9m8h46. Follows Build B1a (z8uq9me1un).
 Branch: `claude/z8uq9me2g0-healthz-https-exempt-c81055`, cut from `origin/main` at `3842e9c`.
-Status: plan only, waiting for Coach Ed's approval. No code is written before that, because this changes a security setting (task, "Rules").
+Status: approved by Coach Ed, 2026-11-11, in the coordinator chat ("Approve plan", plan at `c246285`). The approval covers sections 3, 5 and 7; the Railway step in section 6 is still his separate approval. The sections below are kept as written.
 
 ## 1. Sources
 
