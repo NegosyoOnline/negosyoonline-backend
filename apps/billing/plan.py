@@ -157,3 +157,18 @@ def collection_live():
         and transfer_accounts()
         and proofs.available()
     )
+
+
+# Storage usage (Billing Build B4). NegosyoOnline never meters or charges orders: a
+# Subscriber's sales are their own business (Coach Ed, 2026-11-11).
+STORAGE_INCLUDED_GB = 5  # per monthly allowance period
+STORAGE_OVERAGE_CENTAVOS_PER_GB = 3_000  # PHP 30 for each started GB over the 5 GB
+GB_BYTES = 1_073_741_824  # a binary gigabyte (a routine choice, one constant)
+LATE_ADMISSION = timedelta(hours=72)  # L2: a snapshot is accepted up to 72 hours after cutoff
+# L13: platform renditions and the 5 GB allowance are decided with the media upload task
+# before storage is metered. Until that task changes this, no snapshot is charged.
+STORAGE_METERED = False
+
+
+def usage_enabled():
+    return bool(settings.BILLING_ENABLED and settings.BILLING_USAGE_ENABLED)
