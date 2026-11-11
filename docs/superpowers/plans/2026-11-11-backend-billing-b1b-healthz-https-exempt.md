@@ -2,7 +2,7 @@
 
 Date: 2026-11-11. ClickUp task: z8uq9me2g0 (https://app.clickup.com/t/z8uq9me2g0), parent z8uq9m8h46. Follows Build B1a (z8uq9me1un).
 Branch: `claude/z8uq9me2g0-healthz-https-exempt-c81055`, cut from `origin/main` at `3842e9c`.
-Status: approved by Coach Ed, 2026-11-11, in the coordinator chat ("Approve plan", plan at `c246285`). The approval covers sections 3, 5 and 7; the Railway step in section 6 is still his separate approval. The sections below are kept as written.
+Status: approved by Coach Ed, 2026-11-11, in the coordinator chat ("Approve plan", plan at `c246285`). The approval covers sections 3, 5 and 7; the Railway step in section 6 was his separate approval. Carried out: pull request 78 merged as `6725454`; on his "Yes, set it" (2026-11-11) the coordinator set Healthcheck Path `/healthz/` and Healthcheck Timeout `120` on staging `api` in the dashboard, after confirming by name that `DJANGO_ALLOWED_HOSTS` lists `healthcheck.railway.app`; deployment `df826a05` passed the check and succeeded. The sections below are kept as written.
 
 ## 1. Sources
 

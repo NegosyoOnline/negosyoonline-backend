@@ -106,8 +106,8 @@ Each service's settings are typed into its Settings in the Railway dashboard, pr
 | What it does | Serves the API | Runs queued jobs | Queues the sweep every 5 minutes |
 | Build command: "Custom Build Command" | `uv sync --frozen` | `uv sync --frozen` | `uv sync --frozen` |
 | Start command: "Custom Start Command" | `uv run gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --access-logfile - --error-logfile -` | `uv run celery -A config worker --loglevel=info --concurrency=2` | `uv run celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule` |
-| Health path: "Healthcheck Path" | empty | empty | empty |
-| Health timeout, in seconds: "Healthcheck Timeout" (shown once a path is set) | not used | not used | not used |
+| Health path: "Healthcheck Path" | `/healthz/` | empty | empty |
+| Health timeout, in seconds: "Healthcheck Timeout" (shown once a path is set) | `120` | not used | not used |
 | Restart policy: "Restart Policy" | `On Failure` | `On Failure` | `On Failure` |
 | Restart retries: "Max restart retries" | `10` | `10` | `10` |
 | Number of instances: "Regions & Replicas" | not set here | not set here | `1` |
@@ -116,7 +116,9 @@ Each service's settings are typed into its Settings in the Railway dashboard, pr
 
 No start command runs a migration. "Wait for CI" is off on all three.
 
-`api` has no health path on purpose. Railway's health check calls the service over plain HTTP, and the backend answers every plain-HTTP request with a redirect to HTTPS (`SECURE_SSL_REDIRECT`), so the check never got its 200. With a health path set, the deployment of 2026-11-11 failed (`33d647de`, HTTP 301 on `/healthz/`); with it removed, the next one succeeded (`9753aa68`). Since Build B1b, `/healthz/` alone is exempt from that redirect: `SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]` in `config/settings.py` matches only that exact path, and every other path still redirects. From outside nothing changed: Railway's public edge answers plain HTTP with its own redirect before the request reaches the app, so only Railway's health check and services on the project's private network can call `/healthz/` over plain HTTP. The check sends the host `healthcheck.railway.app`, which must stay in `DJANGO_ALLOWED_HOSTS`. Typing the health path into `api` again (`/healthz/`, timeout `120`) is the next step and needs Coach Ed's approval; until it is done the table above stands. Meanwhile `/healthz/` is checked from outside over HTTPS after each deploy: `scripts/verify_deploy.sh` and the `verify-staging` workflow.
+`api` has the health path `/healthz/` with a timeout of 120 seconds, set on 2026-11-11 with Coach Ed's approval. Railway calls it once, at the start of each deployment, and switches traffic to the new deployment only after it answers 200; it is not continuous monitoring. The first deployment with the path set passed the check and succeeded (`df826a05`, commit `6725454`). The path was typed in the dashboard: the Railway CLI (`railway environment edit --service-config`) made no change.
+
+The check works only because `/healthz/` is exempt from the HTTPS redirect. Railway's health check calls the service over plain HTTP, and the backend answers every other plain-HTTP request with a redirect to HTTPS (`SECURE_SSL_REDIRECT`). Before Build B1b that included `/healthz/`: with the path set, the deployment of 2026-11-11 failed (`33d647de`, HTTP 301 on `/healthz/`), and the path was removed until the exemption was merged (`9753aa68` succeeded without it). The exemption is `SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]` in `config/settings.py`: it matches only that exact path. Do not widen it, and do not remove it while the health path is set. From outside nothing changed: Railway's public edge answers plain HTTP with its own redirect before the request reaches the app, so only Railway's health check and services on the project's private network can call `/healthz/` over plain HTTP. The check sends the host `healthcheck.railway.app`, which must stay in `DJANGO_ALLOWED_HOSTS`; without it the check gets 400 and every deployment fails. `/healthz/` is also checked from outside over HTTPS after each deploy: `scripts/verify_deploy.sh` and the `verify-staging` workflow.
 
 To create a service like these again:
 
