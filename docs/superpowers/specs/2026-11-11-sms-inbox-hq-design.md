@@ -452,6 +452,7 @@ Not verified:
 - Section 18's numbers (time to send, the size of a batch) are arithmetic on the existing cap and gap. The carrier's behaviour toward a SIM that sends one text to many numbers is not known; that risk is accepted (R14).
 - Whether the phone's poll can feed a batch to the queue without a new worker (section 18.3) was not checked against the code.
 - The CSV uploads (Bulk SMS and contacts) are drawn as an upload area around the browser's own file button, which shows no chosen file in the mockup; reading a real file was not tried.
+- `bulk.html` draws one batch at three moments on one page and says so in a note: steps 1 and 2 before it is confirmed (214 texts used), the list and step 3 while it sends (610 used, as on the SMS list).
 - The "Send to" choice is drawn with all three options open at once so a screenshot shows each; switching between them was not built.
 
 - Nothing was run against the backend. This stage wrote documents and a static mockup only.
