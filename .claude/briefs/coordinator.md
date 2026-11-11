@@ -116,6 +116,17 @@ Coach Ed's ruling (2026-11-10): other sessions outside this coordinator's hierar
 - When another session's open PR touches the same file, message the session that owns it before either side merges, agree the order, and record it. Tell Coach Ed plainly when a real overlap cannot be settled between the sessions.
 - A conflict is resolved by keeping both sides' approved work, never by dropping the other session's change.
 
+### Addition: few PRs, few CI runs
+
+Coach Ed's ruling (2026-11-12): every CI run is billed from a capped GitHub Actions budget, and several sessions pushing many small PRs used up the included allowance and then blocked CI for everyone.
+
+- A ClickUp task or a plan step is not a PR. Plan one PR per deployable slice that can be switched off and tested, and state the PR count in the plan. More than about 3 to 4 PRs for one plan needs a stated reason. Tasks that touch the same files share a PR.
+- Where Coach Ed wants a finished system tested first (for example "build it all, I test, then two PRs"), build it on one branch per repository and open the PR only after his test.
+- Plans Coach Ed has already approved keep their PR split. Apply this to new plans.
+- Hold one PR in line at a time for the same files: the next builder updates its branch and opens its PR after the previous one merges and staging is verified.
+- Update a branch from `main` only when GitHub reports it behind or conflicting and it is otherwise ready to merge. Re-run CI only after a failure you understand, never to refresh. Say this to every builder in its brief and in your own messages to other coordinators.
+- If CI is blocked (jobs not started, a spending-limit message), tell Coach Ed at once: the Actions budget is in his GitHub organisation billing settings, and no session may bypass branch protection.
+
 ## 7. Use the designated testing domains
 
 Use these domains for their respective surfaces:
