@@ -23,7 +23,7 @@ This repository is the clean Django backend foundation for NegosyoOnline. It is 
 ## Deployment and verification
 
 - Use `uv` and this repository's own `.venv`; never reuse TWCinc's environment.
-- `railway.toml` starts Gunicorn and deliberately does not run migrations. Keep migrations as an explicit reviewed release step.
+- Each Railway service's build and start commands are set in its Settings in the dashboard and recorded in `docs/runbooks/billing.md`; `api` starts Gunicorn and deliberately does not run migrations. Keep migrations as an explicit reviewed release step.
 - Before a deployment review, run the targeted tests plus `uv run python manage.py check --deploy`.
 - A commit, green CI run, or Railway build alone does not prove a deployment. Verify the intended environment and its health endpoint.
 
