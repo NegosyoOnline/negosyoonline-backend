@@ -14,7 +14,7 @@ import json
 from django.http import JsonResponse
 
 from apps.common.errors import ApiError, error_body
-from apps.inbox import reading, sending
+from apps.inbox import bulk, reading, sending
 from apps.inbox.access import scope_for
 from apps.inbox.switch import inbox_on
 from apps.notifications import services
@@ -78,7 +78,7 @@ def status(scope, body):
     unread = scope.conversations.filter(unread_count__gt=0).count()
     return JsonResponse({
         "platform": scope.platform, "read": True, "send": scope.can_send,
-        **services.sms_status(), "unread": unread,
+        **services.sms_status(), "unread": unread, "bulk_running": bulk.running_for(scope.actor),
     })
 
 
