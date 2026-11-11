@@ -2,8 +2,13 @@
 import logging
 from datetime import timedelta
 
+from email.utils import parseaddr
+
 from django.conf import settings
+from django.core import mail
+from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
+from django.core.validators import validate_email
 from django.utils import timezone
 
 from apps.common.disposal import is_disposed_address
@@ -23,13 +28,51 @@ class EmailNotSent(ApiError):
         )
 
 
-def send_email(*, to, category, subject, body):
+def _has_line_break(value):
+    return "\r" in value or "\n" in value
+
+
+def _named_sender(sender_name):
+    """`"Store name" <the address of DEFAULT_FROM_EMAIL>`. Only the name changes: the address
+    the mail is sent from is always ours."""
+    if _has_line_break(sender_name):
+        raise ValueError("The sender name holds a line break.")
+    name = sender_name.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{name}" <{parseaddr(settings.DEFAULT_FROM_EMAIL)[1]}>'
+
+
+def _checked_reply_to(reply_to):
+    try:
+        if _has_line_break(reply_to):
+            raise ValidationError("line break")
+        validate_email(reply_to)
+    except ValidationError:
+        raise ValueError("The Reply-To is not one valid email address.") from None
+    return reply_to
+
+
+def _deliver(to, subject, body, sender_name, reply_to):
+    if not sender_name and not reply_to:
+        send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [to])
+        return
+    mail.EmailMessage(
+        subject, body,
+        _named_sender(sender_name) if sender_name else settings.DEFAULT_FROM_EMAIL,
+        [to],
+        reply_to=[_checked_reply_to(reply_to)] if reply_to else None,
+    ).send()
+
+
+def send_email(*, to, category, subject, body, sender_name="", reply_to=""):
+    """`sender_name` is the name shown beside our own From address, `reply_to` the one address
+    a reply goes to. Neither may hold a line break, and `reply_to` must be a valid address:
+    otherwise nothing is sent and the send is recorded as failed, like any other bad header."""
     if is_disposed_address(to):  # a disposed contact is never emailed, and no record is kept
         logger.warning("Email refused: the recipient is a disposed account (category=%s)", category)
         raise EmailNotSent()
     message = EmailMessage.objects.create(recipient=to, category=category)
     try:
-        send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [to])
+        _deliver(to, subject, body, sender_name, reply_to)
     except Exception:
         logger.exception("Email send failed (category=%s)", category)
         message.status = EmailMessage.Status.FAILED
