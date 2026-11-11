@@ -18,8 +18,9 @@ class ListAndDetailTests(OwnerTestCase):
         self.assertEqual(
             sorted(row),
             ["buyer_name", "created_at", "id", "method", "mobile_masked", "order_number", "payment_status",
-             "state_version"],
+             "price_centavos", "state_version"],
         )
+        self.assertEqual(row["price_centavos"], 148800)
         self.assertEqual([o["id"] for o in self.get(self.url("?filter=rejected")).json()["orders"]], [second.public_id])
         self.assertEqual([o["id"] for o in self.get(self.url("?filter=to_review")).json()["orders"]], [first.public_id])
 

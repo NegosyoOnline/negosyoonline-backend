@@ -79,7 +79,7 @@ def row(order):
         "id": order.public_id, "order_number": order.order_number, "buyer_name": order.buyer_name,
         "mobile_masked": mask("mobile", order.member.mobile), "method": order.payment_method,
         "payment_status": order.payment_status, "created_at": order.created_at.isoformat(),
-        "state_version": order.state_version,
+        "state_version": order.state_version, "price_centavos": order.price_centavos,
     }
 
 

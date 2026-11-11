@@ -97,7 +97,7 @@ On the owner API, `https://<api>/v1/sites/{site_id}/pack/orders/...`, signed in 
 | `POST .../pack/orders/{order_id}/approve/` | `{state_version}` | detail |
 | `POST .../pack/orders/{order_id}/reject/` | `{state_version, reason_code, other_text?}` | detail |
 
-`row`: `{id, order_number, buyer_name, mobile_masked, method, payment_status, created_at, state_version}`. `detail` is `row` plus `{price_centavos, currency, delivery_address, rejection_lock_active, submissions, events}`; a submission is `{id, seq, account_kind, account_provider_name, account_name, account_number_last4, reference_number, amount_sent_centavos, sender_bank, sender_name, sender_account_number, transferred_at, submitted_at, content_type, decisions: [{decision, reason_code, reason_label, other_text, actor_label, decided_at}]}`.
+`row`: `{id, order_number, buyer_name, mobile_masked, method, payment_status, created_at, state_version, price_centavos}`. `detail` is `row` plus `{currency, delivery_address, rejection_lock_active, submissions, events}`; a submission is `{id, seq, account_kind, account_provider_name, account_name, account_number_last4, reference_number, amount_sent_centavos, sender_bank, sender_name, sender_account_number, transferred_at, submitted_at, content_type, decisions: [{decision, reason_code, reason_label, other_text, actor_label, decided_at}]}`.
 
 `reason_code`: `amount_mismatch, payment_not_found, proof_unreadable, reference_mismatch, wrong_account, other` (`other` needs `other_text` of 1 to 500 characters: `422 reason_text_required`; any other code `422 invalid_reason`). Approve works from `pending_review` or `rejected`; reject only from `pending_review` (`409 wrong_status`). An old `state_version`: `409 stale`; reload the detail. Unknown body keys: `400`.
 
