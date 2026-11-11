@@ -79,7 +79,7 @@ One account at a time, in one transaction. The rows stay; the personal values go
 | Business profile | Business and registered name, TIN, DTI number, BIR number, address, complaints contact, privacy email | The row, the shipping estimates |
 | Web address | Retired | The name stays taken and is never reissued |
 | Santé site settings, where `SANTE_SETTINGS_ENABLED` is on | The sponsor ID | The row |
-| Site payment accounts, where `PAYMENT_METHODS_ENABLED` is on | The account name and account number; every account is marked removed | The row, its kind, bank or e-wallet name and type, dates |
+| Site payment accounts, where `PAYMENT_METHODS_ENABLED` is on | The account name and account number; every account is marked removed; each account's QR code file is deleted from the private store | The row, its kind, bank or e-wallet name and type, dates |
 | Email send records to the account's address | Deleted, except hq sign-in codes and lockout notices | |
 | Email send records to an address the account used before an email change | Deleted when written up to the moment of that change, plus the change notice sent to the old address; hq sign-in codes and lockout notices stay. Later records to that address are not touched: it may belong to another account by then | |
 
@@ -143,9 +143,10 @@ While `SANTE_CATALOG_ENABLED` is off the catalog tables are not read at all, bec
 
 **Payment methods.** Where `PAYMENT_METHODS_ENABLED` is on (ClickUp z8uq9me4dy, port slice 7):
 
-- The account name and account number of every bank and e-wallet account of the account's sites are blanked, each account is marked removed, and the rows are kept. The counts gain `site_payment_accounts`, and the audit entry names the two fields, never a value.
+- The account name and account number of every bank and e-wallet account of the account's sites are blanked, each account is marked removed, and the rows are kept. The counts gain `site_payment_accounts` and `site_payment_qr_files`, and the audit entry names the fields (name, number, QR file key), never a value.
+- Each account's QR code image (ClickUp z8uq9me7aq) is a private file. Disposal deletes it from the store, removed accounts' files too, and blanks the key. A file that cannot be deleted stops the disposal and undoes it; run it again once the store answers. A file already gone is not an error. A removed account (the owner's Remove) keeps its file until disposal, as it keeps its row.
 - The payment settings row (direct transfer on or off) holds nothing personal and is kept as it is.
-- The export gains `site_payment_accounts` (every account of the account's sites, removed ones too, with the full name and number) and `site_payment_settings`.
+- The export gains `site_payment_accounts` (every account of the account's sites, removed ones too, with the full name and number, and whether it has a QR code, never the file's key) and `site_payment_settings`.
 - No Xendit key is stored (Xendit is hidden by Coach Ed's ruling of 2026-11-11), so there is none to blank or export.
 
 While `PAYMENT_METHODS_ENABLED` is off, disposal and export do not read the payment tables at all, because the code is released before migration `payments.0001` is applied. Turn it on in an environment only after that migration is applied there. Once it has been on in an environment, it is not turned off again without Coach Ed's ruling: a disposal run while it is off would leave saved account names and numbers in place.

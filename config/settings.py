@@ -130,6 +130,13 @@ SANTE_CATALOG_ENABLED = os.environ.get("SANTE_CATALOG_ENABLED", "").strip() == "
 # on their endpoints and admin lists. Off, the endpoints answer 404 and the payment tables
 # are not read or written.
 PAYMENT_METHODS_ENABLED = os.environ.get("PAYMENT_METHODS_ENABLED", "").strip() == "1"
+# Private files (apps/common/private_files.py): a payment QR code today. The read-write token
+# of the private Vercel Blob store; read here and nowhere else. With no token, files go to the
+# local folder below, and only while DEBUG is on. With neither, no private file is stored.
+PRIVATE_BLOB_READ_WRITE_TOKEN = os.environ.get("PRIVATE_BLOB_READ_WRITE_TOKEN", "").strip()
+PRIVATE_FILES_DIR = os.environ.get("PRIVATE_FILES_DIR", "").strip() or str(
+    BASE_DIR / ".private-files"
+)
 # The storefront surface (/storefront/v1/), called only by the storefronts server. "1" turns
 # it on, and only while STOREFRONT_SERVER_SECRET holds at least 32 characters. Off, every path
 # under it answers 404. The secret is read here and nowhere else.

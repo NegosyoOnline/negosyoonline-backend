@@ -3,12 +3,14 @@
 Called only by apps.accounts.retention. While PAYMENT_METHODS_ENABLED is off every function
 here answers empty and reads no payment table.
 """
+from apps.common import private_files
 from apps.payments import services
 from apps.payments.models import SitePaymentAccount, SitePaymentSettings
 from apps.sites.models import Site
 
 ACCOUNTS, SETTINGS = "site_payment_accounts", "site_payment_settings"
-ACCOUNT_PERSONAL = ("account_name", "account_number")
+QR_FILES = "site_payment_qr_files"
+ACCOUNT_PERSONAL = ("account_name", "account_number", "qr_file_key")
 
 
 def _iso(moment):
@@ -23,14 +25,22 @@ def blanked():
 
 
 def blank_payments_of(account, now, dry_run=False):
-    """Blank the account name and number of every payment account of the account's sites and
-    mark each removed. The rows stay. Returns the counts; a dry run only counts. Call it inside a transaction, after the
-    account's site lock is taken."""
+    """Blank the account name and number of every payment account of the account's sites,
+    delete each one's QR code file from the private store and mark each removed. The rows
+    stay. Returns the counts; a dry run only counts. Call it inside a transaction, after the
+    account's site lock is taken.
+
+    A file that cannot be deleted raises private_files.StoreError, so the disposal is undone
+    and can be run again: no file is left behind with no row that names it. Deleting a file
+    that is already gone succeeds."""
     if not services.enabled():
         return {}
     accounts = SitePaymentAccount.objects.filter(site__account=account)
-    counts = {ACCOUNTS: accounts.count()}
+    keys = list(accounts.exclude(qr_file_key="").values_list("qr_file_key", flat=True))
+    counts = {ACCOUNTS: accounts.count(), QR_FILES: len(keys)}
     if not dry_run:
+        for key in keys:
+            private_files.delete(key)
         accounts.filter(removed_at__isnull=True).update(removed_at=now)
         accounts.update(**{name: "" for name in ACCOUNT_PERSONAL})
     return counts
@@ -51,6 +61,7 @@ def export_payments_of(account):
                 "provider_name": row.provider_name,
                 "account_name": row.account_name,
                 "account_number": row.account_number,
+                "has_qr": bool(row.qr_file_key),
                 "created_at": _iso(row.created_at),
                 "removed_at": _iso(row.removed_at),
             }

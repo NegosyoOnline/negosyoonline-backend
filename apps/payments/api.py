@@ -79,7 +79,8 @@ def payment_methods_update(request, site_id: str, payload: MethodsPatch):
 
 @router.post("/sites/{site_id}/payment-methods/accounts/", response={201: dict})
 def payment_account_add(request, site_id: str):
-    """A form post (multipart), as the page sends it. A `qr` file is refused."""
+    """A form post (multipart), as the page sends it. `qr` is an optional JPEG, PNG or WebP
+    image of at most 2 MB, kept as a private file."""
     _count_write(request)
     row = services.add_account(request.account, request.payment_site, request.POST, request.FILES)
     return 201, services.account_out(row)
@@ -87,7 +88,8 @@ def payment_account_add(request, site_id: str):
 
 @router.post("/sites/{site_id}/payment-methods/accounts/{account_id}/")
 def payment_account_change(request, site_id: str, account_id: str):
-    """The Change form: the same fields as adding an account, as a form post."""
+    """The Change form: the same fields as adding an account, as a form post. No `qr` keeps
+    the current QR code; a new one replaces it."""
     _count_write(request)
     row = services.update_account(
         request.account, request.payment_site, account_id, request.POST, request.FILES
