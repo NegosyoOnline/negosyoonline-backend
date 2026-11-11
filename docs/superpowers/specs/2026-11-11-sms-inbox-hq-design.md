@@ -2,7 +2,7 @@
 
 ClickUp task: z8uq9me128 "SMS inbox, reply and compose (HQ)" (https://app.clickup.com/t/z8uq9me128), a subtask of z8uq9md33v "NPC Build 1 — SMS Carrier & Data-Flow Controls".
 
-Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. Where the screens are served is settled (R23, section 3): the frontend on Vercel, with Django on Railway serving data and rules only. He then ruled that the existing HQ staff pages move to Vercel as part of this task (R24, "Yes, move them now") and that the Django Admin stays on Django (R25, "Yes, Admin stays"); section 22 lays out the whole staff area on Vercel, what stays, and the order in which the Django pages would be retired. One security decision is open and is his: how HQ staff sign in on Vercel with the two-step check kept (section 20). Two smaller points that follow from what the code shows are also his (section 22.7). The reserve for sign-in codes is settled (R20, section 18.10). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. Contacts and groups (section 19) were added by R16 to R19, so the scope is now three parts: the inbox, Bulk SMS and contacts. His feedback on that mockup (R21) then moved Contacts out of SMS: it is its own item on the HQ main menu, a kept list of the people NegosyoOnline deals with, and not only the recipients of a bulk text. He then ruled (R22) that Contacts holds only what HQ staff type in or upload, with no link to Subscriber accounts. After approval comes a plan, also for approval, before any code.
+Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. Where the screens are served is settled (R23, section 3): the frontend on Vercel, with Django on Railway serving data and rules only. He then ruled that the existing HQ staff pages move to Vercel as part of this task (R24, "Yes, move them now") and that the Django Admin stays on Django (R25, "Yes, Admin stays"); section 22 lays out the whole staff area on Vercel, what stays, and the order in which the Django pages would be retired. How HQ staff sign in on Vercel is settled (R26, section 20): the sign-in forms are Vercel pages, the backend checks the codes as today and sets today's HQ cookie, and that one sign-in opens the staff area and the Django Admin, with the cost of section 20.6 accepted. Still open and his (section 22.7): how "hq is the only admin door" is reworded and which host keeps the name `hq`; then the look and the design. The reserve for sign-in codes is settled (R20, section 18.10). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. Contacts and groups (section 19) were added by R16 to R19, so the scope is now three parts: the inbox, Bulk SMS and contacts. His feedback on that mockup (R21) then moved Contacts out of SMS: it is its own item on the HQ main menu, a kept list of the people NegosyoOnline deals with, and not only the recipients of a bulk text. He then ruled (R22) that Contacts holds only what HQ staff type in or upload, with no link to Subscriber accounts. After approval comes a plan, also for approval, before any code.
 
 ## 1. Sources
 
@@ -52,8 +52,9 @@ The coordinator's readings recorded with those rulings, which this design confir
 | R23 | The inbox, Bulk SMS and Contacts screens are served from the frontend on Vercel, not as Django pages on the HQ host. Django on Railway serves the data and rules only. This is option B of section 3, chosen against this design's recommendation after the consequences were put to him | "all the displays will be coming from Vercel, and all the backend codes will be from Railway using Django." Then: "No, you need to move it to Versal. We need to be um, uniform with our codes. So again, move all our front end to Versal. The railway or Django will be serving only the" (the message ended there) |
 | R24 | The existing HQ staff pages (staff sign-in and its second step, the console, the lists), Django pages on the HQ host today, move to Vercel now, as part of this task, not later as a separate one. The sign-in question becomes how HQ staff sign in on Vercel with the two-step check kept | "Yes, move them now" |
 | R25 | The Django Admin stays on Django on Railway, behind the two-step sign-in. Django generates it and it is not served from Vercel. Only the HQ staff pages we wrote move | "Yes, Admin stays" |
+| R26 | How HQ staff sign in on Vercel: the recommended column of section 20.4. The sign-in forms are Vercel pages; the backend checks the codes as today and sets today's HQ cookie; that one sign-in opens the staff area and the Django Admin; no token held by the page; no separate Admin sign-in; no migration. The cost of section 20.6 is accepted with it. He was shown the three columns and that cost first | "Okay, just do all the recommended for the these 4 rows, how it works, Django admin, the security, and the build." |
 
-R9 to R25 are each a comment on the Task, re-read there on 2026-11-11. Section 18 applies R10 to R15 and R20; section 19 applies R16 to R19, R21 and R22; sections 3, 10, 20 and 21 apply R23; sections 20 and 22 apply R24 and R25. Where the words recorded with R24 and R25 do not match the code (the "lists" are the Django Admin; the Admin has no sign-in pages of its own), section 22.2 reports both sides.
+R9 to R26 are each a comment on the Task, re-read there on 2026-11-11. Section 18 applies R10 to R15 and R20; section 19 applies R16 to R19, R21 and R22; sections 3, 10, 20 and 21 apply R23; sections 20 and 22 apply R24, R25 and R26. Where the words recorded with R24 and R25 do not match the code (the "lists" are the Django Admin; the Admin has no sign-in pages of its own), section 22.2 reports both sides.
 
 ### 2.1 What R7 and R8 change in this design
 
@@ -273,7 +274,7 @@ After a text is queued, its line in the conversation shows "Waiting", then "Sent
 - **Its name:** "SMS inbox", as R3 ruled. It is access to the SMS platform of the Inbox and to nothing else; another platform has its own permission, granted separately. **Two levels:** read, and read with send (`can_send`). A staff user who only needs to look something up is given read.
 - **It is explicit.** It is a row in `InboxAccess`, not a Django permission. A superuser has no access without a row, and the Django admin's user page cannot grant it.
 - **Granting is a terminal command**, as admin identities and phones are managed: `manage.py sms_inbox_access grant --user USERNAME [--send] --actor USERNAME`, `revoke`, and `list`. `grant` and `revoke` write an audit entry. Who is granted access is Coach Ed's decision, per person.
-- **Sign-in:** the HQ two-step sign-in (R3). The screens are on Vercel (R23), so they hold no session of their own: every call they make to the backend must carry proof of an HQ session that passed both steps. How it is carried is the open decision of section 20. Whatever is chosen, the backend checks the session and the `InboxAccess` row on every call; the page is never trusted to have checked.
+- **Sign-in:** the HQ two-step sign-in (R3). The screens are on Vercel (R23), so they hold no session of their own: every call they make to the backend must carry proof of an HQ session that passed both steps. It is carried by the HQ cookie, which the page cannot read (R26, section 20). The backend checks the session and the `InboxAccess` row on every call; the page is never trusted to have checked.
 - A call with no session answers 401, and the page sends the staff member to sign in. A call by a signed-in user without access, or any call while `SMS_INBOX_ENABLED` is off, answers `not_found`, the same as for a path that does not exist, and the page shows "Page not found". The page files on Vercel hold no data, so serving them to anyone gives nothing away.
 
 ### 7.2 The one access check
@@ -400,7 +401,7 @@ None of these is created by this document.
 | Migration | `inbox.0001_initial`: `Conversation`, `ConversationMessage`, `InboxAccess` | Additive, a new app. Creating it is covered once a plan that names it is approved; running it on staging is the coordinator's step under the standing approval; production is never covered |
 | Migration | `apps/notifications`, next free number (`0004` as of `1ba9cc6`): the `category` choices gain `inbox` | Changes the allowed values only. No column or row changes |
 | Setting | `apps.inbox` added to `INSTALLED_APPS`; `SMS_INBOX_ENABLED` read in `config/settings.py` | Code, reviewed in the pull request |
-| Staff API | The routes of section 10 in the HQ URL set, and what section 20's decision needs on the backend | Code. Nothing of it exists today: the HQ host serves pages only |
+| Staff API | The routes of section 10 in the HQ URL set, and the sign-in routes of sections 20 and 22.3 | Code. Nothing of it exists today: the HQ host serves pages only |
 | Access control | Replacing and later removing the Django HQ pages (section 22.6) | Its own plan, approved by Coach Ed and reviewed by the NPC coordinator before it merges. Edits to `config/settings.py` are announced to the NPC coordinator first (22.5) |
 | Railway variable | The one staff origin the HQ host answers (written here as `HQ_STAFF_ORIGIN`) | Per environment, with Coach Ed's approval. Empty means the staff API answers no browser |
 | Frontend repository | A task of its own for `apps/hq` (section 3.1): the pages, their tests, its `next.config.ts` headers | A different repository and a different builder. Not started by this document. Its own plan and approvals |
@@ -494,7 +495,7 @@ Input for Coach Ed's wording. This is not wording, and this design edits no fili
 - **Masking.** The list answer contains no message text and no full number. The conversation answer contains no full number.
 - **Retention.** A message older than 365 days is deleted; a younger one stays; a conversation left empty is deleted; the dry run changes nothing; the rule does nothing while the switch is off.
 - **The command.** `grant`, `revoke` and `list`; `sms_device incoming on` refuses while `SMS_INBOX_ENABLED` is off.
-- **Calls from the page (R23).** A changing call without the staff origin is refused; a call from the dashboard's origin, the public site's origin or a preview address is refused; every answer carries `no-store`; no route takes a number, name or text in its address; a repeated send with the same request id does not send twice. The tests of whatever section 20 settles: a session that passed only the first step reaches nothing, sign-out ends access at once, an expired session answers 401.
+- **Calls from the page (R23).** A changing call without the staff origin is refused; a call from the dashboard's origin, the public site's origin or a preview address is refused; every answer carries `no-store`; no route takes a number, name or text in its address; a repeated send with the same request id does not send twice. The tests of what section 20 settles (R26): a session that passed only the first step reaches nothing, sign-out ends access at once, an expired session answers 401.
 - **The frontend task's own tests**, in the frontend repository: the pages show only what the API answers, keep no data in browser storage, and put no value in an address. For that task's plan.
 - Checks: `manage.py makemigrations --check`, `manage.py check`, `manage.py check --deploy`, the full test run.
 
@@ -783,11 +784,13 @@ No link to Subscriber account records and no registered accounts shown in Contac
 
 R21 raised one question: should Contacts also show registered Subscriber accounts, or stay a list staff enter and upload by hand? Coach Ed ruled: "No, hand-entered only". Contacts holds only what HQ staff type in or upload from a CSV file. It does not show registered Subscriber accounts and has no link to account records.
 
-Nothing in this section is open for Coach Ed. R17, R18 and R19 stand unchanged, and 18.10 is settled by R20. What is left for him is how a staff screen on Vercel is signed in (section 20) and approval of the design and the look.
+Nothing in this section is open for Coach Ed. R17, R18 and R19 stand unchanged, and 18.10 is settled by R20. How staff sign in on Vercel is settled by R26 (section 20). What is left for him is section 22.7 and approval of the design and the look.
 
-## 20. How HQ staff sign in on Vercel with the two-step check kept: the open decision for Coach Ed (R23, R24)
+## 20. How HQ staff sign in on Vercel with the two-step check kept: settled by Coach Ed (R23, R24, R26)
 
-**This is a security decision and it is his.** This section was rewritten after R24. Before R24 it recommended leaving the two sign-in pages on Django and letting the Vercel screens use the session made there (then called way 1 alone). R24 moves the sign-in pages themselves, so that answer is no longer available: staff will type their email code and their authenticator code into a page served by Vercel. What is left to decide is how the session made by that sign-in is carried, and whether the same sign-in opens the Django Admin. This section lays out the ways and gives one recommendation. It settles nothing.
+**Settled by Coach Ed (R26): the first column of 20.4, with the cost of 20.6 accepted.** His words: "Okay, just do all the recommended for the these 4 rows, how it works, Django admin, the security, and the build." It was a security decision and it was his; he was shown the three columns and the cost before ruling. The rest of this section is kept as the record of what was weighed.
+
+This section was rewritten after R24. Before R24 it recommended leaving the two sign-in pages on Django and letting the Vercel screens use the session made there (then called way 1 alone). R24 moves the sign-in pages themselves, so that answer is no longer available: staff will type their email code and their authenticator code into a page served by Vercel. What was left to decide was how the session made by that sign-in is carried, and whether the same sign-in opens the Django Admin. This section lays out the ways that were put to him.
 
 ### 20.1 What exists today
 
@@ -797,7 +800,7 @@ Nothing in this section is open for Coach Ed. R17, R18 and R19 stand unchanged, 
 - The HQ host answers pages only. It has no API and allows no other origin to call it. A check at start-up refuses a configuration where the HQ host is also the dashboard's, the public site's or an allowed API origin.
 - The Subscriber dashboard, for comparison, is a page on Vercel that calls the API host with the Subscriber's own `HttpOnly` cookie. The API allows a short list of origins to make signed-in calls and refuses a changing call from any other origin.
 
-### 20.2 What the rulings fix, and what is open
+### 20.2 What the earlier rulings fixed, and what R26 then settled
 
 Fixed:
 
@@ -805,12 +808,12 @@ Fixed:
 - **The checking stays on the backend (R23).** The pages only send what the staff member types to sign-in routes on the HQ host (section 22.3). The emailed code, the authenticator check, the recovery codes, the limits, the 15-minute pause, the session and the audit entries are the same functions that run today (`hq_auth`, `two_step`), called from a route instead of from a Django page. Nothing about how a person proves who they are is rewritten.
 - **R3 stands:** two steps, the explicit permission, every read and send audited.
 
-Open, and his:
+Settled by R26:
 
-- How the session is carried after sign-in: the HQ cookie as it is (way 1), or a token the page holds (way 2).
-- Whether that one sign-in also opens the Django Admin, or the Admin keeps a Django sign-in of its own.
+- How the session is carried after sign-in: the HQ cookie as it is (way 1), not a token the page holds (way 2).
+- That one sign-in also opens the Django Admin. The Admin keeps no Django sign-in of its own.
 
-### 20.3 What must hold whichever way is chosen (R3)
+### 20.3 What must hold (R3)
 
 - Only a session that passed both steps reaches any data, checked by the backend on every call.
 - The explicit inbox permission is checked by the backend on every call (section 7).
@@ -820,11 +823,11 @@ Open, and his:
 - The sign-in routes give the same answer for an address that is an admin and one that is not, and keep today's limits: 5 submits an hour for an address and for an IP address, a code good for 10 minutes and 5 tries, 5 wrong second-step codes pausing sign-in for 15 minutes, a 12-hour session.
 - The key that protects the authenticator secrets (`ADMIN_SECRETS_KEY`) and the secrets themselves stay on Railway. Nothing of them is ever a Vercel variable or in a page.
 
-### 20.4 The ways
+### 20.4 The ways that were weighed
 
 In every column the sign-in forms are Vercel pages (the earlier "way 3"), because R24 rules it. The columns differ in what carries the session.
 
-| | Way 3 on way 1. The HQ cookie, one sign-in for everything (recommended) | Way 3 on way 2. A token the page holds | Way 3 on way 1, and the Admin keeps a Django sign-in of its own |
+| | **Way 3 on way 1. The HQ cookie, one sign-in for everything (chosen, R26)** | Way 3 on way 2. A token the page holds (considered, not chosen) | Way 3 on way 1, and the Admin keeps a Django sign-in of its own (considered, not chosen) |
 |---|---|---|---|
 | **What it is** | The sign-in routes on the HQ host set the same HQ cookie that the Django pages set today. The browser sends it with every staff call; the page never sees it. Because the cookie belongs to the HQ host, the same session opens the Django Admin there: one sign-in for the staff area and the Admin | The second-step route answers with a token. The page keeps it and sends it in a header with every call. The Django Admin cannot use a header, so it needs a sign-in of its own as well | As the first column for the staff area. A session made through the Vercel pages is marked and does not open the Django Admin. Today's Django sign-in pages stay on the HQ host as the Admin's door, and staff sign in a second time there |
 | **What changes in the cookie** | Nothing, if the staff host and the HQ host are under the same registered domain, as the dashboard and API hosts are. `SameSite=Strict` then still lets the browser send it. On an unrelated domain it would have to become `SameSite=None`, which is weaker; this design asks that it never is | Nothing. A new secret, the token, exists beside it | Nothing in the cookie. The session row gains a mark of where it was made, which is a migration |
@@ -834,7 +837,7 @@ In every column the sign-in forms are Vercel pages (the earlier "way 3"), becaus
 
 A fourth arrangement, sending the staff page's calls through Vercel's own servers so the browser sees one host, is not offered: every code, number, name and text would then pass through Vercel, which section 21 forbids.
 
-### 20.5 Recommendation: way 3 on way 1, one sign-in for the staff area and the Admin
+### 20.5 Chosen (R26): way 3 on way 1, one sign-in for the staff area and the Admin
 
 **The sign-in forms are Vercel pages; the backend checks the codes exactly as today and sets the HQ cookie exactly as today; that one session opens the staff screens and the Django Admin.** Reasons:
 
@@ -852,21 +855,21 @@ What it needs, each stated so it can be checked:
 - Where the Admin today sends the browser to the Django sign-in page, it sends it to the staff app's sign-in address, taken from that one setting and never from the request.
 - The staff routes are the only thing on the HQ host that answers another origin. The Django Admin still answers no one else.
 
-### 20.6 Its security cost, plainly
+### 20.6 Its security cost, plainly (accepted by R26)
 
-**From the day the sign-in pages are on Vercel, the Vercel deploy of the staff app can capture a staff member's email code and authenticator code as they type them, and sign in as that person from somewhere else.** That is a session of the attacker's own, good for up to 12 hours each time, reaching everything that person reaches: the inbox, Bulk SMS, Contacts, and, in the recommended way, the Django Admin with that person's permissions there (the account lists, and the staff user list for a superuser).
+**From the day the sign-in pages are on Vercel, the Vercel deploy of the staff app can capture a staff member's email code and authenticator code as they type them, and sign in as that person from somewhere else.** That is a session of the attacker's own, good for up to 12 hours each time, reaching everything that person reaches: the inbox, Bulk SMS, Contacts, and, in the way chosen, the Django Admin with that person's permissions there (the account lists, and the staff user list for a superuser).
 
-Before R24 this could not happen: the codes were typed only into pages the backend served, and the worst a compromised staff page could do was act through a signed-in person's browser while they were on the page. That narrower limit is what R24 gives up, in every column of 20.4.
+Before R24 this could not happen: the codes were typed only into pages the backend served, and the worst a compromised staff page could do was act through a signed-in person's browser while they were on the page. That narrower limit is what R24 gives up, in every column of 20.4. R26 accepts this cost.
 
 What still limits it: the deploy rules of section 21 (who can change the staff app, no third-party script, no preview with access); the audit record, which shows every sign-in with its time; signing in again or a `reset` from the terminal, which ends every live session of that person; and removing the staff origin on the backend, which stops every staff call at once.
 
 Keeping a separate Django sign-in for the Admin (the third column) does not remove this cost. A page that can capture the codes can also pass them on as they are typed: it can ask the Admin's own sign-in for a code, show the staff member the form they expect, and use what they type at the Admin's door. An authenticator code and an emailed code are not tied to the page they are typed into. Only a second step that is tied to the site's address (a passkey or security key) would resist this; that is not part of this design and would be its own task and ruling.
 
-### 20.7 What Coach Ed is asked
+### 20.7 What Coach Ed ruled
 
-One decision: **how HQ staff sign in on Vercel.** Recommended: the sign-in forms on Vercel, the HQ cookie as it is, one sign-in for the staff area and the Django Admin (the first column of 20.4), with the cost of 20.6 accepted. The other answers are the second and third columns. Until he rules, nothing about sign-in is planned or built. The inbox, Bulk SMS and Contacts sections stand on any of the three.
+**R26: the first column of 20.4.** The sign-in forms are Vercel pages; the backend checks the codes as today and sets today's HQ cookie; that one sign-in opens the staff area and the Django Admin; the page holds no token; the Admin has no separate sign-in; no migration is needed. The cost of 20.6 is accepted with it. The second and third columns were considered and not chosen.
 
-The coordinator has not put this decision to him yet.
+This is a design ruling. It approves no plan, build, migration or Railway variable.
 
 ## 21. The Vercel deploy inside the trust boundary (R23)
 
@@ -933,7 +936,7 @@ Three things in the rulings and the brief do not match what the code shows. Each
 | What was said | What the code shows | How this design reads it |
 |---|---|---|
 | R24 names the pages that move as "staff sign-in, console, lists" | The "lists" are the Django Admin itself. The console's "Admin lists" card is a link to `/admin/`. There is no list page that we wrote | The lists stay, under R25. What moves is the sign-in, the code page, the second step, the "paused" notice, the console and sign-out |
-| R25 says the Django Admin stays "behind its own two-step sign-in pages" | The Django Admin has had no sign-in pages of its own since PR 45. The pages R24 moves are its only door | The recommended way (20.5) opens the Admin from the same session, made through the Vercel sign-in. Keeping Django sign-in pages for the Admin is the third column of 20.4. It is part of the open sign-in decision |
+| R25 says the Django Admin stays "behind its own two-step sign-in pages" | The Django Admin has had no sign-in pages of its own since PR 45. The pages R24 moves are its only door | Settled by R26 (20.5): the Admin opens from the same session, made through the Vercel sign-in. Keeping Django sign-in pages for the Admin was the third column of 20.4, not chosen |
 | The brief lists "the enforcement switch from z8uq9mdwdx" among what the HQ host serves | The switch (`ADMIN_TWO_STEP_REQUIRED`) and the Django Admin's own two-step pages were built by PR 41 and removed by PR 45. The code no longer reads the setting | Nothing to move. The two-step check cannot be switched off |
 
 ### 22.3 The staff area on Vercel, page by page
@@ -952,7 +955,7 @@ One app (`apps/hq`, section 3.1), one host, one look: the Subscriber dashboard's
 | "Page not found" | The plain error page | The same words | Nothing |
 
 - **Which page a person lands on.** `GET /staff/v1/me/` answers 401 with `unauthenticated` (go to `/sign-in/`) or `second_step_required` (go to `/verify/`). The page decides nothing about access: it only follows the answer.
-- **The route names are written here for the plan to confirm.** Each is a thin wrapper around a function that exists: `hq_auth.within_limits` and `issue_email_code`, `hq_auth.check_email_code`, `two_step.verify_second_step`, `hq_auth.mark_verified`, `hq_auth.sign_out`, `audit.recent_sign_in_events`. No model, limit or audit action changes, so the recommended way needs no migration.
+- **The route names are written here for the plan to confirm.** Each is a thin wrapper around a function that exists: `hq_auth.within_limits` and `issue_email_code`, `hq_auth.check_email_code`, `two_step.verify_second_step`, `hq_auth.mark_verified`, `hq_auth.sign_out`, `audit.recent_sign_in_events`. No model, limit or audit action changes, so the way chosen (R26) needs no migration.
 - **The address typed on `/sign-in/`** is shown back on `/code/` from the page's memory only. It is not put in an address, a cookie the page can read, or browser storage. After a reload the page says "Code sent to your email".
 - **The side menu** (signed-in pages): Inbox, Contacts, a separator, Admin console, Admin lists. "Admin lists" leaves the staff area for the Django Admin (22.4) and is marked as doing so.
 - **What the pages no longer have:** Django's form token (the origin check replaces it, 20.5), and working without script (section 13).
@@ -960,7 +963,7 @@ One app (`apps/hq`, section 3.1), one host, one look: the Subscriber dashboard's
 ### 22.4 The Django Admin stays on Django (R25)
 
 - The Admin is generated by Django from the models. It is not rebuilt, restyled or served from Vercel, and it stays on the HQ host on Railway, at `/admin/`, with its own CSS and script at `/static/admin/`.
-- **How staff get there.** The console's "Admin lists" card and the side menu's "Admin lists" item are plain links to `/admin/` on the HQ host. In the recommended way (20.5) the person is already signed in: the HQ cookie belongs to the HQ host, and a link from the staff host, on the same registered domain, carries it. If Coach Ed chooses the third column of 20.4 instead, the link leads to the Django sign-in pages and the person signs in a second time.
+- **How staff get there.** The console's "Admin lists" card and the side menu's "Admin lists" item are plain links to `/admin/` on the HQ host. The person is already signed in (R26, 20.5): the HQ cookie belongs to the HQ host, and a link from the staff host, on the same registered domain, carries it. There is no second sign-in.
 - **The way back.** The Admin's top bar has an "Admin console" link, which becomes a link to the staff host. Its "Sign out" stays the HQ sign-out and then shows the staff app's sign-in page.
 - **Opening the Admin without a session** sends the browser to the staff app's sign-in address, from the backend's one setting (20.5).
 - **What stays on Django on the HQ host after the move:** `/admin/`, `/static/admin/`, the staff routes under `/staff/v1/`, and the plain error pages. Whatever the Admin needs to be reached behind the two-step check is not removed by 22.6.
@@ -992,14 +995,17 @@ A sequence only. Each step is for an approved plan to detail, on staging first.
 4. **The links are turned.** The Admin's login, its "Admin console" link and the Django `/` send the browser to the staff host. The Django sign-in pages still answer if their address is typed.
 5. **The Django pages are removed** in a later release, after the Vercel pages have been the way in for a period Coach Ed names: the five templates, the five views and their tests. The Admin, its CSS and script, the plain error pages and the staff routes stay (22.4).
 
-At every step up to 5, going back is unsetting the staff origin: the Django pages are still there. After 5, going back is redeploying the previous release. Throughout, the terminal command (`manage.py admin_identity reset`, `enrol`) is unchanged and is the way to recover a person who cannot sign in. If Coach Ed chooses the third column of 20.4, step 5 does not happen: the Django sign-in pages stay as the Admin's door.
+At every step up to 5, going back is unsetting the staff origin: the Django pages are still there. After 5, going back is redeploying the previous release. Throughout, the terminal command (`manage.py admin_identity reset`, `enrol`) is unchanged and is the way to recover a person who cannot sign in.
 
-### 22.7 What Coach Ed is asked
+### 22.7 What is settled, and what Coach Ed is still asked
 
-Three decisions, one at a time, in this order. None is made by this design.
+Settled:
 
-1. **How HQ staff sign in on Vercel** (section 20). Recommended: the forms on Vercel, the HQ cookie as it is, one sign-in for the staff area and the Django Admin, with the cost of 20.6 accepted. This also answers how the Admin is reached, which R25 left resting on sign-in pages that no longer exist (22.2).
-2. **"hq is the only admin door" after the move** (22.5). Recommended reading: one backend host makes and checks every staff session and serves the Admin; one Vercel host is the only place the sign-in forms and staff screens are served. With it, which host carries the name `hq`: the staff app that staff open, or the backend that it is today. Recommended: the backend keeps the name it has (`HQ_HOST` is unchanged, and the Admin stays at the address it has), and the staff app gets a new name under the same domain. That is the smaller change; its cost is that staff learn a new address, which step 4 of 22.6 softens by sending the old one on. Any new host name is his to approve.
-3. **The lists** (22.2). Confirm that "lists" in "Yes, move them now" are the Django Admin lists, which stay under "Yes, Admin stays", so no list page is built on Vercel.
+- **How HQ staff sign in on Vercel: R26** (section 20). The forms on Vercel, the HQ cookie as it is, one sign-in for the staff area and the Django Admin, with the cost of 20.6 accepted. This also settles how the Admin is reached, which R25 left resting on sign-in pages that no longer exist (22.2).
+
+Still his, one at a time, in this order. Neither is made by this design.
+
+1. **"hq is the only admin door" after the move** (22.5). Recommended reading: one backend host makes and checks every staff session and serves the Admin; one Vercel host is the only place the sign-in forms and staff screens are served. With it, which host carries the name `hq`: the staff app that staff open, or the backend that it is today. Recommended: the backend keeps the name it has (`HQ_HOST` is unchanged, and the Admin stays at the address it has), and the staff app gets a new name under the same domain. That is the smaller change; its cost is that staff learn a new address, which step 4 of 22.6 softens by sending the old one on. Any new host name is his to approve.
+2. **The lists** (22.2). The coordinator's reading, recorded with R26, which he may overrule: the "lists" in "Yes, move them now" are the Django Admin lists, which stay under "Yes, Admin stays", so no list page is built on Vercel. This design follows that reading.
 
 After these, approval of the look (section 13) and of the design.
