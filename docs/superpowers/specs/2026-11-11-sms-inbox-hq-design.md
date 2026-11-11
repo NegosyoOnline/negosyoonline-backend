@@ -2,7 +2,7 @@
 
 ClickUp task: z8uq9me128 "SMS inbox, reply and compose (HQ)" (https://app.clickup.com/t/z8uq9me128), a subtask of z8uq9md33v "NPC Build 1 — SMS Carrier & Data-Flow Controls".
 
-Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. One decision is open and is his: where the screens are served (section 3). The reserve for sign-in codes is settled (R20, section 18.10). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. Contacts and groups (section 19) were added by R16 to R19, so the scope is now three parts: the inbox, Bulk SMS and contacts. His feedback on that mockup (R21) then moved Contacts out of SMS: it is its own item on the HQ main menu, a kept list of the people NegosyoOnline deals with, and not only the recipients of a bulk text. He then ruled (R22) that Contacts holds only what HQ staff type in or upload, with no link to Subscriber accounts. After approval comes a plan, also for approval, before any code.
+Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. Where the screens are served is settled (R23, section 3): the frontend on Vercel, with Django on Railway serving data and rules only. One decision is open and is his, a security decision: how a staff screen served from Vercel is signed in (section 20). Whether the existing HQ pages (sign-in, console, lists) also move to Vercel is not decided and is not designed here; the coordinator has asked him. The reserve for sign-in codes is settled (R20, section 18.10). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. Contacts and groups (section 19) were added by R16 to R19, so the scope is now three parts: the inbox, Bulk SMS and contacts. His feedback on that mockup (R21) then moved Contacts out of SMS: it is its own item on the HQ main menu, a kept list of the people NegosyoOnline deals with, and not only the recipients of a bulk text. He then ruled (R22) that Contacts holds only what HQ staff type in or upload, with no link to Subscriber accounts. After approval comes a plan, also for approval, before any code.
 
 ## 1. Sources
 
@@ -14,6 +14,7 @@ Status: **design for Coach Ed's approval. Nothing is built.** This document crea
 | Runbook | `docs/runbooks/sms-gateway.md`, `docs/runbooks/retention.md` |
 | Code | `apps/notifications`, `apps/operators`, `apps/common`, `apps/accounts/retention.py`, `config/settings.py` at `1ba9cc6` |
 | Dashboard look | Frontend repository at `36d2ec4`, read only: `apps/dash/public/index.html`, `apps/dash/public/assets/css/dash.css`, `apps/dash/next.config.ts`. For the platform menu: the Settings menu (`.set-tabs`) in the same two files at `origin/main` `5802934` |
+| Frontend layout, for R23 | Frontend repository at `origin/main` `8e92124`, read only and not edited: `README.md`, `apps/dash/README.md`, `apps/dash/next.config.ts`. Backend at this branch: `config/settings.py`, `apps/common/middleware.py`, `apps/accounts/sessions.py`, `apps/operators/hq_views.py`, `hq_auth.py`, `hq_urls.py`, `middleware.py`, `checks.py` |
 | Phone app | `NegosyoOnline/negosyoonline-sms-gateway` at `0e7ae88`, read only: its manifest and plan, and decision record 4 on the Parent |
 
 ## 2. Rulings this design applies (not reopened)
@@ -47,8 +48,9 @@ The coordinator's readings recorded with those rulings, which this design confir
 | R20 | Of the 2,000 texts a day, 300 are kept for sign-in codes | "Hold back 300" |
 | R21 | Contacts is its own item on the HQ main menu, not a button or page inside SMS. Staff open it directly to add and look up contacts. It is not only a recipient list for Bulk SMS | "As said, the contacts will be on the main menu, not inside the SMS. Okay, it must be on the main menu so that we will be able to add. We can check. It's not just for bulk sending. It is a kind of like a database of users of Negosyo Online." |
 | R22 | Contacts holds only what HQ staff type in or upload from a CSV file. It does not show registered Subscriber accounts and has no link to account records | "No, hand-entered only" |
+| R23 | The inbox, Bulk SMS and Contacts screens are served from the frontend on Vercel, not as Django pages on the HQ host. Django on Railway serves the data and rules only. This is option B of section 3, chosen against this design's recommendation after the consequences were put to him | "all the displays will be coming from Vercel, and all the backend codes will be from Railway using Django." Then: "No, you need to move it to Versal. We need to be um, uniform with our codes. So again, move all our front end to Versal. The railway or Django will be serving only the" (the message ended there) |
 
-R9 to R22 are each a comment on the Task, re-read there on 2026-11-11. Section 18 applies R10 to R15 and R20; section 19 applies R16 to R19, R21 and R22.
+R9 to R23 are each a comment on the Task, re-read there on 2026-11-11. Section 18 applies R10 to R15 and R20; section 19 applies R16 to R19, R21 and R22; sections 3, 10, 20 and 21 apply R23.
 
 ### 2.1 What R7 and R8 change in this design
 
@@ -68,19 +70,42 @@ R9 to R22 are each a comment on the Task, re-read there on 2026-11-11. Section 1
 
 Not approved by any of them, and not done here: any build, any migration, any setting or Railway variable, turning the incoming switch on anywhere, anything on staging or production, restyling the existing HQ pages, and anything for a platform other than SMS.
 
-## 3. The open decision for Coach Ed: where the screens are served
+## 3. Where the screens are served: settled, the frontend on Vercel (R23)
 
-R3 keeps the tool behind the HQ two-step sign-in on the HQ host. R6 asks for the Subscriber dashboard's look, and that dashboard lives in the frontend repository on another host. The two have to meet somewhere.
+**Settled by Coach Ed: option B.** The inbox, Bulk SMS and Contacts screens are pages in the frontend repository, served by Vercel. Django on Railway serves the data and the rules through an API and renders none of these screens. His reason, in his words: "We need to be um, uniform with our codes."
+
+R3 is unchanged in what it protects: HQ staff only, an explicit inbox permission, the two-step sign-in, every read and send audited. What R23 changes is the host that serves the screens. R3's "Host: HQ only" now means the data and the rules: every number, name and text is still read and written only by the backend, only for a session that passed both steps.
+
+The table is kept as the record of what was weighed. This design recommended A; he ruled B after hearing the consequences in its row.
 
 | Option | What it is | Security consequence | Cost |
 |---|---|---|---|
-| **A. Django pages on the HQ host, styled to match the dashboard (recommended)** | Server-rendered pages under `/inbox/` in the HQ URL set (`apps/operators/hq_urls.py`), with their own base template that carries the dashboard's colours, type, cards, chips, buttons, dark sidebar and phone tab bar. The existing HQ pages are not touched | Nothing new to trust. The pages, the numbers and the message text are served only by the HQ host, only to a session that passed both steps. The session cookie stays as it is: host-only, `HttpOnly`, `SameSite=Strict`. No other origin is allowed to call HQ, so no CORS rule is added. Django's CSRF check covers the reply and compose forms. The pages load nothing from another host: the font is served by HQ itself | The look is a second copy of the dashboard's styles, kept in the backend. When the dashboard's design changes, this copy is updated by hand |
-| B. A surface in the frontend repository | A new page or app in the frontend repository (hosted on Vercel like the dashboard) that calls the backend for inbox data | The HQ session cookie cannot be read or sent by another origin, so one of three things must change: the HQ host must allow a second origin to make signed-in calls (a CORS rule with credentials, and a weaker cookie), or HQ must issue a token that the browser page holds, or the two-step sign-in must be built again in the frontend. In every case a second host and its deploy pipeline join the trust boundary of the staff tool: whoever can change that deploy can read every conversation. Message text and numbers would be handled by script on a host that is not HQ | Shares the real dashboard styles. Needs new sign-in plumbing, a frontend task and repository, and new approvals |
-| C. HQ pages that load the dashboard's stylesheet from the dashboard host | Option A's pages, but with a `<link>` to the dashboard's own CSS file | A stylesheet from another host can change what HQ staff see and can read parts of the page (CSS can send attribute values to a remote address). The dashboard host's deploy would then be able to act inside HQ pages. HQ would depend on another host being up | Always matches the dashboard with no copy to maintain |
+| A. Django pages on the HQ host, styled to match the dashboard (recommended by this design, not chosen) | Server-rendered pages under `/inbox/` in the HQ URL set (`apps/operators/hq_urls.py`), with their own base template that carries the dashboard's look | Nothing new to trust. The pages, the numbers and the message text are served only by the HQ host, only to a session that passed both steps. The session cookie stays host-only, `HttpOnly`, `SameSite=Strict`. No other origin is allowed to call HQ | The look is a second copy of the dashboard's styles, kept in the backend and updated by hand |
+| **B. A surface in the frontend repository (chosen, R23)** | A new app in the frontend repository, hosted on Vercel like the dashboard, that calls the backend for inbox data | The HQ session cookie cannot be read or sent by another origin, so one of three things must change: the HQ host must allow a second origin to make signed-in calls, or HQ must issue a token that the browser page holds, or the two-step sign-in must be built again in the frontend (section 20). In every case a second host and its deploy pipeline join the trust boundary of the staff tool: whoever can change that deploy can read every conversation (section 21). Message text and numbers are handled by script on a host that is not HQ | Shares the real dashboard styles. Needs new sign-in plumbing, a frontend task and repository, and new approvals |
+| C. HQ pages that load the dashboard's stylesheet from the dashboard host (not chosen) | Option A's pages, but with a `<link>` to the dashboard's own CSS file | A stylesheet from another host can change what HQ staff see and can read parts of the page. HQ would depend on another host being up | Always matches the dashboard with no copy to maintain |
 
-**Recommendation: A.** It is the only option where R3 holds without changing how HQ signs staff in, and where no host other than HQ ever handles a number or a text. Its cost, a copied look, is small and visible. The mockup is drawn as option A would look.
+### 3.1 Where the screens live in the frontend repository
 
-Whichever is chosen, the rest of this design does not change: the records, the access check, the service functions and the API shape in section 10 are the same.
+The frontend repository is a workspace of three apps, each its own Vercel project: `apps/site` (the public site), `apps/dash` (the Subscriber dashboard) and `apps/storefronts`. This design proposes a fourth, **`apps/hq`**, its own Vercel project on its own host, for the staff screens. It is a proposal from reading that repository, not from building in it; the frontend task's plan confirms it.
+
+- **Why not inside `apps/dash`.** The dashboard's origin is where Subscribers are signed in. Staff screens on the same origin would share every script and every weakness of the Subscriber pages, and the backend could not tell a call made by a staff screen from one made by a dashboard page. A separate origin lets the backend allow exactly one origin for staff calls.
+- **Built the way the dashboard is.** Static HTML, CSS and script in `public/`, served by Next.js, with `next.config.ts` giving the routing and the security headers. No server code on Vercel reads or writes inbox data: the browser calls the backend directly (section 21).
+- **The look.** The pages use the dashboard's own stylesheet rules. How `apps/hq` gets them (a shared file in the workspace, or a copy) is for the frontend plan. The mockup's look stands.
+- **The paths**, routed in the browser as the dashboard's are:
+
+| Path on the staff host | Page |
+|---|---|
+| `/inbox/` | Goes to `/inbox/sms/` |
+| `/inbox/sms/` | The SMS list |
+| `/inbox/sms/c/<id>/` | A conversation, with the reply form. The id is the conversation's opaque `public_id` |
+| `/inbox/sms/new/` | Compose |
+| `/inbox/sms/bulk/` | Bulk SMS (section 18) |
+| `/inbox/messenger/`, `/inbox/instagram/`, `/inbox/tiktok/`, `/inbox/email/`, `/inbox/webchat/` | The shared "not yet available" page (R8) |
+| `/contacts/`, `/contacts/groups/`, `/contacts/new/`, `/contacts/<id>/`, `/contacts/upload/` | Contacts (section 19) |
+
+**No number, name or text is ever part of a page address or a query string.** A page address is recorded by Vercel and kept in the browser's history. Finding a conversation by a full number sends the number in the body of a call to the backend (section 10), never in an address.
+
+The records, the access check, the service functions, the audit record, masking, retention and the SMS rules (sections 4 to 9, 11, 18, 19) do not change with R23. What changes is in sections 7.1, 10, 12, 13, 15 and 16, and the new sections 20 and 21.
 
 ## 4. Records
 
@@ -160,7 +185,7 @@ An incoming text is stored only when all three are on. Each is off today.
 | Switch | Where | Who turns it on |
 |---|---|---|
 | `SMS_GATEWAY_ENABLED` | Railway variable, exists | Already on for staging. Unchanged |
-| `SMS_INBOX_ENABLED` | Railway variable, **new** | Coach Ed's approval, per environment. While off: the inbox tables are never read or written, every Inbox page answers the HQ "Page not found", `received` discards as it does today, and the retention rule does nothing. The code can be merged and deployed dark, the way the gateway was |
+| `SMS_INBOX_ENABLED` | Railway variable, **new** | Coach Ed's approval, per environment. While off: the inbox tables are never read or written, every staff API route answers `not_found`, `received` discards as it does today, and the retention rule does nothing. The code can be merged and deployed dark, the way the gateway was |
 | "Forwards incoming texts" on the phone's row | `manage.py sms_device incoming on --name system --actor USERNAME`, exists, audited | Coach Ed's approval, each time, and **only after the NPC and privacy wording is amended** (R1) |
 
 The `sms_device incoming on` command is changed to refuse while `SMS_INBOX_ENABLED` is off, so the phone is never told to forward texts that would be thrown away, and its closing line no longer says nothing is stored.
@@ -195,7 +220,7 @@ Both go through the one send function, `send_sms` in `apps/notifications/service
 2. For a composed text, the number is checked with `normalise_ph_mobile` (section 6.4).
 3. `send_sms` is called with a new declared purpose, `inbox_reply` or `inbox_compose`. It writes the text-free send record, takes one of the day's slots, checks the kill switch and that the phone is online, and holds the text encrypted in Redis until the phone takes it.
 4. If it answers `queued`: the `out` message is written with the text and the send record's id, the conversation is created or updated, and the audit entry is written. All in one database transaction with step 3, so a text is never queued without its inbox row.
-5. If it answers `refused`: nothing is stored in the inbox. The page shows why and keeps what the staff member typed. The attempt is still audited (section 8).
+5. If it answers `refused`: nothing is stored in the inbox. The API answers with the reason, and the page shows it and keeps what the staff member typed. The attempt is still audited (section 8).
 
 The staff text waits for the phone for up to 1 hour, then the send record becomes `expired` and the conversation shows "Not sent". A code's 10 minutes is too short when several staff texts wait their turn (section 6.3).
 
@@ -244,8 +269,8 @@ After a text is queued, its line in the conversation shows "Waiting", then "Sent
 - **Its name:** "SMS inbox", as R3 ruled. It is access to the SMS platform of the Inbox and to nothing else; another platform has its own permission, granted separately. **Two levels:** read, and read with send (`can_send`). A staff user who only needs to look something up is given read.
 - **It is explicit.** It is a row in `InboxAccess`, not a Django permission. A superuser has no access without a row, and the Django admin's user page cannot grant it.
 - **Granting is a terminal command**, as admin identities and phones are managed: `manage.py sms_inbox_access grant --user USERNAME [--send] --actor USERNAME`, `revoke`, and `list`. `grant` and `revoke` write an audit entry. Who is granted access is Coach Ed's decision, per person.
-- **Sign-in:** the existing HQ two-step sign-in. The pages are in the HQ URL set, so they see only the user of an HQ session that passed both steps.
-- A user without access, or any visitor while `SMS_INBOX_ENABLED` is off, gets the same HQ "Page not found" as for a path that does not exist.
+- **Sign-in:** the HQ two-step sign-in (R3). The screens are on Vercel (R23), so they hold no session of their own: every call they make to the backend must carry proof of an HQ session that passed both steps. How it is carried is the open decision of section 20. Whatever is chosen, the backend checks the session and the `InboxAccess` row on every call; the page is never trusted to have checked.
+- A call with no session answers 401, and the page sends the staff member to sign in. A call by a signed-in user without access, or any call while `SMS_INBOX_ENABLED` is off, answers `not_found`, the same as for a path that does not exist, and the page shows "Page not found". The page files on Vercel hold no data, so serving them to anyone gives nothing away.
 
 ### 7.2 The one access check
 
@@ -258,7 +283,7 @@ One function in `apps/inbox`, `scope_for(actor, platform)`, answers who is askin
 | A staff user without a row for `sms` | None | Yes |
 | A Subscriber account (later) | `sms` conversations owned by that Subscriber's Site, when the add-on is active for it | No. The add-on adds this branch |
 
-Every list, read, reply and compose starts from the scope's own query. No view or service function reaches a conversation or message any other way, and a `public_id` outside the scope answers "not found", the same as one that does not exist. Admitting a Subscriber later is a change to this one function, not to the screens or the service functions.
+Every list, read, reply and compose starts from the scope's own query. No API route or service function reaches a conversation or message any other way, and a `public_id` outside the scope answers "not found", the same as one that does not exist. Admitting a Subscriber later is a change to this one function, not to the screens or the service functions.
 
 HQ staff reach only `hq` conversations. A Site's conversations with its own customers are not HQ's to read, and the add-on decides whether HQ ever sees them.
 
@@ -268,7 +293,7 @@ Written through `apps.operators.audit.record`, in the same transaction as the ac
 
 | Action | When | `detail` (kept) | `personal` (blanked after 1 year) |
 |---|---|---|---|
-| `sms_inbox_open` | Each time a conversation page is opened | The owner kind, how many messages were shown | The contact, masked |
+| `sms_inbox_open` | Each time a conversation's texts are returned by the API (a conversation page is opened) | The owner kind, how many messages were shown | The contact, masked |
 | `sms_inbox_reply` | Each reply, sent or refused | The message's and the send record's ids, the outcome (`queued` or `refused`), the reason when refused, the length in characters | The contact, masked |
 | `sms_inbox_compose` | Each composed text, sent or refused | The same, and whether it started a new conversation | The number, masked |
 | `sms_inbox_access` | Each `grant` and `revoke` | The staff user it was for, and the level | Nothing |
@@ -277,10 +302,12 @@ Written through `apps.operators.audit.record`, in the same transaction as the ac
 - The operator is the signed-in staff user. The target is the conversation's `public_id`.
 - The three inbox actions are declared `PERSONAL`, because a masked number is still part of a person's number. The existing rule `admin_audit_personal_values` blanks `personal` one year after the entry is written, which matches R2. That rule runs only where `RETENTION_ENABLED` is on and, until slice 4, only by command (`docs/runbooks/retention.md`).
 - `sms_inbox_access` is declared `KEPT`.
+- The audit entry is written by the backend in the API call, never by the page, so a page that is changed or bypassed cannot read a text without an entry.
 - Opening the inbox list writes no entry, because the list shows no message text (section 9). Opening the "not yet available" state of another platform writes none either: it shows no data.
 
 ## 9. Masking
 
+- Masking is done by the backend. An API answer never carries a value the screen may not show: the page receives the masked number, not the full one.
 - **The inbox list** shows, for each conversation: the masked number (`+63917***4567`, through `mask_mobile`), the time of the last text, whether the last text came in or went out, and an unread count. **It shows no message text**, not even a preview, so that reading a text always means opening a conversation, which is audited.
 - **The conversation page** shows the masked number and the texts. The full number is not shown anywhere in the tool.
 - **Search** matches a full number typed by the staff member, never a fragment, as the admin's SMS list does.
@@ -288,20 +315,60 @@ Written through `apps.operators.audit.record`, in the same transaction as the ac
 - A sender that is not a mobile number (a short code or a sender name) is shown as received: it is not a person's number.
 - The Django admin gets no list of conversations or messages. The existing `SmsMessage` admin list shows staff texts' send records like any other, masked, with no text.
 
-## 10. The API shape the Subscriber dashboard can reuse
+## 10. The API the screens call (R23)
 
-The pages are thin. They call four service functions in `apps/inbox`, each taking a scope (section 7.2), which names the platform, and returning plain values. Each conversation and message returned carries `"platform": "sms"`, and the later routes take the platform as a `platform=sms` parameter. The HQ pages render those values in templates. The Subscriber dashboard can later be given the same four functions as JSON under `/v1/inbox/`, behind the account session and the same scope check.
+Under R23 the screens are pages on Vercel, so the API is no longer something left for later: it is the only way the screens reach the data, and it is mounted in this build. The service functions in `apps/inbox` stay as they were designed, each taking a scope (section 7.2) and returning plain values; each route is a thin wrapper that finds the scope, calls one function and writes the audit entry.
 
-| Service function | Later route | Returns |
+**Where it is mounted.** On the HQ host, under a staff prefix written here as `/staff/v1/` (the exact prefix is for the plan), in the HQ URL set. It is separate from the Subscriber API under `/v1/` on the API host: a different host, a different session, a different allowed origin. A Subscriber session never reaches a staff route, and a staff session never reaches a Subscriber route. The Subscriber dashboard can later be given the same service functions under `/v1/inbox/`, behind the account session and the same scope check (R0); that is the add-on's work.
+
+**Rules every route keeps.**
+
+- The session passed both steps, and `scope_for` allows the call (section 7). Otherwise 401 or `not_found`.
+- A call that changes anything is refused unless its `Origin` is the one staff origin (section 20), as the Subscriber API already refuses a foreign origin.
+- Every answer is sent with `Cache-Control: no-store`.
+- No number, name or text is ever in a route's address or query string, so none reaches an access log. A value of that kind travels in the body. Ids in addresses are opaque `public_id` values.
+- Errors use the API's one error shape, `{error: {code, message, fields}}`.
+
+**Inbox.**
+
+| Service function | Route | Returns |
 |---|---|---|
-| `list_conversations(scope, state, number, cursor)` | `GET /v1/inbox/conversations/?state=unread&number=&cursor=` | `{"results": [{"id", "contact_masked", "can_reply", "unread", "last_message_at", "last_direction"}], "next": "..."}` |
-| `get_conversation(scope, id, cursor)` | `GET /v1/inbox/conversations/{id}/` | `{"id", "contact_masked", "can_reply", "messages": [{"id", "direction", "body", "clipped", "kind", "status", "reason", "author", "occurred_at"}], "next": "..."}`. Marks it read. The caller writes the audit entry |
-| `reply(scope, id, text)` | `POST /v1/inbox/conversations/{id}/messages/` with `{"text"}` | `201` with the message, or an error |
-| `compose(scope, to, text)` | `POST /v1/inbox/messages/` with `{"to", "text"}` | `201` with `{"conversation_id", "message"}`, or an error |
+| (the scope itself) | `GET /staff/v1/me/` | `{"user", "inbox": {"sms": {"read", "send", "bulk"}}, "bulk_enabled"}`: what the menu and the buttons may show. No personal value |
+| (gateway status) | `GET /staff/v1/inbox/status/?platform=sms` | `{"phone_online", "used_today", "cap", "reserved_for_codes", "unread", "bulk_running"}` for the status line, the bell and the Bulk SMS chip |
+| `list_conversations(scope, state, cursor)` | `GET /staff/v1/inbox/conversations/?platform=sms&state=unread&cursor=` | `{"results": [{"id", "platform", "contact_masked", "can_reply", "unread", "last_message_at", "last_direction", "last_status"}], "next"}`. No text |
+| `list_conversations(scope, number=…)` | `POST /staff/v1/inbox/conversations/find/` with `{"platform", "number"}` | The same shape, for the one conversation with that full number, or an empty list. A POST so the number is in the body |
+| `get_conversation(scope, id, cursor)` | `GET /staff/v1/inbox/conversations/{id}/` | `{"id", "platform", "contact_masked", "can_reply", "opted_out", "messages": [{"id", "direction", "body", "clipped", "kind", "status", "reason", "author", "occurred_at"}], "next"}`. Marks it read and writes `sms_inbox_open` |
+| `reply(scope, id, text)` | `POST /staff/v1/inbox/conversations/{id}/messages/` with `{"text"}` | `201` with the message, or an error |
+| `compose(scope, to, text)` | `POST /staff/v1/inbox/messages/` with `{"platform", "to", "text"}` | `201` with `{"conversation_id", "message"}`, or an error |
 
-Errors use the API's one error shape: `invalid_mobile` (`fields.to`), `invalid_text` (`fields.text`), `rate_limited` (429), `sms_paused` and `sms_unavailable` (503), and `not_found` for anything outside the scope.
+**Bulk SMS (section 18).** Every route needs `can_bulk` and `SMS_BULK_ENABLED`; otherwise `not_found`.
 
-**No JSON route is mounted in this build.** The four functions and their return values are built and tested; the routes are a few lines each for the add-on to add, with its own sign-in and its own tests. A route nobody uses yet is an open door with no user, so it is left out.
+| Route | Does |
+|---|---|
+| `GET /staff/v1/inbox/bulk/` | The list of bulk sends (18.2.1): per batch its id, state, who, when, and counts. No number, no text |
+| `POST /staff/v1/inbox/bulk/check/` with `{"text", "source", "groups"`, or `"numbers"`, or the CSV file`}` | Step 4, the check: lines read, duplicates, opted out, lines refused with their line numbers, texts left today, this batch's size, left for later, the time it will take. Stores nothing but a short-lived check held on the server, and answers its id |
+| `POST /staff/v1/inbox/bulk/` with `{"check_id", "count"}` | Step 5, confirm: the typed count must equal the checked batch's size. Creates the batch and writes `sms_inbox_bulk` |
+| `GET /staff/v1/inbox/bulk/{id}/` | Progress: the state, the counts, and a result per number, masked |
+| `POST /staff/v1/inbox/bulk/{id}/stop/` | Stop. Writes `sms_inbox_bulk_stop` |
+| `POST /staff/v1/inbox/bulk/{id}/left-out/` and `POST /staff/v1/inbox/bulk/check/{id}/refused/` | The numbers left out of a batch, and the refused lines of a check, as a CSV file for the staff member to save. Full numbers: answered only to the staff user who ran it, `no-store`, and audited with counts |
+
+**Contacts (section 19).** Reading needs read access; every change needs `can_send` (19.6).
+
+| Route | Does |
+|---|---|
+| `GET /staff/v1/contacts/?group=&cursor=` | The list: per contact its id, first and last name, masked number, groups, `opted_out` |
+| `POST /staff/v1/contacts/find/` with `{"query"}` | Find by name or by a full number. A POST so neither is in an address |
+| `POST /staff/v1/contacts/` with `{"first_name", "last_name", "mobile", "groups"}` | Add. `contact_add` |
+| `GET /staff/v1/contacts/{id}/` | One contact with its full number, for the edit form. `contact_open` |
+| `PATCH /staff/v1/contacts/{id}/`, `DELETE /staff/v1/contacts/{id}/` | Edit, delete. `contact_edit`, `contact_delete` |
+| `GET /staff/v1/contacts/groups/`, `POST /staff/v1/contacts/groups/` | The groups with their counts; add one. `contact_group_add` |
+| `PATCH /staff/v1/contacts/groups/{id}/`, `DELETE /staff/v1/contacts/groups/{id}/` | Rename, remove (its contacts stay). `contact_group_rename`, `contact_group_remove` |
+| `POST /staff/v1/contacts/upload/check/` with the CSV file and `{"group"}` | The check of 19.2: lines read, new, already in contacts, refused with line numbers, opted out. Stores no contact |
+| `POST /staff/v1/contacts/upload/` with `{"check_id"}` | Saves the checked upload. `contact_upload` |
+
+Errors: `invalid_mobile` (`fields.to` or `fields.mobile`), `invalid_text` (`fields.text`), `duplicate_mobile` with the existing contact's id, `rate_limited` (429), `sms_paused` and `sms_unavailable` (503), `limit_reached`, `unauthenticated` (401), and `not_found` for anything outside the scope.
+
+A CSV file is sent to the backend and read there, once, in memory (18.2.2, 19.3). The page does not parse it, so the rules for a number live in one place.
 
 ## 11. Retention and disposed accounts (R2)
 
@@ -327,6 +394,10 @@ None of these is created by this document.
 | Migration | `inbox.0001_initial`: `Conversation`, `ConversationMessage`, `InboxAccess` | Additive, a new app. Creating it is covered once a plan that names it is approved; running it on staging is the coordinator's step under the standing approval; production is never covered |
 | Migration | `apps/notifications`, next free number (`0004` as of `1ba9cc6`): the `category` choices gain `inbox` | Changes the allowed values only. No column or row changes |
 | Setting | `apps.inbox` added to `INSTALLED_APPS`; `SMS_INBOX_ENABLED` read in `config/settings.py` | Code, reviewed in the pull request |
+| Staff API | The routes of section 10 in the HQ URL set, and what section 20's decision needs on the backend | Code. Nothing of it exists today: the HQ host serves pages only |
+| Railway variable | The one staff origin the HQ host answers (written here as `HQ_STAFF_ORIGIN`) | Per environment, with Coach Ed's approval. Empty means the staff API answers no browser |
+| Frontend repository | A task of its own for `apps/hq` (section 3.1): the pages, their tests, its `next.config.ts` headers | A different repository and a different builder. Not started by this document. Its own plan and approvals |
+| Vercel | A new project for `apps/hq`, its host name, its environment variables (the staff API's address; nothing secret), and the settings of section 21 | Coach Ed's approval. Creating a project, a domain or a variable is his |
 | Railway variable | `SMS_INBOX_ENABLED=1` | Per environment. Never before `inbox.0001` is applied there |
 | Switch | `sms_device incoming on --name system` | Per environment, each time. **Only after the NPC and privacy wording is amended (R1)**. This is the step that starts storing people's texts |
 | Access | `sms_inbox_access grant` for each named staff user | Coach Ed names who, and whether they may send |
@@ -336,11 +407,11 @@ None of these is created by this document.
 | Dependency | None | |
 | Phone app | No change | The app already forwards behind the server's switch |
 
-Order on any environment: deploy dark; apply the two migrations; set `SMS_INBOX_ENABLED`; grant access; and, only after the wording is amended, turn the phone's switch on. To go back: turn the phone's switch off, then unset the variable. The tables stay and nothing reads them.
+Order on any environment: deploy the backend dark; apply the two migrations; set `SMS_INBOX_ENABLED`; deploy the staff app and set the staff origin on the backend; grant access; and, only after the wording is amended, turn the phone's switch on. To go back: turn the phone's switch off, then unset the variable. The tables stay and nothing reads them.
 
 ## 13. The screens and the mockup (R6)
 
-**The menu (R7, R21).** The HQ side menu has two items of this design: "Inbox", with the unread count, and under it "Contacts" (section 19). On a phone both are in the bottom bar. Each is shown only to a user with access. The page title is "Inbox". "New SMS" is not a menu item: it is a button on the SMS list, as actions are on the dashboard. The HQ home page gains one link to the Inbox, shown only to a user with access; nothing else on the existing HQ pages changes.
+**The menu (R7, R21).** The HQ side menu has two items of this design: "Inbox", with the unread count, and under it "Contacts" (section 19). On a phone both are in the bottom bar. Each is shown only to a user with access. The page title is "Inbox". "New SMS" is not a menu item: it is a button on the SMS list, as actions are on the dashboard. The side menu's other items ("Admin console", "Admin lists") lead to the existing HQ pages on the HQ host, which are Django pages today; whether they move to Vercel is not decided (section 16). The HQ home page gains one link to the Inbox on the staff host, shown only to a user with access; nothing else on the existing HQ pages changes.
 
 **The platform menu (R7).** At the top of every Inbox page is a horizontal menu: SMS, Facebook Messenger, Instagram, TikTok, Email, Web chat. It is the dashboard's Settings menu (the row that holds "Business Settings", "Plans", "Billing" and the rest; `.set-tabs` in `dash.css`), copied rule for rule: text links 15 pixels and semi-bold, 12 by 16 pixels of padding, 4 pixels apart, one thin line under the row, the current item in the brighter text colour with a 2-pixel blue underline, 24 pixels of space below. On a phone it behaves as the dashboard's does: the row stays on one line and is swiped sideways; the page itself does not scroll sideways.
 
@@ -352,19 +423,11 @@ Order on any environment: deploy dark; apply the two migrations; set `SMS_INBOX_
 | Theme | Switches dark and light | The same |
 | Bell | Opens a panel of notifications | A link to the SMS list, showing a dot when any conversation is unread (read from `unread_count`). There is no panel, no stored notification and no alert when a text arrives; those stay out of scope (section 16) |
 
-So both new buttons work, as links, without script and without any new record. The dashboard's own panels (the quick-links search and the notifications panel) are not copied, because each would be new scope.
+So both new buttons work, as links, without any new record. The dashboard's own panels (the quick-links search and the notifications panel) are not copied, because each would be new scope.
 
-**The pages, under option A.**
+**The pages (R23).** Pages of `apps/hq` in the frontend repository, at the paths of section 3.1. Each is a static page that loads its data from the API of section 10.
 
-| Path | Page |
-|---|---|
-| `/inbox/` | Goes to `/inbox/sms/` |
-| `/inbox/sms/` | The SMS list |
-| `/inbox/sms/c/<id>/` | A conversation, with the reply form |
-| `/inbox/sms/new/` | Compose |
-| `/inbox/messenger/`, `/inbox/instagram/`, `/inbox/tiktok/`, `/inbox/email/`, `/inbox/webchat/` | One shared "not yet available" page (R8) |
-
-**The "not yet available" state (R8).** One page for the five platforms: the platform's name, "is not yet available", the sentence "Only SMS works in the Inbox today. Nothing is received or sent on this platform.", and a button back to SMS. It shows no conversation, made-up or real, and promises no date. It reads and writes no table and is seen only by a staff user who can open the Inbox. The five names are fixed text in the template: there is no platform table, setting or switch for them.
+**The "not yet available" state (R8).** One page for the five platforms: the platform's name, "is not yet available", the sentence "Only SMS works in the Inbox today. Nothing is received or sent on this platform.", and a button back to SMS. It shows no conversation, made-up or real, and promises no date. It calls no route but `me`, reads and writes no table, and is shown only to a staff user who can open the Inbox. The five names are fixed text in the page: there is no platform table, setting or switch for them.
 
 They follow the Subscriber dashboard: the Manrope typeface, the blue `#173DB8` primary, the dark navy sidebar on desktop, the top bar and bottom tab bar on phones, the eyebrow and heading at the top of each view, cards with a 10-pixel radius, pill chips, 44-pixel buttons, and the dashboard's dark theme with its light theme when the device prefers light.
 
@@ -374,7 +437,7 @@ They follow the Subscriber dashboard: the Manrope typeface, the blue `#173DB8` p
 python3 -m http.server 8765 --bind 127.0.0.1 --directory docs/superpowers/specs/mockups/2026-11-11-sms-inbox
 ```
 
-Then `http://127.0.0.1:8765/` (http, port 8765, local only; nothing is deployed). The mockup loads the Manrope typeface from Google Fonts; the built pages would serve the font from HQ itself (section 3, option A). The "Theme" button switches between the dark and light themes.
+Then `http://127.0.0.1:8765/` (http, port 8765, local only; nothing is deployed). The mockup loads the Manrope typeface from Google Fonts, as the dashboard does today. This design asks that the staff app serve the font from its own host, so a staff page loads nothing from a third host (section 21). The "Theme" button switches between the dark and light themes.
 
 Decisions the mockup shows, for Coach Ed's eye:
 
@@ -385,8 +448,8 @@ Decisions the mockup shows, for Coach Ed's eye:
 - The compose page states the rules above the form: one SMS, no links, no marketing, one number at a time, and that the text is recorded.
 - The reply box shows a character count out of 160.
 - A conversation with a short code or sender name has no reply box, and says why.
-- The pages work without script. Script only updates the character count.
-- There is no automatic refresh. A "Refresh" link reloads the list.
+- Like the dashboard, the pages are static files that load their data with script (R23). Without script they show nothing, and no data is in the page file itself. This replaces the earlier "the pages work without script", which was true of Django pages only.
+- There is no automatic refresh. A "Refresh" button asks the API for the list again.
 - A status line shows whether the gateway phone is online and how many of the day's texts are used, read from what the gateway already knows.
 
 ## 14. NPC and privacy wording: points the amendment must cover
@@ -402,7 +465,7 @@ Input for Coach Ed's wording. This is not wording, and this design edits no fili
 7. **Who can read them.** Named HQ staff with an explicit permission, through two-step sign-in. Every opened conversation, reply and composed text is logged with the staff user and a masked number, and never with the text; the masked number is blanked from the log after one year.
 8. **Copies on the phone.** The phone's Messages app keeps every arriving and outgoing text until its auto-delete removes it. The gateway app can also hold an arriving text, sealed, for up to 7 days when it cannot reach the server.
 9. **A person's rights.** How someone asks to see or delete the texts held under their number before 365 days. This build has no delete screen and does not include inbox texts in the account export.
-10. **No new recipient.** Texts still travel only through the mobile carrier. No other outside party receives a number or a text.
+10. **No new recipient of a text.** Texts still travel only through the mobile carrier. See point 18 for the host that serves the staff screens.
 11. **The launch announcement (R11).** One announcement by SMS to TWCinc subscribers is an exception to "no marketing". The wording must allow it before any such text is sent, and must keep every other marketing text forbidden.
 12. **Where those numbers come from (R12).** A list of mobile numbers supplied by Coach Ed as a file, with his confirmation that those subscribers may be contacted. No system link to TWCinc. The wording names this source and the basis for texting those people.
 13. **Opting out (R13).** Every bulk text says "Reply STOP to opt out". A number that replies STOP is kept on a do-not-text list and is skipped by later bulk texts. **That list is kept past 365 days**, until the person asks otherwise, because deleting it would start the texts again. This is a second retention period beside point 6.
@@ -410,6 +473,7 @@ Input for Coach Ed's wording. This is not wording, and this design edits no fili
 15. **The documents the Parent names:** register row 6; filing-store-sms; filing-subscriber-accounts-billing; filing-subscriber-stores; PIA 5; privacy manual s8; the Terms and Privacy provider list. This session did not read them.
 16. **Contacts (R16, R17, R21, R22).** For the first time a person's first and last name is stored together with their mobile number, with the groups staff put them in. **What the list is:** a kept list of the people NegosyoOnline deals with, which HQ staff add to and look up. It is not only the recipients of the launch announcement, so the purpose stated must be that wider one; choosing who gets a bulk text is one use of it. Where the names and numbers come from: typed by staff, or a CSV file Coach Ed supplies. No link to TWCinc, and no link to Subscriber account records. **A contact is kept until HQ staff delete it**, with no automatic deletion. This is a third retention period beside points 6 and 13. No contact is stored in any environment before this wording is amended.
 17. **A contact's rights.** A person can be in Contacts without having an account, without having written to us and without knowing they are listed. How such a person is told, the basis for keeping them, and how they ask to see, correct or delete their contact record. Staff can edit and delete a contact on the screen; deleting it does not remove their number from the do-not-text list.
+18. **The staff screens are served by Vercel (R23).** The screens that show numbers, names and message text are page files hosted by Vercel, a provider that until now served only the public site, the Subscriber dashboard and the storefronts. As designed (section 21), the data itself goes from the backend on Railway straight to the staff member's browser and is not sent to, stored by or logged by Vercel. The wording and the provider list should say what Vercel does for the staff tool (it serves the page code) and what it does not (it holds no number, name or text). If the build ever passes that data through Vercel's servers, the wording must change first.
 
 ## 15. Tests the build would write
 
@@ -417,20 +481,23 @@ Input for Coach Ed's wording. This is not wording, and this design edits no fili
 - **Sending.** A reply and a composed text each make one send record with no text, one `out` message with the text, and one audit entry. A link, a 161st character and a non-SMS character are refused before anything is queued. A refused send (limit, kill switch, phone offline, gateway off) stores no message and shows its reason. A staff text takes one slot of the platform count.
 - **Order and interval.** With a code and a staff text waiting, the code is handed out first. A staff text carries a gap of 18 to 25 seconds; a code carries 0. Only one paced text is with the phone at a time.
 - **The number.** Every form `normalise_ph_mobile` accepts is accepted; a landline, a foreign number and a short number are refused. Composing to a number with a conversation adds to it.
-- **Platform.** Every stored conversation and message has `platform` `sms`, and a message's platform always equals its conversation's. `scope_for` answers none for any platform other than `sms`, with or without an `InboxAccess` row. Each of the five "not yet available" pages shows the state to a user with access, answers "Page not found" to anyone else, and reads and writes no inbox table. A platform name that is not one of the six answers "Page not found".
-- **Access.** A verified session without an `InboxAccess` row, a superuser without a row, a session that passed only the first step, and no session at all each get the HQ "Page not found" on every Inbox page. A read-only user sees no form and a posted reply is refused. A conversation owned by a Site or an account (made in the test) cannot be listed, opened or replied to by HQ staff. Every page answers "Page not found" while `SMS_INBOX_ENABLED` is off.
+- **Platform.** Every stored conversation and message has `platform` `sms`, and a message's platform always equals its conversation's. `scope_for` answers none for any platform other than `sms`, with or without an `InboxAccess` row. A call for any of the five other platforms, or for a platform name that is not one of the six, answers `not_found` and reads and writes no inbox table.
+- **Access.** A verified session without an `InboxAccess` row, a superuser without a row, a session that passed only the first step, and no session at all each get 401 or `not_found` on every route of section 10, and no data. A read-only user's reply is refused. A conversation owned by a Site or an account (made in the test) cannot be listed, opened or replied to by HQ staff. Every route answers `not_found` while `SMS_INBOX_ENABLED` is off.
 - **Audit.** Opening, replying and composing each write the declared entry, which names the platform; no entry contains the text or a full number; an undeclared action is refused.
-- **Masking.** The list page's HTML contains no message text and no full number. The conversation page contains no full number.
+- **Masking.** The list answer contains no message text and no full number. The conversation answer contains no full number.
 - **Retention.** A message older than 365 days is deleted; a younger one stays; a conversation left empty is deleted; the dry run changes nothing; the rule does nothing while the switch is off.
 - **The command.** `grant`, `revoke` and `list`; `sms_device incoming on` refuses while `SMS_INBOX_ENABLED` is off.
-- **Forms.** The CSRF check; a refresh after a sent text does not send it again (the answer to a sent form is a redirect).
+- **Calls from the page (R23).** A changing call without the staff origin is refused; a call from the dashboard's origin, the public site's origin or a preview address is refused; every answer carries `no-store`; no route takes a number, name or text in its address; a repeated send with the same request id does not send twice. The tests of whatever section 20 settles: a session that passed only the first step reaches nothing, sign-out ends access at once, an expired session answers 401.
+- **The frontend task's own tests**, in the frontend repository: the pages show only what the API answers, keep no data in browser storage, and put no value in an address. For that task's plan.
 - Checks: `manage.py makemigrations --check`, `manage.py check`, `manage.py check --deploy`, the full test run.
 
 ## 16. Out of scope
 
 - **Facebook Messenger, Instagram, TikTok, Email and Web chat (R8).** No screen beyond the shared "not yet available" state, no record, no connection to any of those services, no credential, no setting, no NPC or privacy wording. Each is its own task with its own design, plan and approvals. This design only leaves room for them: the `platform` value on the records, the platform named in the access check and the audit entry, and the menu.
 - Any add-on screen, billing, SIM custody, dedicated line, any broadcast or marketing text other than the launch announcement of section 18, and any Subscriber access. The `site` and `account` owners are fields and one branch point, nothing more.
-- Mounting the JSON routes of section 10.
+- **Moving the existing HQ pages (sign-in, code, verify, home, the admin console and lists) to Vercel.** Not decided: the coordinator has asked Coach Ed. Nothing here designs it. Section 20 says what each answer would mean for sign-in.
+- Any change in the frontend repository. This document is a design; the frontend work is its own task.
+- Mounting the Subscriber routes under `/v1/inbox/` (section 10): the add-on's.
 - Restyling the existing HQ pages (sign-in, code, verify, home), beyond the one link on the home page.
 - Linking a sender's number to a Subscriber account, or showing account details beside a conversation.
 - Showing a full number; deleting a conversation or a message by hand; exporting conversations.
@@ -449,7 +516,11 @@ Verified by opening the mockup's five pages (list, conversation, compose, "not y
 
 After R21 (Contacts on the main menu), all nine pages were opened the same way at 1280 and 390 pixels in the dark theme: the side menu and the phone's bottom bar show "Inbox" and "Contacts" on every page; the four Contacts pages have no platform menu and mark "Contacts" as current; the SMS list's buttons stay on one line at 1280 pixels; no page scrolls sideways. The 1280 captures of the SMS list, Contacts and the edit form, and the 390 capture of Contacts, were read; the rest were measured. The light theme was not captured for this revision.
 
+For R23, read on 2026-11-11 and not run: the frontend repository's layout and the dashboard's headers and session notes at `origin/main` `8e92124`; the backend's API origin check (`apps/common/middleware.py`), the account cookie (`apps/accounts/sessions.py`) and the HQ session cookie (`apps/operators/hq_views.py`, `hq_auth.py`). The frontend repository was not edited.
+
 Not verified:
+
+- Everything in sections 20 and 21 is reasoning from that reading. No cross-origin call to the HQ host was made, and how a browser treats the HQ cookie on such a call was not tested. The Vercel projects' settings (who may deploy, preview protection, log retention) were not looked at.
 
 - The light-theme screenshots were measured for overflow but not read.
 - Any browser other than Chrome, and a real phone. The swipe of the platform menu was measured, not performed by hand. The theme button being dropped below 380 pixels was written, not measured.
@@ -499,7 +570,7 @@ At the top of the Bulk SMS page, newest first. One row per batch: when it was co
 
 - Stop is offered only on a waiting or sending row, to a staff user with the bulk permission, and asks once before it stops. It is audited (`sms_inbox_bulk_stop`, 18.7).
 - While a batch is waiting or sending, the "Bulk SMS" button on the SMS list carries a small chip, "Sending", so staff with the bulk permission see it without opening the page. It sits on the button so the status chips and the buttons stay on one line (R9).
-- The counts are read when the page is loaded; the page does not need script to show them. Whether it refreshes itself is for the plan.
+- The counts are read from the API when the page is loaded. Whether the page asks again by itself is for the plan.
 - A row stays as long as its batch record does: 365 days (18.4).
 
 #### 18.2.2 The CSV file (R15)
@@ -549,7 +620,7 @@ What limits the risk without new scope: codes first, the cap, the gap, one batch
 ### 18.7 Who may send a batch, and the audit record
 
 - **A separate permission**, above send: `can_bulk` on the staff user's `InboxAccess` row for `sms`, which requires `can_send`. Granted by `sms_inbox_access grant --bulk`, audited, and Coach Ed names who holds it.
-- **A switch**, `SMS_BULK_ENABLED`, a new Railway variable, off. While off, the button and the page do not exist. Creating the variable in a Railway environment is Coach Ed's approval at build time; this design creates none. It is turned on per environment with Coach Ed's approval, and only after the NPC and privacy wording covers the announcement (R11).
+- **A switch**, `SMS_BULK_ENABLED`, a new Railway variable, off. While off, the bulk routes answer `not_found` and the page shows no button. Creating the variable in a Railway environment is Coach Ed's approval at build time; this design creates none. It is turned on per environment with Coach Ed's approval, and only after the NPC and privacy wording covers the announcement (R11).
 - **Audit**, through the operator audit record, never with the text and never with the list or any number:
 
 | Action | When | `detail` (kept) |
@@ -612,7 +683,7 @@ A contact is hand-entered or uploaded (19.3). It has no link to a Subscriber acc
 
 ### 19.2 The screens
 
-"Contacts" is its own item in the HQ side menu, under "Inbox", and in the phone's bottom bar (R21). It is not a button or a page inside SMS: the SMS list keeps "Bulk SMS" and "New SMS" only. The Contacts pages do not carry the Inbox's platform menu; "Contacts" is the current menu item on each, and the add, edit and upload pages link back to Contacts. Under option A the pages would sit at `/contacts/` beside `/inbox/`; the exact paths are for the plan. The Contacts page has two views, Contacts and Groups.
+"Contacts" is its own item in the HQ side menu, under "Inbox", and in the phone's bottom bar (R21). It is not a button or a page inside SMS: the SMS list keeps "Bulk SMS" and "New SMS" only. The Contacts pages do not carry the Inbox's platform menu; "Contacts" is the current menu item on each, and the add, edit and upload pages link back to Contacts. The pages sit at `/contacts/` beside `/inbox/` on the staff host (section 3.1); the exact paths are for the plan. The Contacts page has two views, Contacts and Groups.
 
 - **Contacts.** One row per contact: first and last name, the mobile number masked as everywhere else (section 9), the groups, and "Opted out of bulk SMS" when the number is on the do-not-text list. Find by name or by a full number; filter by group. Buttons: "Add contact" and "Upload a CSV file".
 - **Add or edit a contact.** First name, last name, mobile number, groups. The number is checked with `normalise_ph_mobile`; one contact per number, so a number already in contacts is refused with a link to that contact. The edit form shows the full number, because staff cannot correct what they cannot see; opening it is audited. "Delete contact" asks once.
@@ -700,4 +771,92 @@ No link to Subscriber account records and no registered accounts shown in Contac
 
 R21 raised one question: should Contacts also show registered Subscriber accounts, or stay a list staff enter and upload by hand? Coach Ed ruled: "No, hand-entered only". Contacts holds only what HQ staff type in or upload from a CSV file. It does not show registered Subscriber accounts and has no link to account records.
 
-Nothing in this section is open for Coach Ed. R17, R18 and R19 stand unchanged, and 18.10 is settled by R20. What is left for him is where the screens are served (section 3) and approval of the design and the look.
+Nothing in this section is open for Coach Ed. R17, R18 and R19 stand unchanged, and 18.10 is settled by R20. What is left for him is how a staff screen on Vercel is signed in (section 20) and approval of the design and the look.
+
+## 20. Signing in a staff screen served from Vercel: the open decision for Coach Ed (R23)
+
+**This is a security decision and it is his.** This section lays out the three ways section 3 names and gives one recommendation. It settles nothing.
+
+### 20.1 What exists today
+
+- HQ staff sign in on the HQ host in two steps: an emailed code, then an authenticator code (`apps/operators`). These are Django pages.
+- A verified sign-in sets one cookie on the HQ host: a random token, of which the database keeps only a hash, good for 12 hours. The cookie is host-only, `HttpOnly`, `Secure` and `SameSite=Strict`. The identity is read again on every request, and signing out ends it at once.
+- The HQ host answers pages only. It has no API and allows no other origin to call it. A check at start-up refuses a configuration where the HQ host is also the dashboard's, the public site's or an allowed API origin.
+- The Subscriber dashboard, for comparison, is a page on Vercel that calls the API host with the Subscriber's own `HttpOnly` cookie. The API allows a short list of origins to make signed-in calls and refuses a changing call from any other origin.
+
+### 20.2 What must hold whichever way is chosen (R3)
+
+- Only a session that passed both steps reaches any data, checked by the backend on every call.
+- The explicit inbox permission is checked by the backend on every call (section 7).
+- Every read of a conversation and every send is audited by the backend (section 8).
+- Signing out, revoking access, or disabling the staff user ends access at once, not at the end of some token's life.
+- Exactly one origin, the staff app's production host, may make staff calls. Not the dashboard, not the public site, not a preview address.
+
+### 20.3 The three ways
+
+| | Way 1. The HQ host allows the staff origin to make signed-in calls | Way 2. HQ issues a token that the page holds | Way 3. The two-step sign-in is built in the frontend |
+|---|---|---|---|
+| **What it is** | Staff sign in on the HQ host as today. The HQ cookie stays where it is. The HQ host gains the staff API (section 10) and one rule: it answers calls from the one staff origin and lets the browser send the HQ cookie with them. The page never sees the cookie | Staff sign in on the HQ host as today. HQ then hands the staff page a token, which the page keeps and sends with every call in a header. The HQ cookie is not used by the staff API | The email-code and authenticator-code forms become pages on Vercel that send what the staff member types to new sign-in routes on the backend. The backend still does the checking. Once signed in, the session is carried by way 1 or way 2: way 3 does not replace them, it adds to one of them |
+| **What changes in the cookie** | Possibly nothing. `SameSite=Strict` still lets the browser send the cookie when the staff host and the HQ host are under the same registered domain (as the dashboard and API hosts are today). If the staff host were on an unrelated domain, the cookie would have to become `SameSite=None`, which is weaker; this design asks that it never is | Nothing. A new secret, the token, exists instead | As way 1 or way 2 |
+| **Security cost** | A second origin can act with a staff session. Script running on the staff page (ours, or an attacker's if the page or its deploy is compromised) can read and send as the signed-in staff member **while they are signed in and on the page**. It cannot take the session away with it: the cookie is unreadable to script | The same, and more: the token is readable by script. Script that reads it can send it elsewhere and use it from any computer until it expires. A token can also leak through an address, a log line or browser storage if any step is built carelessly. Ending access at once needs a list of revoked tokens checked on every call, which is a session by another name | The codes themselves are typed into a page served by Vercel. A compromised deploy can capture the email code and the authenticator code as they are typed and sign in as that person. The sign-in rules (attempt limits, the same answer for a known and an unknown address) must be offered to another origin as an API and re-proved |
+| **What a compromised Vercel deploy can do** | Read and send through a signed-in staff member's browser, for as long as it goes unnoticed | The same, plus carry tokens away | The same as its carrier, plus sign in as staff |
+| **Build size** | Smallest. Backend: the staff API, the one-origin rule, the origin check on changing calls, and a return to the staff page after sign-in limited to that one address. Frontend: the pages. The sign-in pages and their tests are not touched | Middle. All of way 1's API, plus issuing, handing over, storing, refreshing, expiring and revoking tokens, each with tests | Largest. The sign-in is the most security-sensitive code the HQ host has; it is rebuilt as an API and as pages, and then way 1 or way 2 is still built |
+| **Uniform with R23** | The staff screens are on Vercel. The two sign-in pages stay Django pages until he rules on the existing HQ pages | The same | Fully: no staff page is a Django page |
+
+A fourth arrangement, sending the staff page's calls through Vercel's own servers so the browser sees one host, is not offered: every number, name and text would then pass through Vercel, which section 21 forbids.
+
+### 20.4 Recommendation: way 1
+
+**Keep the HQ session cookie exactly as it is, and let the HQ host answer one staff origin.** Reasons:
+
+1. The secret never reaches script. In way 2 it must; in way 3 the codes do.
+2. It adds the least: nothing about how staff prove who they are changes, so the two-step sign-in that is already built and tested stays as it is.
+3. Sign-out, the 12 hours and revocation keep working as they do today, on the backend, with nothing new to keep in step.
+4. It is how the Subscriber dashboard already works, so the code is uniform in the way R23 asks: a page on Vercel, a cookie the page cannot read, an API that names the origins it answers.
+5. It does not close the other question. If Coach Ed later rules that the sign-in pages also move to Vercel, way 3 is added on top of way 1 without undoing anything. Way 1 is the first step of either answer.
+
+What way 1 needs, each stated so it can be checked:
+
+- The staff host and the HQ host are under the same registered domain in every environment, so the cookie stays `SameSite=Strict`.
+- One allowed staff origin per environment, set on the backend. Preview addresses are never allowed.
+- A changing call is refused unless its `Origin` is that origin. Django's form token cannot be used by a page on another host, so this check replaces it, as it does on the Subscriber API.
+- After signing in, HQ sends the browser back only to that one staff address, never to an address taken from the request.
+- The staff API is the only thing on the HQ host that answers another origin. The sign-in pages, the console and the admin lists still answer no one else.
+
+**Its cost, plainly:** from the day it is on, the Vercel deploy of the staff app can act as any staff member who is signed in. Section 21 is the list of what must be true of that deploy for this to be acceptable. Way 1 does not remove that cost; no way does, because it comes with R23.
+
+### 20.5 What Coach Ed is asked
+
+One decision: **way 1, way 2 or way 3.** Recommended: way 1. Until he rules, nothing about sign-in is planned or built, and the rest of this design stands on any of the three.
+
+Not asked here, and not designed: whether the existing HQ pages move to Vercel. If he rules that they do, the sign-in pages become way 3 on top of the way chosen here.
+
+## 21. The Vercel deploy inside the trust boundary (R23)
+
+Before R23, one host served the staff tool, and only the backend's deploy could change what staff saw. Now the page code comes from a second place. **Whoever can change the staff app's deploy on Vercel can change the script that runs in a signed-in staff member's browser, and through it read every conversation and contact that person can reach, and send texts as them.** This holds under any of the three ways of section 20. These are the rules that keep that exposure as small as it can be. Each is a requirement on the build or on the Vercel project; none is done by this document.
+
+### 21.1 The data never rests on Vercel
+
+- **Straight from the backend to the browser.** The page calls the staff API on the HQ host directly. No Vercel function, route handler, middleware or rewrite reads, forwards or stores a number, a name or a text. The staff app has no server code that touches inbox data.
+- **Nothing private is cached.** Every API answer is `no-store`. The pages are sent `no-store`, as the dashboard's are. The page files hold no data, so a cached file gives nothing away.
+- **Nothing private is logged.** No number, name or text is in a page address, a query string or a route's address (sections 3.1 and 10), so none can enter Vercel's request logs or the backend's access log. The page writes no value to the browser console. No error-reporting, analytics or session-recording script is added to the staff app.
+- **Nothing private is kept in the browser.** No number, name or text in local storage, session storage, a cookie or the page address. What is on screen is gone when the tab closes. Only the theme is remembered, as on the dashboard.
+- **Nothing is loaded from a third host.** The staff app's content security policy allows script and styles from itself only and calls to the one staff API only. The font is served by the app itself. It may not be framed by any page.
+
+### 21.2 What must be true of the deploy
+
+| About | Must be true |
+|---|---|
+| Who can change it | The staff app deploys only from the protected `main` branch of the frontend repository, through a reviewed pull request, as the backend does. The people who can merge there, and the people with a role in the Vercel team that lets them deploy, change settings or read logs, are now people who can reach staff data. Coach Ed names them, and the list is kept as short as the backend's |
+| Preview deployments | A preview address is a different origin. The backend never allows one, so a preview of the staff app can show its pages but can reach no data and no session. Previews of the staff app are either off or behind Vercel's own sign-in. No preview is ever given the production staff address |
+| Environment variables | The staff app's variables hold addresses only: the staff API's address and its own. **No secret, token or key is ever put in a staff app variable**, because anything a page can read is public. Changing a variable changes where the page sends staff data, so it is a production change with Coach Ed's approval |
+| Its own project and host | A Vercel project of its own, on a host of its own, sharing no origin with the dashboard, the public site or a storefront (section 3.1) |
+| Third parties | No integration, log drain, analytics or monitoring add-on is attached to the staff project without the same approval as a new data recipient |
+| Staging first | The staff app's staging host talks only to the staging backend; production only to production. Neither origin is allowed by the other backend |
+| If it is compromised | The staff origin is removed from the backend's setting, which stops every staff call at once; every HQ session is ended; the audit record shows what was opened and sent in the meantime |
+
+### 21.3 What this changes for R3 and for the NPC points
+
+- R3's controls all stay on the backend and none depends on the page behaving: the session, the permission, the audit entry and masking are enforced before an answer leaves Railway.
+- What is new is who else is trusted: the frontend repository's reviewers and the Vercel team's members join the backend's operators as people whose access could expose staff data. Section 14 point 18 puts this to the NPC and privacy wording.
+- None of this was looked at on the real Vercel projects (section 17). Before a build, the frontend task's plan checks each row of 21.2 against the project's actual settings and reports what it finds.
