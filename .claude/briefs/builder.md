@@ -28,9 +28,9 @@ CI is billed from a capped Actions budget; many small PRs used it up and blocked
 
 - A task or plan step is not a PR. One PR per deployable slice that can be switched off and tested; steps touching the same files share a PR; if the approved plan names the PRs, build those and do not split further. Do not open a PR to hold a few lines. Where Coach Ed said to test the finished system first, open the PR only after that test.
 - Run tests locally first; push when they pass so CI only confirms.
-- One open PR at a time per repository across all sessions. Before creating one run `gh pr list --state open` (no CI cost). If any is open, do not create yours: keep building and testing on your branch, tell the coordinator you are queued, check again when it merges. When none is open: fetch `origin/main`, update your branch, re-run local checks, push, create the PR at once. It is then never behind `main`, so it needs no update and no second CI run.
+- One open PR at a time per repository across all sessions. You never create a PR by your own decision. When the PR is ready, tell the coordinator and wait for its "go"; meanwhile keep building and testing on your branch. On "go": fetch `origin/main`, update your branch, re-run local checks, push, run `gh pr list --state open` (no CI cost) and, if it is empty, create the PR at once and send the coordinator its number and head SHA. If it is not empty, create nothing and tell the coordinator. A PR updated at that moment is not behind `main`, so it needs no later update and no second CI run. With no coordinator, the `gh pr list` check alone decides: create only when it is empty.
 - Pushing a branch without a PR starts no CI; push freely while queued.
-- Once the PR is open, do not push, update the branch or re-run CI to refresh it; re-run only after a failure you understand. If two PRs were created at once, the later updates once after the earlier merges. This replaces any "update again before merging". A hotfix that cannot wait goes to Coach Ed through the coordinator.
+- Once the PR is open, do not push, update the branch or re-run CI to refresh it; re-run only after a failure you understand. If two PRs were created at once, the later updates once after the earlier merges. This replaces any "update again before merging". The coordinator reviews and merges the PR; you do not merge. A hotfix that cannot wait goes to Coach Ed through the coordinator.
 
 ## 3. Report to the coordinator, not Coach Ed
 
@@ -50,11 +50,11 @@ Through the coordinator, and only when the sources do not settle something that 
 ## 6. Test locally first (2026-11-10)
 
 Visual tests run locally before staging; never ask for a staging review of something not checked locally. These names point to `127.0.0.1` via `/etc/hosts` on Coach Ed's computer and always need the running port:
-- www.negosyotest.com (public), dash.negosyotest.com (Subscriber dashboard), api.negosyotest.com (API), ggwp.negosyotest.com (Django Admin)
+- www.negosyotest.com (public), dash.negosyotest.com (Subscriber dashboard), hq.negosyotest.com (HQ dashboard), api.negosyotest.com (API), ggwp.negosyotest.com (Django Admin)
 - www.santetest.com (Sante storefront), www.santetest.com/dashboard/ (Member dashboard)
 - `<chosen-web-address>.negosyotest.com` and `.../dashboard/` for a Subscriber-created Site. A new subdomain is not in `/etc/hosts` until added: say so rather than switching names.
 
-Staging, after the local check: https://www-staging.negosyonline.com, https://dash-staging.negosyonline.com, https://api-staging.negosyonline.com. A domain name does not prove which environment answered: state protocol, port and environment for every review URL.
+Staging, after the local check: https://www-staging.negosyonline.com, https://dash-staging.negosyonline.com, https://hq-staging.negosyonline.com, https://api-staging.negosyonline.com. A domain name does not prove which environment answered: state protocol, port and environment for every review URL.
 
 ## 7. Required controls
 

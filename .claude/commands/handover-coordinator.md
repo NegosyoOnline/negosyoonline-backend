@@ -54,6 +54,7 @@ Write exactly these sections, whole file under 6 KB:
     - Open PRs: <full PR URLs with their state, or "none">
     - Local servers: <command and folder for each one this session started, running or stopped, or "none">
     - Coordinator brief: <absolute session folder>/.claude/briefs/coordinator.md
+    - This coordinator: <session id>. Manager: <session id, or "none">. Coordinator Helper: <session id, or "none">
     - First move: <the one thing the next session does first>
 
     ## Task
@@ -104,6 +105,8 @@ Print exactly two things:
 
 Then one of two endings.
 
-**Automatic, when a manager session exists** (coordinator brief, section 8). Send the manager one message with SendMessage: first line "Handover written, ready to be cleared", then the absolute state file path and the resume prompt exactly as printed. Then stop. Do not clear yourself and send nothing else: the manager clears this session once it is idle and sends the resume prompt back.
+**Automatic, when a manager session exists** (coordinator brief, section 9). Send the manager one message with SendMessage: first line "Handover written, ready to be cleared", then the absolute state file path and the resume prompt exactly as printed. Then stop. Do not clear yourself and send nothing else: the manager clears this session once it is idle and sends the resume prompt back.
 
-**By hand, otherwise** (no manager session, this session is served to Remote Control, or the manager cannot clear it). Say plainly: `/clear`, then paste this. The paste is required: nothing else tells the next session where the state file is.
+**Automatic, with no manager but a Coordinator Helper named in this conversation** (a coordinator started before the manager existed). In one final message: send the helper the resume prompt unchanged with SendMessage, then `clear_session` with "self", and end the turn at once. If the app's hook refuses the clear, re-issue it with exactly the input the error quotes.
+
+**By hand, otherwise** (no manager session and no helper, this session is served to Remote Control, or the manager cannot clear it). Say plainly: `/clear`, then paste this. The paste is required: nothing else tells the next session where the state file is.

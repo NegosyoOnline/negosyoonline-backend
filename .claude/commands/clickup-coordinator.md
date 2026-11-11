@@ -55,7 +55,7 @@ Bring Coach Ed only the open decisions that the brief's escalation rules cover, 
 
 ## 3. Create and brief the builders
 
-Coach Ed starts only this coordinator session. Builders are never separate top-level sessions: when Coach Ed tells you to create a builder, create it as a Claude sub-session under this session, so it sits beneath the coordinator and is easy to find. If the tools cannot create it under this session, say so; do not build here instead.
+This coordinator session is started by Coach Ed, or by the manager session on his instruction. Builders are never separate top-level sessions: create each as a Claude sub-session under this session, so it sits beneath the coordinator and is easy to find. If a start is refused here because the turn was not begun by Coach Ed's own message, ask the manager to start it (coordinator brief, section 2). If the tools cannot create it at all, say so; do not build here instead.
 
 - Name each sub-session with its role and task: `Builder <CLICKUP_TASK_ID> <short topic>`.
 - Its first instruction is `/clickup-builder <CLICKUP_TASK_ID>`. If a sub-session cannot be started with a slash command, tell it to read and follow `.claude/commands/clickup-builder.md` for that task ID.
@@ -78,5 +78,5 @@ Record each answer in the coordination record so the next builder does not ask i
 ## 5. Review and report
 
 - Check each builder's report against the task's acceptance criteria and against the code and PR, not only against what the builder says.
-- Prepare the single review packet for Coach Ed here, local first, then staging.
+- Prepare the single review packet for Coach Ed here, local first, then staging. Where a manager session exists, send it to the manager.
 - Before the context limit, run `/handover-coordinator <MAIN_CLICKUP_TASK_ID>`.
