@@ -562,3 +562,38 @@ class FinanceConcurrencyTests(HqAdminMixin, TransactionTestCase):
         self.assertEqual(
             OperatorAuditEntry.objects.filter(action__startswith="billing_payment_").count(), 1
         )
+
+    def test_a_confirmation_racing_a_replacing_proof_matches_one_of_the_two_orders(self):
+        for attempt in range(5):
+            subscription = make_subscription(f"u{attempt}@example.test", f"store-{attempt}")
+            payment = submit(subscription, SENT)
+            confirmed_before = OperatorAuditEntry.objects.filter(
+                action="billing_payment_confirmed"
+            ).count()
+
+            response, sent = run_together(
+                self.operator_call(
+                    "confirm/", {"payment": payment.public_id, "amount_received_centavos": 249900}
+                ),
+                lambda: submit(subscription, AT, content=PNG),
+            )
+
+            payment.refresh_from_db()
+            paid = subscription.cycles.filter(settlement="paid").count()
+            confirmed = OperatorAuditEntry.objects.filter(
+                action="billing_payment_confirmed"
+            ).count() - confirmed_before
+            if response.status_code == 200:
+                # confirmed first, so the next period is paid and a new proof is refused
+                self.assertEqual((payment.status, paid, confirmed), ("confirmed", 1, 1))
+                self.assertEqual(sent.code, "paid_ahead")
+                self.assertEqual(subscription.transfers.count(), 1)
+            else:
+                # replaced first, so the old proof has nothing to confirm
+                self.assertEqual(response.status_code, 409, response.content)
+                self.assertEqual(response.json()["error"]["code"], "not_under_review")
+                self.assertEqual((payment.status, paid, confirmed), ("replaced", 0, 0))
+                self.assertEqual(payment.events.filter(code="confirmed").count(), 0)
+                self.assertEqual(sent.status, "submitted")
+                self.assertEqual(subscription.transfers.count(), 2)
+            self.assertLessEqual(subscription.transfers.filter(status="submitted").count(), 1)
