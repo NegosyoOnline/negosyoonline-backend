@@ -4,18 +4,21 @@
 current time; it writes nothing. Every write goes through `_write` and `_apply`, under the
 subscription's row lock, after `catch_up` has written the time-driven transitions that were due.
 """
+import hashlib
 import logging
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Exists, Max, OuterRef, Q
 from django.utils import timezone
 
-from apps.billing import clock, methods, plan
-from apps.billing.models import BillingCycle, Subscription, SubscriptionTransition
+from apps.billing import clock, methods, plan, proofs
+from apps.billing.models import (
+    BankTransferEvent, BankTransferPayment, BillingCycle, Subscription, SubscriptionTransition,
+)
 from apps.common.errors import ApiError
 from apps.operators import audit
 from apps.sites.models import Onboarding, Site
@@ -27,6 +30,7 @@ Method = Subscription.MethodAtTrialEnd
 Actor = SubscriptionTransition.Actor
 Settlement = BillingCycle.Settlement
 Kind = BillingCycle.Kind
+TransferStatus = BankTransferPayment.Status
 
 ENDED_STATES = (State.SUSPENDED, State.CANCELLED, State.CANCELLED_NO_PAYMENT_METHOD)
 # The states each transition may start from.
@@ -45,6 +49,7 @@ FROM_STATES = {
     ),
     "cancellation_withdrawn": (State.CANCELLED,),
     "reactivated": ENDED_STATES,
+    "clocks_started": ENDED_STATES,
 }
 # What each time-driven transition leads to.
 DUE_TO_STATE = {
@@ -69,6 +74,7 @@ class Position:
 
 NOT_SERVED = Position(state=None, storefront_served=False, billing_only=False)
 PAID_TERM_RUNNING = "paid_term_running"
+PAYMENT_UNDER_REVIEW = "payment_under_review"
 
 
 @dataclass(frozen=True)
@@ -177,8 +183,9 @@ def state_filter(now, states):
     It mirrors `position` in one query, for a read over many sites. A site with no
     subscription never matches. An exempt subscription matches on its stored state, as
     `position` reports it. A trial past its end whose answer at trial end is not yet frozen
-    counts as having had no payment method, which is what `methods.active_at` answers in B1;
-    Billing Build B2 changes both together.
+    counts as having had a payment method only when a proof was under review at that
+    instant, which is what `methods.active_at` answers. While payment collection is off the
+    payment table is not read.
     """
     cutoff = now - plan.GRACE
     cycle_still_in_grace = Exists(
@@ -186,6 +193,12 @@ def state_filter(now, states):
     )
     trial = Q(state=State.TRIAL_ACTIVE)
     had_method = Q(method_at_trial_end=Method.YES)
+    if plan.collection_live():
+        had_method |= Q(method_at_trial_end=Method.UNDECIDED) & Exists(
+            BankTransferPayment.objects.filter(
+                methods.under_review_at(OuterRef("trial_end_at")), subscription=OuterRef("pk")
+            )
+        )
     reported = {
         State.TRIAL_ACTIVE: trial & (
             Q(trial_end_at__gt=now) | (had_method & Q(trial_end_at__gt=cutoff))
@@ -374,8 +387,29 @@ def _dates_after(subscription, at):
     ever_paid = _ever_paid(subscription)
     if not ever_paid and not plan.collection_live():
         return None, None
+    if not ever_paid:
+        # A site made after its trial had ended could not have been paid for earlier, so its
+        # days to pay count from its own creation (B2a, question 9).
+        created_at = subscription.site.created_at
+        if created_at > subscription.trial_end_at:
+            at = max(at, created_at)
     return at + plan.DOWNLOAD_WINDOW, at + (
         plan.DELETION_AFTER_PAID if ever_paid else plan.DELETION_NEVER_PAID
+    )
+
+
+def _clocks_due(subscription):
+    """Whether the dates of an ended subscription that never paid are still to be started.
+
+    They are left empty while NegosyoOnline cannot be paid (R-4a) and start, once, when
+    payment collection first goes live.
+    """
+    return (
+        not subscription.billing_exempt
+        and subscription.state in ENDED_STATES
+        and subscription.service_ended_at is not None
+        and subscription.deletion_due_at is None
+        and plan.collection_live()
     )
 
 
@@ -449,7 +483,7 @@ def catch_up(subscription, now, *, actor=Actor.SWEEP):
     """Write the time-driven transition that is due at `now`, if any, and return it.
 
     The caller holds the subscription's row lock. Its effective time is the rule's time,
-    never `now`.
+    never `now`; the one exception is `clocks_started`, whose rule is "from now".
     """
     due = _due(subscription, now)
     if due is None:
@@ -461,6 +495,14 @@ def catch_up(subscription, now, *, actor=Actor.SWEEP):
         ):
             _freeze_method(subscription, True)  # a method was active; the outcome is awaited
             subscription.save()
+        if _clocks_due(subscription):
+            subscription.download_until, subscription.deletion_due_at = _dates_after(
+                subscription, now
+            )
+            return _apply(
+                subscription, "clocks_started", subscription.state,
+                f"clocks_started:{subscription.pk}", now, actor,
+            )
         return None
     code, at = due
     pk = subscription.pk
@@ -540,21 +582,24 @@ def _not_due():
     return _conflict("not_due", "No payment is due for this subscription yet.")
 
 
-def _paid_detail(cycle, reference):
-    return {"cycle": cycle.sequence, "reference": reference}
+def _paid_detail(cycle, reference, detail=None):
+    return {"cycle": cycle.sequence, "reference": reference, **(detail or {})}
 
 
-def first_payment_succeeded(subscription, *, paid_at, reference):
+def first_payment_succeeded(subscription, *, paid_at, reference, early=False, detail=None):
+    """`early` allows a payment before the trial ends: cycle 1 still starts at the trial end,
+    so the trial days are kept."""
     def change(subscription, key):
         _require(subscription, "first_payment_succeeded")
-        if paid_at < subscription.trial_end_at:
+        if paid_at < subscription.trial_end_at and not early:
             raise _not_due()
         cycle = _open_first_cycle(
             subscription, Settlement.PAID, paid_at=paid_at, reference=reference
         )
         return _apply(
             subscription, "first_payment_succeeded", State.ACTIVE, key,
-            subscription.trial_end_at, Actor.PAYMENT, _paid_detail(cycle, reference),
+            min(paid_at, subscription.trial_end_at), Actor.PAYMENT,
+            _paid_detail(cycle, reference, detail),
         )
 
     return _write(subscription, paid_at, change, key=_paid_key(reference))
@@ -575,18 +620,19 @@ def first_payment_failed(subscription, *, at):
     return _write(subscription, at, change, key=f"failed:{subscription.pk}:1")
 
 
-def renewed(subscription, *, paid_at, reference):
+def renewed(subscription, *, paid_at, reference, early=False, detail=None):
+    """`early` allows a payment before the due date: the next cycle still starts at it."""
     def change(subscription, key):
         _require(subscription, "renewed")
         due_at = _latest_cycle(subscription).end_at
-        if paid_at < due_at:
+        if paid_at < due_at and not early:
             raise _not_due()
         cycle = _open_cycle(
             subscription, due_at, Settlement.PAID, paid_at=paid_at, reference=reference
         )
         return _apply(
-            subscription, "renewed", State.ACTIVE, key, due_at, Actor.PAYMENT,
-            _paid_detail(cycle, reference),
+            subscription, "renewed", State.ACTIVE, key, min(paid_at, due_at), Actor.PAYMENT,
+            _paid_detail(cycle, reference, detail),
         )
 
     return _write(subscription, paid_at, change, key=_paid_key(reference))
@@ -614,7 +660,7 @@ def renewal_failed(subscription, *, at):
     return _write(subscription, at, change, key=key)
 
 
-def recovered(subscription, *, paid_at, reference):
+def recovered(subscription, *, paid_at, reference, detail=None):
     """A payment during the 7 days of attention. At or after them the site is suspended."""
     def change(subscription, key):
         _require(subscription, "recovered")
@@ -624,13 +670,13 @@ def recovered(subscription, *, paid_at, reference):
         subscription.attention_started_at = None
         return _apply(
             subscription, "recovered", State.ACTIVE, key, paid_at, Actor.PAYMENT,
-            _paid_detail(cycle, reference),
+            _paid_detail(cycle, reference, detail),
         )
 
     return _write(subscription, paid_at, change, key=_paid_key(reference))
 
 
-def reactivated(subscription, *, paid_at, reference):
+def reactivated(subscription, *, paid_at, reference, detail=None):
     """A payment on a suspended or ended subscription: a new paid cycle from the payment time.
 
     Refused at or after the deletion date, which is the last date to pay.
@@ -652,10 +698,252 @@ def reactivated(subscription, *, paid_at, reference):
         )
         return _apply(
             subscription, "reactivated", State.ACTIVE, key, paid_at, Actor.PAYMENT,
-            _paid_detail(cycle, reference),
+            _paid_detail(cycle, reference, detail),
         )
 
     return _write(subscription, paid_at, change, key=_paid_key(reference))
+
+
+# Bank transfer with proof (Billing Build B2a). A proof is never a payment: only an operator's
+# confirmation settles a cycle, and its time is the outcome time.
+
+REJECT_NOTE_MAX_LENGTH = 300
+
+
+def _require_transfers():
+    if not plan.collection_live():
+        raise ApiError("not_found", "Not found.", status=404)
+
+
+def _require_operator(operator):
+    if operator is None:
+        raise ValueError("This action needs the operator who takes it.")
+
+
+def _invalid(fields):
+    return ApiError("invalid_request", "Some of the details are not valid.", fields=fields)
+
+
+def _transfer_event(payment, code, actor, detail=None):
+    return BankTransferEvent.objects.create(
+        payment=payment, code=code, actor=actor, idempotency_key=f"bt_{code}:{payment.pk}",
+        detail=detail or {},
+    )
+
+
+def _cancel_scheduled():
+    return _conflict(
+        "cancel_scheduled",
+        "This subscription is cancelled and its paid period is still running. "
+        "Withdraw the cancellation first.",
+    )
+
+
+def _paid_ahead():
+    return _conflict("paid_ahead", "The next period of this subscription is already paid.")
+
+
+def _refuse_unpayable(subscription, now):
+    """The reasons a subscription cannot be paid for at `now`, after `catch_up`."""
+    if subscription.state == State.CANCELLED and now < subscription.service_ended_at:
+        raise _cancel_scheduled()
+    if subscription.deletion_due_at is not None and now >= subscription.deletion_due_at:
+        raise _conflict("past_deletion_date", "This site can no longer be paid for.")
+    if _latest_cycle(subscription).start_at > now:
+        raise _paid_ahead()
+
+
+def submit_transfer(
+    subscription, account, *, plan_code, content, transferred_on, transfer_reference="", now=None
+):
+    """The owner sends a proof of a bank transfer. Returns (payment, created).
+
+    Nothing about the subscription changes. A proof sent while another is under review
+    replaces it; the same file for the same plan again returns the payment already there.
+    """
+    _require_transfers()
+    now = now or timezone.now()
+    fields = {}
+    content = bytes(content or b"")
+    content_type = proofs.sniff(content)
+    if not content:
+        fields["proof"] = "A proof of the transfer is needed."
+    elif len(content) > proofs.MAX_BYTES:
+        fields["proof"] = "The file is too large."
+    elif content_type is None:
+        fields["proof"] = "The file must be a JPEG, a PNG or a PDF."
+    chosen = plan.PLANS.get(plan_code) if isinstance(plan_code, str) else None
+    if chosen is None:
+        fields["plan"] = "This plan is not offered."
+    if not isinstance(transferred_on, date) or isinstance(transferred_on, datetime):
+        fields["transferred_on"] = "The date of the transfer is needed."
+    elif transferred_on > now.astimezone(clock.MANILA).date():
+        fields["transferred_on"] = "The date of the transfer cannot be in the future."
+    if not isinstance(transfer_reference, str):
+        fields["transfer_reference"] = "The reference number is not valid."
+    else:
+        transfer_reference = transfer_reference.strip()
+        if len(transfer_reference) > REFERENCE_MAX_LENGTH:
+            fields["transfer_reference"] = "The reference number is too long."
+    if fields:
+        raise _invalid(fields)
+    sha256 = hashlib.sha256(content).hexdigest()
+
+    def change(subscription):
+        _refuse_unpayable(subscription, now)
+        if chosen not in plan.offers(subscription, now):
+            raise _invalid({"plan": "This plan is not offered."})
+        waiting = (
+            subscription.transfers.select_for_update()
+            .filter(status=TransferStatus.SUBMITTED)
+            .first()
+        )
+        if waiting is not None:
+            if waiting.proof_sha256 == sha256 and waiting.plan_code == chosen.code:
+                return waiting, False
+            waiting.status, waiting.decided_at = TransferStatus.REPLACED, now
+            waiting.save()
+            _transfer_event(waiting, "replaced", BankTransferEvent.Actor.OWNER)
+        key = proofs.new_key()
+        proofs.store().put(key, content)
+        payment = BankTransferPayment.objects.create(
+            subscription=subscription,
+            plan_code=chosen.code,
+            amount_centavos=chosen.price_centavos,
+            currency=plan.CURRENCY,
+            transferred_on=transferred_on,
+            transfer_reference=transfer_reference,
+            proof_key=key,
+            proof_content_type=content_type,
+            proof_size=len(content),
+            proof_sha256=sha256,
+            submitted_by=account,
+            submitted_at=now,
+        )
+        _transfer_event(payment, "submitted", BankTransferEvent.Actor.OWNER)
+        return payment, True
+
+    return _write(subscription, now, change)
+
+
+def _settle_transfer(subscription, payment, at):
+    """Settle exactly one cycle with a confirmed payment, by the state at `at`. Returns the
+    transition. The caller holds the subscription's row lock and `catch_up` has run."""
+    paid = {
+        "paid_at": at,
+        "reference": payment.reference,
+        "detail": {"plan": payment.plan_code, "amount_centavos": payment.amount_centavos},
+    }
+    state = subscription.state
+    if state == State.CANCELLED and at < subscription.service_ended_at:
+        raise _cancel_scheduled()
+    if state == State.TRIAL_ACTIVE:
+        return first_payment_succeeded(subscription, early=True, **paid)
+    if state == State.ACTIVE:
+        if _latest_cycle(subscription).start_at > at:
+            raise _paid_ahead()
+        return renewed(subscription, early=True, **paid)
+    if state == State.PAYMENT_REQUIRES_ATTENTION:
+        return recovered(subscription, **paid)
+    return reactivated(subscription, **paid)
+
+
+def confirm_transfer(payment, operator, *, amount_received_centavos, now=None):
+    """The operator confirms that the money arrived. This, and nothing else, settles a cycle.
+
+    The amount the operator saw must equal the amount due. A payment already confirmed is
+    returned as it is; the confirmation, the cycle, the transition, the event and the audit
+    entry are written together or not at all.
+    """
+    _require_operator(operator)
+    _require_transfers()
+    now = now or timezone.now()
+
+    def change(subscription):
+        row = BankTransferPayment.objects.select_for_update().get(pk=payment.pk)
+        if row.status == TransferStatus.CONFIRMED:
+            return row
+        if row.status != TransferStatus.SUBMITTED:
+            raise _conflict("not_under_review", "This payment is no longer under review.")
+        if (
+            isinstance(amount_received_centavos, bool)
+            or amount_received_centavos != row.amount_centavos
+        ):
+            raise _conflict(
+                "amount_mismatch", "The amount received is not the amount due for this payment."
+            )
+        transition = _settle_transfer(subscription, row, now)
+        cycle = BillingCycle.objects.get(
+            subscription=subscription, sequence=transition.detail["cycle"]
+        )
+        row.status = TransferStatus.CONFIRMED
+        row.decided_at, row.decided_by = now, operator
+        row.amount_received_centavos = amount_received_centavos
+        row.cycle = cycle
+        row.save()
+        _transfer_event(
+            row, "confirmed", BankTransferEvent.Actor.OPERATOR, {"cycle": cycle.sequence}
+        )
+        audit.record(
+            operator, "billing_payment_confirmed", target_type="site",
+            target_id=subscription.site.public_id,
+            detail={
+                "payment": row.public_id, "plan": row.plan_code,
+                "amount_centavos": row.amount_centavos, "cycle": cycle.sequence,
+            },
+        )
+        return row
+
+    return _write(Subscription(pk=payment.subscription_id), now, change)
+
+
+def reject_transfer(payment, operator, *, reason, note="", now=None):
+    """The operator rejects a proof. Nothing about the subscription changes, so the lifecycle
+    goes on as if no proof had been sent, and the owner may send another."""
+    _require_operator(operator)
+    _require_transfers()
+    now = now or timezone.now()
+    fields = {}
+    if reason not in BankTransferPayment.RejectReason.values:
+        fields["reason"] = "Choose one of the listed reasons."
+    note = note.strip() if isinstance(note, str) else None
+    if note is None or len(note) > REJECT_NOTE_MAX_LENGTH:
+        fields["note"] = "The note is too long."
+    elif reason == BankTransferPayment.RejectReason.OTHER and not note:
+        fields["note"] = "A note is needed for this reason."
+    if fields:
+        raise _invalid(fields)
+    with transaction.atomic():
+        # The same lock a confirmation and a replacing proof take, and no `catch_up`.
+        subscription = Subscription.objects.select_for_update().get(pk=payment.subscription_id)
+        row = BankTransferPayment.objects.select_for_update().get(pk=payment.pk)
+        if row.status == TransferStatus.REJECTED:
+            return row
+        if row.status != TransferStatus.SUBMITTED:
+            raise _conflict("not_under_review", "This payment is no longer under review.")
+        row.status = TransferStatus.REJECTED
+        row.decided_at, row.decided_by = now, operator
+        row.reject_reason, row.reject_note = reason, note
+        row.save()
+        _transfer_event(row, "rejected", BankTransferEvent.Actor.OPERATOR, {"reason": reason})
+        audit.record(
+            operator, "billing_payment_rejected", target_type="site",
+            target_id=subscription.site.public_id,
+            detail={"payment": row.public_id, "reason": reason},
+        )
+    return row
+
+
+def proof_for_operator(payment, operator):
+    """The proof file as (content, content type), for the operator. Each read is audited."""
+    _require_operator(operator)
+    _require_transfers()
+    content = proofs.store().get(payment.proof_key)
+    audit.record(
+        operator, "billing_proof_viewed", target_type="site",
+        target_id=payment.subscription.site.public_id, detail={"payment": payment.public_id},
+    )
+    return content, payment.proof_content_type
 
 
 # Joins with the other apps
@@ -719,7 +1007,9 @@ def prepare_disposal(account, now, actor=Actor.OPERATOR, dry_run=False):
     attention or suspended is cancelled and service ends at once (a suspended one keeps its
     dates). One inside a paid term is cancelled to the end of that term, and the disposal is
     refused for now with `paid_term_running` and that date. An ended or exempt subscription is
-    left as it is. A dry run writes nothing and reports what a real run would do.
+    left as it is. One with a proof of payment under review is left as it is too, and the
+    disposal is refused with `payment_under_review` until an operator has decided it. A dry
+    run writes nothing and reports what a real run would do.
     """
     if not settings.BILLING_ENABLED:
         return DisposalStep()
@@ -733,6 +1023,11 @@ def prepare_disposal(account, now, actor=Actor.OPERATOR, dry_run=False):
         if subscription.billing_exempt:
             continue
         site_id = subscription.site.public_id
+        if plan.collection_live() and subscription.transfers.filter(
+            status=TransferStatus.SUBMITTED
+        ).exists():
+            reasons.append({"reason": PAYMENT_UNDER_REVIEW, "site": site_id})
+            continue
         if dry_run:
             due = _due(subscription, now)
             state = DUE_TO_STATE[due[0]] if due else subscription.state
@@ -768,10 +1063,16 @@ def _due_ids(now):
     )
     attention = Q(state=State.PAYMENT_REQUIRES_ATTENTION, attention_started_at__lte=cutoff)
     active = Q(state=State.ACTIVE, latest_end__lte=cutoff)
+    due = trial | attention | active
+    if plan.collection_live():
+        # Ended before NegosyoOnline could be paid: the dates start now (`_clocks_due`).
+        due |= Q(
+            state__in=ENDED_STATES, service_ended_at__isnull=False, deletion_due_at__isnull=True
+        )
     return list(
         Subscription.objects.filter(billing_exempt=False)
         .annotate(latest_end=Max("cycles__end_at"))
-        .filter(trial | attention | active)
+        .filter(due)
         .order_by("pk")
         .values_list("pk", flat=True)
     )
@@ -790,8 +1091,11 @@ def sweep(now=None, *, dry_run=False):
     for pk in _due_ids(now):
         try:
             if dry_run:
-                due = _due(Subscription.objects.get(pk=pk), now)
+                subscription = Subscription.objects.get(pk=pk)
+                due = _due(subscription, now)
                 code = due[0] if due else None
+                if code is None and _clocks_due(subscription):
+                    code = "clocks_started"
             else:
                 with transaction.atomic():
                     subscription = (

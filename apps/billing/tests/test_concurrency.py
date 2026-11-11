@@ -9,11 +9,13 @@ from django.test import TransactionTestCase, override_settings
 from apps.accounts import retention as rules
 from apps.accounts.models import Account
 from apps.billing import services
-from apps.billing.models import Subscription, SubscriptionTransition
+from apps.billing.models import BankTransferPayment, Subscription, SubscriptionTransition
 from apps.billing.tests.base import (
-    CYCLE_1_END, SECOND, T0, TRIAL_END, days, fresh, make_active, make_attention, make_subscription,
+    CYCLE_1_END, PNG, SECOND, T0, TRIAL_END, days, fresh, make_active, make_attention,
+    make_operator, make_subscription, submit, transfers_on,
 )
 from apps.common.errors import ApiError
+from apps.operators.models import OperatorAuditEntry
 from apps.sites.models import Site
 from apps.sites.tests.base import make_account
 from apps.sites.tests.test_concurrency import create as create_site
@@ -187,3 +189,65 @@ class ConcurrencyTests(TransactionTestCase):
                 subscription=subscription, code="trial_started", to_state=State.TRIAL_ACTIVE,
                 actor="sweep", idempotency_key=f"trial_started:{subscription.pk}", effective_at=T0,
             )
+
+
+@skipUnless(connection.vendor == "postgresql", "row locks need PostgreSQL")
+@override_settings(BILLING_ENABLED=True)
+class TransferConcurrencyTests(TransactionTestCase):
+    """Bank transfer (Billing Build B2a): one payment settles one cycle, whatever races it."""
+
+    def setUp(self):
+        on = transfers_on()
+        on.__enter__()
+        self.addCleanup(on.__exit__, None, None, None)
+
+    def test_two_confirmations_at_once_settle_one_cycle(self):
+        subscription = make_subscription()
+        payment = submit(subscription, T0 + days(3))
+        operators = [make_operator(f"op{index}") for index in range(3)]
+        at = T0 + days(5)
+
+        results = run_together(*[
+            lambda operator=operator: services.confirm_transfer(
+                payment, operator, amount_received_centavos=payment.amount_centavos, now=at
+            )
+            for operator in operators
+        ])
+
+        self.assertFalse([r for r in results if isinstance(r, Exception)], results)
+        self.assertEqual({r.decided_by_id for r in results}, {results[0].decided_by_id})
+        self.assertEqual(subscription.cycles.filter(settlement="paid").count(), 1)
+        self.assertEqual(subscription.cycles.count(), 2)
+        self.assertEqual(codes(subscription), ["first_payment_succeeded", "trial_started"])
+        self.assertEqual(payment.events.filter(code="confirmed").count(), 1)
+        self.assertEqual(
+            OperatorAuditEntry.objects.filter(action="billing_payment_confirmed").count(), 1
+        )
+
+    def test_a_confirmation_racing_a_replacing_proof_matches_one_of_the_two_orders(self):
+        for attempt in range(5):
+            subscription = make_subscription(f"u{attempt}@example.test", f"store-{attempt}")
+            payment = submit(subscription, T0 + days(3))
+            operator = make_operator(f"op{attempt}")
+            at = T0 + days(5)
+
+            results = run_together(
+                lambda: services.confirm_transfer(
+                    payment, operator, amount_received_centavos=payment.amount_centavos, now=at
+                ),
+                lambda: submit(subscription, at, content=PNG),
+            )
+
+            payment.refresh_from_db()
+            paid = subscription.cycles.filter(settlement="paid").count()
+            if isinstance(results[0], BankTransferPayment):
+                # confirmed first, so the next period is paid and a new proof is refused
+                self.assertEqual((payment.status, paid), ("confirmed", 1))
+                self.assertEqual(results[1].code, "paid_ahead")
+                self.assertEqual(subscription.transfers.count(), 1)
+            else:
+                # replaced first, so the old proof has nothing to confirm
+                self.assertEqual(results[0].code, "not_under_review")
+                self.assertEqual((payment.status, paid), ("replaced", 0))
+                self.assertEqual(results[1].status, "submitted")
+            self.assertLessEqual(subscription.transfers.filter(status="submitted").count(), 1)

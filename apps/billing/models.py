@@ -1,9 +1,13 @@
-"""One subscription per site, its billing cycles, and the record of every state change.
+"""One subscription per site, its billing cycles, the record of every state change, and the
+bank-transfer payments that settle a cycle.
 
 Other apps reach these tables only through apps.billing.services.
 """
+from django.conf import settings
 from django.db import models
 from django.db.models import F, Q
+
+from apps.common.ids import new_public_id
 
 
 class Subscription(models.Model):
@@ -117,3 +121,127 @@ class BillingCycle(models.Model):
 
     def __str__(self):
         return f"Cycle {self.sequence} of subscription {self.subscription_id}"
+
+
+def new_transfer_id():
+    return new_public_id("btp")
+
+
+class BankTransferPayment(models.Model):
+    """One proof of a bank transfer for a subscription, and what an operator decided about it.
+
+    Its plan and amount are frozen when it is sent. Only a confirmation settles a cycle. Rows
+    are kept: nothing deletes or blanks them. Write only through apps.billing.services.
+    """
+
+    class Status(models.TextChoices):
+        SUBMITTED = "submitted"  # waiting for an operator
+        CONFIRMED = "confirmed"
+        REJECTED = "rejected"
+        REPLACED = "replaced"  # a newer proof took its place before a decision
+
+    class RejectReason(models.TextChoices):
+        UNREADABLE = "unreadable"
+        AMOUNT_MISMATCH = "amount_mismatch"
+        NOT_RECEIVED = "not_received"
+        WRONG_ACCOUNT = "wrong_account"
+        DUPLICATE = "duplicate"
+        OTHER = "other"
+
+    public_id = models.CharField(
+        max_length=40, unique=True, default=new_transfer_id, editable=False
+    )
+    subscription = models.ForeignKey(
+        Subscription, on_delete=models.PROTECT, related_name="transfers"
+    )
+    # Our own reference: the one the lifecycle's payment functions are keyed on.
+    reference = models.CharField(max_length=64, unique=True)
+    plan_code = models.CharField(max_length=20)
+    amount_centavos = models.PositiveIntegerField()
+    currency = models.CharField(max_length=3, default="PHP")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.SUBMITTED)
+    transferred_on = models.DateField()  # the day the Subscriber says the transfer was made
+    transfer_reference = models.CharField(max_length=64, blank=True)  # the bank's own number
+    proof_key = models.CharField(max_length=64)
+    proof_content_type = models.CharField(max_length=20)
+    proof_size = models.PositiveIntegerField()
+    proof_sha256 = models.CharField(max_length=64)
+    submitted_by = models.ForeignKey(
+        "accounts.Account", on_delete=models.PROTECT, related_name="+"
+    )
+    submitted_at = models.DateTimeField()
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    amount_received_centavos = models.PositiveIntegerField(null=True, blank=True)
+    reject_reason = models.CharField(max_length=20, choices=RejectReason.choices, blank=True)
+    reject_note = models.CharField(max_length=300, blank=True)
+    cycle = models.OneToOneField(
+        BillingCycle, null=True, blank=True, on_delete=models.PROTECT, related_name="transfer"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["subscription"],
+                condition=Q(status="submitted"),
+                name="billing_one_transfer_under_review",
+            ),
+            # A confirmed payment settled a cycle, was decided by an operator, and the amount
+            # received is the amount due.
+            models.CheckConstraint(
+                condition=~Q(status="confirmed") | (
+                    Q(cycle__isnull=False)
+                    & Q(decided_by__isnull=False)
+                    & Q(amount_received_centavos=F("amount_centavos"))
+                ),
+                name="billing_transfer_confirmed_in_full",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.reference:
+            self.reference = self.public_id
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("A payment record is kept and cannot be deleted.")
+
+    def __str__(self):
+        return f"Bank transfer {self.public_id}"
+
+
+class BankTransferEvent(models.Model):
+    """Append-only. One row per state change of a payment, written once under its key."""
+
+    class Actor(models.TextChoices):
+        OWNER = "owner"
+        OPERATOR = "operator"
+
+    payment = models.ForeignKey(
+        BankTransferPayment, on_delete=models.PROTECT, related_name="events"
+    )
+    code = models.CharField(max_length=20)
+    actor = models.CharField(max_length=10, choices=Actor.choices)
+    idempotency_key = models.CharField(max_length=120, unique=True)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+    detail = models.JSONField(default=dict, blank=True)
+
+    def __str__(self):
+        return f"{self.code} on payment {self.payment_id}"
+
+
+class BillingNotice(models.Model):
+    """An email about billing that was sent, so that it is sent once. Nothing writes this
+    before the emails are built."""
+
+    subscription = models.ForeignKey(
+        Subscription, on_delete=models.PROTECT, related_name="notices"
+    )
+    code = models.CharField(max_length=40)
+    idempotency_key = models.CharField(max_length=120, unique=True)
+    sent_at = models.DateTimeField()
+
+    def __str__(self):
+        return f"{self.code} for subscription {self.subscription_id}"

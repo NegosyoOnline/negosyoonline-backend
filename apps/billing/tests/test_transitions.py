@@ -88,13 +88,15 @@ class TrialStartTests(BillingTestCase):
         self.assertIsNone(subscription.download_until)
         self.assertIsNone(subscription.deletion_due_at)
 
-    def test_once_collection_is_live_its_dates_count_from_day_14(self):
+    def test_once_collection_is_live_its_dates_count_from_its_own_creation(self):
+        """It could not have been paid for before it existed (B2a, question 9, 2026-11-11).
+        Before that ruling its dates counted from day 14 and were already past."""
         with collection_is_live():
             subscription = make_subscription(now=T0 + days(50))
 
         self.assertEqual(subscription.service_ended_at, TRIAL_END)
-        self.assertEqual(subscription.deletion_due_at, T0 + days(44))
-        self.assertEqual(subscription.download_until, T0 + days(44))
+        self.assertEqual(subscription.deletion_due_at, T0 + days(80))
+        self.assertEqual(subscription.download_until, T0 + days(80))
 
 
 class TrialEndTests(BillingTestCase):

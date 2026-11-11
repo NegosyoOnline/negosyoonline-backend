@@ -27,6 +27,9 @@ ACTIONS = {
     "account_disposed": KEPT,
     "account_exported": KEPT,
     "billing_exempt_set": KEPT,
+    "billing_payment_confirmed": KEPT,
+    "billing_payment_rejected": KEPT,
+    "billing_proof_viewed": KEPT,
     "sante_catalog_owner_set": KEPT,
 }
 SIGN_IN_ACTIONS = ("admin_sign_in_ok", "admin_sign_in_failed", "admin_locked", "admin_sign_out")
