@@ -1,0 +1,14 @@
+"$schema" = "https://railway.com/railway.schema.json"
+
+# The `beat` service: queues the scheduled jobs. No public domain and no health path.
+# Exactly one instance, or every job is queued twice.
+# The service is pointed at this file in the Railway dashboard; `railway.toml` stays the api's.
+
+[build]
+buildCommand = "uv sync --frozen"
+
+[deploy]
+startCommand = "uv run celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule"
+numReplicas = 1
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
