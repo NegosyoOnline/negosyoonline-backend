@@ -2,7 +2,7 @@
 
 ClickUp task: z8uq9me128 "SMS inbox, reply and compose (HQ)" (https://app.clickup.com/t/z8uq9me128), a subtask of z8uq9md33v "NPC Build 1 — SMS Carrier & Data-Flow Controls".
 
-Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. Two decisions are open and are his: where the screens are served (section 3), and whether Contacts should also show registered Subscriber accounts (section 19.12). The reserve for sign-in codes is settled (R20, section 18.10). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. Contacts and groups (section 19) were added by R16 to R19, so the scope is now three parts: the inbox, Bulk SMS and contacts. His feedback on that mockup (R21) then moved Contacts out of SMS: it is its own item on the HQ main menu, a kept list of the people NegosyoOnline deals with, and not only the recipients of a bulk text. After approval comes a plan, also for approval, before any code.
+Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. One decision is open and is his: where the screens are served (section 3). The reserve for sign-in codes is settled (R20, section 18.10). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. Bulk SMS (section 18) was then added to the design by five rulings, R10 to R14, for the launch announcement only. His feedback on the Bulk SMS page (R15) then added a CSV upload and a list of bulk sends with a stop button. Contacts and groups (section 19) were added by R16 to R19, so the scope is now three parts: the inbox, Bulk SMS and contacts. His feedback on that mockup (R21) then moved Contacts out of SMS: it is its own item on the HQ main menu, a kept list of the people NegosyoOnline deals with, and not only the recipients of a bulk text. He then ruled (R22) that Contacts holds only what HQ staff type in or upload, with no link to Subscriber accounts. After approval comes a plan, also for approval, before any code.
 
 ## 1. Sources
 
@@ -46,8 +46,9 @@ The coordinator's readings recorded with those rulings, which this design confir
 | R19 | Staff may upload a CSV file of contacts (first name, last name, mobile number) into a chosen group | "Yes, allow CSV" |
 | R20 | Of the 2,000 texts a day, 300 are kept for sign-in codes | "Hold back 300" |
 | R21 | Contacts is its own item on the HQ main menu, not a button or page inside SMS. Staff open it directly to add and look up contacts. It is not only a recipient list for Bulk SMS | "As said, the contacts will be on the main menu, not inside the SMS. Okay, it must be on the main menu so that we will be able to add. We can check. It's not just for bulk sending. It is a kind of like a database of users of Negosyo Online." |
+| R22 | Contacts holds only what HQ staff type in or upload from a CSV file. It does not show registered Subscriber accounts and has no link to account records | "No, hand-entered only" |
 
-R9 to R21 are each a comment on the Task, re-read there on 2026-11-11. Section 18 applies R10 to R15 and R20; section 19 applies R16 to R19 and R21.
+R9 to R22 are each a comment on the Task, re-read there on 2026-11-11. Section 18 applies R10 to R15 and R20; section 19 applies R16 to R19, R21 and R22.
 
 ### 2.1 What R7 and R8 change in this design
 
@@ -407,7 +408,7 @@ Input for Coach Ed's wording. This is not wording, and this design edits no fili
 13. **Opting out (R13).** Every bulk text says "Reply STOP to opt out". A number that replies STOP is kept on a do-not-text list and is skipped by later bulk texts. **That list is kept past 365 days**, until the person asks otherwise, because deleting it would start the texts again. This is a second retention period beside point 6.
 14. **What a bulk send keeps.** The one text and its counts for 365 days; the list of numbers only until the batch ends; a send record per number for 365 days, as for every text.
 15. **The documents the Parent names:** register row 6; filing-store-sms; filing-subscriber-accounts-billing; filing-subscriber-stores; PIA 5; privacy manual s8; the Terms and Privacy provider list. This session did not read them.
-16. **Contacts (R16, R17, R21).** For the first time a person's first and last name is stored together with their mobile number, with the groups staff put them in. **What the list is:** a kept list of the people NegosyoOnline deals with, which HQ staff add to and look up. It is not only the recipients of the launch announcement, so the purpose stated must be that wider one; choosing who gets a bulk text is one use of it. Where the names and numbers come from: typed by staff, or a CSV file Coach Ed supplies. No link to TWCinc, and no link to Subscriber account records. **A contact is kept until HQ staff delete it**, with no automatic deletion. This is a third retention period beside points 6 and 13. No contact is stored in any environment before this wording is amended.
+16. **Contacts (R16, R17, R21, R22).** For the first time a person's first and last name is stored together with their mobile number, with the groups staff put them in. **What the list is:** a kept list of the people NegosyoOnline deals with, which HQ staff add to and look up. It is not only the recipients of the launch announcement, so the purpose stated must be that wider one; choosing who gets a bulk text is one use of it. Where the names and numbers come from: typed by staff, or a CSV file Coach Ed supplies. No link to TWCinc, and no link to Subscriber account records. **A contact is kept until HQ staff delete it**, with no automatic deletion. This is a third retention period beside points 6 and 13. No contact is stored in any environment before this wording is amended.
 17. **A contact's rights.** A person can be in Contacts without having an account, without having written to us and without knowing they are listed. How such a person is told, the basis for keeping them, and how they ask to see, correct or delete their contact record. Staff can edit and delete a contact on the screen; deleting it does not remove their number from the do-not-text list.
 
 ## 15. Tests the build would write
@@ -435,7 +436,7 @@ Input for Coach Ed's wording. This is not wording, and this design edits no fili
 - Showing a full number; deleting a conversation or a message by hand; exporting conversations.
 - Fixed templates, saved replies, attachments, MMS, texts longer than one SMS, sending to more than one number outside Bulk SMS (section 18).
 - Delivery receipts; notifications to staff when a text arrives; automatic refresh.
-- For contacts (section 19): any link to Subscriber account records, and showing registered accounts in Contacts (an open question, 19.12); any import from or sync with TWCinc, custom fields on a contact, putting a contact's name into a text (name merge), merging two contacts, exporting contacts, and showing a contact's name in the inbox beside a conversation.
+- For contacts (section 19): any link to Subscriber account records, and showing registered accounts in Contacts (R22); any import from or sync with TWCinc, custom fields on a contact, putting a contact's name into a text (name merge), merging two contacts, exporting contacts, and showing a contact's name in the inbox beside a conversation.
 - A second phone, SIM or line, for bulk texts included (R14); adding or removing a do-not-text number by hand; a link of any kind to TWCinc; order-status texts.
 - The privacy page and the NPC documents themselves.
 - Anything on staging or production.
@@ -605,7 +606,7 @@ Added by R16, with R17 (kept until staff delete), R18 (the same inbox staff) and
 
 A kept list of the people NegosyoOnline deals with, which HQ staff add to and look up (R21: "It's not just for bulk sending. It is a kind of like a database of users of Negosyo Online"). Contacts are sorted into groups, and Bulk SMS reads its groups from this list, so a batch is sent to a group instead of a file each time (R16). Sending is one use of the list, not its purpose.
 
-A contact is hand-entered or uploaded (19.3). It has no link to a Subscriber account record: Contacts does not read, show or match registered accounts. Whether it should is an open question for Coach Ed (19.12).
+A contact is hand-entered or uploaded (19.3). It has no link to a Subscriber account record: Contacts does not read, show or match registered accounts. Coach Ed ruled so (R22): "No, hand-entered only".
 
 **Contacts are the first place in this tool, and in the SMS records, where a name is stored together with a mobile number.** The NPC and privacy wording must cover that, with the wider purpose, before any contact is stored in any environment (section 14 points 16 and 17), the same "amend first" order as R1 and R11.
 
@@ -693,10 +694,10 @@ Tests the build would add: a contact needs a Philippine mobile and is unique by 
 
 ### 19.11 Left out
 
-No link to Subscriber account records (19.12). No import from or sync with TWCinc. No custom fields: a contact is a first name, a last name, a number and groups. No name merge: a text never carries a contact's name. Also not here: merging two contacts, exporting contacts, and showing a contact's name beside a conversation in the inbox.
+No link to Subscriber account records and no registered accounts shown in Contacts (R22). No import from or sync with TWCinc. No custom fields: a contact is a first name, a last name, a number and groups. No name merge: a text never carries a contact's name. Also not here: merging two contacts, exporting contacts, and showing a contact's name beside a conversation in the inbox.
 
-### 19.12 Still open
+### 19.12 Settled: Contacts and registered accounts (R22)
 
-One question is open for Coach Ed, raised by R21 and asked by the coordinator: **should Contacts also show registered Subscriber accounts**, or stay a list staff enter and upload by hand? Until he answers, this design keeps it hand-entered and uploaded, with no link to account records. Showing accounts would be a different thing to build and to state to the NPC: it would read the account records, show people who never were typed in, and need its own rules for masking, retention and who may see them.
+R21 raised one question: should Contacts also show registered Subscriber accounts, or stay a list staff enter and upload by hand? Coach Ed ruled: "No, hand-entered only". Contacts holds only what HQ staff type in or upload from a CSV file. It does not show registered Subscriber accounts and has no link to account records.
 
-R17, R18 and R19 answered the three earlier questions and stand unchanged. 18.10 is settled by R20. Also left for him: where the screens are served (section 3) and approval of the design and the look.
+Nothing in this section is open for Coach Ed. R17, R18 and R19 stand unchanged, and 18.10 is settled by R20. What is left for him is where the screens are served (section 3) and approval of the design and the look.
