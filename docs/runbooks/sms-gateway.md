@@ -139,6 +139,7 @@ To find out why: `sms_device list` shows the phone's last contact. On the phone,
 The app can forward the texts the SIM receives. A phone's own switch is **off** for every new phone.
 
 - **A text a phone receives is stored only when three switches are all on:** `SMS_GATEWAY_ENABLED`, `SMS_INBOX_ENABLED`, and the phone's own switch. Each variable is Coach Ed's approval per environment. The phone's switch is his approval each time, **and only after the NPC and privacy wording is amended**.
+- Before the phone's switch is turned on in any shared environment, these are checked and amended first, because the NPC filing today describes a phone that only sends: register row 6, filing-store-sms, filing-subscriber-accounts-billing, filing-subscriber-stores, PIA 5, privacy manual s8, and the Terms and Privacy pages (the provider list, and the sentence that says the text of a message is not kept).
 - With any of them off, `POST /gateway/v1/received` answers 204 and drops the body unread, and `poll` tells the phone not to forward.
 - What is stored when all are on: the sender's number, the full text, the arrival time and the SIM slot, for 365 days. **Every text the SIM receives is stored**, including the carrier's notices, wrong numbers and one-time codes other services send to that SIM. Nothing filters them.
 - The order to turn it on in an environment: the `inbox.0001` migration applied, `SMS_INBOX_ENABLED=1` set, access granted, then the phone's switch.
