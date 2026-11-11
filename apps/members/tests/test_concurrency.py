@@ -1,18 +1,29 @@
 """Simultaneous requests. These need real row locks and threads that share a database, so they
 run on PostgreSQL only (CI's "PostgreSQL and Redis" job)."""
+import re
 import threading
 from unittest import skipUnless
 
+from django.core import mail
 from django.core.cache import cache
 from django.db import connection
 from django.test import TransactionTestCase
 
-from apps.accounts import codes
 from apps.common.errors import ApiError
 from apps.members import services, signin
 from apps.members.models import Member, MemberSession
+from apps.members.tests.base import BINDING
 from apps.sites.models import Site
 from apps.sites.tests.base import make_account, make_site
+
+
+def issue_code(site, email):
+    """Request a sign-in code the way the route does and read it from the sent email."""
+    sends = []
+    signin.request_code(site, email, binding_raw=BINDING, ip="203.0.113.5", defer=sends.append)
+    for send in sends:
+        send()
+    return re.search(r"code is (\d{6})", mail.outbox[-1].body).group(1)
 
 
 def run_together(*calls):
@@ -62,36 +73,36 @@ class MemberConcurrencyTests(TransactionTestCase):
         member = services.create_member(
             self.site, full_name="Maria", mobile="09171234567", email="maria@buyer.test"
         )
-        code = codes.issue_code(member.email, "203.0.113.5", signin.purpose(self.site))
+        code = issue_code(self.site, member.email)
 
         def verify():
-            return signin.verify_code(
-                Site.objects.get(pk=self.site.pk), member.email, code, ""
+            return signin.verify(
+                Site.objects.get(pk=self.site.pk), binding_raw=BINDING, code=code, ip="203.0.113.5"
             )
 
         results = run_together(verify, verify, verify)
 
         self.assertEqual(sum(isinstance(r, tuple) for r in results), 1, results)
         failed = [r for r in results if isinstance(r, ApiError)]
-        self.assertEqual({r.code for r in failed}, {"invalid_code"})
+        self.assertEqual({r.code for r in failed}, {"code_expired"})
         self.assertEqual(MemberSession.objects.count(), 1)
 
-    def test_a_contact_change_racing_a_verify_leaves_no_live_session_for_the_old_contact(self):
+    def test_a_contact_release_racing_a_verify_leaves_no_live_session(self):
         member = services.create_member(
             self.site, full_name="Maria", mobile="09171234567", email="maria@buyer.test"
         )
-        code = codes.issue_code(member.email, "203.0.113.5", signin.purpose(self.site))
+        code = issue_code(self.site, member.email)
 
         def verify():
-            return signin.verify_code(
-                Site.objects.get(pk=self.site.pk), "maria@buyer.test", code, ""
+            return signin.verify(
+                Site.objects.get(pk=self.site.pk), binding_raw=BINDING, code=code, ip="203.0.113.5"
             )
 
         def change():
-            return services.change_contacts(Member.objects.get(pk=member.pk), email="new@buyer.test")
+            return services.release_contacts(Site.objects.get(pk=self.site.pk), member)
 
         run_together(verify, change)
 
         member.refresh_from_db()
-        self.assertEqual(member.email, "new@buyer.test")
+        self.assertTrue(services.contacts_released(member))
         self.assertEqual(MemberSession.objects.filter(revoked_at__isnull=True).count(), 0)
