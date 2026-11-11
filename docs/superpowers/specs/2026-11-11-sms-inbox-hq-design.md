@@ -687,7 +687,7 @@ Settled by Coach Ed: "Hold back 300".
 - Of the 2,000 texts a day, 300 are for sign-in codes only.
 - Bulk SMS and single staff texts (a reply, a composed text) stop once 1,700 texts are used that day. The 1,700 counts every text sent that day, codes included. Applying the reserve to single staff texts is the coordinator's routine choice, so the reserve is truly for codes.
 - A batch is at most 1,700 less what is already used. A batch that was cut to that limit can still lose its last texts if codes are sent while it runs: they show "Not sent: today's limit reached" (18.3).
-- The 300 is a setting beside the daily cap in `SmsPolicy`, so it can be changed without a release. Where it is stored is for the plan. The daily cap is changed in the Django Admin today; with the Admin switched off (R28) no screen changes it, and how it is changed then is for the plan (section 22.4). Changing the value of the 300 is Coach Ed's ruling: it is an estimate made before any real sign-up volume, and no one else changes it.
+- The 300 is a backend setting. Changing its value is Coach Ed's ruling: it is an estimate made before any real sign-up volume, and no one else changes it. It is changed on the backend as a setting, not on any screen; the Django Admin is switched off (R28) and is not where it is changed. Where the setting is stored is for the plan.
 - The Bulk SMS page and the New SMS page say so in words.
 
 ## 19. Contacts and groups (R16 to R19)
@@ -1052,7 +1052,7 @@ Still his, one at a time, in this order. None is made by this design.
    - The backend address the staff pages call is named `hq-api`, written the way the other hosts of that environment are: `hq-api-staging.negosyonline.com` on staging. Staff never type it. It must stay under the same registered domain as the staff app, so the cookie stays `SameSite=Strict` (20.5).
    - What that changes at build time, each needing his approval and none approved here: the Railway variable `HQ_HOST` on that environment takes the new name; the new variable `HQ_STAFF_ORIGIN` is set to the staff app's address; the new name is added to the Railway service and to DNS; the name `hq` is pointed at the Vercel project. The new name must pass the start-up check of `HQ_HOST` (`apps/operators/checks.py`); whether `hq-api-staging` passes it was not run.
    - No production name is proposed beyond the same pattern: production is not built yet.
-   - One thing his words leave unsettled, reported and not read either way: "The only domain in railway is the API". This proposal keeps a second Railway address for the staff routes, apart from the Subscriber API host, because the standing ruling keeps staff sign-in off the API host (22.5). If he means the staff routes to sit on the API host itself, that changes that standing ruling and is his to say.
+   - The staff routes stay on a second Railway address, apart from the Subscriber API host. His words were "The only domain in railway is the API"; the coordinator decided this as a routine detail under the standing rule that staff sign-in stays off the API host (22.5). It is the coordinator's decision, recorded as such, and his to overrule.
 2. **Whether and when Vercel pages replace the lists.** With the Admin switched off there is no screen for the Subscriber, site and sent-email lists, for staff users, or for the things named in 22.4 that the Admin changes. Nothing is designed for them here. If he wants such pages, that is new scope with its own ruling, design and plan.
 
 After these, approval of the look (section 13) and of the design.
