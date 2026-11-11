@@ -317,7 +317,8 @@ class CommandTests(AgreementCase):
         self.assertIn("not in force until verified", out)
         with self.assertRaisesMessage(CommandError, "Publishing is locked"):
             self.run_command("publish", *op, "--label", "v1")
-        self.run_command("verify", *op, "--id", "1")
+        number = str(AgreementPublishAuthorization.objects.get().pk)
+        self.run_command("verify", *op, "--id", number)
         out = self.run_command("draft", *op, "--title", "T", "--label", "v1",
                                "--effective-date", "2026-11-15", "--file", "-", stdin=PDF)
         self.assertIn(hashlib.sha256(PDF).hexdigest(), out)
@@ -328,7 +329,7 @@ class CommandTests(AgreementCase):
         status = self.run_command("status")
         self.assertIn("ACTIVE", status)
         self.assertNotIn("sample agreement", status)
-        self.run_command("revoke", *op, "--id", "1", "--reason", "withdrawn")
+        self.run_command("revoke", *op, "--id", number, "--reason", "withdrawn")
         self.assertIsNone(agreement.active_version())
 
     def test_refusals_are_command_errors(self):
