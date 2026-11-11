@@ -90,6 +90,31 @@ class AccountApiTests(ApiTestCase):
         self.assertEqual(response.json(), {"revoked": 2, "signed_in_count": 1})
         self.assertEqual(len(self.get("/v1/account/sessions/").json()["items"]), 1)
 
+    def test_sign_out_others_is_recorded(self):
+        start_session(self.account, RequestFactory().post("/"))
+        start_session(self.account, RequestFactory().post("/"))
+        stranger = Account.objects.create(email="stranger@example.test")
+        start_session(stranger, RequestFactory().post("/"))
+
+        self.post("/v1/account/sessions/sign-out-others/")
+
+        saved = AccountAuditEvent.objects.get(event="sessions_revoked")
+        self.assertEqual(saved.account_id, self.account.pk)
+        self.assertEqual(saved.detail, {"count": 2})
+
+    def test_sign_out_others_with_no_other_device_is_still_recorded_once(self):
+        self.post("/v1/account/sessions/sign-out-others/")
+
+        saved = AccountAuditEvent.objects.get(event="sessions_revoked")
+        self.assertEqual((saved.account_id, saved.detail), (self.account.pk, {"count": 0}))
+
+    def test_a_refused_sign_out_others_records_nothing(self):
+        self.client.cookies.clear()
+
+        self.assertEqual(self.post("/v1/account/sessions/sign-out-others/").status_code, 401)
+
+        self.assertFalse(AccountAuditEvent.objects.filter(event="sessions_revoked").exists())
+
     def test_sign_out_others_leaves_another_account_signed_in(self):
         stranger = Account.objects.create(email="stranger@example.test")
         start_session(stranger, RequestFactory().post("/"))
