@@ -23,6 +23,7 @@ ACTIONS = {
     "sms_device_rotate": KEPT,
     "sms_device_disable": KEPT,
     "sms_device_incoming": KEPT,
+    "sms_inbox_access": KEPT,
     "retention_run": KEPT,
     "account_disposed": KEPT,
     "account_exported": KEPT,
