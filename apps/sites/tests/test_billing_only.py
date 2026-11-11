@@ -1,0 +1,279 @@
+"""The Billing-only rule (L8, plan D11): once a site's subscription is suspended or ended, saving
+the site and reading or saving its business profile answer 403 `billing_only`. The site list,
+the site detail, the setup and the billing endpoints answer as always.
+
+The billing clock is set by each test; none reads the real one.
+"""
+from unittest import mock
+
+from django.test import override_settings
+
+from apps.billing import services
+from apps.billing.api import router as billing_router
+from apps.billing.models import Subscription
+from apps.billing.tests.base import days, method_on_file
+from apps.sites.api import router as sites_router
+from apps.sites.models import Site, SiteBusinessProfile
+from apps.sites.tests.api_base import SitesApiTestCase
+from apps.sites.tests.base import make_site
+from apps.sites.tests.test_isolation import PROFILE_BODY, SITE_BODY, routes_under_a_site
+
+# Every route under sites/{site_id}/ is in exactly one of these two lists.
+TURNED_OFF = [
+    ("PATCH", "/sites/{site_id}/"),
+    ("GET", "/sites/{site_id}/business-profile/"),
+    ("PATCH", "/sites/{site_id}/business-profile/"),
+]
+STAYS_ON = [
+    ("GET", "/sites/{site_id}/"),
+    ("GET", "/sites/{site_id}/billing/"),
+    ("POST", "/sites/{site_id}/billing/cancel/"),
+    ("POST", "/sites/{site_id}/billing/reactivate/"),
+]
+MESSAGE = "This site is limited to Billing until its subscription continues."
+
+
+@override_settings(BILLING_ENABLED=True)
+class BillingOnlyTestCase(SitesApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.site_id = self.create_site()["id"]
+        self.site = Site.objects.get(public_id=self.site_id)
+        self.subscription = Subscription.objects.get(site=self.site)
+        self.start = self.subscription.trial_start_at
+        self.trial_end = self.subscription.trial_end_at
+        patcher = mock.patch("apps.billing.services.timezone")
+        self.clock = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.at(self.start + days(1))
+
+    def at(self, moment):
+        self.clock.now.return_value = moment
+        return moment
+
+    def call(self, method, template, client=None, site_id=None):
+        path = "/v1" + template.replace("{site_id}", site_id or self.site_id)
+        if method == "GET":
+            return self.get(path, client=client)
+        body = PROFILE_BODY if "business-profile" in path else SITE_BODY
+        if "billing" in path:
+            body = None
+        return self.send(method.lower(), path, body, client=client)
+
+    def pay_first_cycle(self):
+        with method_on_file():
+            services.first_payment_succeeded(
+                self.subscription, paid_at=self.trial_end, reference="first-1"
+            )
+        return self.subscription.cycles.get(sequence=1)
+
+    def suspend(self):
+        """Paid once, the renewal failed, 7 days passed and the sweep wrote it."""
+        cycle = self.pay_first_cycle()
+        services.renewal_failed(self.subscription, at=cycle.end_at)
+        services.sweep(now=cycle.end_at + days(7))
+        return self.at(cycle.end_at + days(8))
+
+    def rows(self):
+        return (
+            list(Site.objects.order_by("pk").values()),
+            list(SiteBusinessProfile.objects.order_by("pk").values()),
+        )
+
+    def assert_turned_off(self, client=None, site_id=None):
+        before = self.rows()
+        for method, template in TURNED_OFF:
+            with self.subTest(method=method, template=template):
+                body = self.error(
+                    self.call(method, template, client=client, site_id=site_id),
+                    403, "billing_only",
+                )
+                self.assertEqual(body, {"code": "billing_only", "message": MESSAGE})
+        self.assertEqual(self.rows(), before)
+
+    def assert_working(self):
+        for method, template in TURNED_OFF:
+            with self.subTest(method=method, template=template):
+                response = self.call(method, template)
+                self.assertEqual(response.status_code, 200, response.content)
+
+
+class BillingOnlyTests(BillingOnlyTestCase):
+    def test_a_suspended_site(self):
+        self.suspend()
+
+        self.assert_turned_off()
+
+    def test_a_site_past_the_due_date_plus_7_days_even_if_the_sweep_never_ran(self):
+        cycle = self.pay_first_cycle()
+        self.at(cycle.end_at + days(7))
+
+        self.assert_turned_off()
+        self.assertEqual(Subscription.objects.get(pk=self.subscription.pk).state, "active")
+
+    def test_a_trial_that_ended_with_no_payment_method_swept_or_not(self):
+        self.at(self.trial_end)
+        self.assert_turned_off()
+
+        services.sweep(now=self.trial_end)
+        self.at(self.trial_end + days(1))
+        self.assert_turned_off()
+
+    def test_a_cancelled_trial(self):
+        services.cancel(self.subscription, now=self.start + days(2))
+        self.at(self.start + days(2))
+
+        self.assert_turned_off()
+
+    def test_a_paid_cancellation_at_and_after_its_service_end(self):
+        cycle = self.pay_first_cycle()
+        services.cancel(self.subscription, now=self.trial_end + days(3))
+
+        for moment in (cycle.end_at, cycle.end_at + days(30)):
+            with self.subTest(moment=moment):
+                self.at(moment)
+                self.assert_turned_off()
+
+    def test_everything_works_while_the_site_is_served(self):
+        self.assert_working()  # on trial
+
+        cycle = self.pay_first_cycle()
+        self.at(self.trial_end + days(1))
+        self.assert_working()  # paid
+        self.at(cycle.end_at + days(7) - days(1))
+        self.assert_working()  # past the cycle end, no outcome yet, inside the 7 days
+
+        services.renewal_failed(self.subscription, at=cycle.end_at)
+        self.assert_working()  # payment needs attention
+
+    def test_everything_works_for_a_cancellation_inside_its_paid_period(self):
+        cycle = self.pay_first_cycle()
+        services.cancel(self.subscription, now=self.trial_end + days(3))
+        self.at(cycle.end_at - days(1))
+
+        self.assert_working()
+
+    def test_an_exempt_site_is_never_billing_only(self):
+        services.sweep(now=self.trial_end)
+        Subscription.objects.filter(pk=self.subscription.pk).update(billing_exempt=True)
+        self.at(self.trial_end + days(400))
+
+        self.assert_working()
+
+    def test_a_site_with_no_subscription_is_never_billing_only(self):
+        self.subscription.transitions.all().delete()
+        self.subscription.cycles.all().delete()
+        self.subscription.delete()
+
+        self.assert_working()
+
+    def test_with_the_switch_off_nothing_is_refused(self):
+        self.suspend()
+
+        with override_settings(BILLING_ENABLED=False):
+            self.assert_working()
+
+    def test_another_accounts_site_still_answers_404_never_403(self):
+        self.suspend()
+        ben = self.other_client()
+
+        for method, template in TURNED_OFF:
+            with self.subTest(method=method, template=template):
+                self.error(self.call(method, template, client=ben), 404, "not_found")
+
+    def test_a_signed_out_request_still_answers_401(self):
+        self.suspend()
+        self.client.cookies.clear()
+
+        for method, template in TURNED_OFF:
+            with self.subTest(method=method, template=template):
+                self.error(self.call(method, template), 401, "unauthenticated")
+
+    def test_my_second_site_keeps_working_while_my_first_is_suspended(self):
+        self.suspend()
+        site = make_site(self.account, name="second-store", first=False)
+        second = services.start_subscription(site, self.account)
+        Subscription.objects.filter(pk=second.pk).update(billing_exempt=True)
+        other = site.public_id
+
+        self.assert_turned_off()
+        for method, template in TURNED_OFF:
+            with self.subTest(method=method, template=template):
+                response = self.call(method, template, site_id=other)
+                self.assertEqual(response.status_code, 200, response.content)
+
+
+class RouteInventoryTests(BillingOnlyTestCase):
+    def routes(self):
+        return routes_under_a_site(sites_router) + routes_under_a_site(billing_router)
+
+    def test_every_route_under_a_site_is_turned_off_or_allowed_by_name(self):
+        self.assertEqual(
+            sorted(self.routes()), sorted(TURNED_OFF + STAYS_ON),
+            "A route under sites/{site_id}/ was added or removed: decide whether a suspended "
+            "or ended site may use it, and list it in TURNED_OFF or STAYS_ON.",
+        )
+        self.assertFalse(set(TURNED_OFF) & set(STAYS_ON))
+
+    def test_a_suspended_site_gets_403_on_the_first_list_and_never_on_the_second(self):
+        self.suspend()
+
+        for method, template in TURNED_OFF:
+            with self.subTest(method=method, template=template):
+                self.error(self.call(method, template), 403, "billing_only")
+        for method, template in STAYS_ON:
+            with self.subTest(method=method, template=template):
+                response = self.call(method, template)
+                self.assertNotEqual(response.status_code, 403, response.content)
+
+
+class UnchangedEndpointsTests(BillingOnlyTestCase):
+    """GET sites/, GET sites/{id}/ and GET account/setup/ answer for a suspended and for an
+    ended site byte for byte what they answer for the same site on trial."""
+
+    def answers(self):
+        found = {}
+        for path in ("/v1/sites/", f"/v1/sites/{self.site_id}/", "/v1/account/setup/"):
+            response = self.get(path)
+            self.assertEqual(response.status_code, 200, response.content)
+            found[path] = response.content
+        return found
+
+    def test_a_suspended_site(self):
+        on_trial = self.answers()
+
+        self.suspend()
+
+        self.assertEqual(self.answers(), on_trial)
+
+    def test_an_ended_site(self):
+        on_trial = self.answers()
+
+        self.at(self.trial_end)
+        self.assertEqual(self.answers(), on_trial)  # ended by the time, not yet swept
+
+        services.sweep(now=self.trial_end)
+        self.at(self.trial_end + days(1))
+        self.assertEqual(self.answers(), on_trial)
+
+    def test_a_cancelled_site_after_its_service_end(self):
+        on_trial = self.answers()
+
+        cycle = self.pay_first_cycle()
+        services.cancel(self.subscription, now=self.trial_end + days(3))
+        self.at(cycle.end_at)
+
+        self.assertEqual(self.answers(), on_trial)
+
+    def test_the_setup_carries_no_billing_state_or_new_blocked_reason(self):
+        on_trial = self.get("/v1/account/setup/").json()
+
+        self.suspend()
+        suspended = self.get("/v1/account/setup/").json()
+
+        self.assertEqual(suspended, on_trial)
+        self.assertEqual(
+            (suspended.get("state"), suspended.get("blocked_reason")),
+            (on_trial.get("state"), on_trial.get("blocked_reason")),
+        )
+        self.assertNotIn("billing", str(suspended).lower())
