@@ -64,6 +64,7 @@ class PackOrder(models.Model):
     verified_at = models.DateTimeField(null=True, blank=True)
     idempotency_key = models.CharField(max_length=64)
     policy_version = models.CharField(max_length=16, blank=True)  # blank when no policy page is live
+    state_version = models.PositiveIntegerField(default=1)  # every write that changes the order bumps it
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -152,6 +153,36 @@ class PackProofSubmission(AppendOnly):
             models.CheckConstraint(
                 condition=Q(amount_sent_centavos__gt=0, amount_sent_centavos__lte=C.MAX_AMOUNT_CENTAVOS),
                 name="pack_proof_amount_range",
+            ),
+        ]
+
+
+class PackProofDecision(AppendOnly):
+    """The Subscriber's decision on one proof submission. A submission may be rejected and later
+    approved without a resubmission, so the key is (submission, decision), not one row per
+    submission."""
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="pack_decisions")
+    order = models.ForeignKey(PackOrder, on_delete=models.PROTECT, related_name="decisions")
+    submission = models.ForeignKey(PackProofSubmission, on_delete=models.PROTECT, related_name="decisions")
+    decision = models.CharField(max_length=8, choices=[("approved", "Approved"), ("rejected", "Rejected")])
+    reason_code = models.CharField(max_length=20, blank=True, choices=C.REJECTION_REASONS)
+    other_text = models.CharField(max_length=500, blank=True)
+    actor_type = models.CharField(max_length=10, choices=C.ACTOR_TYPES)
+    actor_ref = models.PositiveBigIntegerField(null=True, blank=True)
+    actor_label = models.CharField(max_length=254, blank=True)
+    decided_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["decided_at", "pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["submission", "decision"], name="pack_decision_once_per_kind"),
+            models.CheckConstraint(
+                condition=Q(decision="approved") | ~Q(reason_code=""), name="pack_decision_reject_needs_reason"
+            ),
+            models.CheckConstraint(
+                condition=~Q(reason_code="other") | (~Q(other_text="") & ~Q(other_text__regex=r"^\s+$")),
+                name="pack_decision_other_needs_text",
             ),
         ]
 

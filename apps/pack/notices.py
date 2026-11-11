@@ -12,7 +12,7 @@ from django.db import transaction
 from apps.members import messaging
 from apps.notifications.services import send_email
 from apps.pack import access
-from apps.pack.models import PackOrder, PackProofSubmission
+from apps.pack.models import PackOrder, PackProofDecision, PackProofSubmission
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,15 @@ RECEIVED = (
     "eligible Santé products, with no renewal fees, no monthly quotas and no maintenance purchases. Your pack ships "
     "after the payment is verified. You can follow your order in your dashboard: {url}\n\nPlease also add your Santé "
     "membership details in your dashboard so the store can register your membership." + _SIGN,
+)
+REJECTED = (
+    "Your payment for order {no} needs attention",
+    _HI + "The store could not verify the payment proof for order {no}. Sign in to your dashboard to see the reason and "
+    "send your payment details and proof again: {url}" + _SIGN,
+)
+VERIFIED = (
+    "Your payment for order {no} is verified",
+    _HI + "The store verified your payment for order {no}. We will let you know when your pack ships." + _SIGN,
 )
 ACCESS_EMAIL = (
     "Your secure link to continue your order",
@@ -129,3 +138,31 @@ def review_needed(submission_pk):
         to=owner.email, category="pack_review_needed", subject=subject.format(**values),
         body=body.format(**values),
     )
+
+
+def _decision_email(decision_pk, texts, category):
+    """The buyer's email for a decision, to the address typed at checkout, verified or not. The
+    rejection names no reason: it shows after sign-in."""
+    decision = PackProofDecision.objects.select_related("order__site", "order__member").get(pk=decision_pk)
+    order, member = decision.order, decision.order.member
+    if not member.email:
+        return None
+    subject, body = texts
+    site = order.site
+    values = {
+        "name": messaging.store_name(site), "first": _first_name(member), "no": order.order_number,
+        "url": dashboard_url(site),
+    }
+    from_name, reply_to = messaging.sender(site)
+    return send_email(
+        to=member.email, category=category, subject=subject.format(**values), body=body.format(**values),
+        sender_name=from_name, reply_to=reply_to,
+    )
+
+
+def proof_rejected(decision_pk):
+    return _decision_email(decision_pk, REJECTED, "pack_proof_rejected")
+
+
+def payment_verified(decision_pk):
+    return _decision_email(decision_pk, VERIFIED, "pack_verified")

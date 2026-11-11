@@ -141,8 +141,9 @@ def save_delivery(site, member, order, data):
     with transaction.atomic():
         locked = PackOrder.objects.select_for_update().get(pk=order.pk, site=site)
         locked.delivery_address = cleaned
-        locked.save(update_fields=["delivery_address", "updated_at"])
-    order.delivery_address = locked.delivery_address
+        locked.state_version += 1  # the owner's open order view goes stale, as for every other write
+        locked.save(update_fields=["delivery_address", "state_version", "updated_at"])
+    order.delivery_address, order.state_version = locked.delivery_address, locked.state_version
     return cleaned
 
 
@@ -195,9 +196,10 @@ def _confirm_stored_zip(order, member):
     if isinstance(holder, PackOrder):
         locked = PackOrder.objects.select_for_update().get(pk=holder.pk)
         locked.delivery_address = fixed
-        locked.save(update_fields=["delivery_address", "updated_at"])
+        locked.state_version += 1
+        locked.save(update_fields=["delivery_address", "state_version", "updated_at"])
         if holder is order:
-            order.delivery_address = locked.delivery_address
+            order.delivery_address, order.state_version = locked.delivery_address, locked.state_version
     else:
         member.delivery_address = fixed
         member.save(update_fields=["delivery_address"])

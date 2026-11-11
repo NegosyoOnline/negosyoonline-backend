@@ -13,6 +13,21 @@ PAYMENT_STATUSES = [
 ]
 LIVE_STATUSES = (PENDING_REVIEW, REJECTED, VERIFIED)
 
+REJECTION_REASONS = [
+    ("amount_mismatch", "Amount does not match ₱1,488."),
+    ("payment_not_found", "Payment not found in the receiving account."),
+    ("proof_unreadable", "Proof is unreadable or incomplete."),
+    ("reference_mismatch", "Reference number is missing or does not match."),
+    ("wrong_account", "Payment was sent to the wrong account."),
+    ("other", "Other, with a mandatory written explanation."),
+]
+REASON_LABELS = dict(REJECTION_REASONS)
+EXPLAIN_REASON = "Explain the reason."
+MSG_PAYMENT_WRONG_STATUS = "This payment cannot be changed now."
+MSG_ORDER_STALE = "This order changed. Reload it and try again."
+MSG_CHOOSE_REASON = "Choose a reason."
+MSG_NOT_REJECTED = "A new proof can be sent only after the store asks for one."
+
 EVENT_PLACED = "placed"
 ORDER_EVENT_KINDS = [(EVENT_PLACED, "Placed")]
 ACTOR_TYPES = [
