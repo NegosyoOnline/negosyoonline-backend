@@ -97,6 +97,9 @@ RETENTION_ENABLED = os.environ.get("RETENTION_ENABLED", "").strip() == "1"
 # Billing. "1" turns on the subscription lifecycle. Off, site creation writes no subscription,
 # the sweep does nothing, and the billing tables are not read or written.
 BILLING_ENABLED = os.environ.get("BILLING_ENABLED", "").strip() == "1"
+# Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints and admin
+# lists. Off, the endpoints answer 404 and the Santé tables are not read or written.
+SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() == "1"
 
 
 # Application definition
@@ -113,6 +116,7 @@ INSTALLED_APPS = [
     'apps.accounts',
     'apps.sites',
     'apps.billing',
+    'apps.sante',
     'apps.notifications',
     'apps.health',
 ]

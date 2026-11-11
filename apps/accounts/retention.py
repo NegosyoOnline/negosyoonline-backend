@@ -22,6 +22,7 @@ from apps.common import retention
 from apps.common.disposal import DISPOSED_DOMAIN, disposed_address, is_disposed_address
 from apps.notifications import retention as email_records
 from apps.operators import audit
+from apps.sante import retention as sante_retention
 from apps.sites import retention as site_retention
 
 # An account whose email was never verified is disposed of this long after sign-up.
@@ -52,7 +53,8 @@ class AlreadyDisposed(Exception):
 
 class NotDisposable(Exception):
     """The account cannot be disposed of yet. Its subscriptions were cancelled; nothing was
-    blanked. `reasons` says why and until when, and `cancelled` which sites were cancelled."""
+    blanked. `reasons` says why and until when, and `cancelled` which sites were cancelled.
+    An account that owns the Santé catalog owner site is refused before anything is cancelled."""
 
     def __init__(self, step):
         super().__init__("The account cannot be disposed of yet.")
@@ -129,6 +131,10 @@ def _dispose(account, now, rule, actor, request_ref, dry_run):
         account = rows.get(pk=account.pk)
         if is_disposed(account):  # checked again under the lock
             return None
+        # Before the subscriptions: a disposal refused for this cancels nothing.
+        kept_sites = sante_retention.disposal_refusals(account, dry_run)
+        if kept_sites and not dry_run:
+            return NotDisposable(billing.DisposalStep(reasons=tuple(kept_sites)))
         step = billing.prepare_disposal(account, now, dry_run=dry_run)
         if step.reasons and not dry_run:
             return NotDisposable(step)
@@ -155,6 +161,7 @@ def _dispose(account, now, rule, actor, request_ref, dry_run):
             "mobile_challenges": mobile_challenges.count(),
             # Takes the lock every site write of this account takes, then blanks its sites.
             **site_retention.blank_sites_of(account, now, dry_run),
+            **sante_retention.blank_settings_of(account, dry_run),
             "email_send_records": email_records.delete_records_for(address, dry_run),
             "earlier_address_send_records": email_records.delete_earlier_records_for(
                 earlier, dry_run
@@ -163,8 +170,8 @@ def _dispose(account, now, rule, actor, request_ref, dry_run):
         if step.cancelled:
             counts["subscriptions_cancelled"] = len(step.cancelled)
         if dry_run:
-            if step.reasons:
-                counts["refused_for_now"] = list(step.reasons)
+            if kept_sites or step.reasons:
+                counts["refused_for_now"] = [*kept_sites, *step.reasons]
             return counts
         sessions.delete()
         identities.delete()
@@ -181,7 +188,7 @@ def _dispose(account, now, rule, actor, request_ref, dry_run):
             target_type=TARGET,
             target_id=account.public_id,
             reason=f"{rule}: {request_ref}" if request_ref else rule,
-            detail={"counts": counts, "blanked": BLANKED},
+            detail={"counts": counts, "blanked": {**BLANKED, **sante_retention.blanked()}},
         )
         return counts
 
@@ -270,12 +277,15 @@ def export_account_data(account, *, actor, request_ref):
         "email_send_records": email_records.export_records_for(account.email),
         **site_retention.export_sites_of(account),
     }
+    sante = sante_retention.export_settings_of(account)
+    data.update(sante)
     lists = (
         "policy_acceptances", "sign_in_providers", "sessions", "audit_events",
         "mobile_challenges", "email_send_records", "sites",
     )
     counts = {name: len(data[name]) for name in lists}
     counts["mobile_numbers"] = 0 if mobile is None else 1
+    counts.update({name: len(rows) for name, rows in sante.items()})
     audit.record(
         actor,
         "account_exported",

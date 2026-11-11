@@ -6,7 +6,8 @@
 ACCOUNT is the account's public id or its email. The dry run counts what would be blanked and
 deleted and changes nothing. A real run needs RETENTION_ENABLED=1. The output is the public id
 and counts only. The account's subscriptions are cancelled first; while a paid term is still
-running the account is not disposed of and the command exits with an error. See
+running the account is not disposed of and the command exits with an error. An account that
+owns the Santé catalog owner site is not disposed of either, and nothing is cancelled. See
 docs/runbooks/retention.md.
 """
 from django.core.management.base import BaseCommand, CommandError
@@ -17,6 +18,11 @@ from apps.accounts.management.commands import _shared
 
 
 def _reason(reason):
+    if reason["reason"] == "catalog_owner":
+        return (
+            f"Site {reason['site']} is the Santé catalog owner. An operator must name another "
+            "catalog owner site in the admin first."
+        )
     return (
         f"Site {reason['site']} is inside a paid term that runs until "
         f"{timezone.localtime(reason['until']).isoformat()} ({reason['reason']})."
@@ -47,10 +53,11 @@ class Command(BaseCommand):
         except retention.NotDisposable as refused:
             for site in refused.cancelled:
                 self.stdout.write(f"Cancelled the subscription of site {site}.")
+            reasons = refused.reasons
             raise CommandError(
                 f"Account {public_id} was not disposed of and nothing was blanked. "
-                + " ".join(_reason(reason) for reason in refused.reasons)
-                + " Run this again after that date."
+                + " ".join(_reason(reason) for reason in reasons)
+                + (" Run this again after that date." if any("until" in r for r in reasons) else "")
             ) from None
         except ValueError as exc:
             raise CommandError(str(exc)) from None
