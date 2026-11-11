@@ -12,7 +12,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from apps.billing import staff as billing_staff
-from apps.inbox import contacts_staff, staff, storing
+from apps.inbox import bulk_staff, contacts_staff, staff, storing
 from apps.inbox.models import Conversation, InboxAccess
 from apps.inbox.tests.base import SENDER, inbox_on
 from apps.notifications.models import SmsDevice, SmsMessage
@@ -78,10 +78,12 @@ class InboxGateTests(InboxRouteCase):
             self.assertNotIn(path, sign_in)
             self.assertNotIn(path, billing_staff.ROUTES)
             self.assertNotIn(path, contacts_staff.ROUTES)
+            self.assertNotIn(path, bulk_staff.ROUTES)
         self.assertIs(staff_views.ROUTES["me/"][1], staff_views.me)
         self.assertEqual(
             len(staff_views.ROUTES),
-            len(sign_in) + len(billing_staff.ROUTES) + len(staff.ROUTES) + len(contacts_staff.ROUTES),
+            len(sign_in) + len(billing_staff.ROUTES) + len(staff.ROUTES) + len(contacts_staff.ROUTES)
+            + len(bulk_staff.ROUTES),
         )
 
     def test_2_the_module_imports_nothing_from_the_staff_routes(self):
@@ -195,7 +197,7 @@ class InboxRouteTests(InboxRouteCase):
         self.assertEqual(
             answer,
             {"platform": "sms", "read": True, "send": True, "phone_online": True, "used_today": 0,
-             "cap": 2000, "reserved_for_codes": 300, "unread": 1},
+             "cap": 2000, "reserved_for_codes": 300, "unread": 1, "bulk_running": False},
         )
         InboxAccess.objects.update(can_send=False)
         self.assertIs(self.sms("inbox/status/").json()["send"], False)

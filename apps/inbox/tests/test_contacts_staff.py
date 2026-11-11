@@ -9,7 +9,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from apps.billing import staff as billing_staff
-from apps.inbox import contacts_staff
+from apps.inbox import bulk_staff, contacts_staff
 from apps.inbox import staff as inbox_staff
 from apps.inbox.models import Contact, InboxAccess
 from apps.inbox.tests.base import inbox_on
@@ -51,7 +51,7 @@ class ContactsRouteCase(StaffTestCase):
 class GateTests(ContactsRouteCase):
     def test_1_twelve_routes_registered_and_none_takes_another_routes_place(self):
         self.assertEqual(len(PATHS), 12)
-        others = set(inbox_staff.ROUTES) | set(billing_staff.ROUTES) | {
+        others = set(inbox_staff.ROUTES) | set(billing_staff.ROUTES) | set(bulk_staff.ROUTES) | {
             "sign-in/", "sign-in/code/", "sign-in/verify/", "sign-out/", "me/", "console/",
         }
         for path in PATHS:
