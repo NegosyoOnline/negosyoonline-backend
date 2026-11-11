@@ -61,6 +61,7 @@ Replace `<env>` with `staging` or `production`.
 ## Pending
 
 - `production` has not been migrated at all (see Notes).
+- `inbox.0003_bulk` (Bulk SMS: three new tables and `InboxAccess.can_bulk`) is written in the plan 8 build PR and applied nowhere. The coordinator runs it on staging after the merge; the History line is added after that run.
 
 ## History
 
