@@ -223,7 +223,7 @@ class InboxRouteTests(InboxRouteCase):
         self.assertEqual(([r["id"] for r in found["results"]], found["next"]), ([conversation.public_id], None))
         self.assertEqual(len(self.entries("sms_inbox_find")), 1)
         opened = self.sms("inbox/conversations/open/", {"conversation": conversation.public_id}).json()
-        self.assertEqual(set(opened), {"id", "platform", "contact", "can_reply", "messages", "next"})
+        self.assertEqual(set(opened), {"id", "platform", "contact", "can_reply", "opted_out", "messages", "next"})
         self.assertEqual(opened["messages"][0]["body"], "Are you open?")
         self.assertEqual(len(self.entries("sms_inbox_open")), 1)
         conversation.refresh_from_db()

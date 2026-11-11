@@ -1,5 +1,5 @@
 """Delete the SMS inbox conversations of one number, the send records of the staff texts to
-it, and the contact held under it: how a person's request to delete their texts and their
+it, the contact held under it and a place it holds in a running Bulk SMS batch: how a person's request to delete their texts and their
 name is carried out. Works with SMS_INBOX_ENABLED on or off, wherever the tables exist.
 
     manage.py sms_inbox_delete --actor USERNAME             count only
@@ -16,9 +16,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.common.phones import normalise_ph_mobile
-from apps.inbox.models import Contact, Conversation, ConversationMessage
+from apps.inbox.models import BulkRecipient, Contact, Conversation, ConversationMessage
 from apps.inbox.reading import NUMBER_DIGITS, is_a_number
-from apps.inbox.switch import SMS, contacts_tables_exist, tables_exist
+from apps.inbox.switch import SMS, bulk_tables_exist, contacts_tables_exist, tables_exist
 from apps.notifications import services
 from apps.operators import audit
 
@@ -55,23 +55,29 @@ class Command(BaseCommand):
             records = self._staff_records(number)
             contacts = self._contacts(number)
             held = None if contacts is None else contacts.count()
+            waiting = self._bulk_rows(number)
+            waiting_count = None if waiting is None else waiting.count()
             if confirm:
                 Conversation.objects.filter(pk__in=found).delete()  # its messages go with it
                 for record in records:
                     record.delete()
                 if contacts is not None:
                     contacts.delete()  # its group links go with it; the groups stay
+                if waiting is not None:
+                    waiting.delete()  # the do-not-text list is never touched
             detail = {
                 "platform": SMS, "change": "delete" if confirm else "count",
                 "conversations": len(found), "messages": messages, "send_records": len(records),
             }
             if held is not None:
                 detail["contacts"] = held
+            if waiting_count is not None:
+                detail["bulk_recipients"] = waiting_count
             audit.record(actor, "sms_inbox_delete", target_type=TARGET, detail=detail)
         if confirm:
             for record in records:  # after the commit: a text still waiting is never sent
                 services.forget_sms(record)
-        if not (found or records or held):
+        if not (found or records or held or waiting_count):
             self.stdout.write("Nothing is stored for that number.")
             return
         counts = (
@@ -80,6 +86,8 @@ class Command(BaseCommand):
         )
         if held is not None:
             counts += f", {_count(held, 'contact')}"
+        if waiting_count is not None:
+            counts += f", {_count(waiting_count, 'bulk recipient')}"
         if confirm:
             self.stdout.write(f"Deleted: {counts}.")
         else:
@@ -94,6 +102,16 @@ class Command(BaseCommand):
         if number is None:
             return Contact.objects.none()
         return Contact.objects.select_for_update().filter(owner_kind="hq", mobile=number)
+
+    def _bulk_rows(self, number):
+        """The numbers of a running Bulk SMS batch held under this exact Philippine mobile,
+        locked, or None when bulk cannot exist here (inbox.0003 not applied). The do-not-text
+        list is not touched: no command removes a number from it."""
+        if not bulk_tables_exist():
+            return None
+        if number is None:
+            return BulkRecipient.objects.none()
+        return BulkRecipient.objects.select_for_update().filter(mobile=number)
 
     def _staff_records(self, number):
         """The send records of staff texts to a Philippine mobile, locked. None exist for any

@@ -9,7 +9,8 @@ from apps.common.ids import is_public_id
 from apps.common.masking import HIDDEN, mask_mobile
 from apps.common.pagination import DEFAULT_LIMIT, MAX_LIMIT
 from apps.common.phones import normalise_ph_mobile
-from apps.inbox.models import ConversationMessage
+from apps.inbox.models import ConversationMessage, DoNotText
+from apps.inbox.switch import SMS, dnt_tables_exist
 from apps.notifications import services
 from apps.operators import audit
 
@@ -142,6 +143,14 @@ def shown_message(message, statuses=None):
     }
 
 
+def _opted_out(conversation):
+    """True when this person replied STOP to a bulk text. A reply or a composed text to them is
+    still allowed; only Bulk SMS leaves them out."""
+    if not conversation.can_reply or not dnt_tables_exist():
+        return False
+    return DoNotText.objects.filter(platform=SMS, mobile=conversation.contact).exists()
+
+
 def open_conversation(scope, public_id, *, cursor="", limit=None):
     """One conversation with a page of its texts, or None when it is not in the scope. The
     newest page is the default; `next` is the id to pass as `cursor` for the page before.
@@ -178,6 +187,7 @@ def open_conversation(scope, public_id, *, cursor="", limit=None):
         "platform": scope.platform,
         "contact": shown_contact(conversation),
         "can_reply": conversation.can_reply,
+        "opted_out": _opted_out(conversation),
         "messages": messages,
         "next": page[0].public_id if more and page else None,
     }
