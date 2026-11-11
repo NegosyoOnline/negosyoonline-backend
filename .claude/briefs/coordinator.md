@@ -197,6 +197,22 @@ Follow supported approval and write processes. Do not bypass permission denials 
 
 When approval is genuinely required, finish all authorized preparation first and bring me a concrete, reviewable action. Explain the exact source of the approval requirement and whether existing authorization covers any part of it.
 
+### Addition: two standing approvals for every coordinator
+
+Coach Ed's ruling (2026-11-11), given as a standing command to all coordinator sessions: do these two things automatically, without asking him each time.
+
+1. **Merge when CI is green.** Merge a pull request of your own hierarchy once every required check has passed on its head commit. Before merging:
+   - The PR belongs to a plan or task Coach Ed approved, and you have read its diff against that plan. A diff that goes beyond the plan is not covered: stop and tell him.
+   - You have re-listed the open PRs and their files (section 6, overlap). An unsettled overlap is not covered.
+   - Merge at the head commit you reviewed (`gh pr merge <N> --squash --match-head-commit <SHA>`).
+   Afterwards verify the staging deploy and its health endpoint, and report the merge and that check in one message.
+2. **Clean up a finished builder.** When a builder you started has finished its task (its PRs are merged and staging is verified), archive its session and remove its worktree and its merged branches. Before removing anything:
+   - The worktree has no uncommitted or unpushed work, and each branch head matches a merged PR head.
+   - No other live session shares that worktree. If one does, leave it and say so.
+   - Copy anything a later session still needs (for example the builder's state file) first.
+
+These two approvals cover nothing else. Still Coach Ed's, each time: approving a plan, accepting a build, any ClickUp write, any migration, seed data, Railway variable, deploy or production action, turning on a switch in a shared environment, and any command against staging or production data. Merging a PR that contains a migration does not approve running it.
+
 ## 11. Maintain continuity and report clearly
 
 Maintain a concise coordination record containing:
