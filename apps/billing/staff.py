@@ -75,7 +75,10 @@ def _payment_of(body):
 
 def _payment(payment):
     """A payment as Finance sees it. Never where the file is kept, its hash or an account."""
-    bought = plan.version_of(payment.plan_code, payment.plan_version or 1)
+    if payment.plan_code == plan.USAGE_ONLY:
+        bought = None
+    else:
+        bought = plan.version_of(payment.plan_code, payment.plan_version or 1)
     site = payment.subscription.site
     rejected = payment.status == Status.REJECTED
     cycle = payment.cycle
@@ -83,7 +86,10 @@ def _payment(payment):
         "id": payment.public_id,
         "status": payment.status,
         "site": {"id": site.public_id, "name": site.display_name},
-        "plan": {"code": bought.code, "name": bought.name, "months": bought.months},
+        "plan": (
+            {"code": bought.code, "name": bought.name, "months": bought.months} if bought
+            else {"code": plan.USAGE_ONLY, "name": "Storage usage", "months": 0}
+        ),
         "amount_centavos": payment.amount_centavos,
         "currency": payment.currency,
         "transferred_on": payment.transferred_on.isoformat(),
