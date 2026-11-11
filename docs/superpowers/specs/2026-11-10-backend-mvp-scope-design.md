@@ -14,7 +14,7 @@ Rebuild the NegosyoOnline platform backend in this repository as a clean Django 
 | Subdomain | Chosen by the subscriber during onboarding, after signup, when the first site is created. |
 | Sites per account | One site per account in the MVP. The schema allows several without a rebuild. |
 | Subscriber sign-in | Passwordless email code, plus Google and Facebook. Other Facebook features are deferred. |
-| In the MVP | Referral codes and credit, usage overage charges, PDF billing statements, mobile number OTP. |
+| In the MVP | Referral codes and credit, storage usage overage charges, PDF billing statements, mobile number OTP. |
 | Production | Railway production services are built only when the MVP is complete. API host: `api.negosyoonline.com`. |
 
 ## 3. Architecture
@@ -81,8 +81,9 @@ One line per table. Money is stored as integer centavos with a currency code. Le
 - `Subscription`: site (one each), state, trial start and end, the frozen answer to whether a payment method was active at trial end, the anchor day, attention, cancel and service-end dates, the download and deletion dates, `billing_exempt`. The only place trial dates live.
 - `SubscriptionTransition`: subscription, code, from state, to state, actor, idempotency key (unique), `effective_at` (when the change took effect by rule), recorded_at, detail.
 - `BillingCycle`: subscription, sequence, kind (`trial`, `paid`), start, end, settlement (`not_billable`, `pending`, `paid`, `lapsed`), paid_at, payment reference.
-- `UsageEntry`: cycle, kind (`orders`, `storage`), quantity, source reference (unique).
-- `ChargeLine`: cycle, kind (`base`, `overage`, `referral_credit`), amount.
+- `UsageEntry`: subscription, cycle, period index, kind (`storage`; no `orders`, no `video`), source reference (unique), quantity (bytes), occurred_at, received_at, status, reason.
+- `ChargeLine`: subscription, cycle, period index, one-to-one entry, kind (`overage_storage`; B5 and B6 add `base` and `referral_credit`), quantity, amount, status (`open`, `settled`, `written_off`), the settling payment, the close cause.
+- `UsageEvent`: append-only record of each usage decision (2026-11-12 amendment).
 - `ReferralCredit`: referrer account, referred account (unique), amount, applied cycle.
 - `BillingProfile`: site (one each), company name, TIN, address.
 
@@ -122,7 +123,7 @@ States, carried from legacy: `trial_active`, `active`, `payment_requires_attenti
 - A storefront is served only when the site is not deleted, has no operator hold, and its subscription is `trial_active`, `active` or `payment_requires_attention`. This fixes a legacy gap where billing state never drove storefront availability.
 - Billing values, confirmed by the Billing Build B1 plan (section 12, 2026-11-11):
   - plan: PHP 2,499 per month; cycles renew at 3:00 PM Asia/Manila on the anchor day of each month, or the month's last day when that day does not exist;
-  - included per cycle: 1,000 orders and 5 GB storage; overage PHP 5 per order and PHP 30 per GB storage. Video is not in the launch product: no allowance, meter or charge (contract D6, D9);
+  - included per monthly period: 5 GB storage; overage PHP 30 per started GB. NegosyoOnline does not meter or charge orders: a Subscriber's sales are their own business (Coach Ed, 2026-11-11). Video is not in the launch product: no allowance, meter or charge (contract D6, D9). A period's storage overage is billed on the next collection after it closes; a late-admitted charge goes on the next collection with a label and never alters a settled amount; usage in an unpaid cycle is never billed; storage is not metered until the media upload task decides the platform renditions;
   - no payment outcome by the due date plus 7 days: suspended. The storefront is served during the trial, a paid cycle and the 7-day attention period. State is computed from the current time, never from how far the sweep has run;
   - a trial that reaches day 14 with no active payment method becomes `cancelled_no_payment_method`, with no charge and no statement;
   - after service end: a 30-day download window; the deletion date is 30 days after service end for a website whose trial ended without any payment, and 90 days otherwise (L75). A suspension counts as the end of the service for these dates (R-4b), and a cancellation after a suspension does not restart them. The never-paid dates start only once payment collection is live (R-4a). Payment is accepted only before the deletion date (D1). Billing and tax records are kept 5 years and no clock here touches them.
@@ -164,10 +165,10 @@ Each slice has its own plan, tests and approval. Migrations are a reviewed relea
    - B2a (z8uq9me581): launch payment by bank transfer with proof, confirmed by an operator, and the six-month Launch Promo. Built before B2.
    - B2 (z8uq9mdwrw): payment method and collection. Xendit customer and card setup, webhook inbox, charging and retries. Built when a gateway is approved.
    - B3 (z8uq9mdwry): the Annual Plan, versioned plans with a price and term snapshot on each cycle, the Launch Promo consent record, and `GET plan/`.
-   - B4 (z8uq9mdwrz): usage ledger and overage (item 5).
+   - B4 (z8uq9mdwrz): usage ledger and storage overage (item 5).
    - B5 (z8uq9mdwt0): Billing Statements (item 6).
    - B6 (z8uq9mdwt1): referral codes and Subscription Credits (item 7).
-5. **Usage and overage.** Usage entries and overage charge lines.
+5. **Usage and overage.** Storage usage entries and overage charge lines.
 6. **Statements.** Numbered statements, PDF, email delivery.
 7. **Referrals.** Referrer lookup at signup, credit ledger applied to the base charge.
 8. **Mobile OTP.** Texts go through NegosyoOnline's own phone gateway on a Globe SIM (see section 12). Design: `docs/superpowers/specs/2026-11-10-sms-gateway-mobile-verification-design.md`. This slice does not wait for slices 4 to 7.
@@ -288,3 +289,4 @@ The frontend can start against slice 2 as soon as its OpenAPI description is pub
 - 2026-11-12: Billing Build B3, the Annual Plan and the Launch Promo remainder, from ClickUp task z8uq9mdwry and Coach Ed's approval of its plan on 2026-11-11 (ClickUp comment 1100430000492832). Plan: `docs/superpowers/plans/2026-11-11-backend-billing-b3-annual-and-promo-plans.md`. "Annual billing" is no longer out of scope (section 10); sections 7, 8 and 9 were updated. Switching Annual on in any environment is still his own yes.
 - 2026-11-11: Membership Package slice PK2, member identity and email-code sign-in, from ClickUp task z8uq9me7x8 (parent z8uq9m92fv). Coach Ed's ruling of 2026-11-11 on z8uq9m92fv: build the package up until the new member can sign in. New app `apps/members` with migration `members.0001` (`Member`, `MemberSession`), written and not run; the coordinator runs it on staging after merge. Four routes on the storefront surface behind the switch `MEMBERS_ENABLED`, off by default. Codes go by email only through the existing code service; the mobile number is stored and stays unverified; no SMS. Django sets no cookie: the storefronts server keeps the session token. Needs `REDIS_URL` before the switch is turned on. Runbook: `docs/runbooks/members.md`.
 - 2026-11-11: Membership Pack slice PK1, from ClickUp task z8uq9me7x7 (parent z8uq9m92fv, plan z8uq9me7un). Coach Ed's ruling of 2026-11-11 (z8uq9m92fv) approves the pack "up until the new member able to login". Adds, in `apps/sante`, the central Membership Agreement ported from TWCinc without TWCinc's Santé authorization letter, which Coach Ed dropped on 2026-11-11 (migration `sante.0002_membership_agreement`: `MembershipAgreement`, `MembershipAgreementVersion`; written, not run), the operator command `sante_agreement_publish` (audit actions `sante_agreement_version_*`, `sante_agreement_published`), and three storefront routes: `GET /storefront/v1/pack/`, `GET /storefront/v1/pack/agreement/{version_id}/pdf/`, `GET /storefront/v1/payment-accounts/{account_id}/qr/`. Behind `SANTE_AGREEMENT_ENABLED`, off by default. The price is a code constant of 148800 centavos. No checkout, order or member. Turning the switch on, running the migration and supplying the real PDF are separate approvals. Runbook: `docs/runbooks/sante-agreement.md`.
+- 2026-11-12: Billing Build B4 drops the order half, from Coach Ed's ruling of 2026-11-11 in the membership package chat (z8uq9m92fv): "NegosyoOnline does not bill the Santé owner ... we are a SaaS company, why would we bill on products they sell?" Billing is the SaaS plan and storage only. No `orders` usage kind, no 1,000-order allowance, no PHP 5 per order. Sections 2, 6, 7 and 9 were updated. Storage (5 GB per monthly period, PHP 30 per started GB) is kept: it is platform usage. Plan: `docs/superpowers/plans/2026-11-11-backend-billing-b4-usage-ledger-and-overage.md`, which was approved and merged on 2026-11-11 (PR 108) and amended here. The approval covers the plan with orders removed and migrations `0006_usage_ledger` and `0007_transfer_usage`; it does not cover running them, the flag `BILLING_USAGE_ENABLED`, or anything in production.
