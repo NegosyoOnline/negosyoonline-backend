@@ -3,6 +3,15 @@
     GET /storefront/v1/site/?host=anas-store.negosyoonline.com
         Authorization: Bearer <STOREFRONT_SERVER_SECRET>
 
+    POST /storefront/v1/contact/
+        Authorization: Bearer <STOREFRONT_SERVER_SECRET>
+        {"host": "...", "visitor_ip": "...", "name": "...", "email": "...", "subject": "...",
+         "message": "...", "website": ""}
+
+The second emails a visitor's "Send a Message" form to the store's own contact email and
+answers {"status": "sent"}. `website` is the form's hidden field: filled, the answer is the
+same and nothing is sent.
+
 It is outside /v1/, so it is not in the published API and the browser Origin rules do not
 apply to it. Every call carries the server credential (apps/storefront/auth.py) and the host
 the visitor asked for. The host is untrusted and is only ever a lookup value. A host whose
@@ -72,6 +81,26 @@ def _site(host):
 @api.get("/site/", response=SiteOut)
 def site(request, host: str = ""):
     return services.site_chrome(_site(host))
+
+
+class ContactIn(Schema):
+    host: str = ""
+    visitor_ip: str = ""
+    name: str = ""
+    email: str = ""
+    subject: str = ""
+    message: str = ""
+    website: str = ""
+
+
+class ContactOut(Schema):
+    status: str
+
+
+@api.post("/contact/", response=ContactOut)
+def contact(request, body: ContactIn):
+    services.send_contact_message(_site(body.host), body.dict(), body.visitor_ip)
+    return {"status": "sent"}
 
 
 def _no_such_endpoint(request):
