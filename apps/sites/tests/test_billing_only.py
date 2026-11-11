@@ -1,7 +1,6 @@
 """The Billing-only rule (L8, plan D11): once a site's subscription is suspended or ended, saving
-the site, reading or saving its business profile and reading or saving its Santé settings
-answer 403 `billing_only`. The site list, the site detail, the setup and the billing endpoints
-answer as always.
+the site and reading or saving its business profile answer 403 `billing_only`. The site list,
+the site detail, the setup and the billing endpoints answer as always.
 
 The billing clock is set by each test; none reads the real one.
 """
@@ -14,7 +13,6 @@ from apps.billing.api import router as billing_router
 from apps.billing.models import Subscription
 from apps.billing.tests.base import days, method_on_file
 from apps.sante.api import router as sante_router
-from apps.sante.models import SanteSiteSettings
 from apps.sites.api import router as sites_router
 from apps.sites.models import Site, SiteBusinessProfile
 from apps.sites.tests.api_base import SitesApiTestCase
@@ -86,7 +84,6 @@ class BillingOnlyTestCase(SitesApiTestCase):
         return (
             list(Site.objects.order_by("pk").values()),
             list(SiteBusinessProfile.objects.order_by("pk").values()),
-            list(SanteSiteSettings.objects.order_by("pk").values()),
         )
 
     def assert_turned_off(self, client=None, site_id=None):
