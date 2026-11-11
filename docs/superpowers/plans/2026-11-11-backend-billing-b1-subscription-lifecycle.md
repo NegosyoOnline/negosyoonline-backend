@@ -11,6 +11,7 @@ Status: PLAN ONLY, not approved. No application code, migration, dependency or s
 | Task | ClickUp z8uq9mdwrv, description (no comments, checklists, custom fields or attachments as of 2026-11-11; status Open) |
 | Parent | ClickUp z8uq9m8h46, description and its 4 comments (all about the legacy build) |
 | Brief | The coordinator's brief for this builder, 2026-11-11, with Coach Ed's rulings listed in it |
+| NPC rulings | NPC readiness spec, revision 13, legacy repository, read-only: `.claude/docs/superpowers/specs/2026-11-03-negosyoonline-npc-readiness.md`. Read: the rulings table (lines 36-54), section 2, sections 3.5 and 3.6, and lines 214, 220, 226 of 3.2.5. Not read: the rest of 3.2 and sections 3.7 onward |
 | Contract | P6.1 contract r25, legacy repository, read-only: rulings table (lines 57-149), Gate G4 (218-258), G4a transition table (317-327). Read for rules only |
 | Scope | `docs/superpowers/specs/2026-11-10-backend-mvp-scope-design.md`, sections 3, 5, 6, 7, 8, 9, 10, 12 |
 | Code | `apps/sites/{services,models,api,labels,retention}.py`, `apps/accounts/{models,retention}.py`, `apps/common/retention.py`, `apps/notifications/services.py`, `apps/operators/background.py`, `config/{settings,api,urls}.py`, `.github/workflows/ci.yml`, `railway.toml`, `docs/runbooks/{migrations,retention}.md`, at `7de44b3` |
@@ -24,6 +25,9 @@ Each is a separate yes. The recommended answer is what the rest of the plan assu
 
 ### D1. The last date to pay after a trial that ended with no payment (Task, "Open point")
 
+> **Changed on 2026-11-11 by section 2A** (the NPC readiness rulings). Read 2A first; where this text and 2A differ, 2A is the plan.
+
+
 - **Checked.** L26: a payment can restore service "only before the existing day-104 refusal point". Day 104 was never its own rule: it is the trial end (day 14) plus the 90-day deletion date. L75 says that for a website whose trial ended without any payment, the deletion date is 30 days after service end, not 90.
 - **Arithmetic.** Day 0 is the moment the trial starts. Service ends at day 14. 14 + 30 = **day 44**. Before L75 it was 14 + 90 = day 104.
 - **Example.** Account created 11 November 2026, 10:00 AM Manila. Trial ends 25 November 2026, 10:00 AM. Payment is refused from **25 December 2026, 10:00 AM** (day 44). The old rule would have refused from 23 February 2027, 10:00 AM (day 104).
@@ -32,6 +36,9 @@ Each is a separate yes. The recommended answer is what the rest of the plan assu
 - B1 stores and shows this date and enforces it in the one function that records a reactivation payment. B2 calls that function; B1 takes no payment.
 
 ### D2. A first site created after the 14 days have already passed
+
+> **Changed on 2026-11-11 by section 2A** (the NPC readiness rulings). Read 2A first; where this text and 2A differ, 2A is the plan.
+
 
 - **Checked.** Scope section 7: the trial counts from account creation, and a first site created after day 14 "starts in `cancelled_no_payment_method`". The Task: the download window and the deletion clock begin at service end. Taken literally, service ended at day 14, before the site existed. A site created on day 50 would be born past its pay-back date (D1) and past its deletion date.
 - **Options.**
@@ -68,6 +75,9 @@ Each is a separate yes. The recommended answer is what the rest of the plan assu
 - Order on staging: merge, run the migration, set `BILLING_ENABLED=1`, dry-run the backfill, read the counts, run it with `--apply`.
 
 ### D7. Test sites are never billed (Q1), but the new backend has no test-site mark
+
+> **Changed on 2026-11-11 by section 2A** (the NPC readiness rulings). Read 2A first; where this text and 2A differ, 2A is the plan.
+
 
 - **Checked.** The Task lists "an approved test site is never billed" as settled. Legacy held it in the interim site states, which are not rebuilt. In the new backend every site, including Coach Ed's own and the Santé reference site, would reach day 14 and go off.
 - **Options.**
@@ -108,16 +118,94 @@ The text is in section 9. It is committed with the first pull request once the p
 
 ### D13. The "nothing owed" check before an account is disposed of (R-3)
 
+> **Changed on 2026-11-11 by section 2A** (the NPC readiness rulings). Read 2A first; where this text and 2A differ, 2A is the plan.
+
+
 - **Recommended rule.** An account cannot be disposed of while any of its sites has a subscription that has not ended, or an outstanding balance. "Ended" means cancelled, or cancelled for no payment method, with the service-end time in the past. Trial, active, payment requires attention, suspended, and a cancellation whose paid period is still running are all "not ended".
 - **Consequence.** A person who asks for deletion during a trial or a paid period must cancel first (or an operator does it for them; see section 13). A suspended subscriber must cancel before disposal, because a suspended site "may retain an outstanding payment record" (L20). This matches the ruling that a deletion request from an active subscriber is a cancellation scheduled for the end of the paid term, with no immediate deletion.
 - Billing rows are never deleted or blanked by a disposal. They hold no personal value: only the site, states, dates and amounts. The 5-year rule for billing and tax records is untouched.
 
 ### D14. What ends a suspension that is never paid or cancelled (two sources disagree)
 
+> **Changed on 2026-11-11 by section 2A** (the NPC readiness rulings). Read 2A first; where this text and 2A differ, 2A is the plan.
+
+
 - **Contract r25.** Nothing ends it. A suspension has no deletion date and no last date to pay (quotes in section 5.4).
 - **Legacy code, not in the contract.** A comment in the legacy `billing.py` cites rulings "R-4, R-4a, R-4b (Coach Ed 2026-11-03)": the data of a suspended site may be disposed of 90 days after the day of suspension if it ever paid, 30 days if it never paid; and a cancellation after a suspension does not restart that clock, the earlier date wins. The contract r25 does not contain the label R-4b. This session has not seen the ruling itself, only the code comment.
 - **Where they differ for B1.** (1) Whether a suspended subscription has a deletion date and so a last date to pay. (2) The clock of a cancellation made while suspended: the table in 5.4 starts it at the cancellation; R-4b would keep the earlier date, counted from the suspension.
 - **Not chosen here.** The plan follows the contract, the Task's named source, and writes no new rule. No subscription can be suspended on staging before B2 records payments, so this can be settled as a point for B2 without holding B1. If Coach Ed confirms R-4b, B1 changes only two things: the subscription records the suspension-based dates when it is suspended, and the "suspended" row of the cancellation table keeps the earlier date.
+
+## 2A. Reconciliation with the NPC readiness rulings (added 2026-11-11)
+
+The coordinator named a source this plan had not read: the NPC readiness spec r13, with Coach Ed's rulings of 2026-11-03 and 2026-11-04 (R-3, R-3a, R-4, R-4a to R-4d, R-TERMS-1, R-5a, R-D1). The contract r25 names none of them: a search of it finds no "R-3a", "R-4a", "R-4b", "R-4c", "R-4d", "R-TERMS" and no "day of suspension". The D numbers below are unchanged.
+
+| # | Now | Short reason |
+|---|---|---|
+| D1 | Settled by rulings, with one new part (D15) | R-4, R-4b, L26, L75 give the date; R-4a says when its clock may start |
+| D2 | Settled against this plan's first recommendation; one gap left | R-TERMS-1 |
+| D7 | Still a decision, narrowed | R-5a and R-D1 describe a mechanism the new backend does not have |
+| D13 | Reworked; one conflict left for Coach Ed | R-3, R-3a, R-4b, R-4c, R-4d against the Task's P10.1 rule |
+| D14 | Conflict between two documents; recommendation changed to R-4b | R-4b, R-4c, R-4d against the contract's G4a wording |
+| D15 | New | R-4a: what B1 records before payment collection is live |
+
+### D14, revised. A suspension has a deletion date (R-4b), if Coach Ed confirms it over the contract's wording
+
+- **R-4b** (NPC spec, ruled 2026-11-03, his words quoted in the row): "Suspension counts as the end of the service." The deletion clock starts on the day of suspension: 90 days if the subscriber paid at least once, 30 days if never paid. "The subscriber can pay and reactivate until that date. No other period is added."
+- **R-4c** (2026-11-03): a paid subscriber who is suspended and never comes back does not owe the unbilled usage; the account and data are deleted 90 days after the suspension.
+- **R-4d** (2026-11-03): a subscriber who is suspended and then cancels still owes the unpaid usage of the last paid cycle, billed at the cancel; "the cancellation never restarts the clock".
+- **Contract r25**, G4a table: "No deletion clock, because a suspension deletes nothing (`terms.html:71`)", and line 274: "A suspended site that was never cancelled has no `deletion_due_at`, so nothing is purged". This is design text citing the Terms page, not a numbered ruling. The contract's r24 text was approved on 2026-11-04 and r25 on 2026-11-06 changed drift only. The contract nowhere acknowledges R-4b. Which sentence was written first cannot be told from the two files.
+- **Recommended.** Follow R-4b, R-4c and R-4d: they are explicit rulings in his words, and the contract line is a description of the Terms. Coach Ed confirms.
+- **What changes in B1 if confirmed.** Both suspension transitions record `service_ended_at` = the suspension instant, `download_until` = + 30 days and `deletion_due_at` = + 90 days (ever paid) or + 30 days (never paid). `pay_by` is that deletion date, and `reactivated` refuses a payment at or after it. A cancellation made while suspended keeps those dates and starts no new clock. Section 5.4's "never paid and never cancelled" row then reads: stays `suspended`; last date to pay and deletion date = suspension + 90 or 30 days; nothing is cancelled automatically. The "suspended" row of the cancellation table reads: service already ended at the suspension; the clock is unchanged.
+- **Money, not B1.** R-4c (no usage owed if still suspended at the date) and R-4d (last paid cycle's usage billed at the cancel) are for B4, with B2.
+
+### D1, revised. Settled: payment is accepted until the deletion date
+
+- R-4: never-paid accounts are deleted 30 days after the trial ends. R-4b: a suspended subscriber "can pay and reactivate until that date". L26 with L75: the refusal point is the deletion date, which for a never-paid site is 30 days, not 90. So the rule this plan recommended is the ruled one: **day 44** for a no-method trial (14 + 30); service end + 90 days for a cancelled subscriber who paid; suspension + 90 or 30 days for a suspended one (D14).
+- Left for Coach Ed: only to confirm the arithmetic, and D15, because R-4a decides when the 30-day clock may start.
+
+### D15, new. What B1 records before payment collection is live (R-4a)
+
+- **R-4a:** "The never-paid 30-day clock starts only after the system has officially ended the trial (closed for no payment method, or cancelled by the subscriber), and only once payment collection is live. A subscriber who was ready to pay is never deleted because NegosyoOnline could not charge them." The NPC spec's go-live list (line 522) repeats it: until the sweep and collection are live, the never-paid rule "must not act".
+- B1 has no collection. So every no-method trial that ends in B1, on site creation, in the sweep and in the backfill, ends before collection is live.
+- **Recommended.**
+  - B1 still ends the trial: the state is `cancelled_no_payment_method` and `service_ended_at` is the trial-end instant (a cancellation during the trial: the cancel time). The storefront is off (Q4: no free service).
+  - B1 leaves `download_until`, `deletion_due_at` and `pay_by` **empty** on a never-paid subscription, and `GET billing/` says why with `clocks_started: false`. Nothing in B1 can refuse a payment on such a site by date, and no retention rule can pick it up, because there is no date.
+  - Whether collection is live is one function in `apps/billing/plan.py` that answers "no" in B1. No variable is added for it in B1.
+  - **On the day collection goes live (B2):** B2 writes one `clocks_started` transition for each never-paid ended subscription with empty dates, effective at the go-live instant, setting all three dates to go-live + 30 days. From then on a trial that ends gets its dates at once, as section 5.4 says. So every person who could not pay has a full 30 days from the day paying became possible.
+- **Alternative.** At go-live, the dates are counted from each site's own service end. Then a trial that ended more than 30 days before go-live is past its pay-back date on the first day anyone can pay, which is what R-4a forbids.
+- **Consequence.** Until B2, no never-paid site has a deletion date or a pay-back date. The backfill (D6) writes none.
+
+### D2, revised. Settled by R-TERMS-1: the dates stay where they are; one gap
+
+- **R-TERMS-1** ("decided by the published Terms, not a new ruling"): the first website gets no new free trial; its trial starts when the account is created; a first store built after the trial ended "joins ... as it is (for example \"Cancelled - no payment method\"), and the subscriber pays to continue. Its normal deletion date stays as it is."
+- So this plan's first recommendation, (a), is withdrawn. The clocks count from the trial end (day 14), not from the site's creation: option (b).
+- **Before collection is live** this harms nobody: by D15 no clock runs.
+- **Gap, once collection is live.** A first site created after day 44 is past its pay-back date and its deletion date at the moment it is created. It can never be paid for. The new backend differs from legacy here: legacy had a billing Site from sign-up, the new backend creates the subscription only with the site.
+- **Recommended for the gap.** Keep R-TERMS-1's dates, and have site creation refuse an account whose pay-back date has passed, with a plain message to contact support, so that no unpayable site is created. This is a new refusal in `create_first_site` (the Onboarding coordinator's file) and needs Coach Ed's yes. Without it, B1 creates the site as R-TERMS-1 says and it stays off for good.
+
+### D7, revised. Still a decision: the rulings describe a test store the new backend cannot make
+
+- **R-5a:** only test stores (`is_test_site`) are deleted right away when closed; a non-test store created from the admin side follows the normal subscriber rules. **R-D1:** the store-to-billing link is written only inside `create_first_site`; "the admin creates test stores only". In the NPC spec a test store has no billing link at all (3.5, T-TEST: "`billing_site` is null"), and `is_test_site` is read-only after creation. That is how a legacy test site is "never billed": it has no subscription.
+- **The new backend** has no `is_test_site` field, and no way for an admin to create a site: hq is the only admin door and `create_first_site` is the only creation path. Every site is created by a subscriber and, with B1, gets a subscription.
+- **So the gap stays.** `billing_exempt` (option (a)) is the nearest equivalent: a mark on a subscriber-created site, set by a terminal command with operator, reason and audit entry. To match the ruling's "read-only after creation" it is set once and not cleared; clearing would need its own ruling. It does not give the site R-5a's "deleted right away when closed": that belongs to store disposal, not B1.
+- **Alternatives.** (b) nothing in B1. (c) a separate task builds admin-created test stores with no subscription, as R-D1 describes; B1 then needs nothing, and position treats "no subscription" as not served unless that task says otherwise.
+- Recommendation unchanged: (a), now set-once.
+
+### D13, revised. Money owed does not stop a disposal; a running paid term does
+
+- **R-3:** on a deletion request while a final bill is owed, "delete the customer and store data at once. Keep only the subscriber's name and billing email until the final bill is issued and settled, then delete those too." **R-3a:** those are the person's name, the sign-in email and the business name on the bill. **R-4c, R-4d:** a suspended subscriber's data is deleted at suspension + 90 days whether or not usage is unpaid.
+- So this plan's first rule, "refuse while a subscription has not ended or a balance is outstanding", is withdrawn, and so is its consequence that a suspended account can never be disposed of.
+- **The conflict left for Coach Ed.** The Task (P10.1, 2026-11-02): "An account-deletion request from an active subscriber is a cancellation scheduled for the end of the paid term; no immediate deletion, no refund." R-3 (2026-11-03) says delete at once, and the NPC spec's request path cancels and then disposes of the store at once, with no date rule (3.2.5, line 226). For a subscriber inside a paid term these give different days.
+- **Recommended.** Follow the Task, which is the newer text and restates P10.1 as settled: inside a paid term the request cancels, and the disposal waits for the end of the term. Everywhere else the two agree, because the cancellation ends service at once.
+- **What B1 builds.** `billing.services.prepare_disposal(account, now, actor)` called by `dispose_account`:
+  - Trial, payment requires attention, suspended: it cancels the subscription (the `cancelled` transition, actor `operator`), service ends at once, and the disposal proceeds in the same transaction.
+  - Paid term running: it cancels (service ends at the end of the term), and the disposal is refused for now with the reason `paid_term_running` and that date. The operator runs the command again after it.
+  - Already ended, or no subscription: nothing to do; the disposal proceeds.
+  - A dry run changes nothing and reports what it would cancel and whether it would be refused.
+  - It locks the account's subscription rows (order: Account, Onboarding, Subscription).
+- This closes the first gap in section 13: the operator's disposal command is the route that cancels for a subscriber.
+- **What waits.** B2: refuse while a payment attempt is open or held for review (NPC spec 3.6). B4: R-4c and R-4d usage. B5: wait for the final statement to be delivered. B2 with the NPC coordinator: the R-3a hold, in which three fields stay until the amount is paid; it changes what `dispose_account` blanks, so it is not B1's to change. In B1 nothing can be owed, so no hold can arise.
+- The automatic disposal of a store and account at the deletion date (the NPC spec's paid and never-paid triggers) is not built in B1: the Task says only the dates are recorded.
 
 ## 3. Questions for the coordinator (not for Coach Ed unless the coordinator says so)
 
@@ -319,6 +407,8 @@ Not changed by B1, whatever the subscription state: `GET sites/`, `GET sites/{si
 
 ### 6.6 The "nothing owed" check (R-3)
 
+> Changed by section 2A, D13 revised: the function is `prepare_disposal`, it cancels rather than refuses, and the only refusal in B1 is `paid_term_running`. The file list and the lock order below still hold.
+
 - Billing exposes `services.disposal_blocks(account, now)`. It returns a list of reasons, empty when nothing blocks. B1's reasons: `subscription_not_ended` (per site, with the state and, when known, the service-end date). It locks the account's subscription rows, so a cancel or a payment cannot slip between the check and the blanking.
 - `apps/accounts/retention.py`, `dispose_account`: one added step, after the account is re-read under its lock and before anything is counted or blanked. If the list is not empty, a real run raises `NotDisposable` and changes nothing; a dry run returns the counts with the reasons added, so the operator sees the refusal before trying. The existing rules, counts, audit entry and switch are not changed.
 - `never_verified_accounts`: an unverified account cannot create a site, so it can never be blocked. The rule catches `NotDisposable` anyway, skips that account and carries on.
@@ -496,7 +586,7 @@ Not touched: `apps/notifications` (so nothing of the SMS coordinator's, and neit
 
 ## 14. Approvals this plan asks for, each separate
 
-1. The plan itself, with the answers to D1, D2, D7, D8, D9, D10, D11, D13. D14 may wait for B2.
+1. The plan itself, with the answers to D1, D2, D7, D8, D9, D10, D11, D13, D14 and D15, as revised in section 2A.
 2. The scope amendment text (D12).
 3. Creating the migration file (D5).
 4. The new dependency (D3).
