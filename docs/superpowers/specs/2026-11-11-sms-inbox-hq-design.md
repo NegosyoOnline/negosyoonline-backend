@@ -2,13 +2,13 @@
 
 ClickUp task: z8uq9me128 "SMS inbox, reply and compose (HQ)" (https://app.clickup.com/t/z8uq9me128), a subtask of z8uq9md33v "NPC Build 1 — SMS Carrier & Data-Flow Controls".
 
-Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. One decision is open and is his: where the screens are served (section 3). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. After approval comes a plan, also for approval, before any code.
+Status: **design for Coach Ed's approval. Nothing is built.** This document creates no code, migration, setting, variable or switch. One decision is open and is his: where the screens are served (section 3). The mockup of the screens is in `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/` (section 13); visual acceptance is his. Revised on 2026-11-11 after his feedback on the first mockup (R7, R8 and section 2.1): the menu item is "Inbox", with a horizontal menu of platforms inside it, and only SMS is designed and built. Revised again the same day after his feedback on that mockup (R9 and section 2.2): the heading block is removed, the status chips and "New SMS" share one line, and search and notification buttons are added at the top right. **Bulk SMS (section 18) is a proposal, not yet approved, with open points for Coach Ed; it is not part of the approved design.** After approval comes a plan, also for approval, before any code.
 
 ## 1. Sources
 
 | Short name | Source |
 |---|---|
-| Task | ClickUp z8uq9me128: description and its nine comments, read 2026-11-11 |
+| Task | ClickUp z8uq9me128: description and its comments, read 2026-11-11; the feedback behind R9 and section 18 was relayed by the coordinator the same day |
 | Parent | ClickUp z8uq9md33v: description and its ten comments, read 2026-11-11 |
 | Gateway design | `docs/superpowers/specs/2026-11-10-sms-gateway-mobile-verification-design.md`, sections 5.6, 6.2, 6.3, 6.7 and 14 |
 | Runbook | `docs/runbooks/sms-gateway.md`, `docs/runbooks/retention.md` |
@@ -33,6 +33,9 @@ All from Coach Ed, 2026-11-11, recorded as comments on the Task.
 | R8 | Only SMS is designed and built in this task. The layout is prepared for the other platforms | "Yes, this is for SMS only. I'm just referring to the design so that it will be prepared for other platforms." |
 
 The coordinator's readings recorded with those rulings, which this design confirms: R0 means records owned per Site, Subscriber or HQ, one access check, and a reusable API, with no add-on screen, billing or Subscriber access now. R6 is about how the screens look; it does not move the tool to the Subscriber dashboard or give a Subscriber access.
+| R9 | Layout feedback on the revised mockup: no heading block; the status chips and the new-SMS button on one line, without the "kept 365 days" chip; search and notification buttons at the top right | On the heading block: "remove this". On the chips: "then align this and the New SMS, then remove the text are kept". "add search and notification at the top right" |
+
+He also asked, in the same feedback: "add bulk sending, we need this during launch to send sms to twcinc subscribers". That is not applied as a ruling. It conflicts with R4 (no marketing) and with section 6.3, and it raises points only he can settle, so it is written up as a proposal in section 18.
 
 ### 2.1 What R7 and R8 change in this design
 
@@ -42,6 +45,13 @@ The coordinator's readings recorded with those rulings, which this design confir
 - **The access check and the audit entry name the platform** (sections 7 and 8). Access to SMS gives access to nothing else.
 - **The SMS rules are SMS-only.** The link gate, the 160 characters, the 2,000-a-day cap, the sending interval and the Philippine mobile check (section 6) are rules of the SMS platform. They are not inbox-wide rules, and no rule is assumed for any other platform.
 - R0 to R6 and the earlier choices in this document are unchanged.
+
+### 2.2 What R9 changes in this design
+
+- **No heading block.** The Inbox pages have no eyebrow, title or description. The side menu and the platform menu say where the user is. The conversation page keeps the masked number as its heading and the compose page keeps "New SMS", because those name the thing on the page; neither has an eyebrow or a description. Each page still has a heading for screen readers.
+- **One status line.** On the SMS list, the status chips ("Gateway phone online", "214 of 2,000 texts used today") are on the left and the "New SMS" button on the right, on one line. The "Texts are kept 365 days" chip is removed from the screen. The 365-day rule itself (R2, section 11) is unchanged, and the compose page still tells staff the text is kept 365 days.
+- **"New SMS".** The button, the compose page and its send button say SMS, as he called it.
+- **Search and notification buttons** at the top right, beside the theme button, in the dashboard's order: search, theme, bell (section 13).
 
 Not approved by any of them, and not done here: any build, any migration, any setting or Railway variable, turning the incoming switch on anywhere, anything on staging or production, restyling the existing HQ pages, and anything for a platform other than SMS.
 
@@ -192,7 +202,7 @@ The link gate, the 160-character rule, the daily counts, the kill switch, the en
 - **The sending interval applies to staff texts.** R4 says staff texts "keep the sending interval", which is the random 18 to 25 seconds of Coach Ed's earlier ruling. A staff text therefore carries that gap: the phone sends it no sooner than 18 to 25 seconds after the last paced text it sent, and the server hands the phone one paced text at a time. The first text after a quiet spell leaves on the phone's next poll, about 5 seconds.
 - **This differs from the Gateway design, and is reported, not hidden.** Its section 6.7 gave the `reply` class no gap, written for the add-on before R4 existed. R4 is later and explicit, so this design follows R4. If Coach Ed meant replies to leave at once, it is a one-word change to the two purposes.
 - **The cap.** Each staff text takes one slot of the platform's 2,000 a day (Manila time), the same count codes use. Consequence, stated plainly: staff texts and codes share one allowance, so a day of heavy staff texting leaves fewer slots for codes. The admin can change the limit or stop all sending in seconds (`SmsPolicy`).
-- **One text, one number.** The compose form takes one number. There is no list, no paste of many numbers, no upload and no "send to all". This, the audit record and a limit of 60 staff texts per staff user per hour are what stand between "any Philippine mobile" and bulk sending. Marketing stays forbidden; the compose page says so. Code cannot recognise a marketing text, so the audit record is the control.
+- **One text, one number.** (Section 18 proposes a bulk path. Until Coach Ed approves it, this paragraph is the design.) The compose form takes one number. There is no list, no paste of many numbers, no upload and no "send to all". This, the audit record and a limit of 60 staff texts per staff user per hour are what stand between "any Philippine mobile" and bulk sending. Marketing stays forbidden; the compose page says so. Code cannot recognise a marketing text, so the audit record is the control.
 
 ### 6.4 The Philippine mobile check
 
@@ -317,9 +327,19 @@ Order on any environment: deploy dark; apply the two migrations; set `SMS_INBOX_
 
 ## 13. The screens and the mockup (R6)
 
-**The menu (R7).** The HQ side menu has one item, "Inbox", with the unread count. The page title is "Inbox". "New text" is not a menu item: it is a button on the SMS list, as actions are on the dashboard. The HQ home page gains one link to the Inbox, shown only to a user with access; nothing else on the existing HQ pages changes.
+**The menu (R7).** The HQ side menu has one item, "Inbox", with the unread count. The page title is "Inbox". "New SMS" is not a menu item: it is a button on the SMS list, as actions are on the dashboard. The HQ home page gains one link to the Inbox, shown only to a user with access; nothing else on the existing HQ pages changes.
 
 **The platform menu (R7).** At the top of every Inbox page is a horizontal menu: SMS, Facebook Messenger, Instagram, TikTok, Email, Web chat. It is the dashboard's Settings menu (the row that holds "Business Settings", "Plans", "Billing" and the rest; `.set-tabs` in `dash.css`), copied rule for rule: text links 15 pixels and semi-bold, 12 by 16 pixels of padding, 4 pixels apart, one thin line under the row, the current item in the brighter text colour with a 2-pixel blue underline, 24 pixels of space below. On a phone it behaves as the dashboard's does: the row stays on one line and is swiped sideways; the page itself does not scroll sideways.
+
+**The top-right buttons (R9).** Three 44-pixel buttons, 8 pixels apart, copied from the dashboard's top bar in its order: search, theme, bell. On a phone they sit in the top bar before the account circle; as on the dashboard, the wordmark narrows below 420 pixels and the theme button is dropped below 380 pixels. What each does in this build, kept to what the design already has:
+
+| Button | On the dashboard | In this build |
+|---|---|---|
+| Search | Opens a search of quick links | A link to the SMS list's "Find a full number" field. It finds a conversation by a full mobile number, never a fragment (section 9). No new search is built |
+| Theme | Switches dark and light | The same |
+| Bell | Opens a panel of notifications | A link to the SMS list, showing a dot when any conversation is unread (read from `unread_count`). There is no panel, no stored notification and no alert when a text arrives; those stay out of scope (section 16) |
+
+So both new buttons work, as links, without script and without any new record. The dashboard's own panels (the quick-links search and the notifications panel) are not copied, because each would be new scope.
 
 **The pages, under option A.**
 
@@ -335,7 +355,7 @@ Order on any environment: deploy dark; apply the two migrations; set `SMS_INBOX_
 
 They follow the Subscriber dashboard: the Manrope typeface, the blue `#173DB8` primary, the dark navy sidebar on desktop, the top bar and bottom tab bar on phones, the eyebrow and heading at the top of each view, cards with a 10-pixel radius, pill chips, 44-pixel buttons, and the dashboard's dark theme with its light theme when the device prefers light.
 
-**Mockup:** `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/`: `index.html` (the SMS list), `conversation.html`, `compose.html`, `platform.html` (the "not yet available" state; `?p=instagram` and the like pick the name shown), one shared `mockup.css`. Static files, made-up data only: no real number and no real text. To open it:
+**Mockup:** `docs/superpowers/specs/mockups/2026-11-11-sms-inbox/`: `index.html` (the SMS list), `conversation.html`, `compose.html`, `platform.html` (the "not yet available" state; `?p=instagram` and the like pick the name shown), `bulk.html` (the Bulk SMS **proposal** of section 18, marked not yet approved on the page), one shared `mockup.css`. Static files, made-up data only: no real number and no real text. To open it:
 
 ```bash
 python3 -m http.server 8765 --bind 127.0.0.1 --directory docs/superpowers/specs/mockups/2026-11-11-sms-inbox
@@ -345,7 +365,8 @@ Then `http://127.0.0.1:8765/` (http, port 8765, local only; nothing is deployed)
 
 Decisions the mockup shows, for Coach Ed's eye:
 
-- The side menu says "Inbox"; the platform menu sits above the page heading, as the Settings menu does on the dashboard.
+- The side menu says "Inbox"; the platform menu sits at the top of the page, as the Settings menu does on the dashboard. There is no heading block under it (R9).
+- The SMS list's "Bulk SMS" button carries a "Proposal" tag and exists only while section 18 is open. If the proposal is not approved, the button is removed.
 - The list has no text preview (section 9).
 - Numbers are masked everywhere except while typing one in compose.
 - The compose page states the rules above the form: one SMS, no links, no marketing, one number at a time, and that the text is recorded.
@@ -402,17 +423,65 @@ Input for Coach Ed's wording. This is not wording, and this design edits no fili
 
 ## 17. What was verified, and what was not
 
-Verified by reading, on 2026-11-11: the Task (nine comments) and Parent with every comment; the code named in section 1 at `1ba9cc6`; the dashboard's styles at frontend `36d2ec4`, and its Settings menu at frontend `origin/main` `5802934`.
+Verified by reading, on 2026-11-11: the Task and Parent with every comment; the code named in section 1 at `1ba9cc6`; the dashboard's styles at frontend `36d2ec4`, and its Settings menu and top bar (search, theme and bell buttons) at frontend `origin/main` `5802934`.
 
-Verified by opening the mockup's four pages (list, conversation, compose, "not yet available") in headless Chrome over `http://127.0.0.1:8765/`, with the DevTools protocol's device emulation (`Emulation.setDeviceMetricsOverride`; `mobile` true at 390 pixels), at 1280 and at 390 pixels wide, in the dark theme and in the light theme: on every page the document's `scrollWidth` equals its `clientWidth` (1280 and 390), so no page scrolls sideways, and the screenshots were read and nothing overlaps. At 390 pixels the platform menu is 619 pixels of content in a 358-pixel row: it is swiped sideways inside its own row, as the dashboard's Settings menu is. The light theme at phone width, not verified in the first version, is now verified.
+Verified by opening the mockup's five pages (list, conversation, compose, "not yet available", Bulk SMS proposal) in headless Chrome over `http://127.0.0.1:8765/`, with the DevTools protocol's device emulation (`Emulation.setDeviceMetricsOverride`; `mobile` true at 390 pixels), at 1280 and at 390 pixels wide, in the dark theme and in the light theme: on every page the document's `scrollWidth` equals its `clientWidth` (1280 and 390), so no page scrolls sideways. Every dark-theme screenshot was read at both widths and nothing overlaps. At 390 pixels the platform menu is 619 pixels of content in a 358-pixel row: it is swiped sideways inside its own row, as the dashboard's Settings menu is. The first attempt at the phone top bar with three buttons was 18 pixels too wide; it was fixed the way the dashboard does it (a narrower wordmark below 420 pixels) and measured again.
 
 Not verified:
 
-- Any browser other than Chrome, and a real phone. The swipe of the platform menu was measured, not performed by hand.
-- The platform menu against the running dashboard side by side. Its rules were copied from the dashboard's stylesheet and the mockup was read; the two were not opened next to each other.
+- The light-theme screenshots were measured for overflow but not read.
+- Any browser other than Chrome, and a real phone. The swipe of the platform menu was measured, not performed by hand. The theme button being dropped below 380 pixels was written, not measured.
+- The platform menu and the top-right buttons against the running dashboard side by side. Their rules were copied from the dashboard's stylesheet and the mockup was read; the two were not opened next to each other.
+- Everything in section 18. It is a proposal: its numbers (time to send, what is left for codes) are arithmetic on the existing cap and gap, and the carrier's behaviour toward a SIM that sends one text to many numbers is not known.
 
 - Nothing was run against the backend. This stage wrote documents and a static mockup only.
 - The phone app's behaviour with the switch on, on a real phone with a real SIM: the permission prompt, texts in several parts, two SIMs.
 - That 18 to 25 seconds between staff texts is what Coach Ed means by "the sending interval" for replies (section 6.3).
 - The NPC documents and the privacy page were not read by this session.
 - Whether the HQ host sends a Content-Security-Policy header; none was found in `config/settings.py`. The built pages would carry their styles and the font from HQ itself in either case.
+
+## 18. Proposal, not yet approved: Bulk SMS
+
+**Status: a proposal. Open points with Coach Ed (18.4). Nothing in this section is approved, planned or built, and no other section depends on it.** It answers his request of 2026-11-11: "add bulk sending, we need this during launch to send sms to twcinc subscribers". The mockup page is `bulk.html`, marked as a proposal on the page.
+
+### 18.1 The smallest form
+
+A "Bulk SMS" action on the SMS platform, beside "New SMS", for a staff user who may send.
+
+1. **One text.** The same text for every number, under the same SMS rules as any staff text: one SMS of at most 160 plain characters, no web link.
+2. **A list of numbers**, pasted one per line or uploaded as a text or CSV file with one number per line. Each line is checked with `normalise_ph_mobile`; duplicates are removed; lines that are not a Philippine mobile are set aside and can be downloaded. Nothing is sent at this step.
+3. **A count and an estimate before anything is sent:** lines read, numbers that will be texted, duplicates removed, lines refused; how long it will take at one text every 18 to 25 seconds; how many of today's remaining texts it uses and how many that leaves for codes.
+4. **A confirm step.** The staff user types the count to confirm.
+5. **Progress and results.** Sent, waiting and not sent, with a result per number, masked. Numbers are never shown in full after the list is checked.
+6. **A stop button.** Stopping keeps what was sent and sends nothing more.
+7. **Audit.** One entry when a bulk send is confirmed and one when it is stopped or finishes: the staff user, the platform, the counts and the outcome. Never the text, and no list of numbers.
+
+Codes always go first, exactly as in section 6.3: bulk texts use the paced class behind every waiting code, one at a time.
+
+### 18.2 What it would change in the approved design
+
+| Approved today | With bulk sending |
+|---|---|
+| Section 6.3: one text, one number. "There is no list, no paste of many numbers, no upload and no 'send to all'" | A list, a paste and an upload exist, behind the confirm step |
+| Section 6.3: at most 60 staff texts per staff user per hour | A bulk send would need its own allowance. At the 18 to 25 second gap the phone sends about 145 to 200 texts an hour, so 60 an hour would stop every bulk send |
+| Section 6.3: the one-number form, the audit record and the hourly limit are what stand between "any Philippine mobile" and bulk sending | That barrier is removed on purpose. The confirm step, the audit entry and the cap are what remain |
+| Section 6.1: a staff text waits for the phone at most 1 hour, then expires | A list of more than about 150 numbers cannot all be queued at once. Bulk texts would be handed to the queue a few at a time |
+| Section 4: one conversation and one message row per text | To be decided with the build: whether each bulk text appears as a conversation, and where the list of numbers is held while sending and for how long |
+| R4, section 14 point 4: no marketing | Depends on open point 1 |
+| Section 12 | A further migration (a bulk send record and its recipients) and its own approvals |
+
+### 18.3 What the numbers say
+
+With the present limits, and nothing changed: one text every 18 to 25 seconds is about 145 to 200 texts an hour. The mockup's example, 1,180 numbers, takes about 7 hours and, on a day when 214 texts are already used, leaves 606 of the 2,000 for sign-in codes. A list of more than about 1,800 numbers cannot be sent in one day at all, and any bulk send on a busy day takes texts that codes would have used.
+
+### 18.4 Open points for Coach Ed
+
+These are questions. This design does not answer them.
+
+1. **Is a launch text marketing?** A text announcing the launch is an announcement. R4 ("Yes, free text", with marketing forbidden) and the NPC documents say no marketing. Is a launch text allowed, and if so, what makes it different from marketing in the NPC wording?
+2. **On what consent may TWCinc subscribers' numbers be texted, and how does the list arrive?** NegosyoOnline is independent of TWCinc. Nothing here designs TWCinc code, access to TWCinc data, or a TWCinc secret; the only thing designed is a list that a staff user pastes or uploads. Did those people agree to be texted by NegosyoOnline, who provides the list, and what does the NPC filing need to say about it?
+3. **How many numbers?** The 2,000-a-day cap is shared with sign-in codes, and the 18 to 25 second gap limits a day to what section 18.3 shows. How large is the list, over how many days may it be sent, and how many texts a day must be kept back for codes?
+4. **The risk to the SIM.** The gateway phone uses a consumer SIM. A carrier may block a SIM that sends the same text to many numbers. If it does, sign-in codes stop too, for every Subscriber. Is that risk accepted, or should bulk texts wait for a separate SIM or a carrier's bulk service?
+5. **Can a recipient opt out?** If someone answers that they do not want these texts, is there a list of numbers never to text again, who keeps it, and does the text have to say how to opt out within its 160 characters?
+
+Until these are answered, the approved design is unchanged: one number per text and no bulk path.
