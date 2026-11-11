@@ -578,6 +578,7 @@ Not touched: `apps/notifications` (so nothing of the SMS coordinator's, and neit
 ## 13. Known gaps this plan does not close
 
 - An operator cannot cancel a subscription on a subscriber's behalf: there is no hq screen and no command for it in B1. A person who asks for deletion while subscribed cancels from the dashboard, or this is added by ruling.
+- Known effect, not a decision: a site that cancelled and is still inside its paid period stops counting for "Santé Site Owner" from the cancellation, although its storefront is still served. The approved label wording (scope section 12, 2026-11-11) names trial, active and needing payment attention, and the label authorizes nothing (6.4).
 - The account export (`export_account`) does not include billing rows. Not asked for by the Task.
 - The dashboard's Billing page and Billing-only screen are frontend work and need their own task.
 - The suspension email (L28) is its own task under the contract and is not in B1.
