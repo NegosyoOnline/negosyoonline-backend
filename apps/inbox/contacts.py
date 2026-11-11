@@ -235,7 +235,14 @@ def edit_contact(scope, contact_id, data):
             changed.append("groups")
         if changed:
             contact.first_name, contact.last_name, contact.mobile = first, last, mobile
-            contact.save()
+            try:
+                with transaction.atomic():
+                    contact.save()
+            except IntegrityError:  # another contact took the number between the check and the save
+                other = Contact.objects.filter(owner_kind="hq", mobile=mobile).exclude(pk=contact.pk).first()
+                if other is None:
+                    raise
+                raise _already(other) from None
             contact.groups.set(groups)
             audit.record(
                 scope.actor, "contact_edit", target_type=CONTACT, target_id=contact.public_id,
