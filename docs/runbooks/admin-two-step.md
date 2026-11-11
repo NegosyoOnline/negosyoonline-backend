@@ -12,6 +12,7 @@ Every step below that touches staging or production needs Coach Ed's approval fo
 |---|---|
 | `ADMIN_SECRETS_KEY` | Fernet key that encrypts authenticator secrets. Empty: nobody can be enrolled and no second step can succeed. Changing it makes every stored secret unreadable, so every identity must be reset and enrolled again. |
 | `HQ_HOST` | The one host that serves hq and the admin lists. Empty: hq is off and the lists are served nowhere. |
+| `HQ_STAFF_ORIGIN` | The one browser origin that may call the staff routes on the hq host (`/staff/v1/`): the staff app's address, written as `https://` and a host name with nothing after it. Empty: the routes do not exist and hq answers as it did before them. It must be a name directly beside `HQ_HOST` under the same parent, and must not be the dashboard, the public site, an API origin or a preview address. |
 
 `ADMIN_TWO_STEP_REQUIRED` is no longer read by the code. See "Release order" for when it may be deleted.
 
@@ -37,6 +38,18 @@ For an environment that ran the earlier build, where the Django admin had its ow
 3. Check as in step 4 above.
 4. To go back, redeploy the previous build. Because the variable is still `1`, the old admin returns with its second step, never with the password alone.
 5. Only after the release is accepted, delete `ADMIN_TWO_STEP_REQUIRED`. Never unset it while the earlier build could still be redeployed.
+
+## The staff routes
+
+The staff app's pages call `/staff/v1/` on the hq host. Those routes check the same codes with the same limits as the hq pages and set the same cookie. They answer one origin only, `HQ_STAFF_ORIGIN`.
+
+To stop every staff call at once, for example if the staff app's deploy is in doubt: delete `HQ_STAFF_ORIGIN` and redeploy. The hq pages keep working. To also end every live session of a person, run `admin_identity reset` for them.
+
+Setting or deleting `HQ_STAFF_ORIGIN` on staging or production needs Coach Ed's approval each time.
+
+On production it also waits for the NPC wording amendment: from the day it is set, Vercel serves the page where both admin codes are typed, and the NPC drafts describe one Django sign-in surface. Staging is not affected.
+
+The audit record does not say which way a sign-in came in. A sign-in through the staff app's page and one through the hq pages are both written with the surface `hq`.
 
 ## Commands
 
@@ -90,6 +103,7 @@ There is no password to fall back on. The ways in are:
 - `admin-secrets-key-empty:` the key is empty, invalid, or not the key the secrets were stored with. Logged at most once an hour. No second step can succeed until it is fixed.
 - `admin-identity-change:` an identity was added, enrolled, reset or disabled.
 - `hq-host-refused:` `HQ_HOST` is malformed or clashes with another host. hq and the admin lists stay off until it is fixed.
+- `hq-staff-origin-refused:` `HQ_STAFF_ORIGIN` is malformed, clashes with another address, or is not beside `HQ_HOST`. The staff routes stay off until it is fixed; the hq pages are not affected.
 
 Five wrong codes pause that admin's sign-in for 15 minutes, end their live sessions (the admin lists close with them) and send them an email. The pause ends by itself; `reset` also clears it.
 
