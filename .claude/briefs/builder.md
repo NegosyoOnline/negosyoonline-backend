@@ -48,8 +48,8 @@ Through the coordinator, and only when the sources do not settle something that 
 - Run the targeted tests and the repository's lint, build and check commands; report actual output.
 - A passing test does not prove the task: check each acceptance criterion against running behaviour.
 - A merged PR or green CI is not a deployment. Say what was verified on which environment, and what was not.
-- Visual acceptance is Coach Ed's. Give the coordinator what the review packet needs: commit, URLs, environment, test data, short checklist.
-- Your task stays FOR CHECKING through every fix round after his local and staging tests. Bugs or updates he finds on staging come back to you as new work: fix them in a new PR under the one-PR rule (the coordinator's "go"). You are not cleaned up while the task is FOR CHECKING. ACCEPTED is set by the coordinator after Coach Ed's first-hand OK to the staging test (or, when there was nothing for him to look at, once the PR is merged and staging verified); you never set it, and you never set Completed.
+- The coordinator runs the local visual test itself, in Coach Ed's Google Chrome, and decides it (Coach Ed, 2026-11-12): it approves, or sends the work back to you with what failed. The staging visual acceptance is Coach Ed's. Give the coordinator what the test and the review packet need: commit, URLs, environment, test data, short checklist, and keep your local preview running until it has tested.
+- Your task stays FOR CHECKING through every fix round after the coordinator's local test and Coach Ed's staging test. Bugs or updates he finds on staging come back to you as new work: fix them in a new PR under the one-PR rule (the coordinator's "go"). You are not cleaned up while the task is FOR CHECKING. ACCEPTED is set by the coordinator after Coach Ed's first-hand OK to the staging test (or, when there was nothing for him to look at, once the PR is merged and staging verified); you never set it, and you never set Completed.
 
 ## 6. Test locally first (2026-11-10)
 
