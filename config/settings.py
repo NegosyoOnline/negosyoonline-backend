@@ -128,6 +128,14 @@ BILLING_ANNUAL_ENABLED = os.environ.get("BILLING_ANNUAL_ENABLED", "").strip() ==
 # write and lets collections include overage. Off, the intake answers "disabled" and writes
 # nothing, the usage route answers 404 and the ledger tables are not read or written.
 BILLING_USAGE_ENABLED = os.environ.get("BILLING_USAGE_ENABLED", "").strip() == "1"
+# Billing Statements and the manual BIR invoice register (Billing Build B5). Each is its own
+# switch, "1" to turn on. Off, its routes answer 404, nothing is opened, issued or sent, and its
+# tables are not read or written. The register is built and turned on before the statements.
+BILLING_INVOICE_REGISTER_ENABLED = os.environ.get("BILLING_INVOICE_REGISTER_ENABLED", "").strip() == "1"
+BILLING_STATEMENTS_ENABLED = os.environ.get("BILLING_STATEMENTS_ENABLED", "").strip() == "1"
+# "1" marks new statements and register items as live. Anything else marks them as test, labelled
+# so and never shown as a paid charge. Set to "1" in production only on Coach Ed's approval.
+BILLING_LIVE_DOCUMENTS = os.environ.get("BILLING_LIVE_DOCUMENTS", "").strip() == "1"
 # The accounts Subscribers send their payment to, as a JSON list of objects with `kind`
 # ("bank" or "ewallet"), `provider_name`, `account_name` and `account_number`. Never in code.
 BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").strip()
@@ -193,6 +201,8 @@ INSTALLED_APPS = [
     'apps.accounts',
     'apps.sites',
     'apps.billing',
+    'apps.statements',
+    'apps.invoices',
     'apps.sante',
     'apps.catalog',
     'apps.payments',
