@@ -41,7 +41,7 @@ Read once, in full:
 
 Mark anything that could not be read as unread. Do not summarise it and do not rule from it.
 
-Read first the ClickUp task "Manager — Rulings log", newest entries first, at every start and resume (coordinator brief, section 1). Your state file keeps only its link and the date of the last entry read.
+Read first the rulings log (comments on ClickUp task z8uq9med6x), newest entries first, at every start and resume (coordinator brief, section 1). Your state file keeps only its link and the date of the last entry read.
 
 ## 2. Build the coordination record
 

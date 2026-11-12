@@ -54,7 +54,7 @@ Write exactly these sections, whole file under 5 KB:
     - Open PRs: <full PR URLs with their state, or "none">
     - Local servers: <command and folder for each one this session started, running or stopped, or "none">
     - Builder brief: <absolute session folder>/.claude/briefs/builder.md
-    - Coordinator session: <its name and session id, or "none">. Rulings log: link of the ClickUp task "Manager — Rulings log" and the date of the last entry read (the log itself is not copied here)
+    - Coordinator session: <its name and session id, or "none">. Rulings log: link of ClickUp task z8uq9med6x (comments on ClickUp task z8uq9med6x) and the date of the last entry read (the log itself is not copied here)
     - First move: <the one thing the next session does first>
 
     ## Task
@@ -100,7 +100,7 @@ Print exactly two things and nothing else:
        Read <absolute state-file path>, then read and follow
        <absolute session folder>/.claude/briefs/builder.md with My ClickUp task: <CLICKUP_TASK_ID>,
        and the status, branch, PR and comment rules in <absolute session folder>/.claude/commands/clickup-builder.md.
-       Read the ClickUp task "Manager — Rulings log" (newest first), and re-read the ClickUp task before building. Do not re-explore anything already covered by "## Done".
+       Read the rulings log (comments on ClickUp task z8uq9med6x) (newest first), and re-read the ClickUp task before building. Do not re-explore anything already covered by "## Done".
 
 Say plainly: `/clear`, then paste this. The paste is required: nothing else tells the next session where the state file is.
 

@@ -31,7 +31,7 @@ Read once, before anything else:
 
 If the task cannot be read, stop and say so. Mark any attachment that could not be opened as unread; do not summarise it.
 
-Also read the ClickUp task "Manager — Rulings log", newest entries first, at every start and resume (builder brief, section 1). It records rulings only and approves nothing.
+Also read the rulings log (comments on ClickUp task z8uq9med6x), newest entries first, at every start and resume (builder brief, section 1). It records rulings only and approves nothing.
 
 Then inspect the code and tests the task touches, and the current Git state.
 
