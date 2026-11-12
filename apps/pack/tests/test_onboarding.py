@@ -266,16 +266,6 @@ class TermsAtDetailsTests(OnboardingCase):
         self.assertEqual(response.status_code, 409)  # the token is not this host's: refused like any wrong-site call
         self.assertEqual(PackAgreementAcceptance.objects.count(), 0)
 
-    def test_the_dashboard_card_never_writes_one_and_an_order_without_one_is_not_on_record(self):
-        self.ready()
-        with self.assertRaises(Exception) as caught:
-            registration.submit_details(
-                self.site, Member.objects.get(), date_of_birth="1990-05-17", desired_username="mariasantos1",
-                alternate_username="mariasantos2",
-            )
-        self.assertEqual(caught.exception.code, "terms_not_on_record")
-        self.assertEqual(PackAgreementAcceptance.objects.count(), 0)
-
     def test_an_order_already_accepted_at_checkout_writes_no_second_row(self):
         token = self.placed_token()  # an older storefront posted the agreement at checkout
         before = PackAgreementAcceptance.objects.get()

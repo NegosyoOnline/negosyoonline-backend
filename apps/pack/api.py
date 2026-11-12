@@ -624,7 +624,8 @@ class MemberRegIn(MemberIn):
     dob_day: str = ""
     desired_username: str = ""
     alternate_username: str = ""
-    terms: bool = False
+    terms: bool | None = None  # the card's tick; needed only while panels.registration_panel says terms_required
+    agreement_version_id: str = ""  # the version the card showed; ignored when the order already has an acceptance
     date_of_birth: str = ""  # the dashboard form's one date field, YYYY-MM-DD
     delivery_address: dict | None = None  # line, barangay, city, province, zip
 
@@ -661,8 +662,9 @@ def member_mobile_verify(request, body: MemberRegIn):
 
 @router.post("/member/registration/details/", response=MemberRegOut)
 def member_details(request, body: MemberRegIn):
-    """The dashboard details form, as TWCinc's: one `date_of_birth` field, no terms tick (the
-    note names the version already on record for the order), and a delivery address block asked for while the
+    """The dashboard details form, as TWCinc's: one `date_of_birth` field, a terms tick plus
+    `agreement_version_id` only while `registration.terms_required` (the order has no acceptance;
+    the note names the version on record or just accepted), and a delivery address block asked for while the
     member has none. The three dob_* parts still work when `date_of_birth` is empty."""
     site, member = _member(body.host, body.token)
     dob = body.date_of_birth
@@ -673,5 +675,6 @@ def member_details(request, body: MemberRegIn):
     registration.submit_details(
         site, member, date_of_birth=dob, desired_username=body.desired_username,
         alternate_username=body.alternate_username, delivery_address=body.delivery_address,
+        terms_accepted=body.terms, agreement_version_id=body.agreement_version_id,
     )
     return _reg_out(member)

@@ -245,13 +245,12 @@ def _store_address(member, cleaned):
 
 def submit_details(site, member, *, date_of_birth, desired_username, alternate_username="",
                    delivery_address=None, terms_accepted=None, agreement_version_id=""):
-    """The Santé details form. The mobile is confirmed first. `terms_accepted` is None where no
-    tick is asked (the dashboard card); the funnel's form passes the tick and a missing one is
-    refused. While the order has no acceptance on record, the funnel form also posts the version id
+    """The Santé details form. The mobile is confirmed first. `terms_accepted` is the buyer's tick,
+    from the funnel's form or the dashboard card; it is needed only while the order has no acceptance
+    (the card learns that from `terms_required`), and an explicit False is always refused. While the order has no acceptance on record, the funnel form also posts the version id
     its popup showed and the acceptance is written here, in the same transaction, before the note;
-    an order that already has one (placed by an older storefront) writes no second row. The dashboard
-    card (terms_accepted None) never writes one: an order with none is refused as not on record. The
-    note names the Membership Terms version the buyer agreed to, read from the acceptance record. The dashboard card asks for the delivery address while
+    an order that already has one (placed by an older storefront) writes no second row and needs no
+    tick. The dashboard card works the same way. The note names the Membership Terms version the buyer agreed to, read from the acceptance record. The dashboard card asks for the delivery address while
     the member has none (or when one is posted); the ZIP is derived and checked on the server."""
     if member.mobile_state == "pending":
         raise ApiError("mobile_not_verified", MOBILE_FIRST, status=409)
@@ -284,7 +283,11 @@ def submit_details(site, member, *, date_of_birth, desired_username, alternate_u
             raise ApiError("not_found", "Not found.", status=404)
         _require_open_details(reg)  # a wrong status answers first
         order = reg.pack_order
-        if terms_accepted and not PackAgreementAcceptance.objects.filter(order=order).exists():
+        if not PackAgreementAcceptance.objects.filter(order=order).exists():
+            if terms_accepted is not True:  # the tick is needed while nothing is on record (funnel and card alike)
+                raise ApiError(
+                    "invalid_details", C.MSG_CHECK_FIELDS, status=422, fields={"terms": [TERMS_ERROR]}
+                )
             records.accept_at_details(order, agreement_version_id)
         note = _terms_note(order)
         if address is None:
