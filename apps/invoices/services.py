@@ -494,6 +494,8 @@ def reconcile(*, issued_from=None, issued_to=None):
 
 
 def detail(public_id):
+    if not isinstance(public_id, str) or not public_id:
+        raise _invalid("item", "Name the invoice item.")
     try:
         item = Item.objects.select_related("subscription__site__account").get(public_id=public_id)
     except (Item.DoesNotExist, TypeError, ValueError):

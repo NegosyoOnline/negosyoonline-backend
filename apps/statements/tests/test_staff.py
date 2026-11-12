@@ -1,12 +1,8 @@
-"""The issuer and book routes (Billing Build B5, PR 2). They are registered in the staff route
-table by the HQ/SMS coordinator's lines in staff_views.py; until those land the tests register
-them here, so the real gate (session, two steps, origin, method) is what answers."""
-from unittest import mock
-
+"""The issuer and book routes (Billing Build B5, PR 2), through the real gate (session, two
+steps, origin, method)."""
 from django.test import override_settings
 
 from apps.invoices.models import InvoiceBook
-from apps.operators import staff_views
 from apps.operators.models import OperatorAuditEntry
 from apps.operators.tests.test_staff_routes import StaffTestCase, on_staff
 from apps.statements import staff
@@ -31,12 +27,6 @@ BOOK_PATHS = ("invoices/books/", "invoices/books/set/", "invoices/books/active/"
 class StaffTests(StaffTestCase):
     def setUp(self):
         super().setUp()
-        patcher = mock.patch.dict(
-            staff_views.ROUTES,
-            {p: ("POST", staff_views._for_staff(v)) for p, v in staff.ROUTES.items()},
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
         self.operator = self.enrolled().user
 
     def post(self, path, data=None, **kwargs):

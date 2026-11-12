@@ -296,6 +296,8 @@ Each is cut from the latest `origin/main`, dark while its switch is off, lists t
 | 9 | **Adjustments and staff statement routes** | `apps/statements/*`, `apps/operators/staff_views.py` (3 lines) | PR 5, 6 |
 | 10 | **Daily alert** | `apps/invoices/tasks.py`, `config/settings.py` | PR 3; Q9 |
 
+*(2026-11-12: PRs 2 and 3 are combined into one pull request, same switch and same files; the issuer-row lock is in PR 2's services, PR 3's staff routes are registered in `staff_views.py` beside PR 2's. No other combination.)*
+
 **Relative to B3 and B4:** PRs 1 to 4 and 10 touch neither `plan.py` nor billing models. PRs 3 and 9 add one call in `apps/billing/services.py`; B3 and B4 also edit that file, so whoever merges second rebases (a few lines, no migration order). PR 5 onward reads B4's frozen lines through the function asked for in 5.3: until B4 exists, statements carry the base line only. Annual and usage descriptions need no B5 change when B3 and B4 land.
 
 **Files other sessions have open on 2026-11-11** (for the coordinator): PR 103 edits `apps/operators/audit.py` and `config/settings.py` and the scope document; PR 104 edits `config/settings.py`, `apps/accounts/retention.py`, `docs/runbooks/retention.md` and the scope document. B5's PR 1 touches `audit.py` and `settings.py`, and PR 2 and 9 touch `staff_views.py`; no overlap with 103 and 104 other than adding lines in the same two files, resolved by rebasing.
