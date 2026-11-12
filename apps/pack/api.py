@@ -2,7 +2,8 @@
 apps/storefront/api.py):
 
     POST /storefront/v1/checkout/contact/  {host, visitor_ip, token?, full_name, mobile, email,
-        delivery_address?, agreement_version_id, agreement_accept, enrollment_authorized}
+        delivery_address?, enrollment_authorized, and optionally agreement_version_id +
+        agreement_accept from an older storefront; the terms are accepted at onboarding/details/}
         -> {token, expires_at}: `token` is the raw checkout token, answered once on the first
         call and "" afterwards; `expires_at` is the sliding expiry for the cookie.
     POST /storefront/v1/checkout/check/    {host, visitor_ip, mobile, email} -> {errors}
@@ -323,6 +324,7 @@ class DetailsIn(FunnelIn):
     desired_username: str = ""
     alternate_username: str = ""
     terms: bool = False
+    agreement_version_id: str = ""  # the Membership Terms version the popup showed; needed while the order has no acceptance
 
 
 @router.post("/onboarding/details/", response=StateOut)
@@ -333,7 +335,8 @@ def onboarding_details(request, body: DetailsIn):
     dob = f"{body.dob_year}-{int(body.dob_month):02d}-{int(body.dob_day):02d}" if ok else ""
     return _after(body, lambda site, token, order, member: registration.submit_details(
         site, member, date_of_birth=dob, desired_username=body.desired_username,
-        alternate_username=body.alternate_username, terms_accepted=body.terms))
+        alternate_username=body.alternate_username, terms_accepted=body.terms,
+        agreement_version_id=body.agreement_version_id))
 
 
 class CompletedOut(Schema):
@@ -659,7 +662,7 @@ def member_mobile_verify(request, body: MemberRegIn):
 @router.post("/member/registration/details/", response=MemberRegOut)
 def member_details(request, body: MemberRegIn):
     """The dashboard details form, as TWCinc's: one `date_of_birth` field, no terms tick (the
-    note names the version agreed at checkout), and a delivery address block asked for while the
+    note names the version already on record for the order), and a delivery address block asked for while the
     member has none. The three dob_* parts still work when `date_of_birth` is empty."""
     site, member = _member(body.host, body.token)
     dob = body.date_of_birth
