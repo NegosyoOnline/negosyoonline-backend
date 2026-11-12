@@ -53,6 +53,9 @@ TURNED_OFF = [
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"),
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/approve/"),
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/reject/"),
+    ("POST", "/sites/{site_id}/pack/orders/{order_id}/shipment/"),
+    ("POST", "/sites/{site_id}/pack/orders/{order_id}/shipment/correct/"),
+    ("POST", "/sites/{site_id}/pack/orders/{order_id}/delivery/"),
 ]
 # These answer 201 when they work.
 CREATED = [
@@ -78,7 +81,7 @@ SANTE_BODY = {"sponsor_id": "TAKEN-1"}
 
 @override_settings(
     BILLING_ENABLED=True, SANTE_SETTINGS_ENABLED=True, SANTE_CATALOG_ENABLED=True,
-    PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True,
+    PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True, PACK_SHIPPING_ENABLED=True,
 )
 class BillingOnlyTestCase(SitesApiTestCase):
     def setUp(self):

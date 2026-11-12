@@ -6,6 +6,12 @@ negosyoonline_sante_pack/api.py), under /v1/sites/{site_id}/pack/orders/:
     GET  .../pack/orders/{order_id}/proofs/{proof_id}/    -> the proof file itself
     POST .../pack/orders/{order_id}/approve/  {state_version}
     POST .../pack/orders/{order_id}/reject/   {state_version, reason_code, other_text?}
+    POST .../pack/orders/{order_id}/shipment/          {state_version, courier, courier_other_name?, tracking_number, shipped_on?}
+    POST .../pack/orders/{order_id}/shipment/correct/  (same body)
+    POST .../pack/orders/{order_id}/delivery/          {state_version, delivered_on?}
+
+The three shipment writes answer 404 while PACK_SHIPPING_ENABLED is off (filters ready_to_ship,
+shipped and delivered and the read fields work regardless; `shipping_enabled` tells the dash).
 
 Order ids are public ids; money is integer centavos. Every route is signed-in only and reaches its
 site through site_for(account, site_id, template=SANTE), so a missing, removed, foreign or non-Santé
@@ -22,7 +28,7 @@ from apps.common import private_files
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
 from apps.members.contacts import mask
-from apps.pack import constants as C, review
+from apps.pack import constants as C, fulfillment, review
 from apps.pack.models import PackOrder
 from apps.sites import templates
 from apps.sites.api import _owner_site
@@ -31,7 +37,13 @@ from apps.sites.services import site_for
 WRITE_LIMIT = ("pack-write-acct", 60, 600)  # TWCinc's numbers
 LINK_LIMIT = ("pack-link-acct", 120, 600)
 LIST_MAX = 200
-FILTERS = {"to_review": {"payment_status": C.PENDING_REVIEW}, "rejected": {"payment_status": C.REJECTED}}
+VERIFIED_NOT_SHIPPED = {"payment_status": C.VERIFIED, "shipment_recorded_at__isnull": True}
+FILTERS = {
+    "to_review": {"payment_status": C.PENDING_REVIEW}, "rejected": {"payment_status": C.REJECTED},
+    "ready_to_ship": VERIFIED_NOT_SHIPPED,
+    "shipped": {"shipment_recorded_at__isnull": False, "delivery_confirmed_at__isnull": True},
+    "delivered": {"delivery_confirmed_at__isnull": False},
+}
 PROOF_FILE_NAMES = {
     "image/jpeg": "proof.jpg", "image/png": "proof.png", "image/webp": "proof.webp",
     "application/pdf": "proof.pdf",
@@ -63,6 +75,22 @@ class RejectIn(VersionIn):
     other_text: str = ""
 
 
+class ShipmentIn(VersionIn):
+    courier: str = ""
+    courier_other_name: str = ""
+    tracking_number: str = ""
+    shipped_on: str = ""
+
+
+class DeliveryIn(VersionIn):
+    delivered_on: str = ""
+
+
+def _shipping_on():
+    if not settings.PACK_SHIPPING_ENABLED:
+        raise ApiError("not_found", "Not found.", status=404)
+
+
 def _limit(request, scope):
     hit(scope[0], request.account.pk, limit=scope[1], window=scope[2])
 
@@ -80,6 +108,23 @@ def row(order):
         "mobile_masked": mask("mobile", order.member.mobile), "method": order.payment_method,
         "payment_status": order.payment_status, "created_at": order.created_at.isoformat(),
         "state_version": order.state_version, "price_centavos": order.price_centavos,
+        "shipment_status": order.shipment_status, "shipping_enabled": settings.PACK_SHIPPING_ENABLED,
+        "courier": order.courier_name, "shipped_on": order.shipped_on.isoformat() if order.shipped_on else None,
+        "delivered_on": order.delivered_on.isoformat() if order.delivered_on else None,
+    }
+
+
+def _shipment(order):
+    if order.shipment_recorded_at is None:
+        return None
+    return {
+        "status": order.shipment_status, "courier": order.courier, "courier_label": order.courier_name,
+        "courier_other_name": order.courier_other_name, "tracking_number": order.tracking_number,
+        "shipped_on": order.shipped_on.isoformat(), "recorded_at": order.shipment_recorded_at.isoformat(),
+        "recorded_by": order.shipment_actor_label,
+        "delivered_on": order.delivered_on.isoformat() if order.delivered_on else None,
+        "delivery_confirmed_at": order.delivery_confirmed_at.isoformat() if order.delivery_confirmed_at else None,
+        "delivery_confirmed_by": order.delivery_actor_label,
     }
 
 
@@ -107,6 +152,7 @@ def detail(order):
     return {
         **row(order), "price_centavos": order.price_centavos, "currency": order.currency,
         "delivery_address": order.delivery_address, "rejection_lock_active": order.rejection_lock_active,
+        "shipment": _shipment(order),
         "submissions": [_submission(s) for s in order.submissions.prefetch_related("decisions")],
         "events": [
             {
@@ -163,5 +209,43 @@ def order_reject(request, site_id: str, order_id: str, payload: RejectIn):
     review.reject(
         request.account, request.pack_site, order.pk, state_version=payload.state_version,
         reason_code=payload.reason_code, other_text=payload.other_text,
+    )
+    return detail(_order(request.pack_site, order_id))
+
+
+@router.post("/sites/{site_id}/pack/orders/{order_id}/shipment/")
+def order_ship(request, site_id: str, order_id: str, payload: ShipmentIn):
+    _shipping_on()
+    _limit(request, WRITE_LIMIT)
+    order = _order(request.pack_site, order_id)
+    fulfillment.record_shipment(
+        request.account, request.pack_site, order.pk, state_version=payload.state_version,
+        courier=payload.courier, courier_other_name=payload.courier_other_name,
+        tracking_number=payload.tracking_number, shipped_on=payload.shipped_on,
+    )
+    return detail(_order(request.pack_site, order_id))
+
+
+@router.post("/sites/{site_id}/pack/orders/{order_id}/shipment/correct/")
+def order_correct_shipment(request, site_id: str, order_id: str, payload: ShipmentIn):
+    _shipping_on()
+    _limit(request, WRITE_LIMIT)
+    order = _order(request.pack_site, order_id)
+    fulfillment.correct_shipment(
+        request.account, request.pack_site, order.pk, state_version=payload.state_version,
+        courier=payload.courier, courier_other_name=payload.courier_other_name,
+        tracking_number=payload.tracking_number, shipped_on=payload.shipped_on,
+    )
+    return detail(_order(request.pack_site, order_id))
+
+
+@router.post("/sites/{site_id}/pack/orders/{order_id}/delivery/")
+def order_deliver(request, site_id: str, order_id: str, payload: DeliveryIn):
+    _shipping_on()
+    _limit(request, WRITE_LIMIT)
+    order = _order(request.pack_site, order_id)
+    fulfillment.confirm_delivery(
+        request.account, request.pack_site, order.pk, state_version=payload.state_version,
+        delivered_on=payload.delivered_on,
     )
     return detail(_order(request.pack_site, order_id))

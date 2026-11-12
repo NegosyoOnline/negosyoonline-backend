@@ -20,8 +20,10 @@ __all__ = ["OwnerTestCase", "make_order", "pack_call", "PNG", "stored_files"]
 _counter = [0]
 
 
-def make_order(site, *, status=C.PENDING_REVIEW, content=PNG, content_type="image/png", lock=False):
-    """A member, their order and its first proof submission (a real file in the private store)."""
+def make_order(site, *, status=C.PENDING_REVIEW, content=PNG, content_type="image/png", lock=False,
+               shipped=False, delivered=False):
+    """A member, their order and its first proof submission (a real file in the private store).
+    `shipped` / `delivered` (verified orders only) fill the shipment fields as a Subscriber would."""
     _counter[0] += 1
     n = _counter[0]
     member = Member.objects.create(
@@ -33,6 +35,13 @@ def make_order(site, *, status=C.PENDING_REVIEW, content=PNG, content_type="imag
         buyer_name=member.full_name, payment_status=status, rejection_lock_active=lock,
         idempotency_key=f"key-{n}", benefits_active_at=timezone.now(),
     )
+    if shipped or delivered:
+        today = timezone.localdate()
+        order.courier, order.tracking_number, order.shipped_on = "lbc", "LBC123456", today
+        order.shipment_recorded_at = timezone.now()
+        if delivered:
+            order.delivered_on, order.delivery_confirmed_at = today, timezone.now()
+        order.save()
     account = make_payment_account(site)
     key = private_files.save(C.PROOF_FOLDER.format(site.pk), content, content_type)
     sub = PackProofSubmission.objects.create(
@@ -56,7 +65,11 @@ def pack_call(case, method, path, client=None):
     order = proof = None
     if site is not None:
         if "{order_id}" in path:
-            order, proof = make_order(site)
+            verified = path.endswith(("/shipment/", "/shipment/correct/", "/delivery/"))
+            order, proof = make_order(
+                site, status=C.VERIFIED if verified else C.PENDING_REVIEW,
+                shipped=path.endswith(("/shipment/correct/", "/delivery/")),
+            )
         path = path.replace("{order_id}", order.public_id if order else "pko_missing")
         path = path.replace("{proof_id}", proof.public_id if proof else "pps_missing")
     if method == "GET":
@@ -64,10 +77,12 @@ def pack_call(case, method, path, client=None):
     body = {"state_version": order.state_version if order else 1}
     if path.endswith("/reject/"):
         body["reason_code"] = "proof_unreadable"
+    if path.endswith(("/shipment/", "/shipment/correct/")):
+        body.update(courier="lbc", tracking_number="LBC123456")
     return case.send("post", path, body, client=client)
 
 
-@override_settings(PACK_ENABLED=True, PAYMENT_METHODS_ENABLED=True)
+@override_settings(PACK_ENABLED=True, PAYMENT_METHODS_ENABLED=True, PACK_SHIPPING_ENABLED=True)
 class OwnerTestCase(SitesApiTestCase):
     """Signed in as Ana, who has one Santé site: self.site and its public id self.site_id."""
 

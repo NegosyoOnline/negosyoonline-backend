@@ -1,7 +1,8 @@
 """The Santé member Dashboard figures and My Orders cards (port of TWCinc's
 negosyoonline_sante_pack/dashboard.py), built from the member's own pack orders only: product
-orders do not exist yet, so their counts are zero and there are no shipment fields (courier,
-tracking, shipped and delivered dates are always empty). Pure reads. Wording is TWCinc's. Money is
+orders do not exist yet, so their counts are zero. Shipment (courier, tracking, shipped and
+delivered dates) is what the Subscriber entered by hand (apps/pack/fulfillment.py) and stays empty
+until then. Pure reads. Wording is TWCinc's. Money is
 pesos (a number, as TWCinc's templates format it), with `*_centavos` and `*_text` beside it."""
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
@@ -49,7 +50,8 @@ def summary(orders):
     spent = sum((o.price_centavos for o in orders if _paid(o)), 0)
     return {
         "total_spent": pesos(spent), "total_spent_text": money_text(spent), "total_spent_centavos": spent, "total_orders": len(orders),
-        "delivered": 0, "needs_attention": sum(1 for o in orders if o.payment_status in PROBLEM),
+        "delivered": sum(1 for o in orders if o.delivery_confirmed_at is not None),
+        "needs_attention": sum(1 for o in orders if o.payment_status in PROBLEM),
     }
 
 
@@ -79,8 +81,11 @@ def order_monitor(orders, now=None):
     this_month, last_month = between(month_first, next_month_first), between(last_month_first, month_first)
     return {
         "awaiting_approval": sum(1 for o in orders if o.payment_status in UNDER_REVIEW),
-        "for_booking": sum(1 for o in orders if _paid(o)),  # none is shipped yet
-        "for_shipping": 0, "delivered": 0, "delta": this_month - last_month,
+        "for_booking": sum(1 for o in orders if _paid(o) and o.shipment_recorded_at is None),
+        "for_shipping": sum(
+            1 for o in orders if o.shipment_recorded_at is not None and o.delivery_confirmed_at is None
+        ),
+        "delivered": sum(1 for o in orders if o.delivery_confirmed_at is not None), "delta": this_month - last_month,
         "series": series, "has_orders": bool(orders),
     }
 
@@ -88,8 +93,12 @@ def order_monitor(orders, now=None):
 def _steps(o):
     """Four steps, done, current or todo, with a date where there is one."""
     paid = _paid(o)
-    done = [True, paid, False, False]
-    dates = [_local(o.created_at).date(), o.verified_at and _local(o.verified_at).date() or None, None, None]
+    shipped, delivered = o.shipment_recorded_at is not None, o.delivery_confirmed_at is not None
+    done = [True, paid, paid and shipped, paid and shipped and delivered]
+    dates = [
+        _local(o.created_at).date(), o.verified_at and _local(o.verified_at).date() or None,
+        o.shipped_on, o.delivered_on,
+    ]
     rows, current_seen = [], False
     for i, label in enumerate(STEPS):
         state = "done" if done[i] else ("todo" if current_seen else "current")
@@ -104,7 +113,9 @@ def _steps(o):
 def _chip(o):
     """(label, class)."""
     if _paid(o):
-        return "Preparing your order", ""
+        if o.delivery_confirmed_at is not None:
+            return "Delivered", ""
+        return ("Shipped", "") if o.shipment_recorded_at is not None else ("Preparing your order", "")
     if o.payment_status in PROBLEM:
         return dict(C.PAYMENT_STATUSES)[o.payment_status], "sf-status-expired"
     return dict(C.PAYMENT_STATUSES)[o.payment_status], ""
@@ -133,7 +144,9 @@ def card(member, o, *, first):
         "payment_status": o.payment_status, "payment_label": panels.METHOD_LABEL,
         "chip_label": chip_label, "chip_class": chip_class, "problem": o.payment_status in PROBLEM,
         "problem_line": PROBLEM_LINES.get(o.payment_status, ""), "awaiting_payment": False,
-        "under_review": o.payment_status in UNDER_REVIEW, "steps": _steps(o), "courier": "", "tracking": "",
+        "under_review": o.payment_status in UNDER_REVIEW, "steps": _steps(o),
+        "courier": o.courier_name if o.shipment_recorded_at else "",
+        "tracking": o.tracking_number if o.shipment_recorded_at else "",
         "note": "", "shipping_label": "FREE", "headline": HEADLINE, "item_count": 1,
         "item_lines": [{"qty": 1, "name": ITEM_NAME}],
         "receiver_name": addr.get("receiver_name") or o.buyer_name,
