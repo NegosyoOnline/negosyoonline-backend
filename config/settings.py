@@ -139,6 +139,9 @@ BILLING_LIVE_DOCUMENTS = os.environ.get("BILLING_LIVE_DOCUMENTS", "").strip() ==
 # The accounts Subscribers send their payment to, as a JSON list of objects with `kind`
 # ("bank" or "ewallet"), `provider_name`, `account_name` and `account_number`. Never in code.
 BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").strip()
+# The one address told when a bank transfer proof waits for review (a shared mailbox). Empty
+# sends no alert.
+BILLING_STAFF_ALERT_EMAIL = os.environ.get("BILLING_STAFF_ALERT_EMAIL", "").strip()
 # Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints and admin
 # lists. Off, the endpoints answer 404 and the Santé tables are not read or written.
 SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() == "1"
@@ -309,6 +312,13 @@ CELERY_BEAT_SCHEDULE = {
     # BILLING_STATEMENTS_ENABLED is off.
     "statements-ensure": {
         "task": "statements.ensure",
+        "schedule": BILLING_SWEEP_EVERY_SECONDS,
+        "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
+    },
+    # The billing emails (proof received, approved, rejected, reminders, paused). Sends nothing
+    # unless bank transfer can take a payment.
+    "billing-notices": {
+        "task": "billing.notices",
         "schedule": BILLING_SWEEP_EVERY_SECONDS,
         "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
     },

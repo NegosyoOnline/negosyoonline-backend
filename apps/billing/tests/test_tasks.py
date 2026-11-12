@@ -114,7 +114,7 @@ class QueueSetupTests(SimpleTestCase):
         self.assertEqual(celery_app.tasks["billing.sweep"].name, tasks.sweep.name)
         self.assertEqual(
             sorted(name for name in celery_app.tasks if not name.startswith("celery.")),
-            ["billing.sweep", "invoices.ensure_items", "statements.ensure"],
+            ["billing.notices", "billing.sweep", "invoices.ensure_items", "statements.ensure"],
         )
         self.assertTrue(tasks.sweep.ignore_result)
 
@@ -122,7 +122,12 @@ class QueueSetupTests(SimpleTestCase):
         schedule = celery_app.conf.beat_schedule
 
         # The B5 safety nets (register items, statements) run beside it, on the same clock.
-        self.assertEqual(list(schedule), ["billing-sweep", "invoices-ensure-items", "statements-ensure"])
+        self.assertEqual(
+            list(schedule),
+            ["billing-sweep", "invoices-ensure-items", "statements-ensure", "billing-notices"],
+        )
+        self.assertEqual(schedule["billing-notices"]["task"], "billing.notices")
+        self.assertEqual(schedule["billing-notices"]["schedule"], 300)
         self.assertEqual(schedule["billing-sweep"]["task"], tasks.sweep.name)
         self.assertEqual(schedule["billing-sweep"]["schedule"], 300)
         # A queued sweep nobody picked up is dropped when the next one is due.
