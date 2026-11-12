@@ -173,6 +173,14 @@ MEMBERS_ENABLED = os.environ.get("MEMBERS_ENABLED", "").strip() == "1"
 # they answer the 404 of an unknown site and no pack table is read or written. Needs
 # MEMBERS_ENABLED, SANTE_AGREEMENT_ENABLED and a private file store (see apps/pack/checks.py).
 PACK_ENABLED = os.environ.get("PACK_ENABLED", "").strip() == "1"
+# Meta Pixel and Conversions API (apps/meta_ads): the Subscriber's per-site settings routes, the
+# storefront events route and the sender. "1" turns it on. Off, every one of them answers the 404
+# of an unknown site, no meta table is read or written and nothing is sent to Meta. Needs
+# STOREFRONT_ENABLED and the key below (see apps/meta_ads/checks.py). The Subscriber's Meta access
+# token is stored encrypted under META_CREDENTIALS_KEY, which reads the platform's existing
+# per-site credential key (a Fernet key); no new variable.
+META_EVENTS_ENABLED = os.environ.get("META_EVENTS_ENABLED", "").strip() == "1"
+META_CREDENTIALS_KEY = os.environ.get("PAYMENT_CREDENTIALS_ENCRYPTION_KEY", "").strip()
 # The storefront surface (/storefront/v1/), called only by the storefronts server. "1" turns
 # it on, and only while STOREFRONT_SERVER_SECRET holds at least 32 characters. Off, every path
 # under it answers 404. The secret is read here and nowhere else.
@@ -217,6 +225,7 @@ INSTALLED_APPS = [
     'apps.storefront',
     'apps.members',
     'apps.pack',
+    'apps.meta_ads',
     'apps.ledger',
 ]
 
@@ -312,6 +321,13 @@ CELERY_BEAT_SCHEDULE = {
     # BILLING_STATEMENTS_ENABLED is off.
     "statements-ensure": {
         "task": "statements.ensure",
+        "schedule": BILLING_SWEEP_EVERY_SECONDS,
+        "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
+    },
+    # Re-queues any Purchase or AddPaymentInfo delivery to Meta that is still waiting. Does
+    # nothing while META_EVENTS_ENABLED is off.
+    "meta-ads-sweep": {
+        "task": "meta_ads.sweep",
         "schedule": BILLING_SWEEP_EVERY_SECONDS,
         "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
     },

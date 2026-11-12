@@ -26,6 +26,7 @@ from ninja import NinjaAPI, Schema
 
 from apps.common.errors import ApiError, error_body, register_error_handlers
 from apps.members.api import router as members_router
+from apps.meta_ads.api_storefront import router as meta_storefront_router
 from apps.pack.api import router as pack_checkout_router
 from apps.sante import pack_api
 from apps.sites import seal
@@ -74,6 +75,7 @@ class SiteOut(Schema):
     distributor: DistributorOut
     policy_links: list[PolicyLinkOut]
     free_shipping_banner: bool
+    meta_pixel_id: str = ""
 
 
 def _site(host):
@@ -123,6 +125,7 @@ def contact(request, body: ContactIn):
 
 api.add_router("", pack_checkout_router)  # the Membership Pack checkout (apps/pack/api.py)
 api.add_router("", pack_api.router)  # the Membership Pack reads (apps/sante/pack_api.py)
+api.add_router("", meta_storefront_router)  # the Meta Conversions API events (apps/meta_ads)
 
 
 def _no_such_endpoint(request):

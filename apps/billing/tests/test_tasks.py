@@ -114,7 +114,11 @@ class QueueSetupTests(SimpleTestCase):
         self.assertEqual(celery_app.tasks["billing.sweep"].name, tasks.sweep.name)
         self.assertEqual(
             sorted(name for name in celery_app.tasks if not name.startswith("celery.")),
-            ["billing.notices", "billing.sweep", "invoices.ensure_items", "statements.ensure"],
+            [
+                "billing.notices", "billing.sweep", "invoices.ensure_items",
+                "meta_ads.send_order_event", "meta_ads.send_page_event", "meta_ads.sweep",
+                "statements.ensure",
+            ],
         )
         self.assertTrue(tasks.sweep.ignore_result)
 
@@ -124,7 +128,10 @@ class QueueSetupTests(SimpleTestCase):
         # The B5 safety nets (register items, statements) run beside it, on the same clock.
         self.assertEqual(
             list(schedule),
-            ["billing-sweep", "invoices-ensure-items", "statements-ensure", "billing-notices"],
+            [
+                "billing-sweep", "invoices-ensure-items", "statements-ensure", "meta-ads-sweep",
+                "billing-notices",
+            ],
         )
         self.assertEqual(schedule["billing-notices"]["task"], "billing.notices")
         self.assertEqual(schedule["billing-notices"]["schedule"], 300)
