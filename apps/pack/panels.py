@@ -3,7 +3,7 @@ TWCinc's negosyoonline_sante_pack/panels.py, the parts the onboarding and the me
 The wording is TWCinc's."""
 from apps.members import contacts, otp
 from apps.pack import access, constants as C, interfaces, onboarding
-from apps.pack.models import PackOrder, SanteRegistration
+from apps.pack.models import PackAgreementAcceptance, PackOrder, SanteRegistration
 
 MEMBER_REG_LABELS = {
     "awaiting_buyer_details": "Details needed", "waiting_for_accept": "Details received",
@@ -74,6 +74,9 @@ def registration_panel(member):
         # workflow that records it is a later slice, so it is always "" here (no such column yet).
         "sante_member_id": "",
         # The details form asks for the delivery address while the member has none.
+        # True only while the order has no Membership Terms acceptance: the details card then asks
+        # the tick and posts it with the version id (the pack read's agreement.id).
+        "terms_required": not PackAgreementAcceptance.objects.filter(order_id=reg.pack_order_id).exists(),
         "needs_address": reg.status in DETAILS_OPEN and not _has_address(member),
     }
 

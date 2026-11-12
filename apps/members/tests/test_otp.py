@@ -139,6 +139,53 @@ class LimitTests(EngineTestCase):
         self.assertIsNone(ch.member)
         self.assertTrue(ch.code_hash.startswith(otp.DECOY_PREFIX))
 
+    def test_used_codes_do_not_fill_the_silent_target_bucket(self):
+        for number in range(otp.SEND_LIMIT):
+            ch, code = self.open(requested=f"typed{number}@buyer.test")
+            self.verify(code)
+            self.age(61)
+        ch, code = self.open(requested="typed9@buyer.test")
+        self.assertIsNotNone(code)
+        self.assertEqual(ch.member, self.member)
+
+    def test_unused_real_codes_still_fill_the_silent_target_bucket(self):
+        for number in range(otp.SEND_LIMIT - 1):
+            ch, code = self.open(requested=f"typed{number}@buyer.test")
+            self.verify(code)
+            self.age(61)
+        for number in range(2):  # the two used codes do not count, so two unused ones are not yet a full bucket (limit 3)
+            self.open(requested=f"unused{number}@buyer.test")
+            self.age(61)
+        ch, code = self.open(requested="typed9@buyer.test")
+        self.assertIsNotNone(code)
+        self.open(requested="typed8@buyer.test")
+        self.age(61)
+        ch, code = self.open(requested="typed7@buyer.test")
+        self.assertIsNone(code)
+
+    def test_the_cap_logs_a_warning_without_the_address(self):
+        for number in range(otp.SEND_LIMIT):
+            self.open(requested=f"typed{number}@buyer.test")
+            self.age(61)
+        with self.assertLogs("apps.members.otp", level="WARNING") as logs:
+            self.open(requested="typed9@buyer.test")
+        text = "\n".join(logs.output)
+        self.assertIn(f"site {self.site.pk}", text)
+        self.assertIn("purpose signin", text)
+        self.assertIn("channel email", text)
+        self.assertIn(otp.hashlib.sha256(EMAIL.encode()).hexdigest()[:10], text)
+        self.assertNotIn(EMAIL, text)
+        self.assertNotIn("buyer.test", text)
+
+    def test_the_visible_contact_limit_still_counts_used_codes(self):
+        for _ in range(otp.SEND_LIMIT):
+            ch, code = self.open()
+            self.verify(code)
+            self.age(61)
+        with self.assertRaises(ApiError) as caught:
+            self.open()
+        self.assertEqual(caught.exception.code, "rate_limited")
+
     def test_the_limits_are_per_site(self):
         self.open()
         with self.assertRaises(ApiError):

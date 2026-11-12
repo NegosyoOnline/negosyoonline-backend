@@ -1,7 +1,7 @@
 """The member Dashboard figures, My Orders cards and the dashboard details form (TWCinc's
 dashboard.py shapes over the member's pack order only)."""
-from apps.pack import constants as C, review
-from apps.pack.models import PackOrder, SanteRegistration
+from apps.pack import constants as C, registration, review
+from apps.pack.models import PackAgreementAcceptance, PackOrder, SanteRegistration
 from apps.pack.tests.base import HOST, NOT_FOUND
 from apps.pack.tests.test_member_pack import MemberPackCase
 from apps.storefront.tests.base import SECRET
@@ -155,6 +155,44 @@ class DetailsFormTests(DashboardCase):
         self.assertEqual(self.member.delivery_address["line"], "1 Rizal St")
         self.assertTrue(self.member.delivery_address["zip"])
         self.assertFalse(self.route("registration/").json()["registration"]["needs_address"])
+
+    def unaccepted(self):
+        """An order placed without the agreement at checkout: nothing accepted yet."""
+        PackAgreementAcceptance.objects.all()._raw_delete("default")  # the evidence table refuses a normal delete
+
+    def test_terms_required_is_false_with_an_acceptance_and_true_without(self):
+        self.assertFalse(self.route("registration/").json()["registration"]["terms_required"])
+        self.unaccepted()
+        self.assertTrue(self.route("registration/").json()["registration"]["terms_required"])
+
+    def test_the_card_without_the_tick_is_a_terms_field_error_while_nothing_is_on_record(self):
+        self.unaccepted()
+        response = self.details(delivery_address=self.ADDRESS)
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"]["fields"]["terms"], [registration.TERMS_ERROR])
+        self.assertEqual(PackAgreementAcceptance.objects.count(), 0)
+        self.assertEqual(SanteRegistration.objects.get().status, "awaiting_buyer_details")
+
+    def test_the_card_with_the_tick_and_the_current_version_writes_one_acceptance(self):
+        self.unaccepted()
+        response = self.details(delivery_address=self.ADDRESS, terms=True, agreement_version_id=str(self.version.pk))
+        self.assertEqual(response.status_code, 200, response.content)
+        row = PackAgreementAcceptance.objects.get()
+        self.assertEqual((row.version_id, row.sha256), (self.version.pk, self.version.sha256))
+        self.assertFalse(self.route("registration/").json()["registration"]["terms_required"])
+
+    def test_the_card_with_a_missing_or_unknown_version_is_refused(self):
+        self.unaccepted()
+        for posted in ("", "999999"):
+            response = self.details(delivery_address=self.ADDRESS, terms=True, agreement_version_id=posted)
+            self.assertEqual((response.status_code, response.json()["error"]["code"]), (422, "agreement_required"))
+        self.assertEqual(PackAgreementAcceptance.objects.count(), 0)
+
+    def test_an_already_accepted_order_needs_no_tick_and_ignores_a_posted_id(self):
+        before = PackAgreementAcceptance.objects.get()
+        response = self.details(delivery_address=self.ADDRESS, agreement_version_id="999999")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(PackAgreementAcceptance.objects.get().pk, before.pk)
 
     def test_a_bad_date_is_a_field_error(self):
         response = self.details(date_of_birth="not-a-date", delivery_address=self.ADDRESS)

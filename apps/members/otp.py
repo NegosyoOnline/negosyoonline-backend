@@ -2,7 +2,8 @@
 single use, bound to one browser (a binding the storefronts server passes as data) or to the member
 session. Sends per typed contact: 3 per 10 minutes and 10 per 24 hours, decoys included, counted
 under a per-contact advisory lock (PostgreSQL) and recounted after it is taken; a silent cap on the
-delivery target. The per-site volume is a monitor that warns and never refuses; signed-in sends are
+delivery target (real sends whose code was never used correctly; a used code stops counting, and a request the cap
+turns into a decoy is logged as a warning without the address). The per-site volume is a monitor that warns and never refuses; signed-in sends are
 also limited per member. The client IP limit is advisory and secondary. Lock order everywhere:
 member, challenges, sessions, holds. Ported from the approved TWCinc engine."""
 import hashlib
@@ -126,9 +127,11 @@ def _limits_reached(site, requested, now):
 
 
 def _target_full(site, target, now):
-    """The silent bucket: real sends to one delivery target. When full, the challenge is written
-    as a decoy and nothing is sent, but the answer is the visible bucket's, so no answer reveals membership."""
-    return _full(MemberOtpChallenge.objects.filter(site=site, target=target).exclude(code_hash__startswith=DECOY_PREFIX), now)
+    """The silent bucket: real sends to one delivery target whose code was not used correctly (a used code is a
+    person who signed in and stops counting). When full, the challenge is written as a decoy and nothing is sent,
+    but the answer is the visible bucket's, so no answer reveals membership."""
+    return _full(MemberOtpChallenge.objects.filter(site=site, target=target, used_at__isnull=True)
+                 .exclude(code_hash__startswith=DECOY_PREFIX), now)
 
 
 def _resend_waiting(site, bhash, purpose, requested, now):
@@ -197,6 +200,9 @@ def open_challenge(site, *, purpose, channel, target, binding_raw, requested=Non
                 raise rate_limited()
             if not decoy and _target_full(site, target, now):
                 decoy, member = True, None
+                logger.warning("Member sign-in code request turned into a decoy by the delivery-target cap: "
+                               "site %s, purpose %s, channel %s, target %s.", site.pk, purpose, channel,
+                               hashlib.sha256(target.encode()).hexdigest()[:10])
             expires_at, attempts, code = now + CODE_TTL, 0, None
             if not decoy:
                 live = _reusable_series(site, purpose, bhash, requested, member, now) if reuse_code else None
