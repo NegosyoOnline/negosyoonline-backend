@@ -18,8 +18,9 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import IntegrityError, transaction
 
-from apps.catalog import pricing
+from apps.catalog import media, pricing
 from apps.catalog.models import Catalog, CatalogProduct, CatalogProductRevision
+from apps.common import private_files
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
 from apps.sante import services as sante
@@ -35,10 +36,17 @@ WRITE_LIMIT, WRITE_WINDOW = 120, 3600  # catalog writes per account per hour
 DIM_FIELDS = ("length_cm", "width_cm", "height_cm")
 SHIPPING_FIELDS = ("volume_slot", "shipping_qty")
 OPTIONAL_FIELDS = (*SHIPPING_FIELDS, *DIM_FIELDS)  # may be left out of a create
+CATEGORIES = ("barley", "drinks", "essentials", "beauty")  # blank is allowed too
 CENTRAL_FIELDS = (
-    "name", "short_description", "long_description", "weight_kg", "srp_centavos",
-    "earnings_rate", "is_active", *OPTIONAL_FIELDS,
+    "name", "short_description", "long_description", "category", "image_key", "weight_kg",
+    "srp_centavos", "earnings_rate", "is_active", *OPTIONAL_FIELDS,
 )
+IMAGE_MESSAGES = {
+    private_files.WRONG_TYPE: "Upload a JPEG, PNG or WebP image.",
+    private_files.TOO_LARGE: "The image is too large. The limit is 2 MB.",
+}
+IMAGE_NOT_CONFIGURED_MSG = "Product images cannot be stored yet: the image store is not configured."
+IMAGE_NOT_SAVED_MSG = "The image could not be stored. Try again."
 
 CODE_RE = re.compile(r"[A-Z0-9][A-Z0-9._-]{0,63}")
 WEIGHT_RE = re.compile(r"[0-9]{1,8}(\.[0-9]{1,2})?")
@@ -55,6 +63,7 @@ FIELD_MESSAGES = {
     "name": "Use 1 to 120 characters.",
     "short_description": "Use up to 500 characters.",
     "long_description": "Use up to 20000 characters.",
+    "category": "Choose barley, drinks, essentials or beauty, or leave it blank.",
     "weight_kg": "Enter a weight in kg of 0 or more, with up to 2 decimal places.",
     "srp_centavos": "Enter an SRP above 0, in whole centavos.",
     "earnings_rate": "Enter an earnings rate from 0.1000 to 0.5000 (10% to 50%).",
@@ -120,6 +129,8 @@ def _shared_out(row):
         "name": row.name,
         "short_description": row.short_description,
         "long_description": row.long_description,
+        "category": row.category,
+        "image_url": media.url_for(row.image_key),
         "weight_kg": _fixed(row.weight_kg, 2),
         "srp_centavos": row.srp_centavos,
         "earnings_rate": _fixed(row.earnings_rate, 4),
@@ -145,6 +156,38 @@ def product_out(product):
 def revision_out(revision):
     """Who wrote it is never returned: only that the owner or a seed did."""
     return {**_shared_out(revision), "source": revision.source, "changed_at": revision.changed_at}
+
+
+def public_product_out(product):
+    """What a storefront shows. Never the earnings rate, the writer, `is_active`, weights,
+    sizes or a file key."""
+    return {
+        "id": product.public_id,
+        "code": product.code,
+        "name": product.name,
+        "category": product.category,
+        "short_description": product.short_description,
+        "long_description": product.long_description,
+        "image_url": media.url_for(product.image_key),
+        "srp_centavos": product.srp_centavos,
+        "unit_members_price_centavos": pricing.unit_display(
+            product.srp_centavos, product.earnings_rate
+        ),
+        "revision": product.revision,
+    }
+
+
+def storefront_products(site):
+    """The active products of the site's catalog, in creation order."""
+    return [public_product_out(product) for product in products_for_site(site)]
+
+
+def storefront_product(site, public_id):
+    """One active product, or a 404 for an unknown or inactive one."""
+    product = products_for_site(site).filter(public_id=public_id).first()
+    if product is None:
+        raise _not_found()
+    return public_product_out(product)
 
 
 def list_for(site):
@@ -178,6 +221,11 @@ def _text(shortest, longest):
     return check
 
 
+def _category(value):
+    value = value.strip()
+    return value == "" or value in CATEGORIES, value
+
+
 def _number(pattern, accept):
     def check(value):
         if not pattern.fullmatch(value):
@@ -192,6 +240,7 @@ FIELD_CHECKS = {
     "name": _text(1, 120),
     "short_description": _text(0, 500),
     "long_description": _text(0, 20000),
+    "category": _category,
     "weight_kg": _number(WEIGHT_RE, lambda number: number >= 0),
     "earnings_rate": _number(RATE_RE, lambda number: RATE_MIN <= number <= RATE_MAX),
     "volume_slot": _number(SLOT_RE, lambda number: number > 0),
@@ -368,3 +417,158 @@ def update_product(account, site, product_id, data):
     product.save(update_fields=[*changed, "revision", "updated_at"])
     _append_revision(product, **_owner_writer(account, site))
     return product
+
+
+# The product image
+
+def _locked_product(site, product_id, revision):
+    """The product row, locked, once `revision` is the one the caller loaded."""
+    product = (
+        CatalogProduct.objects.select_for_update(of=("self",))
+        .filter(public_id=product_id, catalog__template_key=catalog_key_for(site))
+        .first()
+    )
+    if product is None:
+        raise _not_found()
+    if revision != product.revision:
+        raise ApiError("stale_revision", STALE_MSG, status=409)
+    return product
+
+
+def set_image(account, site, product_id, upload, revision):
+    """Store `upload` as the product's one image, replacing any. A write that is not allowed
+    (not the owner site, no store, a bad file) stores nothing. The old file is removed once the
+    change is committed; a new file whose change failed is removed at once."""
+    if not is_writer(site):
+        raise _read_only()
+    if not media.configured():
+        raise ApiError("image_store_not_configured", IMAGE_NOT_CONFIGURED_MSG, status=503)
+    try:
+        content, content_type = private_files.check(
+            upload, allowed=private_files.IMAGE_TYPES, max_bytes=media.MAX_BYTES
+        )
+    except private_files.FileRefused as refused:
+        raise _invalid({"file": IMAGE_MESSAGES[refused.reason]}) from None
+    try:
+        key = media.save(content, content_type)
+    except media.StoreError:
+        raise ApiError("image_not_saved", IMAGE_NOT_SAVED_MSG, status=502) from None
+    try:
+        with transaction.atomic():
+            site = _writer_site(account, site)
+            product = _locked_product(site, product_id, revision)
+            old_key = product.image_key
+            product.image_key = key
+            product.revision += 1
+            product.save(update_fields=["image_key", "revision", "updated_at"])
+            _append_revision(product, **_owner_writer(account, site))
+            transaction.on_commit(lambda: media.discard(old_key))
+    except BaseException:
+        media.discard(key)
+        raise
+    return product
+
+
+@transaction.atomic
+def clear_image(account, site, product_id, revision):
+    """Remove the product's image. A product with none is returned as it is, writing no
+    revision. The stored file is removed once the change is committed."""
+    site = _writer_site(account, site)
+    product = _locked_product(site, product_id, revision)
+    if not product.image_key:
+        return product
+    old_key = product.image_key
+    product.image_key = ""
+    product.revision += 1
+    product.save(update_fields=["image_key", "revision", "updated_at"])
+    _append_revision(product, **_owner_writer(account, site))
+    transaction.on_commit(lambda: media.discard(old_key))
+    return product
+
+
+# The seed (manage.py catalog_seed_sante)
+
+SEED_FIELDS = (
+    "name", "short_description", "long_description", "category", "weight_kg", "srp_centavos",
+    "earnings_rate", *OPTIONAL_FIELDS,
+)
+
+
+def seed_clean(row):
+    """(code, cleaned values) of a seed row, through the same rules as the API, or ApiError.
+    A seed row never names a writer, a revision or an image."""
+    unknown = set(row) - {"code", *SEED_FIELDS}
+    if unknown:
+        raise _invalid({name: "Not a seed field." for name in sorted(unknown)})
+    values = {name: value for name, value in row.items() if value is not None}
+    cleaned = _clean(values)
+    _refuse_bad_measures(cleaned)
+    code = cleaned.pop("code", None)
+    if code is None:
+        raise _invalid({"code": FIELD_MESSAGES["code"]})
+    return code, cleaned
+
+
+def _seed_outcome(product, cleaned):
+    if product is None:
+        return "create"
+    return [name for name, value in cleaned.items() if getattr(product, name) != value] or "same"
+
+
+def seed_state(rows):
+    """What the seed would do with each row, writing nothing: a list of
+    (code, "create" | "same" | [differing fields]). Reads the catalog only while it is
+    switched on."""
+    existing = {}
+    if enabled():
+        existing = {
+            product.code: product
+            for product in CatalogProduct.objects.filter(catalog__template_key="sante")
+        }
+    result = []
+    for row in rows:
+        code, cleaned = seed_clean(row)
+        result.append((code, _seed_outcome(existing.get(code), cleaned)))
+    return result
+
+
+def seed_products(rows, *, operator, file_sha256, images=None):
+    """Create the products of `rows` that are not in the catalog yet, each at revision 1 with
+    source "seed", `operator` (an active staff user) and the seed file's hash. One transaction:
+    all or none. An existing code is never changed. `images` maps a code to (bytes, content
+    type), stored in the media store for the products created. Returns what seed_state gives,
+    taken under the lock. Raises ApiError for a bad row."""
+    images = images or {}
+    stored = []
+    try:
+        with transaction.atomic():
+            catalog = _locked_catalog("sante")
+            existing = {product.code: product for product in catalog.products.all()}
+            result = []
+            for row in rows:
+                code, cleaned = seed_clean(row)
+                outcome = _seed_outcome(existing.get(code), cleaned)
+                result.append((code, outcome))
+                if outcome != "create":
+                    continue
+                key = ""
+                if code in images:
+                    key = media.save(*images[code])
+                    stored.append(key)
+                product = CatalogProduct.objects.create(
+                    catalog=catalog, code=code, revision=1, is_active=True, image_key=key,
+                    **cleaned,
+                )
+                existing[code] = product
+                _append_revision(
+                    product,
+                    source=CatalogProductRevision.SEED,
+                    changed_by_operator_user_id=operator.pk,
+                    changed_by_operator_username=operator.get_username(),
+                    seed_file_sha256=file_sha256,
+                )
+    except BaseException:
+        for key in stored:
+            media.discard(key)
+        raise
+    return result

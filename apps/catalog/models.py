@@ -45,6 +45,11 @@ class CatalogProduct(models.Model):
     name = models.CharField(max_length=120)
     short_description = models.TextField(blank=True)  # at most 500, checked in services
     long_description = models.TextField(blank=True)  # at most 20000, checked in services
+    # One of barley, drinks, essentials, beauty, or blank (checked in services, not a DB enum).
+    category = models.CharField(max_length=20, blank=True, default="")
+    # Storage key of the one product image in the public media store; blank means no image.
+    # The public URL is worked out on output (media.py), never stored.
+    image_key = models.CharField(max_length=200, blank=True, default="")
     weight_kg = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0"))
     # Shipping inputs: null means not set.
     volume_slot = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
@@ -122,6 +127,8 @@ class CatalogProductRevision(models.Model):
     name = models.CharField(max_length=120)
     short_description = models.TextField(blank=True)
     long_description = models.TextField(blank=True)
+    category = models.CharField(max_length=20, blank=True, default="")
+    image_key = models.CharField(max_length=200, blank=True, default="")
     weight_kg = models.DecimalField(max_digits=10, decimal_places=2)
     volume_slot = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     shipping_qty = models.PositiveIntegerField(null=True, blank=True)
@@ -132,7 +139,7 @@ class CatalogProductRevision(models.Model):
     earnings_rate = models.DecimalField(max_digits=5, decimal_places=4)
     is_active = models.BooleanField()
     # Who wrote it. An owner write names the account and the site by row number; a seed
-    # names the operator and the seed file. No seed is built yet: the columns wait for it.
+    # names the operator and the seed file (the catalog_seed_sante command).
     source = models.CharField(max_length=8, choices=SOURCE_CHOICES)
     changed_by_account_id = models.PositiveBigIntegerField(null=True, blank=True)
     changed_by_site_id = models.PositiveBigIntegerField(null=True, blank=True)

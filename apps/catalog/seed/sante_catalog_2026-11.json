@@ -1,0 +1,161 @@
+{
+  "source": {
+    "name": "TWCinc production baseline extraction (read-only)",
+    "file": "2026-10-28-sante-mvp-e3-prod-baseline-extraction.json",
+    "extracted": "2026-10-28",
+    "rule": "rows with active=true that are not the Membership Package",
+    "category_from": "cat2",
+    "code_from": "sku"
+  },
+  "signoff": {
+    "approved_by": "Coach Ed",
+    "approved_on": "2026-11-13",
+    "note": "Approved the 18 products and their prices from this extraction, known to be two weeks old (ClickUp z8uq9mek5w)."
+  },
+  "products": [
+    {
+      "code": "SPHB01001",
+      "name": "Fusion Coffee",
+      "category": "drinks",
+      "srp_centavos": 45000,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.18"
+    },
+    {
+      "code": "SPHB01002",
+      "name": "Boost Coffee",
+      "category": "drinks",
+      "srp_centavos": 50000,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.18"
+    },
+    {
+      "code": "SPHB03001",
+      "name": "Fit N' Trim",
+      "category": "drinks",
+      "srp_centavos": 77000,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.09"
+    },
+    {
+      "code": "SPHK06001",
+      "name": "Santé Beauty Collagen + Barley",
+      "category": "beauty",
+      "srp_centavos": 140000,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.09"
+    },
+    {
+      "code": "SPHN01001",
+      "name": "Santé Barley Powder (10 sachets) with Stevia",
+      "category": "barley",
+      "srp_centavos": 74000,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.05"
+    },
+    {
+      "code": "SPHN01003",
+      "name": "Santé Barley Powder (30 sachets) with Stevia",
+      "category": "barley",
+      "srp_centavos": 210000,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.16"
+    },
+    {
+      "code": "SPHN01005",
+      "name": "Santé Barley Canister (200g) with Stevia",
+      "category": "barley",
+      "srp_centavos": 280000,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.26"
+    },
+    {
+      "code": "SPHN01006",
+      "name": "Santé Barley Canister (200g) No Added Sweetener",
+      "category": "barley",
+      "srp_centavos": 280000,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.26"
+    },
+    {
+      "code": "SPHN02001",
+      "name": "Santé Barley Capsules",
+      "category": "barley",
+      "srp_centavos": 105000,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.08"
+    },
+    {
+      "code": "SPHN03003",
+      "name": "Daily-C (500mg x 100 capsules)",
+      "category": "essentials",
+      "srp_centavos": 82500,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.15"
+    },
+    {
+      "code": "SPHO01001",
+      "name": "Santé FibrEnergy (10 Sachet)",
+      "category": "drinks",
+      "srp_centavos": 50000,
+      "earnings_rate": "0.2000",
+      "weight_kg": "0.25"
+    },
+    {
+      "code": "SPHO02001",
+      "name": "Barliccino Coffee (10 Sachet)",
+      "category": "drinks",
+      "srp_centavos": 32000,
+      "earnings_rate": "0.2000",
+      "weight_kg": "0.15"
+    },
+    {
+      "code": "SPHO03001",
+      "name": "Calcium-Cee (500mg x 100 capsules)",
+      "category": "essentials",
+      "srp_centavos": 82500,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.11"
+    },
+    {
+      "code": "SPHO04001",
+      "name": "Santé Barley Max NZ (100g) with Stevia",
+      "category": "barley",
+      "srp_centavos": 154500,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.13"
+    },
+    {
+      "code": "SPHO04003",
+      "name": "Santé Barley Max NZ (100g) No Added Sweetener",
+      "category": "barley",
+      "srp_centavos": 154500,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.13"
+    },
+    {
+      "code": "SPHP01001",
+      "name": "Moments Sanitary Napkin (10 pads)",
+      "category": "essentials",
+      "srp_centavos": 25000,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.08"
+    },
+    {
+      "code": "SPHP03001",
+      "name": "Natureal Toothpaste 100ml",
+      "category": "essentials",
+      "srp_centavos": 45000,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.15"
+    },
+    {
+      "code": "SPHPO1002",
+      "name": "Moments Anion Night Pads (5 pads)",
+      "category": "essentials",
+      "srp_centavos": 20000,
+      "earnings_rate": "0.4000",
+      "weight_kg": "0.06"
+    }
+  ]
+}
