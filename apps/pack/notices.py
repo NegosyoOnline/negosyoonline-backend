@@ -11,6 +11,7 @@ from django.db import transaction
 
 from apps.members import messaging
 from apps.notifications.services import send_email
+from apps.notifications.store_email import send_store_email
 from apps.pack import access
 from apps.pack.models import PackOrder, PackProofDecision, PackProofSubmission
 
@@ -94,10 +95,9 @@ def access_link(member, *, limited=True):
     link = access.link_for(member, host)
     subject, body = ACCESS_EMAIL
     values = {"name": messaging.store_name(site), "first": _first_name(member), "url": link}
-    from_name, reply_to = messaging.sender(site)
-    return send_email(
-        to=member.email, category="pack_access_link", subject=subject.format(**values),
-        body=body.format(**values), sender_name=from_name, reply_to=reply_to,
+    return send_store_email(
+        site, to=member.email, category="pack_access_link", subject=subject.format(**values),
+        body=body.format(**values),
     )
 
 
@@ -115,10 +115,9 @@ def order_received(order_pk):
         host = host_for(site)
         if host:
             values["url"] = access.link_for(member, host) + ACCESS_LINK_NOTE
-    from_name, reply_to = messaging.sender(site)
-    return send_email(
-        to=member.email, category="pack_order_received", subject=subject.format(**values),
-        body=body.format(**values), sender_name=from_name, reply_to=reply_to,
+    return send_store_email(
+        site, to=member.email, category="pack_order_received", subject=subject.format(**values),
+        body=body.format(**values),
     )
 
 
@@ -153,10 +152,8 @@ def _decision_email(decision_pk, texts, category):
         "name": messaging.store_name(site), "first": _first_name(member), "no": order.order_number,
         "url": dashboard_url(site),
     }
-    from_name, reply_to = messaging.sender(site)
-    return send_email(
-        to=member.email, category=category, subject=subject.format(**values), body=body.format(**values),
-        sender_name=from_name, reply_to=reply_to,
+    return send_store_email(
+        site, to=member.email, category=category, subject=subject.format(**values), body=body.format(**values),
     )
 
 

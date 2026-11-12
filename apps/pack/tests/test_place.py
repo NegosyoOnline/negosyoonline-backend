@@ -228,12 +228,22 @@ class MailTests(PackTestCase):
         self.assertIn("New payment proof to review: SMP00001", subjects[self.site.account.email])
         self.assertIn("Maria S.", [m for m in mail.outbox if m.to[0] == self.site.account.email][0].body)
 
+    def test_branded_switch_on_mails_the_buyer_html_and_leaves_the_owner_notice_plain(self):
+        with override_settings(STORE_EMAILS_BRANDED=True):
+            with self.captureOnCommitCallbacks(execute=True):
+                self.placed()
+        buyer = [m for m in mail.outbox if m.to[0] == EMAIL][0]
+        owner = [m for m in mail.outbox if m.to[0] == self.site.account.email][0]
+        self.assertEqual(buyer.alternatives[0][1], "text/html")
+        self.assertEqual(getattr(owner, "alternatives", []), [])
+        self.assertEqual(owner.from_email, "NegosyoOnline <no-reply@negosyoonline.com>")
+
     def test_an_unverified_owner_is_not_mailed(self):
         type(self.site.account).objects.filter(pk=self.site.account_id).update(email_verified_at=None)
         self.placed()
         self.assertEqual([m.to[0] for m in mail.outbox], [EMAIL])
 
     def test_a_failed_email_does_not_undo_the_order(self):
-        with mock.patch("apps.pack.notices.send_email", side_effect=RuntimeError("smtp")):
+        with mock.patch("apps.pack.notices.send_store_email", side_effect=RuntimeError("smtp")):
             self.placed()
         self.assertEqual(PackOrder.objects.count(), 1)
