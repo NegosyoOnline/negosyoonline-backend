@@ -25,6 +25,15 @@ def _mask_deep(value):
     return value
 
 
+def _drop_frame_vars(event):
+    """Remove every stack frame's local variables: they can hold codes, tokens and names."""
+    for container in (event.get("exception"), event.get("threads")):
+        for entry in (container or {}).get("values", []):
+            stack = entry.get("stacktrace") or {}
+            for frame in stack.get("frames", []):
+                frame.pop("vars", None)
+
+
 def before_send(event, hint):
     """Strip the request's body, cookies, query string and headers, and the user; mask any
     email or Philippine mobile number left in messages, exception values and breadcrumbs."""
@@ -38,6 +47,11 @@ def before_send(event, hint):
         if request.get("url"):
             kept["url"] = mask_text(request["url"].split("?")[0].split("#")[0])
         event["request"] = kept
+    _drop_frame_vars(event)
+    job = (event.get("contexts") or {}).get("celery-job")
+    if isinstance(job, dict):  # keep the task name only, never its arguments
+        job.pop("args", None)
+        job.pop("kwargs", None)
     for key in ("message", "logentry", "exception", "breadcrumbs", "extra", "contexts"):
         if key in event:
             event[key] = _mask_deep(event[key])
@@ -56,6 +70,7 @@ def init(dsn=None):
     sentry_sdk.init(
         dsn=dsn,
         send_default_pii=False,
+        include_local_variables=False,
         traces_sample_rate=0,
         before_send=before_send,
         release=os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown")[:12],

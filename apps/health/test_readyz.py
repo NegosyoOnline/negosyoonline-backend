@@ -130,6 +130,7 @@ class SentryTests(TestCase):
         kwargs = init.call_args.kwargs
         self.assertFalse(kwargs["send_default_pii"])
         self.assertEqual(kwargs["traces_sample_rate"], 0)
+        self.assertFalse(kwargs["include_local_variables"])
         self.assertIs(kwargs["before_send"], sentry.before_send)
 
     def test_before_send_strips_and_masks(self):
@@ -155,3 +156,20 @@ class SentryTests(TestCase):
         for leaked in ("ana@", "juan.d", "9171234567", "Bearer", "abc"):
             self.assertNotIn(leaked, text)
         self.assertIn("[masked]", out["message"])
+
+    def test_before_send_drops_frame_variables(self):
+        event = {"exception": {"values": [{"value": "x", "stacktrace": {"frames": [
+            {"function": "f", "vars": {"code": "123456", "token": "abc"}},
+            {"function": "g", "vars": {"name": "Ana"}},
+        ]}}]}}
+        out = sentry.before_send(event, {})
+        frames = out["exception"]["values"][0]["stacktrace"]["frames"]
+        self.assertTrue(all("vars" not in frame for frame in frames))
+        self.assertNotIn("123456", str(out))
+
+    def test_before_send_drops_celery_task_arguments_keeps_name(self):
+        event = {"contexts": {"celery-job": {
+            "task_name": "billing.notices", "args": ["+639171234567"], "kwargs": {"code": "654321"},
+        }}}
+        job = sentry.before_send(event, {})["contexts"]["celery-job"]
+        self.assertEqual(job, {"task_name": "billing.notices"})
