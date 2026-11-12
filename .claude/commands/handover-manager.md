@@ -37,7 +37,7 @@ Write exactly these sections, whole file under 6 KB:
     Per repository: the open PR and who holds the slot, then the queue in order.
 
     ## Rulings
-    A pointer: the link of ClickUp task z8uq9med6x (comments on ClickUp task z8uq9med6x) and the date of the last entry read. Below it only rulings given in this session that are not yet logged, each quoted with its date and the coordinators told.
+    A pointer: the link of ClickUp task z8uq9med6x (the rulings log) and the date of the last entry read. Below it only rulings given in this session that are not yet logged, each quoted with its date and the coordinators told.
 
     ## Owner decisions pending
     Each with its coordinator, the exact decision, and whether it needs his word in that coordinator's session.
