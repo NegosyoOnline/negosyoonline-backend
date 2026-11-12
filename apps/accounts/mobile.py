@@ -21,6 +21,7 @@ from apps.common import throttle
 from apps.common.errors import ApiError
 from apps.common.masking import mask_mobile
 from apps.common.phones import normalise_ph_mobile
+from apps.notifications.email_render import account_mail
 from apps.notifications.services import SMS_QUEUED, EmailNotSent, send_email, send_sms, sms_on
 
 CODE_TTL = 600  # seconds
@@ -167,10 +168,12 @@ def _notify_change(account, number):
             to=account.email,
             category="mobile_changed_notice",
             subject="Your NegosyoOnline mobile number changed",
-            body=(
+            **account_mail(
+                "mobile_notice",
                 "The mobile number on your NegosyoOnline account was changed to the number "
                 f"ending in {number[-4:]}. If you did not make this change, sign in and "
-                "update it."
+                "update it.",
+                last4=number[-4:],
             ),
         )
     except EmailNotSent:

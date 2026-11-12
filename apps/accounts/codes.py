@@ -66,3 +66,14 @@ def check_code(email, code, purpose="signin"):
 
 def clear_code(email, purpose="signin"):
     cache.delete_many([_key("code", purpose, email), _key("attempts", purpose, email)])
+
+
+def release_cooldown(email, ip, purpose="signin"):
+    """Give back what issue_code() took when the code email could not be sent: the 60 second
+    wait, one of the hourly allowances and the code itself, so the person can ask again at once."""
+    cache.delete_many([_key("cooldown", purpose, email), _key("code", purpose, email)])
+    for key in (_key("email-hour", purpose, email), _key("ip-hour", "any", ip)):
+        try:
+            cache.decr(key)
+        except ValueError:  # the counter already expired
+            pass
