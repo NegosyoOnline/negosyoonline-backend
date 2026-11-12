@@ -129,7 +129,7 @@ def issue_for_payment(payment, *, now=None):
         return existing
     with transaction.atomic():
         payment = (
-            BankTransferPayment.objects.select_for_update()
+            BankTransferPayment.objects.select_for_update(of=("self",))
             .select_related("subscription__site__account", "cycle").get(pk=payment.pk)
         )
         existing = Statement.objects.filter(source_key=key).first()

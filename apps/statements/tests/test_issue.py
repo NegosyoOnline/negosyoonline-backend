@@ -196,8 +196,7 @@ class RefusalTests(IssueCase):
     def test_an_unknown_plan_refuses(self):
         payment = self.paid()
         payment.plan_code = "mystery"
-        with mock.patch.object(issue.BankTransferPayment.objects, "select_for_update") as lock:
-            lock.return_value.select_related.return_value.get.return_value = payment
+        with mock.patch.dict(issue.KINDS, clear=True):
             self.refused("unknown_plan", payment)
 
     def test_lines_that_do_not_add_to_the_payment_refuse(self):
