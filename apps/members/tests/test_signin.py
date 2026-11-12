@@ -220,11 +220,19 @@ class MobileRequestTests(MembersTestCase):
         self.assertEqual(mail.outbox, [])
         self.assertEqual(MemberOtpChallenge.objects.get().channel, "sms")
 
-    def test_a_verified_email_is_reached_by_a_mobile_only_when_the_mobile_is_verified_too(self):
+    def test_a_verified_email_is_the_default_channel_for_a_typed_mobile(self):
         self.register()
         Member.objects.filter(pk=self.member.pk).update(email_state="verified", mobile_state="verified")
         self.request_code(MOBILE)
         self.assertEqual((self.sent, len(mail.outbox)), ([], 1))
+
+    def test_a_verified_email_is_the_channel_even_when_the_typed_mobile_is_not_confirmed(self):
+        self.register()
+        Member.objects.filter(pk=self.member.pk).update(email_state="verified", mobile_state="pending")
+        response = self.request_code(MOBILE)
+        self.assertEqual((response.status_code, response.json()), (200, GENERIC))
+        self.assertEqual((self.sent, len(mail.outbox)), ([], 1))
+        self.assertEqual(MemberOtpChallenge.objects.get().channel, "email")
 
     def test_a_template_that_texts_first_overrides_the_email(self):
         self.register()

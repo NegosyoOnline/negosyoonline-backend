@@ -62,6 +62,10 @@ The emailed URL is `https://<host>/funnel/membership-pack/access/<signed-id>/`. 
 
 `member/signin/*`, `member/me/`, `member/signout/` as `apps/members/api.py`.
 
+Channel rule (Coach Ed, 2026-11-12): the backend picks the channel, never the browser. A member whose email is verified gets the sign-in code by email on the first `member/signin/request/`, whether they typed the email or the mobile (no second "Email me the code" step). Without a verified email: an email entry still goes by email (verified or pending), a mobile entry goes by SMS (and a typed, still-unconfirmed onboarding mobile gets no code). A template that texts first keeps SMS.
+
+The answer to `signin/request/` and `signin/resend/` is always `{step: "code", message: "If this matches a member of this store, we sent a code.", offer_email: false}`, identical for members and unknown contacts, so it carries no channel and no masked address (that would reveal membership). No new field. The code step may show a hint built only from what the visitor typed: for a typed email, "We emailed a code to f***@example.test" (masked from the typed value); for a typed mobile, the neutral `message`. `signin/accept-email/` stays as the fallback for the `offer_email: true` path (an SMS that fell back); with a verified email it is rarely reached.
+
 ## Member payment card, proof and new proof (PK8)
 
 All under `/storefront/v1/`, body `{host, token}` where `token` is the member session. No session or an old one: `401 member_session_invalid`. The other errors use the usual `{error: {code, message, fields?}}`.
