@@ -318,6 +318,8 @@ class BillingIsolationTests(SitesApiTestCase):
             sorted(billing_routes()),
             [
                 ("GET", "/sites/{site_id}/billing/"),
+                ("GET", "/sites/{site_id}/billing/invoices/"),
+                ("GET", "/sites/{site_id}/billing/invoices/{invoice_id}/copy/"),
                 ("GET", "/sites/{site_id}/billing/payment/"),
                 ("GET", "/sites/{site_id}/billing/payments/"),
                 ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"),
@@ -333,7 +335,7 @@ class BillingIsolationTests(SitesApiTestCase):
         # site, needs no sign-in and reads no billing table.
         outside = [p for p in billing_router.path_operations if "{site_id}" not in p]
         self.assertEqual(outside, ["/plan/"])
-        self.assertEqual(len(billing_router.path_operations), 9)
+        self.assertEqual(len(billing_router.path_operations), 11)
 
     def test_another_accounts_site_is_404_on_every_billing_route_and_changes_nothing(self):
         before = billing_snapshot()
@@ -375,6 +377,10 @@ class BillingIsolationTests(SitesApiTestCase):
                 expected = 409 if template.endswith("reactivate/") else 200
                 if template.endswith("/billing/usage/"):
                     expected = 404  # B4's switch is off here; test_usage_api.py covers it on
+                if "/billing/invoices/" in template:
+                    # The invoice register is switched off here; apps/invoices/tests/test_scans.py
+                    # covers these routes with it on.
+                    expected = 404
                 if "/billing/payment" in template:
                     # Bank transfer is switched off here, so its routes are 404 for the
                     # owner too; apps/billing/tests/test_transfer_api.py covers them on.

@@ -71,6 +71,9 @@ STAYS_ON = [
     ("POST", "/sites/{site_id}/billing/payments/"),
     ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"),
     ("GET", "/sites/{site_id}/billing/payments/{payment_id}/proof/"),
+    # The invoice copies (B5): billing records, like the payments, stay readable.
+    ("GET", "/sites/{site_id}/billing/invoices/"),
+    ("GET", "/sites/{site_id}/billing/invoices/{invoice_id}/copy/"),
 ]
 MESSAGE = "This site is limited to Billing until its subscription continues."
 SANTE_BODY = {"sponsor_id": "TAKEN-1"}
