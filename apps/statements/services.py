@@ -74,6 +74,13 @@ def pending_issuer():
     return rows.order_by("-pk").first()
 
 
+def _lock_issuers():
+    """Lock every issuer row, in pk order. The table holds a handful of rows (one per change to
+    the COR), and one common lock is what orders a verify against another verify and against
+    a book being added."""
+    return list(IssuerProfile.objects.select_for_update().order_by("pk"))
+
+
 def set_issuer(operator, body):
     """Record a new issuer profile, unverified. Returns it."""
     values = {f: _text(body, f, n) for f, n in ISSUER_FIELDS.items()}
@@ -96,12 +103,18 @@ def verify_issuer(operator, public_id, note=""):
     if not isinstance(note, str) or len(note) > 300:
         raise _invalid("note", "At most 300 characters.")
     with transaction.atomic():
-        try:
-            issuer = IssuerProfile.objects.select_for_update().get(public_id=public_id)
-        except IssuerProfile.DoesNotExist:
-            raise ApiError("not_found", "Not found.", status=404) from None
+        rows = _lock_issuers()
+        issuer = next((row for row in rows if row.public_id == public_id), None)
+        if issuer is None:
+            raise ApiError("not_found", "Not found.", status=404)
         if issuer.verified_at is not None:
             raise ApiError("already_verified", "This profile is already verified.", status=409)
+        # "Current" is the newest verified row, so verifying an older one would bring old
+        # values back as the issuer.
+        if any(row.verified_at is not None and row.pk > issuer.pk for row in rows):
+            raise ApiError(
+                "superseded", "A newer profile is already verified; record a new one.", status=409
+            )
         issuer.verified_at, issuer.verified_by = timezone.now(), operator
         issuer.verification_note = note.strip()
         issuer.save()
@@ -114,8 +127,8 @@ def verify_issuer(operator, public_id, note=""):
 
 def add_book(operator, body):
     """Record one paper booklet, once, under the current verified issuer. Its range may not
-    overlap another book of the same series; the current issuer's row is locked around that
-    check so two requests cannot both pass it."""
+    overlap another book of the same series. Every issuer row is locked around the check, so two
+    requests cannot both pass it, and a verify cannot land between them."""
     series = _text(body, "series", 20, required=False)
     serial_from = _int(body, "serial_from", minimum=0)
     serial_to = _int(body, "serial_to", minimum=0)
@@ -129,10 +142,10 @@ def add_book(operator, body):
         "printer_name": _text(body, "printer_name", 160, required=False),
     }
     with transaction.atomic():
+        _lock_issuers()
         current = current_issuer()
         if current is None:
             raise ApiError("issuer_not_verified", "Verify the issuer profile first.", status=409)
-        IssuerProfile.objects.select_for_update().get(pk=current.pk)  # the lock
         book = InvoiceBook(issuer=current, **values)
         try:
             book.save()

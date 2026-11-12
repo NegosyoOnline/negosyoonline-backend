@@ -115,6 +115,16 @@ class IssuerTests(StaffTests):
         self.assertEqual(IssuerProfile.objects.count(), 2)  # nothing was edited
         self.assertEqual(len(self.audits("billing_issuer_verified")), 2)
         self.assertError(self.post("issuer/verify/", {"issuer": "iss_nope"}), 404, "not_found")
+
+    def test_an_older_unverified_profile_cannot_be_verified_after_a_newer_one(self):
+        self.staff_sign_in()
+        old = self.post("issuer/set/", ISSUER).json()["issuer"]
+        new = self.post("issuer/set/", {**ISSUER, "branch_code": "001"}).json()["issuer"]
+        self.post("issuer/verify/", {"issuer": new})
+        self.assertError(self.post("issuer/verify/", {"issuer": old}), 409, "superseded")
+        self.assertEqual(self.post("issuer/get/").json()["current"]["issuer"], new)
+        self.assertEqual(len(self.audits("billing_issuer_verified")), 1)
+        self.assertIsNone(IssuerProfile.objects.get(public_id=old).verified_at)
         self.assertError(self.post("issuer/verify/", {}), 400, "invalid_request")
 
 
