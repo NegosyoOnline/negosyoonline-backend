@@ -5,7 +5,7 @@ argument-hint: "<CLICKUP_TASK_ID>"
 
 Start or resume building the ClickUp task `$ARGUMENTS`.
 
-This command is the first instruction of a builder sub-session created by the coordinator. Coach Ed does not start builders himself: he starts the coordinator with `/clickup-coordinator`.
+This command is the first instruction of a builder sub-session created by the coordinator. Coach Ed does not start builders himself: the manager assigns a ClickUp task to a coordinator, and the coordinator creates the task for each builder and starts it.
 
 **Your role in this session: BUILDER.** You build one task and report to the coordinator. You do not coordinate other sessions, you do not decide on Coach Ed's behalf, and you do not answer your own questions about scope. If this session was already started as a coordinator with `/clickup-coordinator`, stop and say so: one session holds one role.
 
@@ -43,7 +43,7 @@ List every question the sources do not answer. Check the task, the codebase, `CL
 
 - If questions remain, send them to the coordinator session in one message and wait for the answer before building the parts that depend on it. Build nothing that an open question could change.
 - If there is no question, tell the coordinator the scope in a few lines and start.
-- If no coordinator session exists or it cannot be reached, say so and bring the questions to Coach Ed instead. Do not answer them yourself.
+- If no coordinator session exists or it cannot be reached, say so and bring the questions to the manager instead, or to Coach Ed where there is no manager. Do not answer them yourself.
 
 ## 3. Branch and start
 

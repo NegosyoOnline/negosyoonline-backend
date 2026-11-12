@@ -18,13 +18,13 @@ Read `.claude/briefs/coordinator.md` now and follow it for the whole session. Th
 - No ClickUp status changes on a builder's task. The builder owns `IN PROGRESS`, `FOR CHECKING` and `ACCEPTED`; Coach Ed sets Completed.
 - No visual acceptance. That is Coach Ed's alone.
 
-What the coordinator may write: messages to builders, the review packet, the coordination record, and its own handover through `/handover-coordinator`.
+What the coordinator may write: messages to builders, the ClickUp subtask for each builder (coordinator brief, section 2), the routine-decision comment, the review packet, the coordination record, and its own handover through `/handover-coordinator`.
 
 If no builder session can be started or reached with the supported tools, say so to Coach Ed. Do not start building instead.
 
 ## Every task starts in ClickUp
 
-Standing rule from Coach Ed: no work starts without a ClickUp task that details it. If the task, or a subtask about to be built, does not say what to deliver and how it will be accepted, do not fill the gap and do not start a builder on it. Tell Coach Ed which task is missing what, and wait for the task to be updated. Work asked for only in chat goes into a ClickUp task first.
+Standing rule from Coach Ed: no work starts without a ClickUp task that details it. If the main task does not say what to deliver and how it will be accepted, do not fill the gap and do not start a builder on it. Say which task is missing what (to the manager, or to Coach Ed where there is none), and wait for the task to be updated. The subtask a builder builds from is yours to create, from what the main task, its rulings and its approved plan already say. Work asked for only in chat goes into a ClickUp task first.
 
 ## What ClickUp is here
 
@@ -55,14 +55,14 @@ Bring Coach Ed only the open decisions that the brief's escalation rules cover, 
 
 ## 3. Create and brief the builders
 
-This coordinator session is started by Coach Ed, or by the manager session on his instruction. Builders are never separate top-level sessions: create each as a Claude sub-session under this session, so it sits beneath the coordinator and is easy to find. If a start is refused here because the turn was not begun by Coach Ed's own message, ask the manager to start it (coordinator brief, section 2). If the tools cannot create it at all, say so; do not build here instead.
+This coordinator session is started by the manager session, which assigns it this task, or by Coach Ed directly. Builders are never separate top-level sessions: create each as a Claude sub-session under this session, so it sits beneath the coordinator and is easy to find. If a start is refused here because the turn was not begun by Coach Ed's own message, ask the manager to start it (coordinator brief, section 2). If the tools cannot create it at all, say so; do not build here instead.
 
 - Name each sub-session with its role and task: `Builder <CLICKUP_TASK_ID> <short topic>`.
 - Its first instruction is `/clickup-builder <CLICKUP_TASK_ID>`. If a sub-session cannot be started with a slash command, tell it to read and follow `.claude/commands/clickup-builder.md` for that task ID.
-- A task with subtasks: one builder per subtask, each with its subtask ID.
-- A task with no subtasks: one builder with the same task ID as this coordinator. The two sessions share the ID and keep their separate roles.
+- One builder per subtask, each with its subtask ID. Where a piece of work has no subtask yet, create it first (coordinator brief, section 2).
+- A task small enough for one builder needs no subtask: one builder with the same task ID as this coordinator. The two sessions share the ID and keep their separate roles.
 - Add to each brief what the builder cannot get from its own task: rulings from the parent or sibling tasks, shared-file ownership, dependencies and release order, and this session as the place for questions and reports.
-- Do not start two builders on the same files, and do not create subtasks in ClickUp to split the work. If a task is too large for one builder, tell Coach Ed.
+- Do not start two builders on the same files. A subtask you create splits approved work; it never adds scope.
 
 ## 4. Answer the builders
 
@@ -71,7 +71,7 @@ A builder asks before it builds. For each question:
 1. Check the task, the comments, the rulings and the code.
 2. If the answer is established, give it with its source and tell the builder to continue.
 3. If it is a reversible implementation detail inside approved scope, choose the smallest suitable option and record the choice.
-4. Only if it is a real owner decision under the brief's escalation rules, take it to Coach Ed in the brief's format.
+4. If you cannot answer it, take it to the manager in the brief's format. The manager answers it, or takes it to Coach Ed when it cannot. With no manager, take a real owner decision to Coach Ed yourself.
 
 Record each answer in the coordination record so the next builder does not ask it again.
 

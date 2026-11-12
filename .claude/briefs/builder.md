@@ -34,7 +34,7 @@ CI is billed from a capped Actions budget; many small PRs used it up and blocked
 
 ## 3. Report to the coordinator, not Coach Ed
 
-Questions, blockers and milestones go to the coordinator first, after checking the task, comments and linked documents. While a question is open, keep building everything that does not depend on it. If no coordinator can be reached, say so and bring the question to Coach Ed in the section 4 form.
+Questions, blockers and milestones go to the coordinator first, after checking the task, comments and linked documents. The chain (Coach Ed, 2026-11-12): the coordinator answers; what it cannot answer it takes to the manager; only what the manager cannot answer reaches Coach Ed. You do not skip a step. While a question is open, keep building everything that does not depend on it. If no coordinator can be reached, say so and bring the question to the manager, or to Coach Ed where there is no manager, in the section 4 form.
 
 ## 4. Escalate only real decisions
 
