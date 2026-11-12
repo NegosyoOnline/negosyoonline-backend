@@ -10,6 +10,7 @@ from apps.common import throttle
 from apps.common.errors import ApiError
 from apps.common.phones import normalise_ph_mobile
 from apps.notifications.services import send_email
+from apps.pack import policies
 from apps.sites import templates
 from apps.sites.api_public import served
 from apps.sites.models import SiteBusinessProfile
@@ -54,14 +55,14 @@ def site_chrome(site):
             "dti_business_number": profile.dti_business_number if profile else "",
             "contact_email": store_contact_email(site, profile),
             "contact_mobile": site.contact_mobile,
-            "has_seal": False,  # private files arrive with slice 8
+            "has_seal": bool(profile and profile.seal_key),
         },
         "distributor": {
             "name": site.account.name.strip() or site.display_name,
             "mobile": _public_mobile(site.contact_mobile),
             "has_photo": False,  # private files arrive with slice 8
         },
-        "policy_links": [],  # filled when the policy pages exist
+        "policy_links": policies.links(site),  # live pages only, none while the pack is off
         "free_shipping_banner": False,  # on only once the shipping setting exists
     }
 

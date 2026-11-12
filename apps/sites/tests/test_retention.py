@@ -154,3 +154,19 @@ class ExportSitesTests(SiteRetentionTestCase):
         before = rows()
         retention.export_sites_of(self.account)
         self.assertEqual(rows(), before)
+
+
+class SealRetentionTests(SiteRetentionTestCase):
+    def test_a_disposal_deletes_the_seal_files_and_blanks_the_keys_of_the_account_only(self):
+        from apps.common import private_files
+        from apps.payments.tests.base import PNG, stored_files, use_local_private_store
+
+        directory = use_local_private_store(self)
+        keys = {}
+        for name, site in (("mine", self.first), ("theirs", self.theirs)):
+            keys[name] = private_files.save(f"sites/seal/site-{site.pk}", PNG, "image/png")
+            SiteBusinessProfile.objects.filter(site=site).update(seal_key=keys[name])
+        retention.blank_sites_of(self.account, self.now)
+        self.assertEqual(SiteBusinessProfile.objects.get(site=self.first).seal_key, "")
+        self.assertEqual(SiteBusinessProfile.objects.get(site=self.theirs).seal_key, keys["theirs"])
+        self.assertEqual(stored_files(directory), [keys["theirs"]])

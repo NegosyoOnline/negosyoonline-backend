@@ -88,7 +88,13 @@ class SiteBusinessProfile(models.Model):
     )
     shipping_other_areas_estimate = models.CharField(max_length=60, blank=True)
     shipping_estimates_confirmed = models.BooleanField(default=False)
+    # The owner's BIR registration badge: the key of a private file, never shown to a browser.
+    seal_key = models.CharField(max_length=200, blank=True, default="", editable=False)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def has_seal(self):
+        return bool(self.seal_key)
 
     def __str__(self):
         return f"Business profile of {self.site}"

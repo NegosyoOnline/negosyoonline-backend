@@ -48,6 +48,10 @@ class Purpose:
 # writes to one number from the inbox. Marketing has no purpose here and cannot be sent.
 PURPOSES = {
     "mobile_verify": Purpose(category=CODE, priority=Priority.CODE),
+    # A Santé member's one-time code, texted to the member's own phone: signed in by mobile, and
+    # the mobile confirmed after the first order. Codes only: platform limit, never a site cap.
+    "member_signin_code": Purpose(category=CODE, priority=Priority.CODE),
+    "member_mobile_verify": Purpose(category=CODE, priority=Priority.CODE),
     "inbox_reply": Purpose(category=INBOX, priority=Priority.REPLY, paced=True),
     "inbox_compose": Purpose(category=INBOX, priority=Priority.REPLY, paced=True),
     # One announcement text of a Bulk SMS batch. MARKETING is the sending class (lowest, paced),

@@ -4,7 +4,7 @@ may be used is decided from the typed contact and the counters before any member
 
 The channel rule: an email matches only while it is verified or pending (an unverified email is no
 channel); a mobile matches a member whose number is no longer an unconfirmed onboarding one, and
-goes by SMS unless the email is verified and the mobile is not (then by email), or a template says
+goes by the verified email whenever there is one, else by SMS, or by SMS when a template says
 text first. The SMS branch is the hook the SMS slice fills (hooks.register_sms_transport).
 """
 import time
@@ -54,12 +54,12 @@ def _match(site, kind, value):
     m = Member.objects.filter(site=site, mobile=value).first()
     if m is None:
         return None
+    if m.email_state == "verified" and not hooks.sign_in_sms_first(site):  # the verified email is the default
+        return m, "email", m.email, None
     if m.source == "onboarding" and m.mobile_state == "pending":
-        return None  # a typed, unconfirmed number gets no code; the buyer's way back is the secure link in the after-payment email
+        return None  # no verified email: a typed, unconfirmed number gets no code; the buyer's way back is the secure link in the after-payment email
     if m.email_state == "verified" and hooks.sign_in_sms_first(site):
         return (m, "sms", m.mobile, "otp_email_fallback") if m.mobile_state in ("verified", "pending") else None
-    if m.email_state == "verified":  # only a verified matching contact reaches the email
-        return (m, "email", m.email, None) if m.mobile_state == "verified" else None
     return m, "sms", m.mobile, "otp_no_fallback"
 
 

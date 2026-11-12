@@ -1,4 +1,4 @@
-"""Member one-time codes. A six-digit code, SHA-256 stored, 10 minutes, 5 wrong guesses burn it,
+"""Member one-time codes. A six-digit code, stored only as a keyed hash (HMAC-SHA256), 10 minutes, 5 wrong guesses burn it,
 single use, bound to one browser (a binding the storefronts server passes as data) or to the member
 session. Sends per typed contact: 3 per 10 minutes and 10 per 24 hours, decoys included, counted
 under a per-contact advisory lock (PostgreSQL) and recounted after it is taken; a silent cap on the
@@ -55,7 +55,9 @@ def binding_hash(raw):
 
 
 def _code_hash(site_pk, purpose, bhash, target, code):
-    return hashlib.sha256(f"{site_pk}:{purpose}:{bhash}:{target}:{code}".encode()).hexdigest()
+    """Keyed with SECRET_KEY: a copy of the database alone must not reveal a six-digit code."""
+    msg = f"{site_pk}|{purpose}|{bhash}|{target}|{code}"
+    return hmac.new(settings.SECRET_KEY.encode(), b"member-otp:" + msg.encode(), hashlib.sha256).hexdigest()
 
 
 def _ip_send_limit(ip):

@@ -25,7 +25,10 @@ class BulkPurposeTests(SmsTestCase):
         self.assertEqual((declared.category, declared.paced), (sms.INBOX, True))
         self.assertIn("inbox_bulk", services.STAFF_PURPOSES)
         self.assertEqual(
-            sorted(sms.PURPOSES), sorted(["mobile_verify", "inbox_reply", "inbox_compose", "inbox_bulk", "order_status"])
+            sorted(sms.PURPOSES), sorted([
+                "mobile_verify", "member_signin_code", "member_mobile_verify",
+                "inbox_reply", "inbox_compose", "inbox_bulk", "order_status",
+            ])
         )
 
     def test_2_a_code_and_a_staff_text_go_out_before_a_bulk_text(self):
