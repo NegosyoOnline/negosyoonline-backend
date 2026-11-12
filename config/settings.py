@@ -128,6 +128,14 @@ BILLING_ANNUAL_ENABLED = os.environ.get("BILLING_ANNUAL_ENABLED", "").strip() ==
 # write and lets collections include overage. Off, the intake answers "disabled" and writes
 # nothing, the usage route answers 404 and the ledger tables are not read or written.
 BILLING_USAGE_ENABLED = os.environ.get("BILLING_USAGE_ENABLED", "").strip() == "1"
+# Billing Statements and the manual BIR invoice register (Billing Build B5). Each is its own
+# switch, "1" to turn on. Off, its routes answer 404, nothing is opened, issued or sent, and its
+# tables are not read or written. The register is built and turned on before the statements.
+BILLING_INVOICE_REGISTER_ENABLED = os.environ.get("BILLING_INVOICE_REGISTER_ENABLED", "").strip() == "1"
+BILLING_STATEMENTS_ENABLED = os.environ.get("BILLING_STATEMENTS_ENABLED", "").strip() == "1"
+# "1" marks new statements and register items as live. Anything else marks them as test, labelled
+# so and never shown as a paid charge. Set to "1" in production only on Coach Ed's approval.
+BILLING_LIVE_DOCUMENTS = os.environ.get("BILLING_LIVE_DOCUMENTS", "").strip() == "1"
 # The accounts Subscribers send their payment to, as a JSON list of objects with `kind`
 # ("bank" or "ewallet"), `provider_name`, `account_name` and `account_number`. Never in code.
 BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").strip()
@@ -167,6 +175,18 @@ STOREFRONT_ENABLED = os.environ.get("STOREFRONT_ENABLED", "").strip() == "1"
 STOREFRONT_SERVER_SECRET = os.environ.get("STOREFRONT_SERVER_SECRET", "").strip()
 
 
+# The Financial Accounting System's books (apps/ledger). "1" turns on the ledger app: its
+# writer and its staff routes. Off, every ledger route answers 404 and no ledger table is
+# read or written.
+LEDGER_ENABLED = os.environ.get("LEDGER_ENABLED", "").strip() == "1"
+# "1" lets a confirmed bank-transfer payment post its journal entry inside the confirmation.
+# Counts only while LEDGER_ENABLED is on. Off, a confirmation behaves as it did before.
+LEDGER_POST_BILLING_ENABLED = os.environ.get("LEDGER_POST_BILLING_ENABLED", "").strip() == "1"
+# "1" lets a live book be opened and posted to. Set only where the real books live, which is
+# nowhere yet: staging holds rehearsal books only.
+LEDGER_LIVE_BOOKS = os.environ.get("LEDGER_LIVE_BOOKS", "").strip() == "1"
+
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -181,6 +201,8 @@ INSTALLED_APPS = [
     'apps.accounts',
     'apps.sites',
     'apps.billing',
+    'apps.statements',
+    'apps.invoices',
     'apps.sante',
     'apps.catalog',
     'apps.payments',
@@ -189,6 +211,7 @@ INSTALLED_APPS = [
     'apps.health',
     'apps.storefront',
     'apps.members',
+    'apps.ledger',
 ]
 
 AUTH_USER_MODEL = "operators.User"
@@ -270,6 +293,20 @@ CELERY_BEAT_SCHEDULE = {
         "task": "billing.sweep",
         "schedule": BILLING_SWEEP_EVERY_SECONDS,
         # A sweep not picked up before the next one is queued is dropped, not piled up.
+        "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
+    },
+    # The register's safety net: opens the invoice item of any confirmed payment that has none.
+    # Does nothing while BILLING_INVOICE_REGISTER_ENABLED is off.
+    "invoices-ensure-items": {
+        "task": "invoices.ensure_items",
+        "schedule": BILLING_SWEEP_EVERY_SECONDS,
+        "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
+    },
+    # Issues the statement of any confirmed payment that has none. Does nothing while
+    # BILLING_STATEMENTS_ENABLED is off.
+    "statements-ensure": {
+        "task": "statements.ensure",
+        "schedule": BILLING_SWEEP_EVERY_SECONDS,
         "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
     },
 }

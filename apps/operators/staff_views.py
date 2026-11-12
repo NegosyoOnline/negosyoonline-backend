@@ -23,6 +23,8 @@ from apps.inbox import bulk_staff, contacts_staff
 from apps.inbox import staff as inbox_staff
 from apps.common.errors import error_body
 from apps.operators import audit, background, hq_auth, hq_views, two_step
+from apps.invoices import staff as invoices_staff
+from apps.statements import staff as statements_staff
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +207,12 @@ ROUTES.update(
 )
 ROUTES.update(
     {path: ("POST", _for_staff(view)) for path, view in bulk_staff.ROUTES.items()}
+)
+ROUTES.update(
+    {path: ("POST", _for_staff(view)) for path, view in statements_staff.ROUTES.items()}
+)
+ROUTES.update(
+    {path: ("POST", _for_staff(view)) for path, view in invoices_staff.ROUTES.items()}
 )
 
 

@@ -13,10 +13,15 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from django.db import transaction
+from django.db.models import Count, Max, Sum
 from django.utils import timezone
 
 from apps.billing import clock, plan
-from apps.billing.models import BillingCycle, ChargeLine, Subscription, UsageEntry, UsageEvent
+from apps.common.errors import ApiError
+from apps.operators import audit
+from apps.billing.models import (
+    BankTransferPayment, BillingCycle, ChargeLine, Subscription, UsageEntry, UsageEvent,
+)
 from apps.sites.models import Site
 
 logger = logging.getLogger(__name__)
@@ -174,6 +179,8 @@ def _route(subscription, cycle, period_end_at, now):
         return Status.NEEDS_REVIEW, "after_service_end"  # L6, and L20 for a suspended site
     if now > period_end_at + plan.LATE_ADMISSION:
         return Status.NEEDS_REVIEW, "late_over_72h"  # L2
+    if closed_and_settled(subscription, now):
+        return Status.WRITTEN_OFF, "after_final_settlement"  # L16, L21: nothing amended
     if cycle.settlement == Settlement.PENDING:
         return Status.HELD, "cycle_pending"  # L36
     if cycle.settlement == Settlement.LAPSED:
@@ -193,8 +200,258 @@ def release_held(cycle, paid, *, now=None):
         entry.reason = "" if paid else "cycle_lapsed"
         entry.save()
         if paid:
-            make_charge(entry)
+            make_charge(entry, labels=["late_admitted"] if entry.detail.get("admitted") else ())
         _event(
             entry, "released_paid" if paid else "written_off_lapsed", f"release:{entry.pk}",
             UsageEvent.Actor.SWEEP,
         )
+
+
+# Collections (Billing Build B4, PR 2). A collection takes the open lines of periods that have
+# ended when its proof is sent; a line made later has a higher id and waits for the next one.
+
+@dataclass(frozen=True)
+class Due:
+    centavos: int = 0
+    lines: int = 0
+    max_id: int = 0
+
+
+def _open_lines(subscription_id):
+    return ChargeLine.objects.filter(subscription_id=subscription_id, status=ChargeLine.Status.OPEN)
+
+
+def due(subscription, now):
+    """The overage a collection sent at `now` would include. Zero while the switch is off."""
+    if not plan.usage_enabled():
+        return Due()
+    rows = _open_lines(subscription.pk).filter(entry__occurred_at__lte=now)
+    found = rows.aggregate(total=Sum("amount_centavos"), top=Max("id"), count=Count("id"))
+    if found["total"] is None:
+        return Due()
+    return Due(found["total"], found["count"], found["top"])
+
+
+def frozen_total(payment):
+    """The open overage the proof `payment` froze: its lines that are still open."""
+    if not payment.usage_line_max_id:
+        return 0
+    rows = _open_lines(payment.subscription_id).filter(
+        id__lte=payment.usage_line_max_id, entry__occurred_at__lte=payment.submitted_at
+    )
+    return rows.aggregate(total=Sum("amount_centavos"))["total"] or 0
+
+
+def settle(payment, now):
+    """Close the lines `payment` froze as settled by it. The caller holds the subscription's lock
+    and has checked `frozen_total`."""
+    if not payment.usage_line_max_id:
+        return 0
+    count = 0
+    for line in _open_lines(payment.subscription_id).select_for_update().filter(
+        id__lte=payment.usage_line_max_id, entry__occurred_at__lte=payment.submitted_at
+    ):
+        line.status, line.settled_payment, line.closed_at = ChargeLine.Status.SETTLED, payment, now
+        line.save()
+        count += 1
+    return count
+
+
+def write_off_line(line, reason, now, *, actor=UsageEvent.Actor.SWEEP):
+    """Close an open line as written off, with its cause (L41). A closed line is left alone."""
+    if line.status != ChargeLine.Status.OPEN:
+        return False
+    line.status, line.closed_reason, line.closed_at = ChargeLine.Status.WRITTEN_OFF, reason, now
+    line.save()
+    _event(line.entry, f"line_written_off_{reason}", f"writeoff:{line.pk}", actor)
+    return True
+
+
+def closed_and_settled(subscription, now):
+    """L16, L21: the account is closed and its final usage collection was confirmed, so a later
+    eligible charge is a reasoned write-off and never a debit or an amendment."""
+    ended = subscription.service_ended_at
+    if subscription.state != Subscription.State.CANCELLED or ended is None or ended > now:
+        return False
+    return (
+        not _open_lines(subscription.pk).exists()
+        and subscription.transfers.filter(
+            plan_code=plan.USAGE_ONLY, status=BankTransferPayment.Status.CONFIRMED,
+            decided_at__gte=ended,
+        ).exists()
+    )
+
+
+def outstanding(subscription, now):
+    """The total of the open lines of ended periods: `outstanding_centavos` of GET billing/."""
+    return due(subscription, now).centavos
+
+
+def write_off_unreturned(now):
+    """R-4c: a suspended account that never came back owes nothing. At its deletion date the
+    open lines are written off. Returns the number written off. Safe to run twice."""
+    count = 0
+    stale = Subscription.objects.filter(
+        state=Subscription.State.SUSPENDED, deletion_due_at__lte=now,
+        charges__status=ChargeLine.Status.OPEN,
+    ).distinct()
+    for subscription_id in stale.values_list("pk", flat=True):
+        with transaction.atomic():
+            Subscription.objects.select_for_update().get(pk=subscription_id)
+            for line in _open_lines(subscription_id).select_for_update():
+                count += write_off_line(line, "suspension_unreturned", now)
+    return count
+
+
+# Operator review (Billing Build B4, PR 3). An operator names a row by its producer's
+# `source_reference`; nothing here is a personal value. Every action takes the subscription's
+# lock, is idempotent, and writes a UsageEvent and an OperatorAuditEntry.
+REASON_MAX_LENGTH = 300
+
+
+def _refuse(code, message, status=409):
+    return ApiError(code, message, status=status)
+
+
+def _reason(reason):
+    reason = reason.strip() if isinstance(reason, str) else ""
+    if not reason or len(reason) > REASON_MAX_LENGTH:
+        raise ApiError(
+            "invalid_request", "Some values are missing or invalid.",
+            fields={"reason": ["Give the reason, at most 300 characters."]},
+        )
+    return reason
+
+
+def review_rows():
+    """The rows waiting for an operator, oldest first."""
+    return (
+        UsageEntry.objects.filter(status=Status.NEEDS_REVIEW)
+        .select_related("subscription__site", "cycle").order_by("pk")
+    )
+
+
+def entry_for_review(reference):
+    if not isinstance(reference, str) or not reference:
+        raise ApiError(
+            "invalid_request", "Some values are missing or invalid.",
+            fields={"entry": ["Name the usage record."]},
+        )
+    entry = (
+        UsageEntry.objects.select_related("subscription__site", "cycle")
+        .filter(source_reference=reference).first()
+    )
+    if entry is None:
+        raise ApiError("not_found", "Not found.", status=404)
+    return entry
+
+
+def _decide(reference, operator, reason, key, change, write_audit):
+    """Run `change(entry, subscription)` under the lock and `write_audit(entry, subscription, reason, outcome)`
+    for the audit entry; a decision already made is returned."""
+    reason = _reason(reason)
+    entry = entry_for_review(reference)
+    with transaction.atomic():
+        subscription = Subscription.objects.select_for_update().get(pk=entry.subscription_id)
+        entry = UsageEntry.objects.select_for_update().get(pk=entry.pk)
+        if UsageEvent.objects.filter(idempotency_key=f"{key}:{entry.pk}").exists():
+            return entry, False
+        if entry.status != Status.NEEDS_REVIEW:
+            raise _refuse("not_under_review", "This record is no longer waiting for review.")
+        outcome = change(entry, subscription)
+        entry.save()
+        written = write_audit(entry, subscription, reason, outcome)
+        _event(
+            entry, f"operator_{outcome}", f"{key}:{entry.pk}", UsageEvent.Actor.OPERATOR,
+            {"reason": reason, "audit": written.pk},
+        )
+    return entry, True
+
+
+def admit(reference, operator, reason, *, now=None):
+    """A valid snapshot that arrived after 72 hours is let into its period (L7, L12). Only
+    `late_over_72h`: the rows after service end or in no cycle are never charged (L6).
+    Returns (entry, changed)."""
+    now = now or timezone.now()
+
+    def change(entry, subscription):
+        if entry.reason != "late_over_72h":
+            raise _refuse("not_admissible", "This record cannot be charged.")
+        entry.detail = {**entry.detail, "admitted": True, "was": entry.reason}
+        cycle = entry.cycle
+        if closed_and_settled(subscription, now):
+            entry.status, entry.reason = Status.WRITTEN_OFF, "after_final_settlement"
+        elif cycle.settlement == Settlement.PENDING:
+            entry.status, entry.reason = Status.HELD, "cycle_pending"
+        elif cycle.settlement == Settlement.LAPSED:
+            entry.status, entry.reason = Status.WRITTEN_OFF, "cycle_lapsed"
+        else:
+            entry.status, entry.reason = Status.COUNTED, ""
+            entry.save()
+            make_charge(entry, labels=["late_admitted"])  # a later id: the next collection takes it
+        return entry.status
+
+    def write_audit(entry, subscription, reason, outcome):
+        return audit.record(
+            operator, "billing_usage_admitted", target_type="site",
+            target_id=subscription.site.public_id, reason=reason,
+            detail={"entry": entry.source_reference, "outcome": outcome},
+        )
+
+    return _decide(reference, operator, reason, "operator_admit", change, write_audit)
+
+
+def dismiss(reference, operator, reason, *, now=None):
+    """Nothing is owed for this record: kept, never charged, never reactivates service."""
+    now = now or timezone.now()
+
+    def change(entry, subscription):
+        entry.detail = {**entry.detail, "was": entry.reason}
+        entry.status, entry.reason = Status.WRITTEN_OFF, "reviewed_not_billable"
+        return "dismissed"
+
+    def write_audit(entry, subscription, reason, outcome):
+        return audit.record(
+            operator, "billing_usage_dismissed", target_type="site",
+            target_id=subscription.site.public_id, reason=reason,
+            detail={"entry": entry.source_reference, "was": entry.detail.get("was")},
+        )
+
+    return _decide(reference, operator, reason, "operator_dismiss", change, write_audit)
+
+
+def owner_read(subscription, now):
+    """What `GET billing/usage/` answers, from stored rows. Held and under-review rows are
+    counts, never charges."""
+    from apps.billing import services  # the lifecycle imports this module
+
+    latest = subscription.cycles.filter(start_at__lte=now).order_by("-sequence").first()
+    found = services.allowance_period_at(subscription, now)
+    last = (
+        UsageEntry.objects.filter(subscription=subscription, status=Status.COUNTED)
+        .select_related("charge").order_by("-occurred_at").first()
+    )
+    snapshot = last and {
+        "period_end_at": last.occurred_at, "measured_bytes": last.quantity,
+        "billed_gb": last.charge.quantity, "amount_centavos": last.charge.amount_centavos,
+    }
+    counts = dict(
+        UsageEntry.objects.filter(
+            subscription=subscription, status__in=(Status.HELD, Status.NEEDS_REVIEW)
+        ).values_list("status").annotate(n=Count("id"))
+    )
+    return {
+        "billable": found is not None and not subscription.billing_exempt,
+        "cycle": latest and {
+            "sequence": latest.sequence, "start_at": latest.start_at, "end_at": latest.end_at,
+        },
+        "period": found and {
+            "index": found["index"], "start_at": found["start_at"], "end_at": found["end_at"],
+        },
+        "storage": {
+            "metered": bool(plan.STORAGE_METERED), "included_gb": plan.STORAGE_INCLUDED_GB,
+            "last_snapshot": snapshot, "held": counts.get(Status.HELD, 0),
+            "pending_review": counts.get(Status.NEEDS_REVIEW, 0),
+        },
+        "due_centavos": due(subscription, now).centavos,
+    }

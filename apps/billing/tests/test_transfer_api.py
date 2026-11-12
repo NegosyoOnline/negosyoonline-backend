@@ -16,16 +16,16 @@ from apps.sites.models import Site
 from apps.sites.tests.api_base import SitesApiTestCase
 
 PAYMENT_KEYS = {
-    "id", "status", "plan", "amount_centavos", "currency", "transferred_on",
+    "id", "status", "plan", "amount_centavos", "usage_centavos", "currency", "transferred_on",
     "transfer_reference", "submitted_at", "decided_at", "reject_reason", "reject_note", "proof",
     "cycle",
 }
 OPTION_KEYS = {
-    "payable", "not_payable_reason", "payable_from", "offers", "transfer_accounts",
+    "payable", "not_payable_reason", "payable_from", "offers", "usage", "transfer_accounts",
     "under_review", "latest", "proof_rules",
 }
 OFFER_KEYS = {
-    "plan", "name", "amount_centavos", "currency", "months", "version", "term_months",
+    "plan", "name", "amount_centavos", "usage_centavos", "currency", "months", "version", "term_months",
     "period_start_at", "period_end_at",
     "starts_at_confirmation", "then", "consent",
 }
