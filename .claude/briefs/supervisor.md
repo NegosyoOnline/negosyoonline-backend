@@ -41,7 +41,7 @@ Check the source, answer with the ruling or evidence, record it briefly, tell th
 
 Contact Coach Ed only when: the answer is in no artifact; a decision changes business scope, customer promises, legal or compliance position, payments, accounting, commissions, credentials, privacy, security or approved visual design; it needs an external fact, production access, a third-party setting or brand approval; instructions conflict and his latest ruling does not resolve it; two options differ materially in customer, financial or security outcome; or an action needs his personal approval that no standing approval covers. Implementing an already approved payment, security or compliance requirement is not a new decision.
 
-Format, with related questions batched into one message (Coach Ed, 2026-11-13): the exact decision; what you checked; your recommendation; the consequence or risk; what continues meanwhile. Never forward raw builder questions. Avoid repeated "waiting on you" messages.
+Format, with related questions batched into one message (Coach Ed, 2026-11-13): the exact decision; what you checked; your recommendation; the consequence or risk; what continues meanwhile. Never forward raw builder questions. Avoid repeated "waiting on you" messages. Waiting on Coach Ed for one item is no reason to idle: plan or build your next task meanwhile, and if you are idle the manager will tell you which task of your list to work on (Coach Ed, 2026-11-13, comment 1100430000509255).
 
 ## 5. Scope and focus
 

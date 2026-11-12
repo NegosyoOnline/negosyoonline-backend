@@ -54,6 +54,9 @@ Write exactly these sections, whole file under 8 KB (the marching instruction al
 
         When you do ask, give one recommended answer, the concrete risk, and the exact decision needed. Batch related questions into one message.
 
+    ## Keep every Supervisor working (Coach Ed, 2026-11-13, comment 1100430000509255)
+    Carry this order with the marching instruction: the manager checks each Supervisor from time to time and, when one is not working, reads its ClickUp list and tells it which task to work on next (manager brief, section 7). Record in the register any Supervisor found idle and what it was told.
+
     ## Rulings
     A pointer: the link of the rulings log, ClickUp task z8uq9med6x, and the date of the last entry read. Below it only rulings given in this session that are not yet logged, each quoted with its date and the Supervisors told.
 
@@ -89,6 +92,6 @@ Print exactly two things:
        The marching instruction in the state file binds you; it is verbatim in the brief, section 3.
        Read the rulings log, the comments on ClickUp task z8uq9med6x, newest first, then the task map before re-reading ClickUp. Do not re-explore anything already recorded in the register.
 
-Then hand over automatically (manager brief, section 8; Coach Ed, 2026-11-13, comment 1100430000508710): SendMessage the Asst. Manager a message whose first line is "HANDOVER PROMPT", followed by the resume prompt; then `clear_session` "self" and end the turn at once, with no message queued (a clear is refused while a message is queued, and dropped if a new message arrives before the turn ends). The Asst. Manager resends the prompt every 10 seconds until it gets "I'm IN" (60 sends at most).
+Then hand over automatically (manager brief, section 8; Coach Ed, 2026-11-13, comment 1100430000508710): SendMessage the Asst. Manager a message whose first line is "HANDOVER PROMPT", followed by the resume prompt; then `clear_session` "self" and end the turn at once, with no message queued (a clear is refused while a message is queued, and dropped if a new message arrives before the turn ends). The Asst. Manager waits 1 minute after "HANDOVER PROMPT" before its first send (Coach Ed, 2026-11-13, comment 1100430000509303), then resends the prompt every 30 seconds until it gets "I'm IN" (60 sends at most; Coach Ed, 2026-11-13, comment 1100430000509314: "let's update the interval.. make it 30secs not 10 sec"). Finish your replies to Supervisors first, and hand over any Supervisor at its context limit before this step.
 
 Fallback, when the Asst. Manager is not running or the clear is refused: say plainly `/clear`, then paste this. Coach Ed's paste is then required.
