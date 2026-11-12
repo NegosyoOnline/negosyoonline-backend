@@ -183,6 +183,14 @@ MEMBERS_ENABLED = os.environ.get("MEMBERS_ENABLED", "").strip() == "1"
 # they answer the 404 of an unknown site and no pack table is read or written. Needs
 # MEMBERS_ENABLED, SANTE_AGREEMENT_ENABLED and a private file store (see apps/pack/checks.py).
 PACK_ENABLED = os.environ.get("PACK_ENABLED", "").strip() == "1"
+# The Santé shop (apps/shop): cart quote, checkout with bank-transfer proof, product orders and the
+# Subscriber's order review. "1" turns on its storefront and owner routes. Off, every one of them
+# answers the 404 of an unknown site and no shop table is read or written. Needs
+# SANTE_CATALOG_ENABLED, PAYMENT_METHODS_ENABLED, MEMBERS_ENABLED and STOREFRONT_ENABLED (see
+# apps/shop/checks.py). SHOP_SHIPPING_POLICY: "zero" (default, the store pays shipping) or "charge"
+# (the buyer pays the computed J&T fee).
+SHOP_ENABLED = os.environ.get("SHOP_ENABLED", "").strip() == "1"
+SHOP_SHIPPING_POLICY = os.environ.get("SHOP_SHIPPING_POLICY", "").strip().lower() or "zero"
 # Meta Pixel and Conversions API (apps/meta_ads): the Subscriber's per-site settings routes, the
 # storefront events route and the sender. "1" turns it on. Off, every one of them answers the 404
 # of an unknown site, no meta table is read or written and nothing is sent to Meta. Needs
@@ -235,6 +243,7 @@ INSTALLED_APPS = [
     'apps.storefront',
     'apps.members',
     'apps.pack',
+    'apps.shop',
     'apps.meta_ads',
     'apps.ledger',
 ]
