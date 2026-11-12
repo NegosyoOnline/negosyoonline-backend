@@ -1,16 +1,16 @@
 """Proof-of-payment files. A proof is personal data: it has no URL, and it is read only
 through the functions in services.py that check who is asking.
 
-The store behind `store()` is the approved private store. Until that is built the only one is
-a local folder, and only while DEBUG is on.
+The bytes live in the private file store of `apps.common.private_files` (the private Vercel
+Blob store in a shared environment, a local folder while DEBUG is on), under the key prefix
+`billing/proofs/`. Billing's other private files use sibling prefixes (Billing Build B5).
 """
-import re
-import secrets
-from pathlib import Path
-
 from django.conf import settings
 from django.core.checks import Error, register
 
+from apps.common import private_files
+
+FOLDER = "billing/proofs"
 MAX_BYTES = 5 * 1024 * 1024
 CONTENT_TYPES = ("image/jpeg", "image/png", "application/pdf")
 _SIGNATURES = (
@@ -18,7 +18,6 @@ _SIGNATURES = (
     (b"\x89PNG\r\n\x1a\n", "image/png"),
     (b"%PDF-", "application/pdf"),
 )
-_KEY = re.compile(r"^[0-9a-f]{32}$")
 
 
 def sniff(content):
@@ -29,39 +28,25 @@ def sniff(content):
     return None
 
 
-def new_key():
-    """A random name for a stored file. It holds nothing about the person or the site."""
-    return secrets.token_hex(16)
-
-
-class LocalProofStore:
-    """Files in one local folder. For a developer's machine only."""
-
-    def __init__(self, directory):
-        self.directory = Path(directory)
-
-    def _path(self, key):
-        if not _KEY.fullmatch(key):
-            raise ValueError("Not a proof key.")
-        return self.directory / key
-
-    def put(self, key, content):
-        self.directory.mkdir(parents=True, exist_ok=True)
-        self._path(key).write_bytes(content)
-
-    def get(self, key):
-        return self._path(key).read_bytes()
-
-
 def available():
-    """Whether a store may be used here."""
-    return bool(settings.DEBUG and settings.BILLING_PROOF_DIR)
+    """Whether a private store may be used here."""
+    return private_files.available()
 
 
-def store():
-    if not available():
-        raise RuntimeError("No proof store is available.")
-    return LocalProofStore(settings.BILLING_PROOF_DIR)
+def save(content, content_type):
+    """Store a checked proof and return its key, or raise private_files.StoreError."""
+    return private_files.save(FOLDER, content, content_type)
+
+
+def read(key):
+    """The stored bytes. Raises private_files.StoreError, or ValueError for a key that is
+    not a private store key."""
+    return private_files.read(key)
+
+
+def discard(key):
+    """Remove a file saved for a row that was not written. Never raises."""
+    private_files.discard(key)
 
 
 @register()
@@ -80,7 +65,7 @@ def check_bank_transfer(app_configs, **kwargs):
         ))
     if not available():
         errors.append(Error(
-            "BILLING_BANK_TRANSFER_ENABLED is on but no proof store is available.",
+            "BILLING_BANK_TRANSFER_ENABLED is on but no private file store is available.",
             id="billing.E002",
         ))
     return errors

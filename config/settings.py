@@ -139,9 +139,9 @@ BILLING_LIVE_DOCUMENTS = os.environ.get("BILLING_LIVE_DOCUMENTS", "").strip() ==
 # The accounts Subscribers send their payment to, as a JSON list of objects with `kind`
 # ("bank" or "ewallet"), `provider_name`, `account_name` and `account_number`. Never in code.
 BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").strip()
-# A local folder for proof files. Used only while DEBUG is on: a shared environment needs the
-# approved private store, which is not built yet.
-BILLING_PROOF_DIR = os.environ.get("BILLING_PROOF_DIR", "").strip()
+# The one address told when a bank transfer proof waits for review (a shared mailbox). Empty
+# sends no alert.
+BILLING_STAFF_ALERT_EMAIL = os.environ.get("BILLING_STAFF_ALERT_EMAIL", "").strip()
 # Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints and admin
 # lists. Off, the endpoints answer 404 and the Santé tables are not read or written.
 SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() == "1"
@@ -164,6 +164,11 @@ PRIVATE_BLOB_READ_WRITE_TOKEN = os.environ.get("PRIVATE_BLOB_READ_WRITE_TOKEN", 
 PRIVATE_FILES_DIR = os.environ.get("PRIVATE_FILES_DIR", "").strip() or str(
     BASE_DIR / ".private-files"
 )
+# Product photos (apps/catalog/media.py): the read-write token of the public Vercel Blob media
+# store and that store's public host (not a secret). Read here and nowhere else. With either
+# unset, no product photo can be uploaded; the rest of the catalog works.
+PUBLIC_BLOB_READ_WRITE_TOKEN = os.environ.get("PUBLIC_BLOB_READ_WRITE_TOKEN", "").strip()
+PUBLIC_MEDIA_BASE_URL = os.environ.get("PUBLIC_MEDIA_BASE_URL", "").strip().rstrip("/")
 # Santé member sign-in (apps/members), on the storefront surface below. "1" turns on its four
 # routes. Off, they answer the 404 of an unknown site and no member table is read or written.
 # Sign-in codes and limits live in the cache, so it needs REDIS_URL outside local work.
@@ -328,6 +333,13 @@ CELERY_BEAT_SCHEDULE = {
     # nothing while META_EVENTS_ENABLED is off.
     "meta-ads-sweep": {
         "task": "meta_ads.sweep",
+        "schedule": BILLING_SWEEP_EVERY_SECONDS,
+        "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
+    },
+    # The billing emails (proof received, approved, rejected, reminders, paused). Sends nothing
+    # unless bank transfer can take a payment.
+    "billing-notices": {
+        "task": "billing.notices",
         "schedule": BILLING_SWEEP_EVERY_SECONDS,
         "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
     },

@@ -143,6 +143,7 @@ While `SANTE_SETTINGS_ENABLED` is off, disposal and export do not read the Sant√
 - The catalog belongs to no account. A disposal deletes and blanks nothing in it: every product and every revision stays as it was, including the revisions written from a disposed account's site. A revision names its writer by the account's and the site's row number only; it holds no name, email, number or address.
 - The account that owns the catalog owner site is still refused, as above, until another owner site is named. The products then stay with the catalog and the new owner site edits them.
 - The export holds no catalog row: products and revisions are not an account's data.
+- A product's category and its image (a file in the public media store, named by a random key) belong to the catalog, not to an account: disposal leaves them, and a revision names a writer by row number only.
 
 While `SANTE_CATALOG_ENABLED` is off the catalog tables are not read at all, because the code is released before migration `catalog.0001` is applied. Turn it on in an environment only after that migration is applied there and `SANTE_SETTINGS_ENABLED` is on.
 

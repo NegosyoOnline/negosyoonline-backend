@@ -7,8 +7,9 @@ from unittest import mock
 from django.test import override_settings
 
 from apps.accounts.models import Account
-from apps.billing import clock, plan, services
+from apps.billing import clock, plan, proofs, services
 from apps.billing.models import Subscription
+from apps.common import private_files
 from apps.operators.models import User
 from apps.sites.models import Site
 from apps.sites.tests.base import make_account, make_site
@@ -93,11 +94,16 @@ class MemoryProofStore:
     def __init__(self):
         self.files = {}
 
-    def put(self, key, content):
+    def save(self, content, content_type):
+        key = private_files.new_key(proofs.FOLDER, content_type)
         self.files[key] = bytes(content)
+        return key
 
-    def get(self, key):
+    def read(self, key):
         return self.files[key]
+
+    def discard(self, key):
+        self.files.pop(key, None)
 
 
 @contextmanager
@@ -106,7 +112,9 @@ def transfers_on():
     store = MemoryProofStore()
     with override_settings(
         BILLING_BANK_TRANSFER_ENABLED=True, BILLING_TRANSFER_ACCOUNTS=TEST_ACCOUNTS
-    ), mock.patch("apps.billing.proofs.store", return_value=store), mock.patch(
+    ), mock.patch("apps.billing.proofs.save", side_effect=store.save), mock.patch(
+        "apps.billing.proofs.read", side_effect=store.read
+    ), mock.patch("apps.billing.proofs.discard", side_effect=store.discard), mock.patch(
         "apps.billing.proofs.available", return_value=True
     ):
         yield store
