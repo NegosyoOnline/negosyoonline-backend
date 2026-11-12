@@ -898,6 +898,7 @@ def submit_transfer(
             key = proofs.save(content, content_type)
         except StoreError:
             raise _proof_store_unavailable() from None
+        saved.append(key)
         try:
             payment = BankTransferPayment.objects.create(
                 subscription=subscription,
@@ -925,7 +926,17 @@ def submit_transfer(
             raise
         return payment, True
 
-    return _write(subscription, now, change)
+    saved = []
+    try:
+        return _write(subscription, now, change)
+    except BaseException:
+        # The transaction rolled back after `change` returned (for example the commit
+        # failed), so a file saved inside it has no row. Discard never raises. A rollback
+        # decided by a caller's own outer transaction is not seen here; the only caller is
+        # the owner route, which has none.
+        for key in saved:
+            proofs.discard(key)
+        raise
 
 
 def _proof_store_unavailable():

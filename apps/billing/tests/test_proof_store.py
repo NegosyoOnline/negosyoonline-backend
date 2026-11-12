@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 from django.core.checks import Error
+from django.db import transaction
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from apps.billing import plan, proofs, services
@@ -115,6 +116,20 @@ class FailingStoreTests(TestCase):
             "apps.billing.services._transfer_event", side_effect=RuntimeError("boom")
         ), self.assertRaises(RuntimeError):
             submit(self.subscription, T0 + days(1))
+        self.assertEqual(BankTransferPayment.objects.count(), 0)
+        self.assertEqual(self.store.files, {})
+
+    def test_a_saved_file_is_removed_if_the_whole_transaction_rolls_back(self):
+        real_write = services._write
+
+        def write_then_fail(*args, **kwargs):
+            with transaction.atomic():
+                real_write(*args, **kwargs)  # the row and the file are written ...
+                raise RuntimeError("commit failed")  # ... and then everything rolls back
+
+        with mock.patch("apps.billing.services._write", side_effect=write_then_fail):
+            with self.assertRaises(RuntimeError):
+                submit(self.subscription, T0 + days(1))
         self.assertEqual(BankTransferPayment.objects.count(), 0)
         self.assertEqual(self.store.files, {})
 
