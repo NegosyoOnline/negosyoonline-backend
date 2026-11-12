@@ -8,6 +8,7 @@ from django.utils import timezone
 from apps.meta_ads import events
 from apps.meta_ads.models import MetaDelivery, MetaOrderContext
 from apps.meta_ads.tests.base import PIXEL, TOKEN, FakeMeta, configure, switched_on
+from apps.meta_ads.tests.base import setUpModule, tearDownModule  # noqa: F401
 from apps.pack import constants as C, review
 from apps.pack.models import PackOrder
 from apps.pack.tests.base import HOST, NOT_FOUND, OTHER_HOST, PackTestCase

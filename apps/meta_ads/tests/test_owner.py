@@ -8,6 +8,7 @@ from django.test import override_settings
 from apps.meta_ads import crypto
 from apps.meta_ads.models import MetaDelivery, MetaSettings
 from apps.meta_ads.tests.base import CODE, PIXEL, TOKEN, FakeMeta, http_error, switched_on
+from apps.meta_ads.tests.base import setUpModule, tearDownModule  # noqa: F401
 from apps.sites.models import Site
 from apps.sites.tests.api_base import SitesApiTestCase
 from apps.sites.tests.base import make_site

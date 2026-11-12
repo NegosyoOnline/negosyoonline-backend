@@ -14,6 +14,7 @@ from apps.meta_ads import crypto, events, send, services
 from apps.meta_ads.models import MetaDelivery, MetaOrderContext, MetaSettings
 from apps.payments.tests.base import use_local_private_store
 from apps.meta_ads.tests.base import CODE, KEY, PIXEL, TOKEN, FakeMeta, configure, http_error, switched_on
+from apps.meta_ads.tests.base import setUpModule, tearDownModule  # noqa: F401
 
 EV = "pv_" + "a" * 16
 CLIENT = {"ip": "203.0.113.9", "user_agent": "Mozilla/5.0 Visitor", "fbp": "", "fbc": "", "url": ""}

@@ -6,6 +6,7 @@ from apps.accounts import retention as rules
 from apps.accounts.tests.disposal_base import EMAIL, OTHER_EMAIL, DisposalTestCase
 from apps.meta_ads.models import MetaDelivery, MetaOrderContext, MetaSettings
 from apps.meta_ads.tests.base import CODE, TOKEN, configure, switched_on
+from apps.meta_ads.tests.base import setUpModule, tearDownModule  # noqa: F401
 from apps.pack.tests.owner_base import make_order
 from apps.payments.tests.base import use_local_private_store
 from apps.sites.models import Site

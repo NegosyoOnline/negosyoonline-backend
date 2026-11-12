@@ -3,6 +3,7 @@ from unittest import mock
 
 from apps.meta_ads.models import MetaDelivery, MetaOrderContext
 from apps.meta_ads.tests.base import FakeMeta, configure, switched_on
+from apps.meta_ads.tests.base import setUpModule, tearDownModule  # noqa: F401
 from apps.pack.models import PackOrder
 from apps.pack.tests.base import HOST, VISITOR, PackTestCase
 

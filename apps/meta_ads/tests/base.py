@@ -5,6 +5,7 @@ import json
 import urllib.error
 from unittest import mock
 
+from celery import current_app
 from cryptography.fernet import Fernet
 from django.test import override_settings
 
@@ -15,6 +16,24 @@ KEY = Fernet.generate_key().decode()  # made for this test run; never a real val
 TOKEN = "TESTTOKEN" + "abcdefghij" * 6  # 69 characters, made up
 PIXEL = "123456789012345"
 CODE = "TEST12345"
+
+_eager = {}
+
+
+def setUpModule():  # noqa: N802 - unittest's name; each test module imports it
+    """Run Celery tasks in-process for these tests. Settings do this only without REDIS_URL, so
+    under the PostgreSQL and Redis configuration .delay() would queue to the broker and nothing
+    would send."""
+    _eager["on"] = current_app.conf.task_always_eager
+    _eager["propagates"] = current_app.conf.task_eager_propagates
+    current_app.conf.task_always_eager = True
+    current_app.conf.task_eager_propagates = True
+
+
+def tearDownModule():  # noqa: N802
+    current_app.conf.task_always_eager = _eager.get("on", False)
+    current_app.conf.task_eager_propagates = _eager.get("propagates", False)
+
 
 switched_on = override_settings(META_EVENTS_ENABLED=True, META_CREDENTIALS_KEY=KEY)
 
