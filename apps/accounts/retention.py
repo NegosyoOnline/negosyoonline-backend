@@ -21,6 +21,7 @@ from apps.billing import services as billing
 from apps.common import retention
 from apps.common.disposal import DISPOSED_DOMAIN, disposed_address, is_disposed_address
 from apps.members import retention as member_retention
+from apps.meta_ads import retention as meta_retention
 from apps.pack import retention as pack_retention
 from apps.notifications import retention as email_records
 from apps.operators import audit
@@ -168,6 +169,7 @@ def _dispose(account, now, rule, actor, request_ref, dry_run):
             **payment_retention.blank_payments_of(account, now, dry_run),
             **member_retention.blank_members_of(account, dry_run),
             **pack_retention.blank_packs_of(account, dry_run),
+            **meta_retention.blank_meta_of(account, dry_run),
             "email_send_records": email_records.delete_records_for(address, dry_run),
             "earlier_address_send_records": email_records.delete_earlier_records_for(
                 earlier, dry_run
@@ -198,7 +200,7 @@ def _dispose(account, now, rule, actor, request_ref, dry_run):
                 "counts": counts,
                 "blanked": {
                     **BLANKED, **sante_retention.blanked(), **payment_retention.blanked(),
-                    **member_retention.blanked(), **pack_retention.blanked(),
+                    **member_retention.blanked(), **pack_retention.blanked(), **meta_retention.blanked(),
                 },
             },
         )
