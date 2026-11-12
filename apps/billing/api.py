@@ -24,6 +24,9 @@ from apps.common.errors import ApiError
 from apps.common.ids import is_public_id
 from apps.common.pagination import DEFAULT_LIMIT, MAX_LIMIT
 from apps.common.throttle import hit
+from apps.invoices import scans as invoice_scans
+from apps.invoices import services as invoice_services
+from apps.statements import switch as register_switch
 from apps.sites.services import site_for
 
 router = Router(tags=["billing"], auth=signed_in)
@@ -461,4 +464,76 @@ def billing_payment_proof(request, site_id: str, payment_id: str):
     response["Cache-Control"] = "private, no-store"
     response["X-Content-Type-Options"] = "nosniff"
     response["Content-Disposition"] = f'inline; filename="{PROOF_FILE_NAMES[content_type]}"'
+    return response
+
+
+class InvoiceRowOut(Schema):
+    id: str  # names the sale (an item), never an invoice or a scan
+    state: str  # "pending" or "available"
+    message: str  # the pending text, or the copy label
+    plan: str
+    period_start_at: datetime
+    period_end_at: datetime
+    paid_at: datetime
+    total_centavos: int
+    is_test: bool
+
+
+class InvoicesOut(Schema):
+    items: list[InvoiceRowOut]
+    next_cursor: str | None
+
+
+def _invoice_subscription(request, site_id):
+    """The caller's subscription, or 404: also, before any invoice table is read, while the
+    register is off."""
+    if not register_switch.register_enabled():
+        raise ApiError("not_found", "Not found.", status=404)
+    _, subscription = _subscription_for(request, site_id)
+    return subscription
+
+
+def _invoice_row(item):
+    available = item.status == "verified"
+    return {
+        "id": item.public_id,
+        "state": "available" if available else "pending",
+        "message": invoice_services.COPY_LABEL if available else invoice_services.PENDING_TEXT,
+        "plan": item.plan_code,
+        "period_start_at": item.period_start,
+        "period_end_at": item.period_end,
+        "paid_at": item.paid_at,
+        "total_centavos": item.total_centavos,
+        "is_test": item.is_test,
+    }
+
+
+@router.get("/sites/{site_id}/billing/invoices/", response=InvoicesOut)
+def billing_invoices(request, site_id: str, limit: int = DEFAULT_LIMIT, cursor: str = ""):
+    """One row per paid sale, newest first. `cursor` is the id of the last row already returned."""
+    subscription = _invoice_subscription(request, site_id)
+    after = None
+    if cursor:
+        after = invoice_services.item_of(subscription, cursor) if is_public_id(cursor, "mbi") else None
+        if after is None:
+            raise ApiError("invalid_cursor", "That page marker is not valid.")
+    items, more = invoice_services.invoices_of(
+        subscription, limit=max(1, min(limit, MAX_LIMIT)), cursor_item=after
+    )
+    return {
+        "items": [_invoice_row(item) for item in items],
+        "next_cursor": items[-1].public_id if more else None,
+    }
+
+
+@router.get("/sites/{site_id}/billing/invoices/{invoice_id}/copy/")
+def billing_invoice_copy(request, site_id: str, invoice_id: str):
+    """The verified scan of a paid sale, to the Subscriber it belongs to only. It has no other
+    address. Every case that is not a verified copy of this Subscriber's sale answers one 404."""
+    subscription = _invoice_subscription(request, site_id)
+    content, content_type = invoice_services.copy_for_owner(subscription, invoice_id)
+    response = HttpResponse(content, content_type=content_type)
+    response["Cache-Control"] = "private, no-store"
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Content-Disposition"] = f'inline; filename="{invoice_scans.FILE_NAMES[content_type]}"'
     return response
