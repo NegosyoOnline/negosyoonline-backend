@@ -82,10 +82,13 @@ Print exactly two things:
 1. The file path, and that it is safe to `/clear`.
 2. A ready-to-copy resume prompt in a plain fenced block (not tagged `bash`; it is a prompt, not a command):
 
+       I'm IN: before any other tool call, SendMessage "I'm IN" to the Asst. Manager (the session titled "Asst. Manager"); send it once more if another copy of this prompt arrives.
        Resume in <absolute session folder> as the manager of all Supervisor sessions.
        Read <absolute state-file path>, then read and follow
        <absolute session folder>/.claude/briefs/manager.md. Run on Fable 5.2 (claude-fable-5-2).
        The marching instruction in the state file binds you; it is verbatim in the brief, section 3.
        Read the rulings log, the comments on ClickUp task z8uq9med6x, newest first, then the task map before re-reading ClickUp. Do not re-explore anything already recorded in the register.
 
-Say plainly: `/clear`, then paste this. The paste is required: nothing sits above the manager to send it.
+Then hand over automatically (manager brief, section 8; Coach Ed, 2026-11-13, comment 1100430000508710): SendMessage the Asst. Manager a message whose first line is "HANDOVER PROMPT", followed by the resume prompt; then `clear_session` "self" and end the turn at once, with no message queued (a clear is refused while a message is queued, and dropped if a new message arrives before the turn ends). The Asst. Manager resends the prompt every 10 seconds until it gets "I'm IN" (60 sends at most).
+
+Fallback, when the Asst. Manager is not running or the clear is refused: say plainly `/clear`, then paste this. Coach Ed's paste is then required.
