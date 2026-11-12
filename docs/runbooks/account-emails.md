@@ -21,3 +21,7 @@ With no `EMAIL_HOST` every email is printed to the service log instead of sent (
 ## If Resend is down
 
 The person sees "We could not send the email" (503) and can ask again at once: a failed send gives back the 60 second wait and the hourly count.
+
+## Email change hardening
+
+`ACCOUNT_EMAIL_CHANGE_HARDENED` (Railway variable, default off, `1` turns it on). On: `POST /v1/account/email/step-up/` mails a code to the current address, `POST /v1/account/email/start/` then needs it as `step_up_code`, and an address that already has an account is answered like a free one (nothing sent). `GET /v1/account/` returns `email_change_step_up` so the dashboard knows. Turn it on in staging only after the dashboard step is deployed. The per-account limit (8 mails an hour) is always on.
