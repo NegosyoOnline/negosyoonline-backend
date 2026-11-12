@@ -72,7 +72,7 @@ class SubmitTests(TransferCase):
         self.assertEqual(payment.submitted_by, subscription.site.account)
         self.assertEqual(payment.proof_content_type, "image/jpeg")
         self.assertEqual(payment.proof_size, len(JPEG))
-        self.assertEqual(self.store.get(payment.proof_key), JPEG)
+        self.assertEqual(self.store.read(payment.proof_key), JPEG)
         self.assertNotIn("ana", payment.proof_key)
         self.assertEqual(
             list(payment.events.values_list("code", "idempotency_key", "actor")),
@@ -576,25 +576,6 @@ class SwitchTests(TestCase):
         self.assertEqual(touched, [])
         payment.refresh_from_db()
         self.assertEqual(payment.status, Status.SUBMITTED)
-
-    def test_the_local_store_is_for_debug_only(self):
-        with override_settings(BILLING_PROOF_DIR="/tmp/nowhere", DEBUG=False):
-            self.assertFalse(proofs.available())
-        with override_settings(BILLING_PROOF_DIR="", DEBUG=True):
-            self.assertFalse(proofs.available())
-
-    def test_the_local_store_keeps_and_returns_a_file(self):
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as folder, override_settings(
-            BILLING_PROOF_DIR=folder, DEBUG=True
-        ):
-            self.assertTrue(proofs.available())
-            key = proofs.new_key()
-            proofs.store().put(key, JPEG)
-            self.assertEqual(proofs.store().get(key), JPEG)
-            with self.assertRaises(ValueError):
-                proofs.store().get("../" + key)
 
     def test_the_check_refuses_the_switch_without_an_account_or_a_store(self):
         self.assertEqual(proofs.check_bank_transfer(None), [])

@@ -9,7 +9,7 @@ from django.test import TransactionTestCase, override_settings
 from apps.accounts import retention as rules
 from apps.accounts.models import Account
 from apps.billing import services
-from apps.billing.models import BankTransferPayment, Subscription, SubscriptionTransition
+from apps.billing.models import BankTransferPayment, BillingNotice, Subscription, SubscriptionTransition
 from apps.billing.tests.base import (
     CYCLE_1_END, PNG, SECOND, T0, TRIAL_END, days, fresh, make_active, make_attention,
     make_operator, make_subscription, submit, transfers_on,
@@ -200,6 +200,20 @@ class TransferConcurrencyTests(TransactionTestCase):
         on = transfers_on()
         on.__enter__()
         self.addCleanup(on.__exit__, None, None, None)
+
+    def test_two_notice_scans_at_once_send_each_email_once(self):
+        from django.core import mail
+
+        from apps.billing import notices
+
+        submit(make_subscription(), T0 + days(3))
+        at = T0 + days(3) + days(1) / 24
+
+        results = run_together(*[lambda: notices.run(at) for _ in range(2)])
+
+        self.assertFalse([r for r in results if isinstance(r, Exception)], results)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(BillingNotice.objects.count(), 1)
 
     def test_two_confirmations_at_once_settle_one_cycle(self):
         subscription = make_subscription()
