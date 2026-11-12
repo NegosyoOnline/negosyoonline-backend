@@ -1046,6 +1046,11 @@ def confirm_transfer(payment, operator, *, amount_received_centavos, now=None):
         if row.usage_centavos:
             event["usage_lines"] = settled_lines
         _transfer_event(row, "confirmed", BankTransferEvent.Actor.OPERATOR, event)
+        # The register's pending invoice item, in its own savepoint: an error there never
+        # fails the confirmation, and the safety net opens the item later. Off, this does nothing.
+        from apps.invoices import services as invoice_services  # noqa: PLC0415
+
+        invoice_services.open_item_safely(row, now=now)
         audit.record(
             operator, "billing_payment_confirmed", target_type="site",
             target_id=subscription.site.public_id,

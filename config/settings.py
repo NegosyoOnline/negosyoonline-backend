@@ -295,6 +295,13 @@ CELERY_BEAT_SCHEDULE = {
         # A sweep not picked up before the next one is queued is dropped, not piled up.
         "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
     },
+    # The register's safety net: opens the invoice item of any confirmed payment that has none.
+    # Does nothing while BILLING_INVOICE_REGISTER_ENABLED is off.
+    "invoices-ensure-items": {
+        "task": "invoices.ensure_items",
+        "schedule": BILLING_SWEEP_EVERY_SECONDS,
+        "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
+    },
 }
 
 
