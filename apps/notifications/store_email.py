@@ -26,7 +26,7 @@ _URL = re.compile(r"https?://[^\s<>\"']+")
 # A store name that reads as one of these is not used as the From name (see `safe_from_name`).
 # Whole words, any case. Santé is deliberately not listed: its distributors are the first clients.
 BLOCKED_NAME_WORDS = (
-    "negosyoonline", "negosyo online", "paypal", "gcash", "maya", "bdo", "bpi", "metrobank",
+    "negosyoonline", "negosyo online", "paypal", "gcash", "paymaya", "maya bank", "maya wallet", "bdo", "bpi", "metrobank",
     "unionbank", "landbank", "security bank", "pnb", "rcbc", "chinabank", "grabpay", "shopeepay",
 )
 _BLOCKED_NAME = re.compile(

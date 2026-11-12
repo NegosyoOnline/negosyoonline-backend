@@ -153,9 +153,9 @@ class SwitchOnTests(StoreCase):
         self.assertEqual(mail.outbox[0].from_email, '"Your store" <orders@liveformore.test>')
 
     def test_guard_words(self):
-        for bad in ("NegosyoOnline Shop", "My PayPal Store", "BDO Loans", "gcash"):
+        for bad in ("NegosyoOnline Shop", "My PayPal Store", "BDO Loans", "gcash", "PayMaya Load", "maya bank agent", "Maya Wallet Shop"):
             self.assertEqual(store_email.safe_from_name(bad), "Your store", bad)
-        for fine in ("Santé Barley", "Live for More", "Abdominal Care", "Bpitt"):
+        for fine in ("Santé Barley", "Live for More", "Abdominal Care", "Bpitt", "Maya's Boutique", "Maya"):
             self.assertEqual(store_email.safe_from_name(fine), fine, fine)
 
     def test_line_break_in_name_still_refuses(self):
