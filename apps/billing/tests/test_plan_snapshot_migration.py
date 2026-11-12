@@ -31,7 +31,9 @@ class BackfillTests(TransactionTestCase):
     def migrate(name):
         executor = MigrationExecutor(connection)
         if name is None:
-            target = executor.loader.graph.leaf_nodes("billing")
+            # Every app, not only billing: the apps built on billing (statements, invoices)
+            # were unapplied by the step back and must come back for the tests that follow.
+            target = executor.loader.graph.leaf_nodes()
         else:
             target = [("billing", name)]
         executor.migrate(target)

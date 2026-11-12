@@ -302,6 +302,13 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": BILLING_SWEEP_EVERY_SECONDS,
         "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
     },
+    # Issues the statement of any confirmed payment that has none. Does nothing while
+    # BILLING_STATEMENTS_ENABLED is off.
+    "statements-ensure": {
+        "task": "statements.ensure",
+        "schedule": BILLING_SWEEP_EVERY_SECONDS,
+        "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
+    },
 }
 
 
