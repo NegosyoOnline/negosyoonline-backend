@@ -29,7 +29,7 @@ def new_scan_id():
     return new_public_id("scn")
 
 
-class InvoiceBook(models.Model):
+class InvoiceBook(FrozenFieldsMixin, models.Model):
     """One paper book of preprinted invoices, copied once by staff as evidence. The system
     flags a serial outside the range and shows the next expected number as a hint only."""
 
@@ -48,7 +48,9 @@ class InvoiceBook(models.Model):
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects = KeptQuerySet.as_manager()
+    MOVES = ("active",)  # everything else is evidence, entered once
+
+    objects = GuardedQuerySet.as_manager()
 
     class Meta:
         constraints = [
@@ -70,9 +72,6 @@ class InvoiceBook(models.Model):
         if self._state.adding and self.overlapping().exists():
             raise Immutable("That serial range overlaps another book of the same series.")
         super().save(*args, **kwargs)
-
-    def delete(self, *args, **kwargs):
-        raise Immutable("A billing record is kept and cannot be deleted.")
 
     def __str__(self):
         return f"Invoice book {self.series or '(no series)'}"
@@ -98,7 +97,7 @@ class ManualInvoiceItem(FrozenFieldsMixin, models.Model):
     _FLOW = {
         "pending": {"recorded"},
         "recorded": {"uploaded", "pending"},  # a void returns the item to pending
-        "uploaded": {"verified", "recorded"},  # a rejected scan returns to recorded
+        "uploaded": {"verified", "recorded", "pending"},  # a rejected scan returns to recorded
         "verified": {"pending"},  # only a void of the verified invoice
     }
 
@@ -245,7 +244,11 @@ class ManualInvoice(FrozenFieldsMixin, models.Model):
 
     def allowed(self, old):
         if self.status == old.status:
-            return True  # only a void changes anything else, and it changes the status
+            # No status move, no other move: a verified invoice changes only by a void.
+            return all(
+                getattr(self, f.attname) == getattr(old, f.attname)
+                for f in self._meta.concrete_fields if f.name in self.MOVES
+            )
         return self.status in self._FLOW.get(old.status, set())
 
     def __str__(self):
@@ -309,8 +312,13 @@ class InvoiceScan(FrozenFieldsMixin, models.Model):
         ]
 
     def allowed(self, old):
-        # A scan is decided once; a verified or rejected scan never moves again.
-        return old.status == self.status or old.status == "uploaded"
+        # A scan is decided once; a verified or rejected scan never changes again.
+        if old.status != "uploaded":
+            return all(
+                getattr(self, f.attname) == getattr(old, f.attname)
+                for f in self._meta.concrete_fields if f.name in self.MOVES
+            )
+        return True
 
     def __str__(self):
         return f"Scan {self.public_id}"

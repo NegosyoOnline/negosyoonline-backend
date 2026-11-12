@@ -6,7 +6,7 @@ from django.test import TestCase, override_settings
 from apps.billing.tests.base import make_active
 from apps.invoices.models import InvoiceBook, InvoiceEvent, InvoiceScan, ManualInvoice, ManualInvoiceItem
 from apps.statements.managers import Immutable
-from apps.statements.tests.base import WHEN, make_book, make_invoice, make_item, make_staff, make_statement
+from apps.statements.tests.base import WHEN, make_book, make_invoice, make_issuer, make_item, make_staff, make_statement
 
 
 def refuses_in_db(case):
@@ -37,6 +37,12 @@ class ItemTests(TestCase):
         self.item.statement = second
         with self.assertRaises(Immutable):
             self.item.save()
+
+    def test_void_of_uploaded_invoice_returns_item_to_pending(self):
+        item = ManualInvoiceItem.objects.get(pk=self.item.pk)
+        for status in ("recorded", "uploaded", "pending"):
+            item.status = status
+            item.save()
 
     def test_delete_and_bulk_refused(self):
         with self.assertRaises(Immutable):
@@ -99,6 +105,19 @@ class InvoiceTests(TestCase):
         invoice.status = "voided"
         invoice.save()
 
+    def test_verified_invoice_rewrites_nothing_without_a_void(self):
+        invoice = ManualInvoice.objects.get(pk=self.invoice.pk)
+        invoice.status = "uploaded"
+        invoice.save()
+        invoice.status, invoice.verified_at, invoice.verified_by = "verified", WHEN, make_staff("v")
+        invoice.save()
+        for field, value in (("verified_at", WHEN.replace(year=2027)), ("void_reason", "x"),
+                             ("verified_by", make_staff("w"))):
+            changed = ManualInvoice.objects.get(pk=invoice.pk)
+            setattr(changed, field, value)
+            with self.assertRaises(Immutable, msg=field):
+                changed.save()
+
     def test_delete_and_bulk_refused(self):
         with self.assertRaises(Immutable):
             self.invoice.delete()
@@ -114,6 +133,19 @@ class BookTests(TestCase):
             make_book(series="Y", serial_from=10, serial_to=5)
         with self.assertRaises(Immutable):
             book.delete()
+
+    def test_book_is_evidence_only_active_moves(self):
+        book = make_book(series="E")
+        for field, value in (("serial_to", 99), ("series", "F"), ("atp_reference", "X"),
+                             ("issuer", make_issuer())):
+            changed = InvoiceBook.objects.get(pk=book.pk)
+            setattr(changed, field, value)
+            with self.assertRaises(Immutable, msg=field):
+                changed.save()
+        book.active = False
+        book.save()
+        with self.assertRaises(Immutable):
+            InvoiceBook.objects.update(active=True)
 
     def test_second_booklet_of_same_or_blank_series_with_next_range(self):
         for series in ("A", ""):
@@ -157,6 +189,22 @@ class ScanTests(TestCase):
     def test_rejected_needs_reason(self):
         with self.assertRaises(IntegrityError), transaction.atomic():
             self.scan(status="rejected")
+
+    def test_decided_scan_rewrites_nothing(self):
+        scan = self.scan()
+        scan.status, scan.reject_reason, scan.decided_at = "rejected", "unreadable", WHEN
+        scan.save()
+        rejected = InvoiceScan.objects.get(pk=scan.pk)
+        rejected.reject_reason = "other"
+        with self.assertRaises(Immutable):
+            rejected.save()
+        live = self.scan(sha="c" * 64)
+        live.status, live.decided_at, live.decided_by = "verified", WHEN, self.staff
+        live.save()
+        verified = InvoiceScan.objects.get(pk=live.pk)
+        verified.decided_at = WHEN.replace(year=2027)
+        with self.assertRaises(Immutable):
+            verified.save()
 
     def test_verified_scan_frozen(self):
         scan = self.scan()

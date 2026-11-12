@@ -10,7 +10,7 @@ from unittest import skipUnless
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from apps.statements.managers import Immutable, KeptQuerySet
-from apps.statements.tests.base import make_item, make_statement
+from apps.statements.tests.base import make_item, make_line, make_statement
 
 SWITCHES = ("BILLING_STATEMENTS_ENABLED", "BILLING_INVOICE_REGISTER_ENABLED", "BILLING_LIVE_DOCUMENTS")
 APPS = ("statements", "invoices")
@@ -56,11 +56,22 @@ on_postgres = skipUnless(connection.vendor == "postgresql", "PostgreSQL triggers
 class TriggerTests(TestCase):
     def test_raw_update_and_delete_refused_on_insert_only_tables(self):
         from django.db import IntegrityError, transaction
+        from apps.invoices.models import InvoiceEvent
         statement = make_statement()
-        for sql in (
-            "UPDATE statements_statement SET total_centavos = 1 WHERE id = %s",
-            "DELETE FROM statements_statement WHERE id = %s",
+        line = make_line(statement)
+        event = InvoiceEvent.objects.create(
+            item=make_item(statement.subscription), code="opened", idempotency_key="opened:t"
+        )
+        for table, pk, column in (
+            ("statements_statement", statement.pk, "total_centavos"),
+            ("statements_statementline", line.pk, "amount_centavos"),
+            ("invoices_invoiceevent", event.pk, "code"),
         ):
-            with self.assertRaises(IntegrityError), transaction.atomic():
-                with connection.cursor() as cursor:
-                    cursor.execute(sql, [statement.pk])
+            value = "'x'" if column == "code" else "1"
+            for sql in (
+                f"UPDATE {table} SET {column} = {value} WHERE id = %s",
+                f"DELETE FROM {table} WHERE id = %s",
+            ):
+                with self.assertRaises(IntegrityError, msg=sql), transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute(sql, [pk])
