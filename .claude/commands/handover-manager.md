@@ -16,7 +16,7 @@ This command is run when the context is already large, where every tool call re-
 
 ## Contents
 
-Write exactly these sections, whole file under 6 KB:
+Write exactly these sections, whole file under 8 KB (the marching instruction alone is about 1.5 KB):
 
     # Session state: manager
 
@@ -26,21 +26,39 @@ Write exactly these sections, whole file under 6 KB:
     - Session folder: <absolute path>
     - Manager brief: <absolute session folder>/.claude/briefs/manager.md
     - Task map: <absolute path>, last full study <date>, last refresh <date>
-    - This manager: <session id>
+    - This manager: <session id>. Model: Fable 5.2 (`claude-fable-5-2`); the next manager runs on it (Coach Ed, 2026-11-13)
     - First move: <the one thing the next session does first>
 
     ## Register
     - Coordinators: title, session id, ClickUp task, repo areas owned, status, what each waits on.
-    - Builders the manager started for a coordinator: title, session id, owning coordinator.
+    - Coordinators' builders: only what a coordinator has told the manager (title, owning coordinator, state). The manager starts no builder and instructs none (Coach Ed, 2026-11-13); coordinators run their builders as their own sub-agents. Coordinators run on Opus 5.5 (`claude-opus-5-5`) and keep it across handovers.
 
     ## PR queue
     Per repository: the open PR and who holds the slot, then the queue in order.
+
+    ## Marching instruction (Coach Ed, 2026-11-13)
+    This section holds Coach Ed's marching instruction verbatim, exactly as in `.claude/briefs/manager.md` section 3. Copy the whole text below, unchanged, into every state file (he asked: "save this to your memory so all future managers especially when we do a handover command"). A state file without it is incomplete.
+
+        From now on, do not interrupt me with routine implementation or design questions that can be answered from the approved mockups, rulings, spec, plan, current codebase, or existing tests.
+
+        Make the smallest safe decision yourself, document it, and continue when:
+        the answer is already in the codebase or approved task artifacts;
+        it is a reversible implementation detail;
+        it does not change customer promises, payment, accounting, access control, privacy, legal terms, external integrations, or approved visual design.
+
+        Ask me only when:
+        the answer is not available from the codebase or approved artifacts;
+        it changes business scope, customer-facing promises, legal/compliance position, payments, accounting, commissions, credentials, privacy, or security;
+        it requires an external fact, owner decision, production access, third-party setting, brand approval, or approval to change an already approved mockup;
+        two valid options have materially different customer, financial, or security outcomes.
+
+        When you do ask, give one recommended answer, the concrete risk, and the exact decision needed. Batch related questions into one message.
 
     ## Rulings
     A pointer: the link of the rulings log, ClickUp task z8uq9med6x, and the date of the last entry read. Below it only rulings given in this session that are not yet logged, each quoted with its date and the coordinators told.
 
     ## Owner decisions pending
-    Each with its coordinator, the exact decision, and whether it needs his word in that coordinator's session.
+    Each with its coordinator, the exact decision, and whether it is covered by a ruling of his (name it) or needs his word, asked of him in the Manager session (he does not go to a coordinator's session; Coach Ed, 2026-11-13). Batch related ones.
 
     ## Plan
     The order of work and the assignments to coordinators, and any change Coach Ed made to them.
@@ -66,7 +84,8 @@ Print exactly two things:
 
        Resume in <absolute session folder> as the manager of all coordinator sessions.
        Read <absolute state-file path>, then read and follow
-       <absolute session folder>/.claude/briefs/manager.md.
+       <absolute session folder>/.claude/briefs/manager.md. Run on Fable 5.2 (claude-fable-5-2).
+       The marching instruction in the state file binds you; it is verbatim in the brief, section 3.
        Read the rulings log, the comments on ClickUp task z8uq9med6x, newest first, then the task map before re-reading ClickUp. Do not re-explore anything already recorded in the register.
 
 Say plainly: `/clear`, then paste this. The paste is required: nothing sits above the manager to send it.

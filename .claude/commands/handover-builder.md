@@ -3,7 +3,7 @@ description: Hand over a builder session: write its state file and a resume prom
 argument-hint: "<CLICKUP_TASK_ID>"
 ---
 
-Hand over this builder session. Write its state file, then print a resume prompt that makes the next session re-read its ClickUp task before it builds anything.
+Hand over this builder session (a builder that runs as its coordinator's sub-agent is not cleared: it puts the contents below in its final message to its coordinator instead, and the coordinator continues it or starts a fresh sub-agent from them). Write its state file, then print a resume prompt that makes the next session re-read its ClickUp task before it builds anything.
 
 ClickUp task ID: `$ARGUMENTS`
 
@@ -54,6 +54,7 @@ Write exactly these sections, whole file under 5 KB:
     - Open PRs: <full PR URLs with their state, or "none">
     - Local servers: <command and folder for each one this session started, running or stopped, or "none">
     - Builder brief: <absolute session folder>/.claude/briefs/builder.md
+    - Model: Sonnet 5.5 (`claude-sonnet-5-5`), effort medium, unless the coordinator named another for this builder; the resumed session keeps it (Coach Ed, 2026-11-13).
     - Coordinator session: <its name and session id, or "none">. Rulings log: link of the rulings log, ClickUp task z8uq9med6x, and the date of the last entry read (the log itself is not copied here)
     - First move: <the one thing the next session does first>
 
@@ -100,8 +101,9 @@ Print exactly two things and nothing else:
        Read <absolute state-file path>, then read and follow
        <absolute session folder>/.claude/briefs/builder.md with My ClickUp task: <CLICKUP_TASK_ID>,
        and the status, branch, PR and comment rules in <absolute session folder>/.claude/commands/clickup-builder.md.
+       Run on Sonnet 5.5 (claude-sonnet-5-5), effort medium.
        Read the rulings log, the comments on ClickUp task z8uq9med6x, newest first, and re-read the ClickUp task before building. Do not re-explore anything already covered by "## Done".
 
 Say plainly: `/clear`, then paste this. The paste is required: nothing else tells the next session where the state file is.
 
-One exception to "nothing else" and to the one-`Write` budget: when this builder has a coordinator (named in its start brief or state file, even if the manager started the builder), also send that coordinator one message with SendMessage, as the builder brief's section 8 says: first line "Handover written, ready to be cleared", then the state file path and the resume prompt. Then stop. The coordinator clears this session and sends the prompt back, so Coach Ed does not have to.
+One exception to "nothing else" and to the one-`Write` budget: when this builder has a coordinator (named in its start brief or state file), also send that coordinator one message with SendMessage, as the builder brief's section 8 says: first line "Handover written, ready to be cleared", then the state file path and the resume prompt. Then stop. The coordinator clears this session and sends the prompt back, so Coach Ed does not have to.

@@ -5,7 +5,7 @@ argument-hint: "<CLICKUP_TASK_ID>"
 
 Start or resume building the ClickUp task `$ARGUMENTS`.
 
-This command is the first instruction of a builder session the coordinator asked for, started by the coordinator or, as is usual, by the manager on the coordinator's behalf. Coach Ed does not start builders himself: the manager assigns a ClickUp task to a coordinator, and the coordinator creates the task for each builder (a task small enough for one builder needs no subtask and uses the coordinator's task ID). Your coordinator's session id is in your start brief; keep it for reports and for your handover.
+This command is the first instruction of a builder started and instructed only by its coordinator (Coach Ed, 2026-11-13), as a session or, usually, as the coordinator's own sub-agent (then its prompt tells it to follow this file; it reports to the coordinator in its final message). The manager starts no builder. Coach Ed does not start builders himself: the manager assigns a ClickUp task to a coordinator, and the coordinator creates the task for each builder (a task small enough for one builder needs no subtask and uses the coordinator's task ID). Your coordinator's session id is in your start brief; keep it for reports and for your handover.
 
 **Your role in this session: BUILDER.** You build one task and report to the coordinator. You do not coordinate other sessions, you do not decide on Coach Ed's behalf, and you do not answer your own questions about scope. If this session was already started as a coordinator with `/clickup-coordinator`, stop and say so: one session holds one role.
 
@@ -45,7 +45,7 @@ List every question the sources do not answer. Check the task, the codebase, `CL
 
 - If questions remain, send them to the coordinator session in one message and wait for the answer before building the parts that depend on it. Build nothing that an open question could change.
 - If there is no question, tell the coordinator the scope in a few lines and start.
-- If no coordinator session exists or it cannot be reached, say so and bring the questions to the manager instead, or to Coach Ed where there is no manager. Do not answer them yourself.
+- If no coordinator exists or it cannot be reached, say so and wait; no builder message goes to the manager's session (Coach Ed, 2026-11-13). Do not answer them yourself.
 
 ## 3. Branch and start
 
@@ -81,7 +81,7 @@ The coordinator then reviews the PR, merges it when CI is green and verifies sta
 
 ## ClickUp status rules
 
-The builder makes exactly these two status changes: `IN PROGRESS` and `FOR CHECKING`. The coordinator sets `ACCEPTED`, after Coach Ed's first-hand OK to the staging visual test (or, for a task with nothing to look at, once the PR is merged and staging verified); that starts your cleanup. Coach Ed sets Completed himself. Never set `ACCEPTED` or Completed, and never `PARKED` or `OPEN`.
+The builder makes exactly these two status changes: `IN PROGRESS` and `FOR CHECKING`. The coordinator sets `ACCEPTED`, after Coach Ed's OK to the staging visual test, given in the Manager session and relayed quoted and dated (or, for a task with nothing to look at, once the PR is merged and staging verified); that starts your cleanup. Coach Ed sets Completed himself. Never set `ACCEPTED` or Completed, and never `PARKED` or `OPEN`.
 
 For each change:
 

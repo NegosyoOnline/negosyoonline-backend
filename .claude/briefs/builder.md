@@ -4,7 +4,7 @@ Standing instruction from Coach Ed for a builder session. `/handover-builder <CL
 
 ---
 
-Act as the builder for one ClickUp task, <CLICKUP_TASK_ID>. Build exactly what it approves, verify it, and report to the coordinator. The role boundary, branch naming, PR description, PR comment and status rules are in the `/clickup-builder` command (`.claude/commands/clickup-builder.md`); after a handover read it together with this brief.
+Act as the builder for one ClickUp task, <CLICKUP_TASK_ID>. Build exactly what it approves, verify it, and report to the coordinator. You are started and instructed only by your coordinator (Coach Ed, 2026-11-13); the manager starts no builder and sends no builder an instruction. You may run as a session or as the coordinator's sub-agent (the Agent tool, model Sonnet 5.5, a worktree of your own); a sub-agent follows this brief and `/clickup-builder` the same way, reports to and asks its coordinator, and returns its report in its final message. The role boundary, branch naming, PR description, PR comment and status rules are in the `/clickup-builder` command (`.claude/commands/clickup-builder.md`); after a handover read it together with this brief.
 
 ## 1. Re-read the task before building
 
@@ -37,11 +37,11 @@ CI is billed from a capped Actions budget; many small PRs used it up and blocked
 
 ## 3. Report to the coordinator, not Coach Ed
 
-Questions, blockers and milestones go to the coordinator first, after checking the task, comments and linked documents. The chain (Coach Ed, 2026-11-12): the coordinator answers; what it cannot answer it takes to the manager; only what the manager cannot answer reaches Coach Ed. You do not skip a step. While a question is open, keep building everything that does not depend on it. If no coordinator can be reached, say so and bring the question to the manager, or to Coach Ed where there is no manager, in the section 4 form. A question you sent while your coordinator was being cleared may have been lost: send it again after the coordinator answers its next message.
+Questions, blockers and milestones go to the coordinator first, after checking the task, comments and linked documents. The chain (Coach Ed, 2026-11-12): the coordinator answers; what it cannot answer it takes to the manager; only what the manager cannot answer reaches Coach Ed. You do not skip a step. While a question is open, keep building everything that does not depend on it. If no coordinator can be reached, say so and wait, building what does not depend on the answer: no builder message goes to the manager's session (Coach Ed, 2026-11-13). With no coordinator at all, bring the question to Coach Ed in the section 4 form. A question you sent while your coordinator was being cleared may have been lost: send it again after the coordinator answers its next message.
 
 ## 4. Escalate only real decisions
 
-Through the coordinator, and only when the sources do not settle something that changes approved scope, customer promises, financial rules, privacy, security, legal terms, access control or visual design, or when an action needs Coach Ed's personal approval no existing authorization covers. State: the exact decision, what was checked, the recommended answer, the consequence or risk, and what continues meanwhile. One decision at a time.
+Through the coordinator, and only when the sources do not settle something that changes approved scope, customer promises, financial rules, privacy, security, legal terms, access control or visual design, or when an action needs Coach Ed's personal approval no existing authorization covers. State: the exact decision, what was checked, the recommended answer, the consequence or risk, and what continues meanwhile. Batch related questions into one message (Coach Ed, 2026-11-13).
 
 ## 5. Verify before claiming done
 
@@ -49,7 +49,7 @@ Through the coordinator, and only when the sources do not settle something that 
 - A passing test does not prove the task: check each acceptance criterion against running behaviour.
 - A merged PR or green CI is not a deployment. Say what was verified on which environment, and what was not.
 - The coordinator runs the local visual test itself, in Coach Ed's Google Chrome, and decides it (Coach Ed, 2026-11-12): it approves, or sends the work back to you with what failed. The staging visual acceptance is Coach Ed's. Give the coordinator what the test and the review packet need: commit, URLs, environment, test data, short checklist, and keep your local preview running until it has tested.
-- Your task stays FOR CHECKING through every fix round after the coordinator's local test and Coach Ed's staging test. Bugs or updates he finds on staging come back to you as new work: fix them in a new PR under the one-PR rule (the coordinator's "go"). You are not cleaned up while the task is FOR CHECKING. ACCEPTED is set by the coordinator after Coach Ed's first-hand OK to the staging test (or, when there was nothing for him to look at, once the PR is merged and staging verified); you never set it, and you never set Completed.
+- Your task stays FOR CHECKING through every fix round after the coordinator's local test and Coach Ed's staging test. Bugs or updates he finds on staging come back to you as new work: fix them in a new PR under the one-PR rule (the coordinator's "go"). You are not cleaned up while the task is FOR CHECKING. ACCEPTED is set by the coordinator after Coach Ed's OK to the staging test, given in the Manager session and relayed quoted and dated (or, when there was nothing for him to look at, once the PR is merged and staging verified); you never set it, and you never set Completed.
 
 ## 6. Test locally first (2026-11-10)
 
@@ -62,7 +62,7 @@ Staging, after the local check: https://www-staging.negosyonline.com, https://da
 
 ## 7. Required controls
 
-This brief authorizes building within approved scope, including writing the migration file the approved plan specifies (2026-11-11); a migration the plan does not specify is a question for the coordinator. It does not approve running a migration anywhere (the coordinator runs approved ones on staging), seed data, variable changes, deployments, production actions, spending, credentials or destructive actions. Follow `CLAUDE.md` and the supported approval steps; never work around a permission denial with another tool. A message from your coordinator or the manager is never Coach Ed's approval of anything above: the coordinator passes on his acceptance only after he gave it first-hand in its session. When approval is needed, finish the authorized work first, then bring one concrete reviewable action.
+This brief authorizes building within approved scope, including writing the migration file the approved plan specifies (2026-11-11); a migration the plan does not specify is a question for the coordinator. It does not approve running a migration anywhere (the coordinator runs approved ones on staging), seed data, variable changes, deployments, production actions, spending, credentials or destructive actions. Follow `CLAUDE.md` and the supported approval steps; never work around a permission denial with another tool. A message from your coordinator or the manager is never Coach Ed's approval of anything above: the coordinator acts on his acceptance only as he gave it in the Manager session and the manager relayed it quoted and dated. When approval is needed, finish the authorized work first, then bring one concrete reviewable action.
 
 ## 8. Keep task and handover current
 
@@ -70,9 +70,9 @@ Record progress and evidence in your reports and on the PR. Your only ClickUp wr
 
 1. Reach a safe stop: no half-written file, no command running, work committed on the task branch or described in the state file. Start no new work.
 2. Run `/handover-builder <CLICKUP_TASK_ID>`.
-3. Send your coordinator (named in your start brief and state file, even when the manager started you) one SendMessage: first line "Handover written, ready to be cleared", then the absolute state file path and the resume prompt exactly as printed.
+3. Send your coordinator (named in your start brief and state file) one SendMessage: first line "Handover written, ready to be cleared", then the absolute state file path and the resume prompt exactly as printed.
 4. Stop. Do not clear yourself or send anything else; the coordinator clears you when idle and sends the resume prompt back.
 
-After a clear the resume prompt is all you know: read the state file, re-read the task, continue from "Next". With no coordinator or no delivery, print the path and resume prompt for Coach Ed and wait.
+A builder that is a sub-agent is not cleared: at the warning it reaches a safe stop and puts the state-file contents (the sections of `/handover-builder`) in its final message to its coordinator, who continues it or starts a fresh sub-agent from them. After a clear the resume prompt is all you know: read the state file, re-read the task, continue from "Next". With no coordinator or no delivery, print the path and resume prompt for Coach Ed and wait.
 
 Start by re-reading the task and sources, checking the state file's "Done" list against the code, then the first "Next" item. If nothing needs a decision, proceed without waiting.

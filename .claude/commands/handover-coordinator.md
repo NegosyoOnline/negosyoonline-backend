@@ -54,7 +54,7 @@ Write exactly these sections, whole file under 6 KB:
     - Open PRs: <full PR URLs with their state, or "none">
     - Local servers: <command and folder for each one this session started, running or stopped, or "none">
     - Coordinator brief: <absolute session folder>/.claude/briefs/coordinator.md
-    - This coordinator: <session id>. Manager: <session id, or "none">. Coordinator Helper: <session id, or "none"; unused once a manager exists>
+    - This coordinator: <session id>, model Opus 5.5 (`claude-opus-5-5`; the resumed session keeps it, Coach Ed 2026-11-13). Manager: <session id, or "none">. Coordinator Helper: <session id, or "none"; unused once a manager exists>
     - Rulings log: link of the rulings log, ClickUp task z8uq9med6x, and the date of the last entry read (the log itself is not copied here)
     - First move: <the one thing the next session does first>
 
@@ -64,7 +64,7 @@ Write exactly these sections, whole file under 6 KB:
     ## Coordination record
     - Objective and approved scope, each with its source (task, comment, document).
     - Rulings from Coach Ed, newest last, each with where it was given.
-    - Sub-sessions: name, session id, deliverable, status, what it is waiting on.
+    - Builders (sub-agents or sessions): name, id, deliverable, status, what it is waiting on. A sub-agent builder is continued by SendMessage and holds no state file; record its last report here.
     - Resolved questions, and decisions still owed by Coach Ed.
     - Approvals given, with their exact action, scope and environment.
 
@@ -104,6 +104,7 @@ Print exactly two things:
        <absolute session folder>/.claude/briefs/coordinator.md with Main ClickUp task: <CLICKUP_TASK_ID>,
        and the role limits in <absolute session folder>/.claude/commands/clickup-coordinator.md.
        Read the rulings log, the comments on ClickUp task z8uq9med6x, newest first before acting.
+       Run on Opus 5.5 (claude-opus-5-5).
        Do not re-explore anything already covered by "## Done".
 
 Then one of two endings.
@@ -112,4 +113,4 @@ Then one of two endings.
 
 **Automatic, with no manager but a Coordinator Helper named in this conversation** (a coordinator started before the manager existed; once a manager exists the helper is not used and you hand over through the manager). In one final message: send the helper the resume prompt unchanged with SendMessage, then `clear_session` with "self", and end the turn at once. If the app's hook refuses the clear, re-issue it with exactly the input the error quotes.
 
-**By hand, otherwise** (no manager session and no helper, this session is served to Remote Control, or the manager cannot clear it). With a manager, send it the resume prompt and say the clear is refused, so it gives Coach Ed the commands. With none, say plainly: `/clear`, then paste this. The paste is required: nothing else tells the next session where the state file is.
+**By hand, otherwise** (no manager session and no helper, this session is served to Remote Control, or the manager cannot clear it). With a manager, send it the resume prompt and say the clear is refused, so it does the steps or tells Coach Ed in the Manager session; he does not come to this session (Coach Ed, 2026-11-13). With none, say plainly: `/clear`, then paste this. The paste is required: nothing else tells the next session where the state file is.
