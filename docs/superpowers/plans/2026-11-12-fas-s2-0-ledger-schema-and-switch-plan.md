@@ -12,7 +12,7 @@
 
 Date: 2026-11-12. ClickUp task: z8uq9md5df (https://app.clickup.com/t/z8uq9md5df), the FAS-04 task, of which this is the S2-0 piece. Master task z8uq9md5db.
 Plan branch: `docs/z8uq9md5df-fas-s2-0-plan`, cut from `origin/main` at `34b0d10`. The build branch is cut from the latest `origin/main` once Coach Ed approves this plan.
-Status: **plan only; nothing in it is built.** The SQL of section 5 was run on a scratch PostgreSQL 14 against hand-made tables with the same column names (every refusal below fired as described, and the balanced post passed); the Python was not run. Approving the FAS stage 2 split approved no plan: this plan needs Coach Ed's approval before a builder starts, and the approval of this plan is what the standing approval of 2026-11-11 reads as "a migration that an approved plan specifies" (`CLAUDE.md`, `.claude/briefs/coordinator.md` section 10).
+Status: **plan only; nothing in it is built.** The SQL of section 5 was run on a scratch PostgreSQL 14 against hand-made tables with the same column names (every refusal below fired as described, and the balanced post passed); the Python was not run. Approving the FAS stage 2 split approved no plan: this plan needs Coach Ed's approval before a builder starts, and the approval of this plan is what the standing approval of 2026-11-11 reads as "a migration that an approved plan specifies" (`CLAUDE.md`, `.claude/briefs/supervisor.md` section 10).
 
 ## Deviations from FAS-03 section 2.5
 
