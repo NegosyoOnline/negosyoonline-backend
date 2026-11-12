@@ -17,7 +17,9 @@ from apps.catalog.tests.base import catalog_call
 from apps.pack.api_owner import router as pack_router
 from apps.pack.tests.owner_base import pack_call
 from apps.payments.api import router as payments_router
-from apps.payments.tests.base import payments_call, use_local_private_store
+from apps.accounts.tests.base import ORIGIN
+from apps.common import private_files
+from apps.payments.tests.base import PNG, payments_call, qr_file, use_local_private_store
 from apps.sante.api import router as sante_router
 from apps.sites.api import router as sites_router
 from apps.sites.models import Site, SiteBusinessProfile
@@ -30,6 +32,9 @@ TURNED_OFF = [
     ("PATCH", "/sites/{site_id}/"),
     ("GET", "/sites/{site_id}/business-profile/"),
     ("PATCH", "/sites/{site_id}/business-profile/"),
+    ("GET", "/sites/{site_id}/business-profile/seal/"),
+    ("POST", "/sites/{site_id}/business-profile/seal/"),
+    ("DELETE", "/sites/{site_id}/business-profile/seal/"),
     ("GET", "/sites/{site_id}/sante/settings/"),
     ("PATCH", "/sites/{site_id}/sante/settings/"),
     ("GET", "/sites/{site_id}/catalog/products/"),
@@ -78,6 +83,8 @@ class BillingOnlyTestCase(SitesApiTestCase):
         use_local_private_store(self)
         self.site_id = self.create_site()["id"]
         self.site = Site.objects.get(public_id=self.site_id)
+        SiteBusinessProfile.objects.filter(site=self.site).update(  # a stored badge, so the seal GET has one to answer
+            seal_key=private_files.save("sites/seal/site-1", PNG, "image/png"))
         self.subscription = Subscription.objects.get(site=self.site)
         self.start = self.subscription.trial_start_at
         self.trial_end = self.subscription.trial_end_at
@@ -98,6 +105,13 @@ class BillingOnlyTestCase(SitesApiTestCase):
             return pack_call(self, method, path, client=client)
         if "/payment-methods/" in path:
             return payments_call(self, method, path, client=client)
+        if path.endswith("/business-profile/seal/"):
+            if method == "POST":
+                return (client or self.client).post(
+                    path, data={"seal": qr_file(name="seal.png")}, secure=True, HTTP_ORIGIN=ORIGIN)
+            if method == "GET":  # the walk may have removed the badge just before
+                SiteBusinessProfile.objects.filter(site__public_id=site_id or self.site_id, seal_key="").update(
+                    seal_key=private_files.save("sites/seal/site-1", PNG, "image/png"))
         if method == "GET":
             return self.get(path, client=client)
         body = PROFILE_BODY if "business-profile" in path else SITE_BODY

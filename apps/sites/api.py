@@ -16,7 +16,9 @@ from apps.billing import services as billing
 from apps.common.errors import ApiError
 from apps.common.pagination import DEFAULT_LIMIT, page
 from apps.common.throttle import hit
-from apps.sites import onboarding, services, subdomains, templates
+from django.http import HttpResponse
+
+from apps.sites import onboarding, seal, services, subdomains, templates
 from apps.sites.models import Site, Subdomain
 
 router = Router(tags=["sites"], auth=signed_in)
@@ -112,6 +114,7 @@ class BusinessProfileOut(Schema):
     shipping_mindanao_estimate: str
     shipping_other_areas_estimate: str
     shipping_estimates_confirmed: bool
+    has_seal: bool
     updated_at: datetime
 
 
@@ -235,6 +238,37 @@ def business_profile_update(request, site_id: str, payload: BusinessProfilePatch
     return services.update_business_profile(
         request.account, site, payload.dict(exclude_unset=True)
     )
+
+
+SEAL_WRITE_LIMIT, SEAL_WRITE_WINDOW = 20, 3600  # badge uploads and removals per account per hour
+
+
+@router.get("/sites/{site_id}/business-profile/seal/")
+def business_seal_image(request, site_id: str):
+    """The owner's own badge, for the preview in the dashboard. 404 when none is uploaded."""
+    found = seal.image_of(_owner_site(request, site_id))
+    if found is None:
+        raise ApiError("not_found", "Not found.", status=404)
+    response = HttpResponse(found[0], content_type=found[1])
+    response["Cache-Control"] = "private, no-cache"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@router.post("/sites/{site_id}/business-profile/seal/", response=BusinessProfileOut)
+def business_seal_upload(request, site_id: str):
+    """Upload or replace the BIR registration badge: a form post (multipart) with one `seal` image,
+    JPEG, PNG or WebP, at most 2 MB. Answers the business profile (has_seal true)."""
+    site = _owner_site(request, site_id)
+    hit("business-seal-write", request.account.pk, limit=SEAL_WRITE_LIMIT, window=SEAL_WRITE_WINDOW)
+    return seal.set_seal(request.account, site, request.FILES.get("seal"))
+
+
+@router.delete("/sites/{site_id}/business-profile/seal/", response=BusinessProfileOut)
+def business_seal_remove(request, site_id: str):
+    site = _owner_site(request, site_id)
+    hit("business-seal-write", request.account.pk, limit=SEAL_WRITE_LIMIT, window=SEAL_WRITE_WINDOW)
+    return seal.remove_seal(request.account, site)
 
 
 @router.get("/account/setup/", response=SetupOut)

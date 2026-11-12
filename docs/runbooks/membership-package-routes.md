@@ -155,3 +155,19 @@ card: {id, order: {order_number, created_at, total}, order_number, created_at, t
 2. `member/pack/resubmit/`: accepted fields are `host, visitor_ip, token, account_id, reference_number, amount_sent, sender_bank, sender_first_name, sender_last_name (or sender_name), sender_account_number, transferred_at, proof`. `submit_key` is accepted and ignored: TWCinc's resubmit has none. Double-submit protection is the status rule: the first call moves the order from `rejected` to `pending_review`, so a second call answers `409 not_rejected` ("A new proof can be sent only after the store asks for one.").
 3. `member/registration/details/` now reproduces TWCinc's dashboard form: ONE `date_of_birth` (`YYYY-MM-DD`), no terms tick (the registration note names the Membership Terms version agreed at checkout), the two usernames, and a delivery address block (`delivery_address` `{line, barangay, city, province, zip}`). The address is required while the member has no address on file (`registration.needs_address` true: show the block) and is also saved when sent; the ZIP is derived on the server. Errors: `422 invalid_details` with `fields` (`date_of_birth`, `desired_username`, `alternate_username`), `400 invalid_address` with `fields.delivery_address` (a missing line, city or province, from the members address check) and `422 invalid_address` with `fields.province` or `zip` (the ZIP derivation), `409 mobile_not_verified`, `409 wrong_status`. The three-part date and `terms` of the funnel are only on `onboarding/details/`.
 4. Own-proof link: TWCinc's payment panel and rejected dialog show no link to the member's own proof (its proof route exists but nothing links it). Nothing to build; `member/pack/proof/` stays available.
+
+## BIR registration badge (owner-uploaded seal)
+
+Coach Ed's ruling 2026-11-12: the Subscriber uploads the BIR registration badge (Registered shield, BIR, QR, RSN) in the dash; the storefront footer registration block shows it. Migration `sites.0003` adds `SiteBusinessProfile.seal_key` (written; run on scratch only so far).
+
+Owner (cookie session, allowed `Origin`, owner of the site; another account's or a missing site is `404`; a Billing-only site is `403 billing_only`):
+
+| Route | Body | Answer |
+|---|---|---|
+| `POST /v1/sites/{site_id}/business-profile/seal/` | multipart form, one file field `seal` (JPEG, PNG or WebP, at most 2 MB; the type is checked from the bytes) | `200` the business profile (as `GET .../business-profile/`), now with `has_seal: true` |
+| `DELETE /v1/sites/{site_id}/business-profile/seal/` | none | `200` the business profile, `has_seal: false` (harmless when none) |
+| `GET /v1/sites/{site_id}/business-profile/seal/` | none | the image itself for the dash preview (`Cache-Control: private, no-cache`), `404 not_found` when none |
+
+`GET /v1/sites/{site_id}/business-profile/` now also answers `has_seal: boolean`. A bad file is `400 invalid_request` with `fields: {seal: ["Upload a JPEG, PNG or WebP image."]}` or `["The file is too large. The limit is 2 MB."]`, or `["Choose an image to upload."]` with no file. 20 writes per account per hour. The file key and any storage URL are never answered.
+
+Storefront (server credential): `GET /storefront/v1/seal/?host=...` serves the image (`image/png|jpeg|webp`, `Cache-Control: private, no-cache`, `X-Content-Type-Options: nosniff`) and `404 not_found` when none is uploaded or the host is not a served Santé site. `GET /storefront/v1/site/` `business.has_seal` is true once one is uploaded. Account disposal deletes the file.

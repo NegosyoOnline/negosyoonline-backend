@@ -20,7 +20,7 @@ site is not served right now answers 404, whatever the reason.
 `urlpatterns` is the only way in: each route below, and every unknown path, is wrapped in the
 credential check, so a route added later cannot be reached without it.
 """
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.urls import URLPattern, re_path
 from ninja import NinjaAPI, Schema
 
@@ -28,6 +28,7 @@ from apps.common.errors import ApiError, error_body, register_error_handlers
 from apps.members.api import router as members_router
 from apps.pack.api import router as pack_checkout_router
 from apps.sante import pack_api
+from apps.sites import seal
 from apps.storefront import services
 from apps.storefront.auth import server_only
 
@@ -85,6 +86,19 @@ def _site(host):
 @api.get("/site/", response=SiteOut)
 def site(request, host: str = ""):
     return services.site_chrome(_site(host))
+
+
+@api.get("/seal/")
+def seal_image(request, host: str = ""):
+    """The store's BIR registration badge, as the owner uploaded it. 404 when none is, as for an unknown host."""
+    found = seal.image_of(_site(host))
+    if found is None:
+        raise ApiError("not_found", "Not found.", status=404)
+    response = HttpResponse(found[0], content_type=found[1])
+    response["Cache-Control"] = "private, no-cache"
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Content-Disposition"] = 'inline; filename="business-seal"'
+    return response
 
 
 class ContactIn(Schema):

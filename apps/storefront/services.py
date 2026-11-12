@@ -55,7 +55,7 @@ def site_chrome(site):
             "dti_business_number": profile.dti_business_number if profile else "",
             "contact_email": store_contact_email(site, profile),
             "contact_mobile": site.contact_mobile,
-            "has_seal": False,  # private files arrive with slice 8
+            "has_seal": bool(profile and profile.seal_key),
         },
         "distributor": {
             "name": site.account.name.strip() or site.display_name,

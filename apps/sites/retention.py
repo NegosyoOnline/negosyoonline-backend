@@ -3,6 +3,7 @@
 Called only by apps.accounts.retention. This is not store disposal: a site has no order,
 customer or media row yet. The rows stay; only their personal fields go.
 """
+from apps.common import private_files
 from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
 
 SITE_PERSONAL = ("contact_email", "contact_mobile", "facebook_url", "instagram_url", "tiktok_url")
@@ -43,7 +44,9 @@ def blank_sites_of(account, now, dry_run=False):
     if dry_run:
         return counts
     active_names.update(state=Subdomain.State.RETIRED, retired_at=now)
-    profiles.update(**{name: "" for name in PROFILE_PERSONAL})
+    for key in list(profiles.exclude(seal_key="").values_list("seal_key", flat=True)):
+        private_files.delete(key)  # a file that cannot be deleted undoes the disposal, as for payments
+    profiles.update(seal_key="", **{name: "" for name in PROFILE_PERSONAL})
     for pk, deleted_at in list(sites.values_list("pk", "deleted_at")):
         Site.objects.filter(pk=pk).update(
             display_name=f"Deleted site #{pk}",
