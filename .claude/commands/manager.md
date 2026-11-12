@@ -11,7 +11,8 @@ Read `.claude/briefs/manager.md` now and follow it for the whole session. Where 
 Before anything else:
 
 - Check with `list_sessions` that no other live session is titled "Manager". If one is, stop and tell Coach Ed: there is exactly one.
-- Confirm this session's folder is the backend repository's main checkout. If it is a worktree, say so and ask Coach Ed whether to continue there: the task map and state file live in this folder and are lost when a worktree is pruned.
+- Confirm this session's folder is the backend repository's main checkout. If it is a worktree, say so and ask Coach Ed whether to continue there: the task map and state file live in this folder and are lost when a worktree is pruned. In the main checkout run `git fetch origin` and `git pull --ff-only` before reading the brief, so it is not an old copy.
+- Read the ClickUp task "Manager — Rulings log", newest entries first (brief, section 2). If it does not exist, tell Coach Ed to create it.
 - Title this session "Manager".
 
 Then follow the brief's last paragraph: build the view, read or create the task map, and report.

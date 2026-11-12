@@ -5,11 +5,11 @@ argument-hint: "<CLICKUP_TASK_ID>"
 
 Start or resume building the ClickUp task `$ARGUMENTS`.
 
-This command is the first instruction of a builder sub-session created by the coordinator. Coach Ed does not start builders himself: the manager assigns a ClickUp task to a coordinator, and the coordinator creates the task for each builder and starts it.
+This command is the first instruction of a builder session the coordinator asked for, started by the coordinator or, as is usual, by the manager on the coordinator's behalf. Coach Ed does not start builders himself: the manager assigns a ClickUp task to a coordinator, and the coordinator creates the task for each builder (a task small enough for one builder needs no subtask and uses the coordinator's task ID). Your coordinator's session id is in your start brief; keep it for reports and for your handover.
 
 **Your role in this session: BUILDER.** You build one task and report to the coordinator. You do not coordinate other sessions, you do not decide on Coach Ed's behalf, and you do not answer your own questions about scope. If this session was already started as a coordinator with `/clickup-coordinator`, stop and say so: one session holds one role.
 
-Use that value wherever this command says `<CLICKUP_TASK_ID>`. It may be a task ID or a task URL. If it is empty, a list or board link, or matches more than one task, say what `/clickup-builder <CLICKUP_TASK_ID>` needs and stop. Never guess a task and never create one.
+Use that value wherever this command says `<CLICKUP_TASK_ID>`. It may be a task ID or a task URL. If it is empty, a list or board link, or matches more than one task, say what `/clickup-builder <CLICKUP_TASK_ID>` needs and stop. Never guess a task, and never create a task to fill a missing argument.
 
 Read `.claude/briefs/builder.md` now and follow it for the whole session. This command adds only what is specific to starting from ClickUp. Where the two differ, Coach Ed's latest ruling wins.
 
@@ -30,6 +30,8 @@ Read once, before anything else:
 - The parent task, and any linked specification, plan or handover.
 
 If the task cannot be read, stop and say so. Mark any attachment that could not be opened as unread; do not summarise it.
+
+Also read the ClickUp task "Manager — Rulings log", newest entries first, at every start and resume (builder brief, section 1). It records rulings only and approves nothing.
 
 Then inspect the code and tests the task touches, and the current Git state.
 
@@ -68,17 +70,18 @@ A task with nothing to look at skips this status.
 
 After Coach Ed's local acceptance, or straight after verification for a task with nothing to look at, tell the coordinator the PR is ready and wait for its "go" (builder brief, "Few PRs, few CI runs"). On "go":
 
+- Run `gh pr list --state open` (no CI cost). If it is not empty, create nothing and tell the coordinator.
 - Update first, every time. Run `git fetch origin`, merge the latest `origin/main` into the branch, resolve any conflict, and rerun the targeted tests and the repository checks on the result. Open the PR only when they pass.
 - If a conflict touches another session's work, do not choose a side. Stop and report it to the coordinator.
 - Open the PR. Its description must carry the ClickUp task ID and the task URL, what was built against which acceptance criteria, and what was verified where.
 - Post one comment on the ClickUp task with the PR link and one line on what it delivers. Before posting, check the existing comments so a re-run does not post it twice, and check the text holds no secret, token or environment value.
-- Set the ClickUp status to `ACCEPTED`.
+- Set no ClickUp status now. The task stays `FOR CHECKING` (or `IN PROGRESS` for a task with nothing to look at) until the coordinator sets `ACCEPTED`.
 
-The coordinator then reviews the PR, merges it when CI is green and verifies staging. Do not merge, push, update the branch or re-run CI once the PR is open; re-run a check only after a failure you understand. Only one PR is open at a time, so `main` does not move under it.
+The coordinator then reviews the PR, merges it when CI is green and verifies staging. Coach Ed tests on staging; bugs or updates he finds come back to you as new work in a new PR under the same rule, and the task stays `FOR CHECKING` through every fix round. You are not cleaned up until the coordinator sets `ACCEPTED`. Do not merge, push, update the branch or re-run CI once the PR is open; re-run a check only after a failure you understand. Only one PR is open at a time, so `main` does not move under it.
 
 ## ClickUp status rules
 
-The builder makes exactly these three status changes: `IN PROGRESS`, `FOR CHECKING`, `ACCEPTED`. Coach Ed sets Completed himself after the local and staging checks pass. Never set it, and never set `PARKED` or `OPEN`.
+The builder makes exactly these two status changes: `IN PROGRESS` and `FOR CHECKING`. The coordinator sets `ACCEPTED`, after Coach Ed's first-hand OK to the staging visual test (or, for a task with nothing to look at, once the PR is merged and staging verified); that starts your cleanup. Coach Ed sets Completed himself. Never set `ACCEPTED` or Completed, and never `PARKED` or `OPEN`.
 
 For each change:
 

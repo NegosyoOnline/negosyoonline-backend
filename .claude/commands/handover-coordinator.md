@@ -54,7 +54,8 @@ Write exactly these sections, whole file under 6 KB:
     - Open PRs: <full PR URLs with their state, or "none">
     - Local servers: <command and folder for each one this session started, running or stopped, or "none">
     - Coordinator brief: <absolute session folder>/.claude/briefs/coordinator.md
-    - This coordinator: <session id>. Manager: <session id, or "none">. Coordinator Helper: <session id, or "none">
+    - This coordinator: <session id>. Manager: <session id, or "none">. Coordinator Helper: <session id, or "none"; unused once a manager exists>
+    - Rulings log: link of the ClickUp task "Manager — Rulings log" and the date of the last entry read (the log itself is not copied here)
     - First move: <the one thing the next session does first>
 
     ## Task
@@ -100,13 +101,15 @@ Print exactly two things:
 
        Resume in <absolute session folder> as the coordinator for ClickUp task <CLICKUP_TASK_ID>.
        Read <absolute state-file path>, then read and follow
-       <absolute session folder>/.claude/briefs/coordinator.md with Main ClickUp task: <CLICKUP_TASK_ID>.
+       <absolute session folder>/.claude/briefs/coordinator.md with Main ClickUp task: <CLICKUP_TASK_ID>,
+       and the role limits in <absolute session folder>/.claude/commands/clickup-coordinator.md.
+       Read the ClickUp task "Manager — Rulings log" (newest first) before acting.
        Do not re-explore anything already covered by "## Done".
 
 Then one of two endings.
 
 **Automatic, when a manager session exists** (coordinator brief, section 9). Send the manager one message with SendMessage: first line "Handover written, ready to be cleared", then the absolute state file path and the resume prompt exactly as printed. Then stop. Do not clear yourself and send nothing else: the manager clears this session once it is idle and sends the resume prompt back.
 
-**Automatic, with no manager but a Coordinator Helper named in this conversation** (a coordinator started before the manager existed). In one final message: send the helper the resume prompt unchanged with SendMessage, then `clear_session` with "self", and end the turn at once. If the app's hook refuses the clear, re-issue it with exactly the input the error quotes.
+**Automatic, with no manager but a Coordinator Helper named in this conversation** (a coordinator started before the manager existed; once a manager exists the helper is not used and you hand over through the manager). In one final message: send the helper the resume prompt unchanged with SendMessage, then `clear_session` with "self", and end the turn at once. If the app's hook refuses the clear, re-issue it with exactly the input the error quotes.
 
-**By hand, otherwise** (no manager session and no helper, this session is served to Remote Control, or the manager cannot clear it). Say plainly: `/clear`, then paste this. The paste is required: nothing else tells the next session where the state file is.
+**By hand, otherwise** (no manager session and no helper, this session is served to Remote Control, or the manager cannot clear it). With a manager, send it the resume prompt and say the clear is refused, so it gives Coach Ed the commands. With none, say plainly: `/clear`, then paste this. The paste is required: nothing else tells the next session where the state file is.

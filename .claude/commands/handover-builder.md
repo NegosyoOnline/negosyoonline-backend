@@ -54,7 +54,7 @@ Write exactly these sections, whole file under 5 KB:
     - Open PRs: <full PR URLs with their state, or "none">
     - Local servers: <command and folder for each one this session started, running or stopped, or "none">
     - Builder brief: <absolute session folder>/.claude/briefs/builder.md
-    - Coordinator session: <its name and session id, or "none">
+    - Coordinator session: <its name and session id, or "none">. Rulings log: link of the ClickUp task "Manager — Rulings log" and the date of the last entry read (the log itself is not copied here)
     - First move: <the one thing the next session does first>
 
     ## Task
@@ -87,7 +87,7 @@ Rules for the content:
 - Name the repo for every path, branch, and PR. Backend and frontend are separate repositories, and a session started in one often works in the other.
 - State local, staging and production separately. Visual checks are done locally first (the `negosyotest.com` and `santetest.com` domains, with the port), then on staging: say which were done where. A merged PR or a green CI run is not a deployment: say what was verified on the staging host and what was not.
 - List anything temporary that must be removed later, with the file and the condition for removing it.
-- Record approvals Coach Ed gave in this session only as history. They do not carry over: the next session must ask again before a migration, deploy, variable change, or production action.
+- Record approvals Coach Ed gave in this session only as history. They do not carry over: the next session must ask again before running any migration, or a deploy, variable change, seed data or production action. Writing the migration file the approved plan specifies needs no new approval.
 
 ## Finish
 
@@ -98,9 +98,10 @@ Print exactly two things and nothing else:
 
        Resume in <absolute session folder> as the builder for ClickUp task <CLICKUP_TASK_ID>.
        Read <absolute state-file path>, then read and follow
-       <absolute session folder>/.claude/briefs/builder.md with My ClickUp task: <CLICKUP_TASK_ID>.
-       Re-read the ClickUp task before building. Do not re-explore anything already covered by "## Done".
+       <absolute session folder>/.claude/briefs/builder.md with My ClickUp task: <CLICKUP_TASK_ID>,
+       and the status, branch, PR and comment rules in <absolute session folder>/.claude/commands/clickup-builder.md.
+       Read the ClickUp task "Manager — Rulings log" (newest first), and re-read the ClickUp task before building. Do not re-explore anything already covered by "## Done".
 
 Say plainly: `/clear`, then paste this. The paste is required: nothing else tells the next session where the state file is.
 
-One exception to "nothing else" and to the one-`Write` budget: when a coordinator session started this builder, also send it one message with SendMessage, as the builder brief's section 8 says: first line "Handover written, ready to be cleared", then the state file path and the resume prompt. Then stop. The coordinator clears this session and sends the prompt back, so Coach Ed does not have to.
+One exception to "nothing else" and to the one-`Write` budget: when this builder has a coordinator (named in its start brief or state file, even if the manager started the builder), also send that coordinator one message with SendMessage, as the builder brief's section 8 says: first line "Handover written, ready to be cleared", then the state file path and the resume prompt. Then stop. The coordinator clears this session and sends the prompt back, so Coach Ed does not have to.
