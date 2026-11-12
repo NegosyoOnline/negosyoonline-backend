@@ -116,10 +116,12 @@ def run_daily_rules():
 
 
 def start_daily():
-    """Start the day's run of the SMS rules, once. Called whenever the phone polls, until
-    a beat service exists: the first call of each Manila day takes the lock and runs them in
-    the background; the others do nothing. A day with no call is a day with no run, and the
-    next run removes everything that is due. Every other rule stays manual."""
+    """Start the day's run of the SMS rules, once. Called whenever the phone polls. This is the
+    fallback where no beat service runs (production today); where beat runs, `retention.run`
+    (`apps/common/tasks.py`) also runs these rules at 03:00 and finds nothing left due. The
+    first call of each Manila day takes the lock and runs them in the background; the others
+    do nothing. A day with no call is a day with no run, and the next run removes everything
+    that is due. The other rules run only from the daily `retention.run` or by hand."""
     if cache.add(f"retention:daily:{timezone.localdate():%Y%m%d}", 1, _LOCK_KEPT):
         background.run_later(run_daily_rules)
         return True

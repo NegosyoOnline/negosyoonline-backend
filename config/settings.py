@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from celery.schedules import crontab
 
 from apps.common.database import require_database_tls
 from config.celery import broker_url
@@ -342,6 +343,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "billing.notices",
         "schedule": BILLING_SWEEP_EVERY_SECONDS,
         "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
+    },
+    # Every retention rule, once a day at 03:00 Manila time. The rules behind RETENTION_ENABLED
+    # do nothing while it is off. A tick not picked up within the hour is dropped: the next
+    # day's run removes everything due.
+    "retention-daily": {
+        "task": "retention.run",
+        "schedule": crontab(hour=3, minute=0),
+        "options": {"expires": 3600},
     },
 }
 

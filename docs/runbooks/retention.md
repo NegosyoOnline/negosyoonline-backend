@@ -2,11 +2,19 @@
 
 Account-side retention (NPC Build 7, ClickUp z8uq9mdwdy, and NPC Build 10, ClickUp z8uq9mdzve). Plans: `docs/superpowers/plans/2026-11-11-backend-npc-build7-account-retention.md` and `docs/superpowers/plans/2026-11-11-backend-npc-build10-retention-gaps.md`.
 
-Nothing here runs by itself today. Every rule is run by hand with `manage.py run_retention`, and one account is disposed of on request with `manage.py dispose_account`. Every rule of this build and the on-request disposal are behind `RETENTION_ENABLED`, which is off unless it is set to `1`. The export (`manage.py export_account`) changes nothing and does not need the switch.
+## The schedule
+
+Where the `worker` and `beat` services run (staging; production has none yet), the Celery task `retention.run` (`apps/common/tasks.py`) runs **every** registered rule once a day at 03:00 Asia/Manila (beat entry `retention-daily`, `CELERY_BEAT_SCHEDULE`). A per-Manila-day lock (`retention:all:<YYYYMMDD>`) means a duplicated or re-queued tick never runs it twice in a day, and a tick not picked up within an hour is dropped: the next day's run removes everything that is due. Each run writes the run log, one `retention_run` audit entry.
+
+`RETENTION_ENABLED` decides what the run deletes. It is off unless set to `1`. With it off, the 13 rules behind the switch touch nothing and are named under `switched_off` in the entry; the four SMS rules (`sms_messages`, `mobile_challenges`, `inbox_messages`, `bulk_batches`) are not behind it and run as before. The switch is read by the process that runs the task, so it must be set on `worker` as well as `api` before a scheduled run deletes anything (the variable is only read by name; see `docs/runbooks/billing.md`, "Worker and beat").
+
+Where there is no beat, the phone's `poll` still starts the four SMS rules once a Manila day (`start_daily`); the other rules then run only by hand. Where both exist, the second run of the day finds nothing due.
+
+The manual commands below stay as they are: `manage.py run_retention` for a count first or a run on demand, `dispose_account` for one account. The export (`manage.py export_account`) changes nothing and does not need the switch.
 
 ## What needs Coach Ed's approval, each time and per environment
 
-- Setting `RETENTION_ENABLED=1`. It starts nothing by itself: these rules run only by the commands below until slice 4 adds a schedule. The SMS build's once-a-day start runs only the SMS rules, never these.
+- Setting `RETENTION_ENABLED=1`. From then on the daily `retention.run` deletes with it wherever `worker` has the switch; run the dry run first.
 - Running any command below against staging or production data. This includes the dry run and the export.
 
 ## Before any command here
@@ -62,6 +70,8 @@ Replace `<env>` with `staging` or `production`. The identifiers are in `docs/run
 
    `--only NAME` runs one rule; repeat it for more. A rule printed as `switched off` did nothing: the switch is not on.
 5. Read the run log: on hq there is no list for it yet, so read the newest `retention_run` audit entry from the shell, or run step 1 again and see the counts at zero.
+
+The daily run's own log lines, on the service logs: `beat` shows `Scheduler: Sending due task retention-daily (retention.run)` at 03:00; `worker` shows `Task retention.run[...] received` and `succeeded ...` with the counts per rule, the `switched_off` names and any failed rule's name (never a personal value). `already ran today` means the day's lock was taken.
 
 ## What the output and the log hold
 
