@@ -12,6 +12,7 @@ APP = Path(__file__).resolve().parent.parent
 CALLERS = (
     APP, APP.parent / "notifications", APP.parent / "common", APP.parent / "accounts",
     APP.parent / "billing", APP.parent / "sante", APP.parent / "inbox",
+    APP.parent / "statements", APP.parent / "invoices",
 )
 
 
