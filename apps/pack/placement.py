@@ -18,6 +18,7 @@ from apps.common.errors import ApiError
 from apps.members import contacts, services as members
 from apps.members.models import MemberOtpChallenge
 from apps.members.otp import binding_hash
+from apps.meta_ads import services as meta_ads
 from apps.payments import services as payments
 from apps.pack import checkout, constants as C, notices, policies, proofs, records, registration
 from apps.pack.models import CheckoutToken, PackOrder
@@ -81,7 +82,7 @@ def _member(site, token, raw):
     )
 
 
-def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip=None):
+def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip=None, meta=None):
     key = idempotency_key(token, submit_key)
     first = _replay(site, key)
     if first is not None:
@@ -129,6 +130,7 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
             submission = proofs.write(order, proof, file_key, seq=1, ip=ip)
             notices.after_commit(notices.order_received, order.pk)
             notices.after_commit(notices.review_needed, submission.pk)
+            meta_ads.after_placement(order, meta, ip)  # Meta AddPaymentInfo, with consent only; never fails the order
     except BaseException:
         private_files.discard(file_key)
         raise

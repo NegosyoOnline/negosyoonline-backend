@@ -150,7 +150,7 @@ class SmsDeviceCommandTests(SmsTestCase):
         self.assertFalse(SmsDevice.objects.get().forwards_incoming)
         self.assertIn("incoming=off", self.run_command("list", logs=False))
         details = [
-            e.detail for e in OperatorAuditEntry.objects.filter(action="sms_device_incoming")
+            e.detail for e in OperatorAuditEntry.objects.filter(action="sms_device_incoming").order_by("pk")
         ]
         self.assertEqual(details, [{"forwards_incoming": True}, {"forwards_incoming": False}])
 

@@ -9,6 +9,7 @@ from django.core.validators import validate_email
 from apps.common import throttle
 from apps.common.errors import ApiError
 from apps.common.phones import normalise_ph_mobile
+from apps.meta_ads import services as meta_ads
 from apps.notifications.services import send_email
 from apps.pack import policies
 from apps.sites import templates
@@ -64,6 +65,7 @@ def site_chrome(site):
         },
         "policy_links": policies.links(site),  # live pages only, none while the pack is off
         "free_shipping_banner": False,  # on only once the shipping setting exists
+        "meta_pixel_id": meta_ads.pixel_id_for(site),  # "" unless Meta events are on and the site set one
     }
 
 
