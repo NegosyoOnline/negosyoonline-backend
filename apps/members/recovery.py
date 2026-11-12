@@ -1,8 +1,7 @@
 """Subscriber-assisted recovery. The Subscriber records the fixed checklist; only a passed, unused,
 unexpired check of this member lets them save a replacement contact, which is stored pending
 verification. Saving starts the 24-hour hold, revokes every session and notifies the previous
-verified contacts, naming the hold end. Service logic only: the Subscriber routes under
-/v1/sites/... are a later slice with the Subscriber dashboard."""
+verified contacts, naming the hold end. The Subscriber routes are apps/members/api_owner.py."""
 import logging
 from datetime import timedelta
 
@@ -13,7 +12,7 @@ from apps.common.errors import ApiError
 from apps.common.masking import mask_email
 from apps.common.phones import normalise_ph_mobile
 
-from . import contacts, holds, messaging, services as members, sessions
+from . import contacts, holds, hooks, messaging, services as members, sessions
 from .models import Member, MemberContactAudit, MemberRecoveryCheck
 
 logger = logging.getLogger(__name__)
@@ -25,6 +24,8 @@ ANSWERS = frozenset({"matched", "not_matched"})
 PASS_RULES = {"all_applicable_matched":
               lambda items: all(v == "matched" for v in items.values() if v != "not_applicable_yet")}  # 
 PASS_RULE = "all_applicable_matched"  # OQ-2; another ruling adds its rule to PASS_RULES and names it here
+FAILED_CHECK_LIMIT = 5  # failed checks of one member inside FAILED_CHECK_WINDOW lock further checks
+FAILED_CHECK_WINDOW = timedelta(hours=24)
 SAME = {"mobile": "This is already the member's mobile number.", "email": "This is already the member's email."}
 
 
@@ -72,6 +73,38 @@ def search(qs, q):
     return qs.none()
 
 
+def is_closed(member):
+    """A member whose account was disposed (retention) or who no longer holds their contacts."""
+    from .retention import _placeholder_mobile
+
+    return member.mobile == _placeholder_mobile(member) or hooks.contact_released(member)
+
+
+def assert_open(member):
+    if is_closed(member):
+        raise ApiError("member_closed", "This member's account is closed.", status=409)
+
+
+def assert_no_running_hold(member, *, now=None):
+    """One recovery per hold window: nothing starts while this member's recovery hold still runs."""
+    hold = holds.active_hold(member, "payout_destination_change", now=now)
+    if hold is not None and hold.kind == "recovery":
+        raise ApiError("recovery_hold_active",
+                       f"A recovery is already running for this member until {holds.display(hold.ends_at)}.",
+                       status=409)
+
+
+def failed_checks(member, *, now=None):
+    since = (now or timezone.now()) - FAILED_CHECK_WINDOW
+    return MemberRecoveryCheck.objects.filter(member=member, site_id=member.site_id, passed=False,
+                                              created_at__gt=since).count()
+
+
+def assert_not_locked(member, *, now=None):
+    if failed_checks(member, now=now) >= FAILED_CHECK_LIMIT:
+        raise ApiError("recovery_locked", "Too many failed checks. Try again tomorrow.", status=429)
+
+
 def record_checklist(account, site, member, submitted):
     applicable = applicable_for(member)
     if set(submitted) != set(applicable) or any(v not in ANSWERS for v in submitted.values()):
@@ -114,6 +147,8 @@ def recover_contact(account, site, member_id, *, check_id, new_mobile=None, new_
         m = Member.objects.select_for_update().filter(pk=member_id, site=site).first()
         if m is None:
             return None
+        assert_open(m)
+        assert_no_running_hold(m, now=now)
         check = MemberRecoveryCheck.objects.select_for_update().filter(pk=check_id, site=site, member=m).first()
         if check is None or not check.passed or check.used_at is not None or check.expires_at <= now:
             raise ApiError("recovery_check_invalid",

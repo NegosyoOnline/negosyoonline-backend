@@ -8,3 +8,6 @@ class PackConfig(AppConfig):
 
     def ready(self):
         from apps.pack import checks, retention  # noqa: F401  register the check and the rules
+        from apps.pack import recovery_item
+
+        recovery_item.register()
