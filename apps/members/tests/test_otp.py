@@ -153,7 +153,7 @@ class LimitTests(EngineTestCase):
             ch, code = self.open(requested=f"typed{number}@buyer.test")
             self.verify(code)
             self.age(61)
-        for number in range(2):  # one used code never counts, so two unused ones are not yet a full bucket
+        for number in range(2):  # the two used codes do not count, so two unused ones are not yet a full bucket (limit 3)
             self.open(requested=f"unused{number}@buyer.test")
             self.age(61)
         ch, code = self.open(requested="typed9@buyer.test")
