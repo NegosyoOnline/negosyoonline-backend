@@ -8,6 +8,7 @@ from apps.storefront.tests.base import HOST, NOT_FOUND, SurfaceTestCase
 KEYS = {
     "id", "template", "display_name", "accent_color", "facebook_url", "instagram_url",
     "tiktok_url", "business", "distributor", "policy_links", "free_shipping_banner",
+    "meta_pixel_id",
 }
 BUSINESS_KEYS = {
     "registered_name", "tin", "dti_business_number", "contact_email", "contact_mobile",
@@ -58,6 +59,7 @@ class SiteTests(SurfaceTestCase):
             "distributor": {"name": "Ana Reyes", "mobile": "+639171234567", "has_photo": False},
             "policy_links": [],
             "free_shipping_banner": False,
+            "meta_pixel_id": "",
         })
 
     def test_an_empty_site_answers_the_same_keys_with_empty_values(self):
