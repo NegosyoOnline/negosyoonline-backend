@@ -2,8 +2,6 @@
 
 Account-side retention (NPC Build 7, ClickUp z8uq9mdwdy, and NPC Build 10, ClickUp z8uq9mdzve). Plans: `docs/superpowers/plans/2026-11-11-backend-npc-build7-account-retention.md` and `docs/superpowers/plans/2026-11-11-backend-npc-build10-retention-gaps.md`.
 
-Where each kind of uploaded file is stored and how long it is kept: `docs/runbooks/storage.md`.
-
 Nothing here runs by itself today. Every rule is run by hand with `manage.py run_retention`, and one account is disposed of on request with `manage.py dispose_account`. Every rule of this build and the on-request disposal are behind `RETENTION_ENABLED`, which is off unless it is set to `1`. The export (`manage.py export_account`) changes nothing and does not need the switch.
 
 ## What needs Coach Ed's approval, each time and per environment
