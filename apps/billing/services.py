@@ -21,6 +21,7 @@ from apps.billing.models import (
     SubscriptionTransition,
 )
 from apps.common.errors import ApiError
+from apps.common.private_files import StoreError
 from apps.common.ids import is_public_id
 from apps.operators import audit
 from apps.sites.models import Onboarding, Site
@@ -892,35 +893,57 @@ def submit_transfer(
             waiting.save()
             _transfer_event(waiting, "replaced", BankTransferEvent.Actor.OWNER)
         # The file is stored before its row, inside the transaction: a row never points at a
-        # missing file. If the transaction then fails, a file with no row is left under a
-        # random key that nothing can reach; the private store's build decides how such
-        # files are cleared.
-        key = proofs.new_key()
-        proofs.store().put(key, content)
-        payment = BankTransferPayment.objects.create(
-            subscription=subscription,
-            plan_code=code,
-            plan_version=version,
-            term_months=months,
-            amount_centavos=amount,
-            usage_centavos=owed.centavos,
-            usage_line_max_id=owed.max_id,
-            currency=plan.CURRENCY,
-            transferred_on=transferred_on,
-            transfer_reference=transfer_reference,
-            proof_key=key,
-            proof_content_type=content_type,
-            proof_size=len(content),
-            proof_sha256=sha256,
-            submitted_by=account,
-            submitted_at=now,
-        )
-        if chosen is not None and chosen.needs_consent:
-            _record_consent(subscription, payment, chosen, account, now)
-        _transfer_event(payment, "submitted", BankTransferEvent.Actor.OWNER)
+        # missing file. If the row then fails, the file is removed again.
+        try:
+            key = proofs.save(content, content_type)
+        except StoreError:
+            raise _proof_store_unavailable() from None
+        try:
+            payment = BankTransferPayment.objects.create(
+                subscription=subscription,
+                plan_code=code,
+                plan_version=version,
+                term_months=months,
+                amount_centavos=amount,
+                usage_centavos=owed.centavos,
+                usage_line_max_id=owed.max_id,
+                currency=plan.CURRENCY,
+                transferred_on=transferred_on,
+                transfer_reference=transfer_reference,
+                proof_key=key,
+                proof_content_type=content_type,
+                proof_size=len(content),
+                proof_sha256=sha256,
+                submitted_by=account,
+                submitted_at=now,
+            )
+            if chosen is not None and chosen.needs_consent:
+                _record_consent(subscription, payment, chosen, account, now)
+            _transfer_event(payment, "submitted", BankTransferEvent.Actor.OWNER)
+        except BaseException:
+            proofs.discard(key)
+            raise
         return payment, True
 
     return _write(subscription, now, change)
+
+
+def _proof_store_unavailable():
+    return ApiError(
+        "proof_store_unavailable", "The proof could not be stored. Try again in a moment.",
+        status=503,
+    )
+
+
+def _read_proof(key):
+    """The stored bytes of a proof. A store that fails answers 503; a key the store does not
+    accept answers 404."""
+    try:
+        return proofs.read(key)
+    except StoreError:
+        raise _proof_store_unavailable() from None
+    except ValueError:
+        raise ApiError("not_found", "Not found.", status=404) from None
 
 
 def _term_start(subscription, state):
@@ -1246,14 +1269,14 @@ def proof_for_owner(subscription, payment_id):
     """The proof file as (content, content type), for the owner of the subscription it was
     sent for. The payment is found first, so no file is read for another id."""
     payment = transfer_of(subscription, payment_id)
-    return proofs.store().get(payment.proof_key), payment.proof_content_type
+    return _read_proof(payment.proof_key), payment.proof_content_type
 
 
 def proof_for_operator(payment, operator):
     """The proof file as (content, content type), for the operator. Each read is audited."""
     _require_operator(operator)
     _require_transfers()
-    content = proofs.store().get(payment.proof_key)
+    content = _read_proof(payment.proof_key)
     audit.record(
         operator, "billing_proof_viewed", target_type="site",
         target_id=payment.subscription.site.public_id, detail={"payment": payment.public_id},

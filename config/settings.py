@@ -139,9 +139,6 @@ BILLING_LIVE_DOCUMENTS = os.environ.get("BILLING_LIVE_DOCUMENTS", "").strip() ==
 # The accounts Subscribers send their payment to, as a JSON list of objects with `kind`
 # ("bank" or "ewallet"), `provider_name`, `account_name` and `account_number`. Never in code.
 BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").strip()
-# A local folder for proof files. Used only while DEBUG is on: a shared environment needs the
-# approved private store, which is not built yet.
-BILLING_PROOF_DIR = os.environ.get("BILLING_PROOF_DIR", "").strip()
 # Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints and admin
 # lists. Off, the endpoints answer 404 and the Santé tables are not read or written.
 SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() == "1"
