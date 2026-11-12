@@ -10,6 +10,7 @@ from apps.billing.tests.base import (
     CYCLE_1_END, JPEG, T0, TEST_ACCOUNTS, TRIAL_END, days, make_active, make_operator,
     make_subscription, make_suspended, submit, transfers_on,
 )
+from apps.billing.tests.base import SENDER
 from apps.notifications.services import EmailNotSent
 
 HOUR = days(1) / 24
@@ -267,7 +268,8 @@ class GuardTests(NoticeCase):
         self.assertTrue(mail.outbox)
         for message in mail.outbox:
             text = (message.subject + message.body).lower()
-            for banned in ("0000 0000 00", "billing/proofs", "bir", "test receiver", payment.proof_key):
+            for banned in ("0000 0000 00", "billing/proofs", "bir", "test receiver", payment.proof_key,
+                           *SENDER.values()):
                 self.assertNotIn(banned.lower(), text, message.subject)
 
     def test_the_task_runs_the_scan_in_process(self):

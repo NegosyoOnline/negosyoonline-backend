@@ -15,6 +15,7 @@ from apps.billing.tests.base import (
     CYCLE_1_END, CYCLE_2_END, JPEG, PDF, PNG, SECOND, T0, TEST_ACCOUNTS, TRIAL_END, days, fresh,
     make_active, make_operator, make_subscription, make_suspended, submit, transfers_on,
 )
+from apps.billing.tests.base import SENDER
 from apps.common.errors import ApiError
 from apps.operators.models import OperatorAuditEntry
 from apps.sites.models import Site
@@ -94,6 +95,7 @@ class SubmitTests(TransferCase):
             "proof": dict(content=b"<html>not an image</html>"),
             "plan": dict(plan_code="annual"),
             "transferred_on": dict(transferred_on=(at + days(2)).date()),
+            "transferred_at": dict(transferred_at=at + days(2)),
             "transfer_reference": dict(transfer_reference="x" * 65),
         }
         for field, values in cases.items():
@@ -129,7 +131,7 @@ class SubmitTests(TransferCase):
 
         again, created = services.submit_transfer(
             subscription, subscription.site.account, plan_code="monthly", content=JPEG,
-            transferred_on=date(2026, 11, 14), now=T0 + days(4),
+            transferred_at=T0 + days(4), now=T0 + days(4), **SENDER,
         )
 
         self.assertFalse(created)

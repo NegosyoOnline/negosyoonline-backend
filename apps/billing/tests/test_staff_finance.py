@@ -32,11 +32,13 @@ BASE = "/staff/v1/finance/payments/"
 PATHS = ("list/", "detail/", "proof/", "confirm/", "reject/")
 SENT = T0 + days(1)
 AT = T0 + days(2)  # when the operator acts
-PAYMENT_KEYS = [
+PAYMENT_KEYS = sorted([
     "amount_centavos", "amount_received_centavos", "currency", "cycle", "decided_at",
     "decided_by", "id", "plan", "proof", "reject_note", "reject_reason", "site", "status",
-    "submitted_at", "transfer_reference", "transferred_on",
-]
+    "submitted_at", "transfer_reference", "transferred_on", "transferred_at", "sender_bank",
+    "sender_first_name", "sender_last_name", "sender_account_number", "amount_sent_centavos",
+    "amount_sent_differs",
+])
 Status = BankTransferPayment.Status
 
 
@@ -231,6 +233,18 @@ class FinanceDetailTests(FinanceTestCase):
         super().setUp()
         self.staff_sign_in()
 
+    def test_staff_see_whether_the_amount_typed_differs_from_the_amount_due(self):
+        subscription = make_subscription()
+        payment = submit(subscription, SENT, amount_sent="2,499.00")
+        body = self.finance("detail/", {"payment": payment.public_id}).json()
+        self.assertEqual((body["amount_sent_centavos"], body["amount_sent_differs"]), (249900, False))
+        BankTransferPayment.objects.update(amount_sent_centavos=100)
+        body = self.finance("detail/", {"payment": payment.public_id}).json()
+        self.assertEqual((body["amount_sent_centavos"], body["amount_sent_differs"]), (100, True))
+        BankTransferPayment.objects.update(amount_sent_centavos=None, transferred_at=None)
+        body = self.finance("detail/", {"payment": payment.public_id}).json()
+        self.assertEqual((body["amount_sent_differs"], body["transferred_at"]), (False, None))
+
     def test_one_payment_as_finance_sees_it(self):
         subscription = make_subscription()
         payment = submit(
@@ -248,6 +262,13 @@ class FinanceDetailTests(FinanceTestCase):
             "currency": "PHP",
             "transferred_on": SENT.astimezone(MANILA).date().isoformat(),
             "transfer_reference": "REF-1",
+            "transferred_at": payment.transferred_at.isoformat(),
+            "sender_bank": "Test Bank",
+            "sender_first_name": "Juanito",
+            "sender_last_name": "Bautista",
+            "sender_account_number": "1234 5678 90",
+            "amount_sent_centavos": 99900,
+            "amount_sent_differs": True,
             "submitted_at": payment.submitted_at.isoformat(),
             "decided_at": None,
             "decided_by": None,

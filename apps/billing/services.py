@@ -6,6 +6,7 @@ subscription's row lock, after `catch_up` has written the time-driven transition
 """
 import hashlib
 import logging
+import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -817,15 +818,48 @@ def _usage_only_due(subscription, now):
     return owed
 
 
+SENDER_TEXT_FIELDS = (
+    ("sender_bank", 80, "The sender's bank is needed.", "The sender's bank is too long."),
+    ("sender_first_name", 80, "The sender's first name is needed.",
+     "The sender's first name is too long."),
+    ("sender_last_name", 80, "The sender's last name is needed.",
+     "The sender's last name is too long."),
+)
+ACCOUNT_NUMBER_RE = re.compile(r"^[0-9 -]{6,34}$")
+AMOUNT_RE = re.compile(r"^(\d{1,3}(,\d{3})+|\d+)(\.\d{1,2})?$")
+MAX_CENTAVOS = 2_147_483_647  # the column's limit
+
+
+def _centavos_of(text):
+    """Pesos typed as text ("4,999.00") as integer centavos, or None when it is not a positive
+    amount with at most two decimals. No floats."""
+    if not isinstance(text, str):
+        return None
+    text = text.strip()
+    if not AMOUNT_RE.match(text):
+        return None
+    pesos, _, decimals = text.replace(",", "").partition(".")
+    centavos = int(pesos) * 100 + int((decimals + "00")[:2])
+    return centavos if 0 < centavos <= MAX_CENTAVOS else None
+
+
 def submit_transfer(
-    subscription, account, *, plan_code, content, transferred_on, transfer_reference="",
-    renewal_consent=None, consent_version=None, now=None,
+    subscription, account, *, plan_code, content, transferred_at=None, transferred_on=None,
+    transfer_reference="", sender_bank=None, sender_first_name=None, sender_last_name=None,
+    sender_account_number=None, amount_sent=None, renewal_consent=None, consent_version=None,
+    now=None,
 ):
     """The owner sends a proof of a bank transfer. Returns (payment, created).
 
     A plan that needs consent (the Launch Promo) is accepted only with `renewal_consent` true
     and the `consent_version` the offer showed; the consent is stored with the payment. A plan
     that does not need it ignores both.
+
+    The sender's details are all required: `transferred_at` (an aware datetime), the bank, the
+    sender's names, the account number, the bank's reference and `amount_sent` (pesos as text).
+    `transferred_on` is optional; when sent it must be the Manila date of `transferred_at`,
+    which is what is stored. An amount that differs from the amount due is accepted and stored:
+    staff see the difference.
 
     Nothing about the subscription changes. A proof sent while another is under review
     replaces it; the same file for the same plan again returns the payment already there.
@@ -852,16 +886,46 @@ def submit_transfer(
             fields["renewal_consent"] = "The terms after the first term must be accepted."
         if consent_version != plan.CONSENT_VERSION:
             fields["consent_version"] = "The terms shown are out of date. Reload and read them again."
-    if not isinstance(transferred_on, date) or isinstance(transferred_on, datetime):
-        fields["transferred_on"] = "The date of the transfer is needed."
-    elif transferred_on > now.astimezone(clock.MANILA).date():
-        fields["transferred_on"] = "The date of the transfer cannot be in the future."
-    if not isinstance(transfer_reference, str):
-        fields["transfer_reference"] = "The reference number is not valid."
+    sent_at = None
+    if not isinstance(transferred_at, datetime) or transferred_at.tzinfo is None:
+        fields["transferred_at"] = "The date and time of the transfer are needed."
+    elif transferred_at > now:
+        fields["transferred_at"] = "The time of the transfer cannot be in the future."
+    else:
+        sent_at = transferred_at.astimezone(clock.MANILA)
+    if transferred_on is not None:
+        if not isinstance(transferred_on, date) or isinstance(transferred_on, datetime):
+            fields["transferred_on"] = "The date of the transfer is not valid."
+        elif transferred_on > now.astimezone(clock.MANILA).date():
+            fields["transferred_on"] = "The date of the transfer cannot be in the future."
+        elif sent_at is not None and transferred_on != sent_at.date():
+            fields["transferred_on"] = "The date does not match the time of the transfer."
+    if not isinstance(transfer_reference, str) or not transfer_reference.strip():
+        fields["transfer_reference"] = "The reference number is needed."
     else:
         transfer_reference = transfer_reference.strip()
         if len(transfer_reference) > REFERENCE_MAX_LENGTH:
             fields["transfer_reference"] = "The reference number is too long."
+    typed = {"sender_bank": sender_bank, "sender_first_name": sender_first_name,
+             "sender_last_name": sender_last_name}
+    for name, limit, needed, too_long in SENDER_TEXT_FIELDS:
+        value = typed[name]
+        value = value.strip() if isinstance(value, str) else ""
+        if not value:
+            fields[name] = needed
+        elif len(value) > limit:
+            fields[name] = too_long
+        typed[name] = value
+    number = sender_account_number.strip() if isinstance(sender_account_number, str) else ""
+    if not number:
+        fields["sender_account_number"] = "The sender's account number is needed."
+    elif not ACCOUNT_NUMBER_RE.match(number):
+        fields["sender_account_number"] = (
+            "The account number is 6 to 34 digits, with spaces or dashes only."
+        )
+    amount_sent_centavos = _centavos_of(amount_sent)
+    if amount_sent_centavos is None:
+        fields["amount_sent"] = "Enter the amount sent in pesos, with at most two decimals."
     if fields:
         raise _invalid(fields)
     sha256 = hashlib.sha256(content).hexdigest()
@@ -909,8 +973,14 @@ def submit_transfer(
                 usage_centavos=owed.centavos,
                 usage_line_max_id=owed.max_id,
                 currency=plan.CURRENCY,
-                transferred_on=transferred_on,
+                transferred_on=sent_at.date(),
+                transferred_at=sent_at,
                 transfer_reference=transfer_reference,
+                sender_bank=typed["sender_bank"],
+                sender_first_name=typed["sender_first_name"],
+                sender_last_name=typed["sender_last_name"],
+                sender_account_number=number,
+                amount_sent_centavos=amount_sent_centavos,
                 proof_key=key,
                 proof_content_type=content_type,
                 proof_size=len(content),
@@ -1418,6 +1488,43 @@ def prepare_disposal(account, now, actor=Actor.OPERATOR, dry_run=False):
         if term_end is not None and now < term_end:
             reasons.append(_term_running(site_id, term_end))
     return DisposalStep(tuple(cancelled), tuple(reasons))
+
+
+def export_transfers_of(account):
+    """The account's bank transfer proofs as plain values, sender details included, for the
+    account export. Never where the file is kept, its hash or who decided. Reads only."""
+    if not settings.BILLING_ENABLED:
+        return {}
+
+    def iso(moment):
+        return moment.isoformat() if moment else None
+
+    rows = (
+        BankTransferPayment.objects.filter(subscription__site__account=account)
+        .select_related("subscription__site").order_by("pk")
+    )
+    return {"bank_transfers": [
+        {
+            "site": row.subscription.site.public_id,
+            "id": row.public_id,
+            "status": row.status,
+            "plan": row.plan_code,
+            "amount_centavos": row.amount_centavos,
+            "currency": row.currency,
+            "transferred_on": row.transferred_on.isoformat(),
+            "transferred_at": iso(row.transferred_at),
+            "transfer_reference": row.transfer_reference,
+            "sender_bank": row.sender_bank,
+            "sender_first_name": row.sender_first_name,
+            "sender_last_name": row.sender_last_name,
+            "sender_account_number": row.sender_account_number,
+            "amount_sent_centavos": row.amount_sent_centavos,
+            "submitted_at": iso(row.submitted_at),
+            "decided_at": iso(row.decided_at),
+            "reject_reason": row.reject_reason,
+        }
+        for row in rows
+    ]}
 
 
 def _term_running(site_id, until):
