@@ -7,6 +7,7 @@ from django.core.cache import cache
 from django.test import Client, RequestFactory, override_settings
 from django.utils import timezone
 
+from apps.accounts import codes
 from apps.accounts.models import Account, AccountAuditEvent, ExternalIdentity, Session
 from apps.accounts.sessions import start_session
 from apps.accounts.tests.base import EMAIL, ApiTestCase
@@ -329,6 +330,10 @@ class EmailChangeTests(ApiTestCase):
         self.assertEqual(self.account.email, self.NEW)
 
 
+def codes_cooldown_key(email, account):
+    return codes._key("cooldown", f"change:{account.pk}", email)
+
+
 @override_settings(ACCOUNT_EMAIL_CHANGE_HARDENED=True)
 class HardenedEmailChangeTests(ApiTestCase):
     NEW = "new@example.test"
@@ -393,13 +398,17 @@ class HardenedEmailChangeTests(ApiTestCase):
         self.assertEqual(confirmed.json()["email"], self.NEW)
 
 
-    def test_the_step_up_code_works_once(self):
-        Account.objects.create(email="taken@example.test")
+    def test_the_step_up_code_also_serves_a_resend_but_not_a_second_change(self):
         code = self.step_up()
-        body = {"email": "taken@example.test", "step_up_code": code}
+        body = {"email": self.NEW, "step_up_code": code}
 
         self.assertEqual(self.post("/v1/account/email/start/", body).status_code, 204)
-        self.assertEqual(self.post("/v1/account/email/start/", body).status_code, 400)
+        cache.delete(codes_cooldown_key(self.NEW, self.account))  # the 60 s wait between mails
+        self.assertEqual(self.post("/v1/account/email/start/", body).status_code, 204)
+        self.post("/v1/account/email/confirm/", {"email": self.NEW, "code": self.last_code()})
+
+        # the code was cleared by the change; the pause refuses a new one anyway
+        self.assertFalse(codes.check_code(EMAIL, code, f"change-old:{self.account.pk}"))
 
     def test_a_step_up_code_for_one_account_does_not_work_for_another(self):
         code = self.step_up()

@@ -362,7 +362,6 @@ def start_email_change(account, new_email, ip, step_up_code=""):
                 "step_up_required",
                 "Enter the code we sent to your current email first.",
             )
-        codes.clear_code(account.email, step_purpose)
     if Account.objects.filter(email=new_email).exists():
         if hardened:
             record_event(account, "email_change_started")
@@ -419,6 +418,7 @@ def _apply_email_change(account, new_email, code, current_session):
     if Account.objects.filter(email=new_email).exclude(pk=account.pk).exists():
         raise _email_taken()
     codes.clear_code(new_email, purpose)
+    codes.clear_code(account.email, _step_up_purpose(account))
     old_email = account.email
     account.email = new_email
     account.email_verified_at = timezone.now()
