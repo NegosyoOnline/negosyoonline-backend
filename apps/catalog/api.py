@@ -18,7 +18,7 @@ appears in a route or a response.
 """
 from datetime import datetime
 
-from ninja import Field, Router, Schema
+from ninja import Field, Query, Router, Schema
 from pydantic import ConfigDict, StrictBool, StrictInt
 
 from apps.accounts.api import signed_in
@@ -59,6 +59,7 @@ class ProductCreateIn(StrictSchema):
     earnings_rate: str
     short_description: str = ""
     long_description: str = ""
+    category: str = ""  # barley, drinks, essentials, beauty, or blank
     weight_kg: str = "0.00"
     volume_slot: str | None = None  # left out or null: not set
     shipping_qty: StrictInt | None = None
@@ -75,6 +76,7 @@ class ProductUpdateIn(StrictSchema):
     name: str | None = None
     short_description: str | None = None
     long_description: str | None = None
+    category: str | None = None
     weight_kg: str | None = None
     volume_slot: str | None = None
     shipping_qty: StrictInt | None = None
@@ -91,6 +93,8 @@ class ProductValues(Schema):
     name: str
     short_description: str
     long_description: str
+    category: str
+    image_url: str | None
     weight_kg: str
     srp_centavos: int
     earnings_rate: str
@@ -139,6 +143,29 @@ def product_update(request, site_id: str, product_id: str, payload: ProductUpdat
     product = services.update_product(
         request.account, request.catalog_site, product_id, payload.dict(exclude_unset=True)
     )
+    return services.product_out(product)
+
+
+@router.post("/sites/{site_id}/catalog/products/{product_id}/image/", response=ProductOut)
+def product_image_set(request, site_id: str, product_id: str):
+    """A form post (multipart): `file` is a JPEG, PNG or WebP of at most 2 MB, and `revision`
+    is the revision the caller loaded."""
+    revision = request.POST.get("revision", "")
+    if not revision.isdigit() or not 1 <= int(revision) <= 2**31:
+        raise ApiError(
+            "invalid_request", services.INVALID_MSG,
+            fields={"revision": ["Send the revision you loaded."]},
+        )
+    product = services.set_image(
+        request.account, request.catalog_site, product_id, request.FILES.get("file"),
+        int(revision),
+    )
+    return services.product_out(product)
+
+
+@router.delete("/sites/{site_id}/catalog/products/{product_id}/image/", response=ProductOut)
+def product_image_clear(request, site_id: str, product_id: str, revision: int = Query(..., ge=1)):
+    product = services.clear_image(request.account, request.catalog_site, product_id, revision)
     return services.product_out(product)
 
 

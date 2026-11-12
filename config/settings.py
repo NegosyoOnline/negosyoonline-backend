@@ -164,6 +164,11 @@ PRIVATE_BLOB_READ_WRITE_TOKEN = os.environ.get("PRIVATE_BLOB_READ_WRITE_TOKEN", 
 PRIVATE_FILES_DIR = os.environ.get("PRIVATE_FILES_DIR", "").strip() or str(
     BASE_DIR / ".private-files"
 )
+# Product photos (apps/catalog/media.py): the read-write token of the public Vercel Blob media
+# store and that store's public host (not a secret). Read here and nowhere else. With either
+# unset, no product photo can be uploaded; the rest of the catalog works.
+PUBLIC_BLOB_READ_WRITE_TOKEN = os.environ.get("PUBLIC_BLOB_READ_WRITE_TOKEN", "").strip()
+PUBLIC_MEDIA_BASE_URL = os.environ.get("PUBLIC_MEDIA_BASE_URL", "").strip().rstrip("/")
 # Santé member sign-in (apps/members), on the storefront surface below. "1" turns on its four
 # routes. Off, they answer the 404 of an unknown site and no member table is read or written.
 # Sign-in codes and limits live in the cache, so it needs REDIS_URL outside local work.

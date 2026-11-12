@@ -14,6 +14,7 @@ COPIED = {
     "code": ("CharField", 64, False), "name": ("CharField", 120, False),
     "short_description": ("TextField", None, False),
     "long_description": ("TextField", None, False),
+    "category": ("CharField", 20, False), "image_key": ("CharField", 200, False),
     "weight_kg": ("DecimalField", (10, 2), False),
     "srp_centavos": ("PositiveBigIntegerField", None, False),
     "earnings_rate": ("DecimalField", (5, 4), False), "is_active": ("BooleanField", None, False),

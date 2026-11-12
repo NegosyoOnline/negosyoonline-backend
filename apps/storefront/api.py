@@ -24,6 +24,7 @@ from django.http import HttpResponse, JsonResponse
 from django.urls import URLPattern, re_path
 from ninja import NinjaAPI, Schema
 
+from apps.catalog.storefront_api import router as catalog_storefront_router
 from apps.common.errors import ApiError, error_body, register_error_handlers
 from apps.members.api import router as members_router
 from apps.pack.api import router as pack_checkout_router
@@ -123,6 +124,7 @@ def contact(request, body: ContactIn):
 
 api.add_router("", pack_checkout_router)  # the Membership Pack checkout (apps/pack/api.py)
 api.add_router("", pack_api.router)  # the Membership Pack reads (apps/sante/pack_api.py)
+api.add_router("", catalog_storefront_router)  # the catalog reads (apps/catalog/storefront_api.py)
 
 
 def _no_such_endpoint(request):
