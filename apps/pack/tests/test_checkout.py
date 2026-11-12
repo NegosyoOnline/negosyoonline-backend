@@ -46,6 +46,15 @@ class ContactTests(PackTestCase):
         self.assertEqual(refused.json()["error"]["message"], C.MSG_ENROLLMENT_REQUIRED)
         self.assertEqual(CheckoutToken.objects.count(), 0)
 
+    def test_checkout_without_agreement_fields_succeeds(self):
+        response = self.post("contact/", **self.contact_fields_without_agreement())
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.token_row(response.json()["token"]).pending_contact["agreement"], {})
+
+    def test_the_enrollment_tick_is_still_required_without_the_agreement(self):
+        refused = self.post("contact/", **self.contact_fields_without_agreement(enrollment_authorized=""))
+        self.assertEqual(refused.json()["error"]["message"], C.MSG_ENROLLMENT_REQUIRED)
+
     def test_an_unknown_agreement_version_is_required_not_changed(self):
         refused = self.contact(agreement_version_id="999999")
         self.assertEqual(refused.json()["error"]["code"], "agreement_required")

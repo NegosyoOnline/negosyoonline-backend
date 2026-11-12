@@ -203,7 +203,8 @@ class PackOrderEvent(AppendOnly):
 
 
 class PackAgreementAcceptance(AppendOnly):
-    """The Membership Agreement version a buyer accepted at checkout, with its checksum. A row
+    """The Membership Agreement version a buyer accepted, with its checksum: at the account-details
+    step of onboarding, or at checkout for an order placed by an older storefront. A row
     whose order is another site's, whose version is not published, or whose checksum is not the
     version's own is refused."""
 
