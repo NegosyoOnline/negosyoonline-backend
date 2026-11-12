@@ -112,6 +112,10 @@ SMS_BULK_ENABLED = os.environ.get("SMS_BULK_ENABLED", "").strip() == "1"
 # Account-side retention. "1" lets its rules delete and blank. Off, a run of them touches
 # nothing; only the dry run counts.
 RETENTION_ENABLED = os.environ.get("RETENTION_ENABLED", "").strip() == "1"
+# The date-of-birth erase of the Membership Pack (ruling D3: it never depends on the
+# Subscriber's subscription, so it has its own switch, not RETENTION_ENABLED). "1" lets the rule
+# erase; it also needs PACK_ENABLED. Off, a run of it touches nothing; only the dry run counts.
+DOB_ERASE_ENABLED = os.environ.get("DOB_ERASE_ENABLED", "").strip() == "1"
 # Billing. "1" turns on the subscription lifecycle. Off, site creation writes no subscription,
 # the sweep does nothing, and the billing tables are not read or written.
 BILLING_ENABLED = os.environ.get("BILLING_ENABLED", "").strip() == "1"

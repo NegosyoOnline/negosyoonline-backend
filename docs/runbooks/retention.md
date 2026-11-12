@@ -6,14 +6,19 @@ Account-side retention (NPC Build 7, ClickUp z8uq9mdwdy, and NPC Build 10, Click
 
 Where the `worker` and `beat` services run (staging; production has none yet), the Celery task `retention.run` (`apps/common/tasks.py`) runs **every** registered rule once a day at 03:00 Asia/Manila (beat entry `retention-daily`, `CELERY_BEAT_SCHEDULE`). A per-Manila-day lock (`retention:all:<YYYYMMDD>`) means a duplicated or re-queued tick never runs it twice in a day, and a tick not picked up within an hour is dropped: the next day's run removes everything that is due. Each run writes the run log, one `retention_run` audit entry.
 
-`RETENTION_ENABLED` decides what the run deletes. It is off unless set to `1`. With it off, the 13 rules behind the switch touch nothing and are named under `switched_off` in the entry; the four SMS rules (`sms_messages`, `mobile_challenges`, `inbox_messages`, `bulk_batches`) are not behind it and run as before. The switch is read by the process that runs the task, so it must be set on `worker` as well as `api` before a scheduled run deletes anything (the variable is only read by name; see `docs/runbooks/billing.md`, "Worker and beat").
+`RETENTION_ENABLED` decides what the run deletes. It is off unless set to `1`. With it off, the 12 rules behind it touch nothing and are named under `switched_off` in the entry; the four SMS rules (`sms_messages`, `mobile_challenges`, `inbox_messages`, `bulk_batches`) are not behind it and run as before. `pack_registration_details` has its own switch, below. The switch is read by the process that runs the task, so it must be set on `worker` as well as `api` before a scheduled run deletes anything (the variable is only read by name; see `docs/runbooks/billing.md`, "Worker and beat").
 
 Where there is no beat, the phone's `poll` still starts the four SMS rules once a Manila day (`start_daily`); the other rules then run only by hand. Where both exist, the second run of the day finds nothing due.
 
 The manual commands below stay as they are: `manage.py run_retention` for a count first or a run on demand, `dispose_account` for one account. The export (`manage.py export_account`) changes nothing and does not need the switch.
 
+### The date-of-birth erase switch
+
+`DOB_ERASE_ENABLED` (on only when set to `1`, off by default) is the switch of the rule `pack_registration_details` alone: the erase of the date of birth and the two Santé usernames of a Membership Pack registration (Coach Ed's ruling D3: the date-of-birth erase never depends on the Subscriber's subscription, so it has its own switch). The rule no longer answers to `RETENTION_ENABLED`: `RETENTION_ENABLED` on with `DOB_ERASE_ENABLED` off erases nothing, and `DOB_ERASE_ENABLED` on with `RETENTION_ENABLED` off erases. It also needs `PACK_ENABLED`; with that off the rule reads no pack table. With its switch off the rule is named under `switched_off` in the run log, and its dry run still counts. Set it on `worker` for the nightly run and on `api` for runs by hand. It needs Coach Ed's approval, each time and per environment, like `RETENTION_ENABLED`.
+
 ## What needs Coach Ed's approval, each time and per environment
 
+- Setting `DOB_ERASE_ENABLED=1` (the date-of-birth erase, ruling D3), on `worker` and on `api`.
 - Setting `RETENTION_ENABLED=1`. From then on the daily `retention.run` deletes with it wherever `worker` has the switch; run the dry run first.
 - Running any command below against staging or production data. This includes the dry run and the export.
 
@@ -180,7 +185,7 @@ While `MEMBERS_ENABLED` is off, disposal and export do not read the member table
 
 - An order is never deleted and the Subscriber's books must still add up, so a disposal keeps the order rows, their numbers, status, frozen price, events and the agreement and enrollment records. What identifies a person goes: the buyer name and delivery address on each order, the sender name, sender account number, reference number and visitor address on each proof, every proof file in the private store, and every checkout token with its typed contact. Counts gain `pack_orders`, `pack_proof_submissions`, `pack_proof_files` and `pack_checkout_tokens`; the audit entry names fields, never values. A file that cannot be deleted undoes the disposal so it can be run again.
 - Rule `expired_checkout_tokens`: a token is deleted 30 days after it expired.
-- Rule `pack_registration_details` (as TWCinc's sweep): the date of birth and the two Santé usernames of a registration are erased 90 days after its last status change, whatever its status. A registration still in progress takes edge T24 to needs_buyer_action; one waiting on the customer loses its confirmation, so the buyer enters the details again. The registration row stays. A disposal blanks the same three fields (count `sante_registrations`), and the export lists registrations.
+- Rule `pack_registration_details` (as TWCinc's sweep; its own switch is `DOB_ERASE_ENABLED`, not `RETENTION_ENABLED`, and it needs `PACK_ENABLED`): the date of birth and the two Santé usernames of a registration are erased 90 days after its last status change, whatever its status. A registration still in progress takes edge T24 to needs_buyer_action; one waiting on the customer loses its confirmation, so the buyer enters the details again. The registration row stays. A disposal blanks the same three fields (count `sante_registrations`), and the export lists registrations.
 - The export gains `pack_orders` and `pack_proof_submissions` as plain values, with no file key, no token and no row number.
 - Same shape as TWCinc and as billing's transfer proofs (files deleted, rows and money kept). While `PACK_ENABLED` is off, disposal and export read no pack table, because the code is released before migration `pack.0001` is applied.
 
