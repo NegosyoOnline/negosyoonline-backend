@@ -129,6 +129,11 @@ class PlaceIn(Schema):
     sender_last_name: str = ""
     sender_account_number: str = ""
     transferred_at: str = ""
+    meta_consent: str = ""  # "1" when the visitor accepted tracking; Meta identifiers below are read only then
+    fbp: str = ""
+    fbc: str = ""
+    user_agent: str = ""
+    source_url: str = ""
 
 
 class PlaceOut(Schema):
@@ -143,12 +148,18 @@ def checkout_place(request, body: Form[PlaceIn], proof: File[UploadedFile] = Non
     if token is None:
         raise _expired()
     data = body.dict()
+    meta = {
+        "consent": body.meta_consent == "1", "host": body.host, "url": body.source_url, "fbp": body.fbp,
+        "fbc": body.fbc, "user_agent": body.user_agent,
+    }
+    for name in ("meta_consent", "fbp", "fbc", "user_agent", "source_url"):  # not proof fields
+        data.pop(name)
     for name in ("sender_name", "sender_first_name", "sender_last_name"):
         if name not in request.POST:  # an absent field is not an empty one (the name rule reads presence)
             data.pop(name)
     placed = placement.place_pack_order(
         site, token, body.token, submit_key=body.submit_key, data=data, upload=proof,
-        ip=_ip(body.visitor_ip),
+        ip=_ip(body.visitor_ip), meta=meta,
     )
     return {"order_number": placed.order.order_number, "replay": placed.replay}
 
