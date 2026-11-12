@@ -24,6 +24,7 @@ from django.http import HttpResponse, JsonResponse
 from django.urls import URLPattern, re_path
 from ninja import NinjaAPI, Schema
 
+from apps.catalog.storefront_api import router as catalog_storefront_router
 from apps.common.errors import ApiError, error_body, register_error_handlers
 from apps.members.api import router as members_router
 from apps.meta_ads.api_storefront import router as meta_storefront_router
@@ -125,6 +126,7 @@ def contact(request, body: ContactIn):
 
 api.add_router("", pack_checkout_router)  # the Membership Pack checkout (apps/pack/api.py)
 api.add_router("", pack_api.router)  # the Membership Pack reads (apps/sante/pack_api.py)
+api.add_router("", catalog_storefront_router)  # the catalog reads (apps/catalog/storefront_api.py)
 api.add_router("", meta_storefront_router)  # the Meta Conversions API events (apps/meta_ads)
 
 

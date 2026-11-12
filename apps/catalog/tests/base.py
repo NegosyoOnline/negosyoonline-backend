@@ -1,9 +1,12 @@
 """Helpers shared by the catalog tests. Fixture products use test values, not prices."""
 from decimal import Decimal
+from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 
+from apps.accounts.tests.base import ORIGIN
 from apps.catalog.models import Catalog, CatalogProduct, CatalogProductRevision
 from apps.sante import services as sante
 from apps.sites.models import Site
@@ -68,15 +71,75 @@ def catalog_call(case, method, path, client=None):
         designate(site)
     if not hasattr(case, "catalog_product"):
         case.catalog_product, case.catalog_creates = make_product(), 0
+    case.catalog_product.refresh_from_db()
+    revision = case.catalog_product.revision
     path = path.replace("{product_id}", case.catalog_product.public_id)
+    if path.endswith("/image/"):
+        return _image_call(case, method, path, revision, client)
     if method == "GET":
         return case.get(path, client=client)
     if method == "PATCH":  # the values on file: it works and changes nothing
-        body = {"revision": 1, "name": case.catalog_product.name}
+        body = {"revision": revision, "name": case.catalog_product.name}
     else:  # a new code each time, so a repeated create is never a 409
         case.catalog_creates += 1
         body = {**VALID_CREATE, "code": f"FX-NEW-{case.catalog_creates}"}
     return case.send(method.lower(), path, body, client=client)
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+JPEG = b"\xff\xd8\xff\xe0" + b"1" * 32
+WEBP = b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"2" * 32
+MEDIA = {"PUBLIC_BLOB_READ_WRITE_TOKEN": "test-token", "PUBLIC_MEDIA_BASE_URL": "https://media.example.test"}
+
+
+def image_file(content=PNG, content_type="image/png", name="photo.png"):
+    return SimpleUploadedFile(name, content, content_type=content_type)
+
+
+class FakeMedia:
+    """The public media store replaced by a dict, so no test reaches the network. Use as a
+    context manager; `.files` holds what is stored, `.deleted` what was removed."""
+
+    def __init__(self):
+        self.files, self.deleted, self.count = {}, [], 0
+
+    def _save(self, content, content_type):
+        self.count += 1
+        key = f"catalog/products/{self.count:032x}.png"
+        self.files[key] = content
+        return key
+
+    def _delete(self, key):
+        self.deleted.append(key)
+        self.files.pop(key, None)
+
+    def __enter__(self):
+        self.settings = override_settings(**MEDIA)
+        self.settings.enable()
+        self.patches = [
+            mock.patch("apps.catalog.media.save", side_effect=self._save),
+            mock.patch("apps.catalog.media.delete", side_effect=self._delete),
+        ]
+        for patch in self.patches:
+            patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        for patch in self.patches:
+            patch.stop()
+        self.settings.disable()
+
+
+def _image_call(case, method, path, revision, client):
+    """The image routes in a walk of every route: a working store is faked."""
+    client = client or case.client
+    with FakeMedia():
+        if method == "POST":
+            return client.post(
+                path, data={"file": image_file(), "revision": revision}, secure=True,
+                HTTP_ORIGIN=ORIGIN,
+            )
+        return client.delete(f"{path}?revision={revision}", secure=True, HTTP_ORIGIN=ORIGIN)
 
 
 def retemplate(site, template="other"):
