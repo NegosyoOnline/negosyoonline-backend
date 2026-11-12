@@ -55,7 +55,7 @@ Write exactly these sections, whole file under 6 KB:
     - Local servers: <command and folder for each one this session started, running or stopped, or "none">
     - Coordinator brief: <absolute session folder>/.claude/briefs/coordinator.md
     - This coordinator: <session id>. Manager: <session id, or "none">. Coordinator Helper: <session id, or "none"; unused once a manager exists>
-    - Rulings log: link of ClickUp task z8uq9med6x (comments on ClickUp task z8uq9med6x) and the date of the last entry read (the log itself is not copied here)
+    - Rulings log: link of the rulings log, ClickUp task z8uq9med6x, and the date of the last entry read (the log itself is not copied here)
     - First move: <the one thing the next session does first>
 
     ## Task
@@ -103,7 +103,7 @@ Print exactly two things:
        Read <absolute state-file path>, then read and follow
        <absolute session folder>/.claude/briefs/coordinator.md with Main ClickUp task: <CLICKUP_TASK_ID>,
        and the role limits in <absolute session folder>/.claude/commands/clickup-coordinator.md.
-       Read the rulings log (comments on ClickUp task z8uq9med6x) (newest first) before acting.
+       Read the rulings log, the comments on ClickUp task z8uq9med6x, newest first before acting.
        Do not re-explore anything already covered by "## Done".
 
 Then one of two endings.

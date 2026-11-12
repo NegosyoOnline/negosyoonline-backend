@@ -37,7 +37,7 @@ Write exactly these sections, whole file under 6 KB:
     Per repository: the open PR and who holds the slot, then the queue in order.
 
     ## Rulings
-    A pointer: the link of ClickUp task z8uq9med6x (the rulings log) and the date of the last entry read. Below it only rulings given in this session that are not yet logged, each quoted with its date and the coordinators told.
+    A pointer: the link of the rulings log, ClickUp task z8uq9med6x, and the date of the last entry read. Below it only rulings given in this session that are not yet logged, each quoted with its date and the coordinators told.
 
     ## Owner decisions pending
     Each with its coordinator, the exact decision, and whether it needs his word in that coordinator's session.
@@ -67,6 +67,6 @@ Print exactly two things:
        Resume in <absolute session folder> as the manager of all coordinator sessions.
        Read <absolute state-file path>, then read and follow
        <absolute session folder>/.claude/briefs/manager.md.
-       Read the rulings log (comments on ClickUp task z8uq9med6x) (newest first), then the task map before re-reading ClickUp. Do not re-explore anything already recorded in the register.
+       Read the rulings log, the comments on ClickUp task z8uq9med6x, newest first, then the task map before re-reading ClickUp. Do not re-explore anything already recorded in the register.
 
 Say plainly: `/clear`, then paste this. The paste is required: nothing sits above the manager to send it.
