@@ -89,7 +89,7 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
         return Placed(first, True)
     if not token.pending_contact:
         raise ApiError("no_contact", C.MSG_NO_CONTACT, status=409)
-    records.require_current(token)  # before any file is stored, so a refused order leaves nothing behind
+    records.require_current(token)  # a held agreement only; before any file is stored, so a refused order leaves nothing behind
     records.require_enrollment(token)
     proof = proofs.clean(site, data or {}, upload)
     file_key = _store(site, proof)
@@ -122,7 +122,8 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
                 C.EVENT_PLACED, new={"method": C.PAYMENT_METHOD}, actor_type="member",
                 actor_ref=member.pk, actor_label=contacts.mask("mobile", member.mobile),
             )
-            records.write_acceptance(order, version, accepted_at)
+            if version is not None:  # posted by an older storefront; otherwise accepted at the details step
+                records.write_acceptance(order, version, accepted_at)
             registration.activate(order, now)  # T1
             records.write_enrollment(order, enrolled_at)
             tok.order_ref, tok.pending_contact = order.pk, {}  # cleared after placement

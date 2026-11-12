@@ -72,7 +72,7 @@ class PackRetentionTests(PackTestCase):
         self.assertEqual(PackOrder.objects.get().buyer_name, "")
 
 
-@override_settings(RETENTION_ENABLED=True)
+@override_settings(DOB_ERASE_ENABLED=True)
 class RegistrationDetailsRetentionTests(PackTestCase):
     """TWCinc's 90-day erase of the date of birth and the two Santé usernames."""
 
@@ -138,3 +138,49 @@ class RegistrationDetailsRetentionTests(PackTestCase):
         self.fill("waiting_for_accept", age_days=1)
         row = retention.export_packs_of(self.site.account)["sante_registrations"][0]
         self.assertEqual((row["desired_username"], row["status"]), ("mariasantos1", "waiting_for_accept"))
+
+
+class RegistrationDetailsSwitchTests(PackTestCase):
+    """Ruling D3: the erase answers to DOB_ERASE_ENABLED, not to RETENTION_ENABLED."""
+
+    def setUp(self):
+        super().setUp()
+        from apps.common import retention as registry
+        from apps.pack.models import SanteRegistration
+        self.registry = registry
+        self.placed()
+        now = timezone.now()
+        SanteRegistration.objects.update(
+            status="waiting_for_accept", date_of_birth=now.date().replace(year=1990),
+            desired_username="mariasantos1", alternate_username="mariasantos2",
+            status_entered_at=now - timedelta(days=91),
+        )
+
+    def held(self):
+        from apps.pack.models import SanteRegistration
+        return SanteRegistration.objects.get().date_of_birth is not None
+
+    @override_settings(RETENTION_ENABLED=True, DOB_ERASE_ENABLED=False)
+    def test_retention_on_and_dob_off_erases_nothing_and_reports_it_switched_off(self):
+        report = self.registry.run_all(only=["pack_registration_details"])
+        self.assertEqual(report.switched_off, ["pack_registration_details"])
+        self.assertTrue(self.held())
+
+    @override_settings(RETENTION_ENABLED=False, DOB_ERASE_ENABLED=True)
+    def test_dob_on_and_retention_off_erases(self):
+        report = self.registry.run_all(only=["pack_registration_details"])
+        self.assertEqual(report.counts, {"pack_registration_details": 1})
+        self.assertEqual(report.switched_off, [])
+        self.assertFalse(self.held())
+
+    @override_settings(RETENTION_ENABLED=True, DOB_ERASE_ENABLED=True, PACK_ENABLED=False)
+    def test_pack_off_does_nothing_and_reads_no_pack_table(self):
+        with self.assertNumQueries(0):
+            self.assertEqual(retention.registration_details(timezone.now(), False), 0)
+            self.assertEqual(retention.registration_details(timezone.now(), True), 0)
+
+    @override_settings(RETENTION_ENABLED=False, DOB_ERASE_ENABLED=False)
+    def test_the_dry_run_counts_with_both_switches_off(self):
+        report = self.registry.run_all(dry_run=True, only=["pack_registration_details"])
+        self.assertEqual(report.counts, {"pack_registration_details": 1})
+        self.assertTrue(self.held())

@@ -47,6 +47,12 @@ class PackTestCase(SurfaceTestCase):
             "enrollment_authorized": "1", **changes,
         }
 
+    def contact_fields_without_agreement(self, **changes):
+        """What the storefront posts now: the Membership Terms are accepted at the details step."""
+        fields = self.contact_fields(**changes)
+        del fields["agreement_version_id"], fields["agreement_accept"]
+        return fields
+
     def post(self, path, host=HOST, secret=SECRET, ip=VISITOR, **fields):
         body = {"host": host, **fields}
         if ip is not None:

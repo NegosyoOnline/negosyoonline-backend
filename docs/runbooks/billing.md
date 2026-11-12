@@ -179,6 +179,7 @@ Check, in the service logs:
 
 - `worker`: a line listing `billing.sweep` under `[tasks]`, then `ready`. After `beat` is up, every 5 minutes: `Task billing.sweep[...] received` and `succeeded ...: {...}`. The braces hold a count per transition, or nothing when nothing was due. No log line holds a personal value.
 - `beat`: `beat: Starting...`, then `Scheduler: Sending due task billing-sweep (billing.sweep)` every 5 minutes. The first one comes 5 minutes after the start.
+- Retention, once a day at 03:00 Manila time (`docs/runbooks/retention.md`): `beat` shows `Scheduler: Sending due task retention-daily (retention.run)`, and `worker` shows `Task retention.run[...] received` then `succeeded` with the counts per rule and the rules `switched_off`. `retention.run` is listed under `[tasks]` with `billing.sweep`.
 
 Checked on staging, 2026-11-11: `beat` deployment `a1f38b2a` succeeded. At 13:21:25 +08:00 the `beat` log showed `Scheduler: Sending due task billing-sweep (billing.sweep)`, and in the same second the `worker` log showed the task received, `Billing sweep: nothing due`, and succeeded.
 

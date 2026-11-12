@@ -129,7 +129,7 @@ class RegistrationEdgeTests(OnboardingCase):
         token = self.placed_token()
         self.finish(token)
         note = SanteRegistrationEvent.objects.get(edge="T3").note
-        self.assertTrue(note.startswith(f"Santé Membership Terms {self.version.version_label} accepted at checkout on "))
+        self.assertTrue(note.startswith(f"Santé Membership Terms {self.version.version_label} accepted on "))
         self.assertIn(self.version.sha256[:12], note)
 
     def test_a_second_submission_is_refused_as_the_wrong_status(self):
@@ -192,13 +192,88 @@ class DetailsGateTests(OnboardingCase):
         self.call("onboarding/details/", token=token, **{**DETAILS, "terms": False})
         self.assertEqual(SanteRegistration.objects.get().status, "awaiting_buyer_details")
 
-    def test_no_acceptance_record_refuses_with_the_not_on_record_line(self):
+    def test_no_acceptance_record_and_no_version_id_asks_for_the_terms(self):
         token = self.ready()
         PackAgreementAcceptance.objects.all()._raw_delete("default")  # the evidence table refuses a normal delete
         response = self.call("onboarding/details/", token=token, **DETAILS)
-        self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()["error"]["message"], C.MSG_TERMS_NOT_ON_RECORD)
+        self.assertEqual((response.status_code, response.json()["error"]["code"]), (422, "agreement_required"))
         self.assertEqual(SanteRegistration.objects.get().status, "awaiting_buyer_details")
+
+
+class TermsAtDetailsTests(OnboardingCase):
+    """Santé Membership Terms accepted at the account-details step (checkout no longer asks)."""
+
+    def ready(self):
+        response = self.post("contact/", **self.contact_fields_without_agreement())
+        token = response.json()["token"]
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.place(token).status_code, 200)
+        self.verify_both(token)
+        self.call("onboarding/address/", token=token, **ADDRESS)
+        self.assertEqual(PackAgreementAcceptance.objects.count(), 0)
+        return token
+
+    def details(self, token, **changes):
+        return self.call("onboarding/details/", token=token, **{**DETAILS, "agreement_version_id": str(self.version.pk), **changes})
+
+    def test_the_tick_and_the_current_version_write_one_acceptance_with_the_checksum(self):
+        token = self.ready()
+        response = self.details(token)
+        self.assertEqual(response.status_code, 200, response.content)
+        row = PackAgreementAcceptance.objects.get()
+        self.assertEqual((row.version_id, row.sha256, row.site_id), (self.version.pk, self.version.sha256, self.site.pk))
+        self.assertEqual(row.order_id, PackOrder.objects.get().pk)
+        note = SanteRegistrationEvent.objects.get(edge="T3").note
+        self.assertTrue(note.startswith(f"Santé Membership Terms {self.version.version_label} accepted on "))
+        self.assertIn(self.version.sha256[:12], note)
+
+    def test_a_missing_tick_is_a_terms_field_error_and_writes_nothing(self):
+        token = self.ready()
+        response = self.details(token, terms=False)
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"]["fields"]["terms"], [registration.TERMS_ERROR])
+        self.assertEqual(PackAgreementAcceptance.objects.count(), 0)
+
+    def test_a_missing_version_id_is_refused_with_the_terms_field(self):
+        token = self.ready()
+        response = self.details(token, agreement_version_id="")
+        self.assertEqual((response.status_code, response.json()["error"]["code"]), (422, "agreement_required"))
+        self.assertEqual(response.json()["error"]["fields"]["terms"], [C.MSG_AGREEMENT_REQUIRED])
+        self.assertEqual(PackAgreementAcceptance.objects.count(), 0)
+        self.assertEqual(SanteRegistration.objects.get().status, "awaiting_buyer_details")
+
+    def test_an_unknown_version_is_required(self):
+        token = self.ready()
+        response = self.details(token, agreement_version_id="999999")
+        self.assertEqual((response.status_code, response.json()["error"]["code"]), (422, "agreement_required"))
+        self.assertEqual(PackAgreementAcceptance.objects.count(), 0)
+
+    def test_a_stale_version_is_changed_and_a_retry_with_the_new_one_is_accepted(self):
+        from apps.sante import agreement
+        from apps.sante.tests.agreement_helpers import make_operator, published
+        token = self.ready()
+        published(make_operator("op2"), label="v2")
+        response = self.details(token)
+        self.assertEqual((response.status_code, response.json()["error"]["code"]), (409, "agreement_changed"))
+        self.assertEqual(PackAgreementAcceptance.objects.count(), 0)
+        retry = self.details(token, agreement_version_id=str(agreement.active_version().pk))
+        self.assertEqual(retry.status_code, 200, retry.content)
+        self.assertEqual(PackAgreementAcceptance.objects.get().version.version_label, "v2")
+
+    def test_another_sites_buyer_token_cannot_reach_the_step(self):
+        token = self.ready()
+        response = self.call("onboarding/details/", token=token, host=OTHER_HOST, agreement_version_id=str(self.version.pk), **DETAILS)
+        self.assertEqual(response.status_code, 409)  # the token is not this host's: refused like any wrong-site call
+        self.assertEqual(PackAgreementAcceptance.objects.count(), 0)
+
+    def test_an_order_already_accepted_at_checkout_writes_no_second_row(self):
+        token = self.placed_token()  # an older storefront posted the agreement at checkout
+        before = PackAgreementAcceptance.objects.get()
+        self.verify_both(token)
+        self.call("onboarding/address/", token=token, **ADDRESS)
+        response = self.call("onboarding/details/", token=token, **{**DETAILS, "agreement_version_id": "999999"})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(PackAgreementAcceptance.objects.get().pk, before.pk)
 
 
 class FunnelCodeTests(OnboardingCase):

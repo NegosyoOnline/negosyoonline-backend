@@ -205,3 +205,33 @@ class ExportAccountCommandTests(DisposalTestCase):
     def test_it_works_with_the_switch_off(self):
         out, _ = self.run_command("--stdout")
         self.assertTrue(json.loads(out)["sites"])
+
+
+@override_settings(BILLING_ENABLED=True)
+class ExportBankTransfersTests(DisposalTestCase):
+    def test_the_senders_details_are_in_the_export_and_no_file_key_or_hash(self):
+        from apps.billing.tests.base import SENDER, days, submit, transfers_on
+        from apps.billing import services as billing_services
+        from apps.sites.models import Site
+
+        site = Site.objects.filter(account=self.account).first()
+        subscription = billing_services.start_subscription(site, self.account, now=self.now)
+        with transfers_on():
+            submit(subscription, self.now + days(1))
+        data = rules.export_account_data(
+            self.account, actor=self.operator, request_ref="DPO-2026-003"
+        )
+        (row,) = data["bank_transfers"]
+        self.assertEqual(
+            (row["sender_bank"], row["sender_first_name"], row["sender_last_name"],
+             row["sender_account_number"], row["transfer_reference"]),
+            (SENDER["sender_bank"], SENDER["sender_first_name"], SENDER["sender_last_name"],
+             SENDER["sender_account_number"], SENDER["transfer_reference"]),
+        )
+        self.assertEqual(row["amount_sent_centavos"], 99900)
+        text = json.dumps(data)
+        self.assertNotIn("proof_key", text)
+        self.assertNotIn("proof_sha256", text)
+        self.assertEqual(
+            exported().get().detail["counts"]["bank_transfers"], 1
+        )

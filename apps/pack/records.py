@@ -1,8 +1,12 @@
-"""The Membership Agreement rule and the enrollment authorization at checkout (port of TWCinc's
-acceptance.py and consents.py). The browser's tick is never trusted alone: the server compares the
-posted version with the active one, stamps its own time on the token, and checks again inside
-placement under the locks. The version recorded is the one the buyer's popup carried (the posted
-id, which must still be the active one). Accepting the terms is not Santé registration."""
+"""The Membership Agreement rule and the enrollment authorization (port of TWCinc's acceptance.py
+and consents.py). The browser's tick is never trusted alone: the server compares the posted version
+with the active one and stamps its own time. The Membership Terms are accepted at the account-details
+step of onboarding (`accept_at_details`), inside the details transaction. Checkout no longer asks for
+them; an older storefront that still posts the agreement at checkout is held on the token, checked
+again inside placement under the locks, and written with the order exactly as before. The version
+recorded is the one the buyer's popup carried (the posted id, which must still be the active one).
+The enrollment authorization is still required at checkout. Accepting the terms is not Santé
+registration."""
 from datetime import datetime
 
 from django.utils import timezone
@@ -37,13 +41,15 @@ def agreement_from_post(token, *, version_id, accept):
     """The acceptance to keep on the token after a contact call. A token already holding the
     active version keeps it, so changing a typed field does not ask again. A posted id that is
     real but not active means this buyer saw an older popup: the "changed" branch."""
+    posted = str(version_id or "")
+    mine = held(token)
+    if not mine and not posted and accept != "1":
+        return {}  # nothing posted: checkout no longer asks, the terms are accepted at the details step
     active = agreement.active_version()
     if active is None:
         raise _unavailable()
-    mine = held(token)
     if mine.get("version_id") == active.pk:
         return mine
-    posted = str(version_id or "")
     if accept != "1" or not posted:
         raise _changed() if mine else _required()
     if posted != str(active.pk):
@@ -54,16 +60,17 @@ def agreement_from_post(token, *, version_id, accept):
 
 def require_current(token, *, lock=False):
     """Called before a proof file is stored and again under the placement locks. Returns
-    (version, accepted_at). With lock the one MembershipAgreement row is held until the order
-    commits, so the version recorded is the version active at that instant."""
+    (version, accepted_at), or (None, None) when the buyer posted no agreement at checkout (the
+    terms are then accepted at the details step). With lock the one MembershipAgreement row is held
+    until the order commits, so the version recorded is the version active at that instant."""
+    mine = held(token)
+    if not mine:
+        return None, None
     if lock:
         MembershipAgreement.objects.select_for_update().filter(pk=1).first()
     active = agreement.active_version()
     if active is None:
         raise _unavailable()
-    mine = held(token)
-    if not mine:
-        raise _required()
     if mine.get("version_id") != active.pk:
         raise _changed()
     try:
@@ -77,6 +84,30 @@ def write_acceptance(order, version, accepted_at):
         site_id=order.site_id, order=order, agreement_id=version.agreement_id, version=version,
         sha256=version.sha256, accepted_at=accepted_at,
     )
+
+
+def accept_at_details(order, version_id):
+    """The Membership Terms accepted at the account-details step: called inside the details
+    transaction for an order with no acceptance yet. The posted id must be the current published
+    version (a real but older one is the "changed" refusal, an unknown or missing one "required").
+    With the one MembershipAgreement row locked, the version recorded is the one active at that
+    instant. Returns the written PackAgreementAcceptance."""
+    MembershipAgreement.objects.select_for_update().filter(pk=1).first()
+    active = agreement.active_version()
+    if active is None:
+        raise _unavailable()
+    posted = str(version_id or "").strip()
+    if not posted:
+        raise ApiError(
+            "agreement_required", C.MSG_AGREEMENT_REQUIRED, status=422,
+            fields={"terms": [C.MSG_AGREEMENT_REQUIRED]},
+        )
+    if posted != str(active.pk):
+        known = MembershipAgreementVersion.objects.filter(
+            pk=int(posted) if posted.isascii() and posted.isdigit() and len(posted) < 18 else 0
+        ).exists()
+        raise _changed() if known else _required()
+    return write_acceptance(order, active, timezone.now())
 
 
 def _enrollment_required():

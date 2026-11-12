@@ -10,7 +10,7 @@ is off, and then read none of its tables. They stay open to a suspended or ended
 """
 import json
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from django.http import HttpResponse
 from django.utils import timezone
@@ -18,7 +18,7 @@ from ninja import Router, Schema
 
 from apps.accounts.api import signed_in
 from apps.accounts.services import record_event
-from apps.billing import plan, proofs, services, usage
+from apps.billing import clock, plan, proofs, services, usage
 from apps.billing.models import BankTransferPayment
 from apps.common.errors import ApiError
 from apps.common.ids import is_public_id
@@ -31,12 +31,15 @@ router = Router(tags=["billing"], auth=signed_in)
 WRITE_LIMIT, WRITE_WINDOW = 20, 3600  # cancels and reactivations per account per hour
 PROOF_LIMIT, PROOF_WINDOW = 10, 3600  # proofs of payment per account per hour
 SUBMIT_FIELDS = (
-    "plan", "transferred_on", "transfer_reference", "proof", "renewal_consent", "consent_version",
+    "plan", "transferred_on", "transferred_at", "transfer_reference", "sender_bank",
+    "sender_first_name", "sender_last_name", "sender_account_number", "amount_sent", "proof",
+    "renewal_consent", "consent_version",
 )
 PROOF_FILE_NAMES = {
     "image/jpeg": "proof.jpg", "image/png": "proof.png", "application/pdf": "proof.pdf",
 }
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_LOCAL_TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
 
 
 class PlanOut(Schema):
@@ -231,6 +234,12 @@ class PaymentOut(Schema):
     currency: str
     transferred_on: date
     transfer_reference: str
+    transferred_at: datetime | None
+    sender_bank: str
+    sender_first_name: str
+    sender_last_name: str
+    sender_account_number: str
+    amount_sent_centavos: int | None
     submitted_at: datetime
     decided_at: datetime | None
     reject_reason: str | None
@@ -320,6 +329,12 @@ def _payment(payment):
         "currency": payment.currency,
         "transferred_on": payment.transferred_on,
         "transfer_reference": payment.transfer_reference,
+        "transferred_at": payment.transferred_at and payment.transferred_at.astimezone(UTC),
+        "sender_bank": payment.sender_bank,
+        "sender_first_name": payment.sender_first_name,
+        "sender_last_name": payment.sender_last_name,
+        "sender_account_number": payment.sender_account_number,
+        "amount_sent_centavos": payment.amount_sent_centavos,
         "submitted_at": payment.submitted_at,
         "decided_at": payment.decided_at,
         "reject_reason": payment.reject_reason if rejected else None,
@@ -376,8 +391,10 @@ def billing_payments(request, site_id: str, limit: int = DEFAULT_LIMIT, cursor: 
 
 @router.post("/sites/{site_id}/billing/payments/", response={200: PaymentOut, 201: PaymentOut})
 def billing_payment_submit(request, site_id: str):
-    """A multipart form: `plan`, `transferred_on` (YYYY-MM-DD), `proof` (the file) and,
-    optionally, `transfer_reference`. 201 with the payment; 200 with the payment already under
+    """A multipart form, every field required: `plan`, `transferred_at` (Manila time,
+    YYYY-MM-DDTHH:MM), `transfer_reference`, `sender_bank`, `sender_first_name`,
+    `sender_last_name`, `sender_account_number`, `amount_sent` (pesos as text) and `proof` (the
+    file). `transferred_on` (YYYY-MM-DD) is still accepted and must match `transferred_at`. 201 with the payment; 200 with the payment already under
     review when the same file is sent again."""
     site, subscription = _transfer_subscription(request, site_id)
     hit("billing-proof", request.account.pk, limit=PROOF_LIMIT, window=PROOF_WINDOW)
@@ -390,19 +407,36 @@ def billing_payment_submit(request, site_id: str):
     if proof.size > proofs.MAX_BYTES:
         raise _invalid("proof", "The file is too large.")
     sent_on = request.POST.get("transferred_on", "")
-    try:
-        transferred_on = date.fromisoformat(sent_on) if _ISO_DATE.match(sent_on) else None
-    except ValueError:
-        transferred_on = None
+    sent_at = request.POST.get("transferred_at", "")
+    # A value that does not parse is passed on as it came: the service names the field.
+    transferred_on = sent_on or None
+    if _ISO_DATE.match(sent_on):
+        try:
+            transferred_on = date.fromisoformat(sent_on)
+        except ValueError:
+            pass
+    transferred_at = sent_at or None
+    if _LOCAL_TIME.match(sent_at):
+        try:
+            transferred_at = datetime.fromisoformat(sent_at).replace(tzinfo=clock.MANILA)
+        except ValueError:
+            pass
+    post = request.POST.get
     payment, created = services.submit_transfer(
         subscription,
         request.account,
-        plan_code=request.POST.get("plan"),
+        plan_code=post("plan"),
         content=proof.read(),
+        transferred_at=transferred_at,
         transferred_on=transferred_on,
-        transfer_reference=request.POST.get("transfer_reference", ""),
-        renewal_consent=request.POST.get("renewal_consent"),
-        consent_version=request.POST.get("consent_version"),
+        transfer_reference=post("transfer_reference", ""),
+        sender_bank=post("sender_bank"),
+        sender_first_name=post("sender_first_name"),
+        sender_last_name=post("sender_last_name"),
+        sender_account_number=post("sender_account_number"),
+        amount_sent=post("amount_sent"),
+        renewal_consent=post("renewal_consent"),
+        consent_version=post("consent_version"),
     )
     if created:
         record_event(

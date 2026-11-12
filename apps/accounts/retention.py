@@ -299,6 +299,8 @@ def export_account_data(account, *, actor, request_ref):
     data.update(members)
     packs = pack_retention.export_packs_of(account)
     data.update(packs)
+    transfers = billing.export_transfers_of(account)
+    data.update(transfers)
     lists = (
         "policy_acceptances", "sign_in_providers", "sessions", "audit_events",
         "mobile_challenges", "email_send_records", "sites",
@@ -309,6 +311,7 @@ def export_account_data(account, *, actor, request_ref):
     counts.update({name: len(rows) for name, rows in payments.items()})
     counts.update({name: len(rows) for name, rows in members.items()})
     counts.update({name: len(rows) for name, rows in packs.items()})
+    counts.update({name: len(rows) for name, rows in transfers.items()})
     audit.record(
         actor,
         "account_exported",

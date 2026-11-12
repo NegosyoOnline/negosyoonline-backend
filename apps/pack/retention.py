@@ -142,12 +142,15 @@ def expired_checkout_tokens(now, dry_run):
     return retention.remove(rows, dry_run)
 
 
-@retention.behind_switch
+@retention.behind_setting("DOB_ERASE_ENABLED")
 def registration_details(now, dry_run):
     """Date of birth and the two Santé usernames, 90 days after the registration's last status
     change (TWCinc sweep._erase, Coach Ed's erase rule): each row under its own lock. In-progress
     rows take T24 to needs_buyer_action; rows waiting on the customer lose details_confirmed_at, so
-    the buyer enters them again. The registration row itself stays."""
+    the buyer enters them again. The registration row itself stays.
+
+    Ruling D3: this erase never depends on the Subscriber's subscription, so it has its own
+    switch, DOB_ERASE_ENABLED, and not RETENTION_ENABLED. It also needs PACK_ENABLED."""
     if not enabled():
         return 0
     due = SanteRegistration.objects.filter(HOLDS_DETAILS, status_entered_at__lte=now - DETAILS_RETENTION)

@@ -49,6 +49,14 @@ class PlaceTests(PackTestCase):
         event = PackOrderEvent.objects.get()
         self.assertEqual(event.kind, C.EVENT_PLACED)
 
+    def test_placing_without_the_agreement_writes_no_acceptance_but_the_enrollment(self):
+        response = self.post("contact/", **self.contact_fields_without_agreement())
+        with self.captureOnCommitCallbacks(execute=True):
+            placed = self.place(response.json()["token"])
+        self.assertEqual(placed.status_code, 200, placed.content)
+        self.assertEqual(PackAgreementAcceptance.objects.count(), 0)
+        self.assertEqual(PackEnrollmentAuthorization.objects.count(), 1)
+
     def test_the_token_is_spent_and_its_contact_cleared(self):
         token, _ = self.placed()
         row = self.token_row(token)
