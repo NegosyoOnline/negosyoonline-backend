@@ -21,7 +21,8 @@ from django.utils import timezone
 
 @skipUnless(connection.vendor == "postgresql", "row locks need PostgreSQL")
 @override_settings(
-    PACK_ENABLED=True, MEMBERS_ENABLED=True, SANTE_AGREEMENT_ENABLED=True, PAYMENT_METHODS_ENABLED=True
+    PACK_ENABLED=True, MEMBERS_ENABLED=True, SANTE_AGREEMENT_ENABLED=True, PAYMENT_METHODS_ENABLED=True,
+    BILLING_ENABLED=True,  # make_subscription answers None with Billing off
 )
 class PackConcurrencyTests(TransactionTestCase):
     def setUp(self):
