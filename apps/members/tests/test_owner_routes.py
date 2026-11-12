@@ -3,7 +3,7 @@ from django.core import mail
 from django.core.cache import cache
 from django.test import override_settings
 
-from apps.members import recovery, sessions
+from apps.members import holds, recovery, sessions
 from apps.members.models import Member, MemberContactAudit, MemberRecoveryCheck, MemberSecurityHold
 from apps.pack import recovery_item
 from apps.pack.tests.owner_base import make_order
@@ -48,8 +48,8 @@ class OwnerRoutesCase(SitesApiTestCase):
     def check(self, member=None, answers=GOOD):
         return self.send("post", self.rec(member, "check/"), {"answers": answers})
 
-    def passed(self, member=None):
-        response = self.check(member)
+    def passed(self, member=None, answers=GOOD):
+        response = self.check(member, answers)
         self.assertEqual(response.status_code, 200, response.content)
         return response.json()["check_id"]
 
@@ -59,7 +59,8 @@ class GateTests(OwnerRoutesCase):
     def test_every_route_is_404_while_the_switch_is_off(self):
         for method, path in (("get", self.url("?q=ma")), ("get", self.rec()), ("post", self.rec(tail="check/"))):
             with self.subTest(path=path):
-                self.error(self.send(method, path, {"answers": GOOD} if method == "post" else None), 404, "not_found")
+                response = self.get(path) if method == "get" else self.send(method, path, {"answers": GOOD})
+                self.error(response, 404, "not_found")
 
     def test_signed_out_is_401(self):
         self.client.cookies.clear()
@@ -78,10 +79,6 @@ class GateTests(OwnerRoutesCase):
                          self.send("post", self.rec(stranger), {"check_id": "1", "new_email": "x@y.test"})):
             self.error(response, 404, "not_found")
         self.assertEqual(MemberRecoveryCheck.objects.count(), 0)
-
-    def test_a_non_sante_site_is_404(self):
-        basic = self.create_site(template="basic", subdomain="basic-store")["id"] if False else None
-        self.assertIsNone(basic)  # basic sites are deferred (MVP is Santé only): nothing to call
 
     def test_answers_are_never_cached(self):
         self.assertEqual(self.get(self.rec())["Cache-Control"], "no-store")
@@ -123,7 +120,7 @@ class ByOrderTests(OwnerRoutesCase):
     def test_the_member_of_each_order_with_its_hold(self):
         order, _ = make_order(self.site)
         order2, _ = make_order(self.site)
-        check = self.passed(order2.member)
+        check = self.passed(order2.member, {**GOOD, "pack_order_number": "matched"})
         self.send("post", self.rec(order2.member), {"check_id": check, "new_email": "new@buyer.test"})
         body = self.get(self.url(f"by-order/?ids={order.public_id},{order2.public_id},pko_missing")).json()["members"]
         self.assertEqual(sorted(body), sorted([order.public_id, order2.public_id]))
@@ -148,7 +145,7 @@ class DetailAndCheckTests(OwnerRoutesCase):
         self.assertEqual(items["pack_order_number"]["reference"], order.order_number)
         self.assertEqual(items["delivery_address"]["reference"], "12 Rizal St, San Roque, Quezon City, Metro Manila")
         self.assertFalse(items["payout_last4"]["applicable"])
-        self.assertEqual((body["failed_checks"], body["locked"], body["hold"]), (0, False, None))
+        self.assertIsNone(body["hold"])
 
     def test_a_member_with_no_order_has_no_order_number_item(self):
         items = {i["key"]: i for i in self.get(self.rec()).json()["items"]}
@@ -162,18 +159,18 @@ class DetailAndCheckTests(OwnerRoutesCase):
 
     def test_bad_answers_are_422_and_unknown_fields_rejected(self):
         self.error(self.check(answers={"full_name": "matched"}), 422, "invalid_items")
-        self.assertEqual(self.send("post", self.rec(tail="check/"), {"answers": GOOD, "x": 1}).status_code, 422)
+        self.assertEqual(self.send("post", self.rec(tail="check/"), {"answers": GOOD, "x": 1}).status_code, 400)
 
     def test_the_order_number_must_be_answered_when_the_member_has_an_order(self):
         order, _ = make_order(self.site)
         self.error(self.check(order.member), 422, "invalid_items")
         self.assertEqual(self.check(order.member, {**GOOD, "pack_order_number": "matched"}).status_code, 200)
 
-    def test_five_failed_checks_lock_the_member_for_the_window(self):
-        for _ in range(5):
+    def test_repeated_failed_checks_do_not_lock_the_member(self):
+        for _ in range(6):
             self.assertEqual(self.check(answers=BAD).status_code, 200)
-        self.error(self.check(), 429, "recovery_locked")
-        self.assertTrue(self.get(self.rec()).json()["locked"])
+        self.assertTrue(self.check().json()["passed"])
+        self.assertEqual(MemberRecoveryCheck.objects.filter(member=self.member, passed=False).count(), 6)
 
     def test_the_check_limit_per_account(self):
         from apps.members import api_owner
@@ -184,7 +181,6 @@ class DetailAndCheckTests(OwnerRoutesCase):
         self.error(self.check(), 429, "rate_limited")
 
     def test_a_disposed_member_is_closed(self):
-        self.member.mobile = recovery.__dict__["is_closed"].__globals__["_placeholder_mobile"](self.member) if False else None
         from apps.members.retention import _placeholder_mobile
         Member.objects.filter(pk=self.member.pk).update(mobile=_placeholder_mobile(self.member))
         self.error(self.check(), 409, "member_closed")
@@ -238,13 +234,19 @@ class RecoverTests(OwnerRoutesCase):
         self.assertEqual(self.save(check, new_email="a@buyer.test").status_code, 200)
         self.error(self.save(check, new_email="b@buyer.test"), 409, "recovery_check_invalid")
 
-    def test_a_second_recovery_while_the_hold_runs_is_409_and_so_is_a_new_check(self):
-        check = self.passed()
-        self.assertEqual(self.save(check, new_email="a@buyer.test").status_code, 200)
-        self.error(self.check(), 409, "recovery_hold_active")
-        MemberRecoveryCheck.objects.update(used_at=None)  # even an unused passed check cannot be used
-        self.error(self.save(str(MemberRecoveryCheck.objects.first().pk), new_email="b@buyer.test"), 409,
-                   "recovery_hold_active")
+    def test_a_second_recovery_during_a_hold_restarts_it(self):
+        self.assertEqual(self.save(self.passed(), new_email="a@buyer.test").status_code, 200)
+        first = MemberSecurityHold.objects.get(member=self.member, kind="recovery")
+        old_email = Member.objects.get(pk=self.member.pk).email  # now the pending one; the verified old one is gone
+        mail.outbox.clear()
+        self.assertEqual(self.save(self.passed(), new_email="b@buyer.test").status_code, 200)
+        self.assertEqual(MemberSecurityHold.objects.filter(member=self.member, kind="recovery").count(), 2)
+        latest = MemberSecurityHold.objects.filter(member=self.member, kind="recovery").order_by("-pk").first()
+        self.assertGreaterEqual(latest.ends_at, first.ends_at)
+        self.assertEqual(self.get(self.rec()).json()["hold"]["ends_display"], holds.display(latest.ends_at))
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.email, "b@buyer.test")
+        self.assertNotEqual(old_email, "b@buyer.test")
 
     def test_a_taken_email_is_refused(self):
         new_member(self.site, email="taken@buyer.test")
@@ -260,7 +262,3 @@ class RecoverTests(OwnerRoutesCase):
         self.addCleanup(setattr, api_owner, "RECOVER_LIMIT", old)
         self.save("1", new_email="a@buyer.test")
         self.error(self.save("1", new_email="a@buyer.test"), 429, "rate_limited")
-
-    def test_a_recovered_member_signs_in_with_the_new_email(self):
-        from apps.members.tests.base import MembersTestCase  # noqa: F401  (sign-in flow is tested in test_signin)
-        self.assertTrue(True)

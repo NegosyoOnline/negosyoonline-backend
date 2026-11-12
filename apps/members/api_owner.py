@@ -2,7 +2,7 @@
 
     GET  .../members/?q=                          -> {members: [row]} (2+ characters, 20 rows)
     GET  .../members/by-order/?ids=a,b            -> {members: {order_id: row}} for Membership Package orders
-    GET  .../members/{id}/recovery/               -> {member, items, hold, recent_recoveries, failed_checks, locked}
+    GET  .../members/{id}/recovery/               -> {member, items, hold, recent_recoveries}
     POST .../members/{id}/recovery/check/         {answers: {item: matched|not_matched}} -> {check_id, passed, expires_at}
     POST .../members/{id}/recovery/               {check_id, new_email, new_mobile?} -> {saved_message, ...}
 
@@ -121,11 +121,9 @@ def _recent(member):
 
 def _detail(member):
     hold = _hold(member)
-    failed = recovery.failed_checks(member)
     return {
         "member": row(member, hold), "items": _items(member), "hold": holds.hold_out(hold),
-        "recent_recoveries": _recent(member), "failed_checks": failed,
-        "failed_check_limit": recovery.FAILED_CHECK_LIMIT, "locked": failed >= recovery.FAILED_CHECK_LIMIT,
+        "recent_recoveries": _recent(member),
     }
 
 
@@ -157,11 +155,8 @@ def recovery_check(request, site_id: str, member_id: str, payload: CheckIn):
     _limit(request, CHECK_LIMIT)
     member = _member(request.member_site, member_id)
     recovery.assert_open(member)
-    recovery.assert_no_running_hold(member)
-    recovery.assert_not_locked(member)
     check = recovery.record_checklist(request.account, request.member_site, member, payload.answers)
-    return _json({"check_id": str(check.pk), "passed": check.passed, "expires_at": check.expires_at.isoformat(),
-                  "failed_checks": recovery.failed_checks(member), "failed_check_limit": recovery.FAILED_CHECK_LIMIT})
+    return _json({"check_id": str(check.pk), "passed": check.passed, "expires_at": check.expires_at.isoformat()})
 
 
 @router.post("/sites/{site_id}/members/{member_id}/recovery/")
