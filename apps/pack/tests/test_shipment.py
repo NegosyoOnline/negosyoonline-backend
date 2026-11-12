@@ -8,6 +8,7 @@ from django.db import IntegrityError, transaction
 from django.test import override_settings
 from django.utils import timezone
 
+from apps.accounts.tests.base import ORIGIN
 from apps.pack import constants as C, dashboard, fulfillment
 from apps.pack.models import PackOrder, PackOrderEvent
 from apps.pack.tests.owner_base import OwnerTestCase, make_order
@@ -93,7 +94,7 @@ class RecordTests(ShipCase):
 
     def test_an_unknown_body_key_is_refused(self):
         order, _ = make_order(self.site, status=C.VERIFIED)
-        self.assertEqual(self.ship(order, payment_status="verified").status_code, 422)
+        self.assertEqual(self.ship(order, payment_status="verified").status_code, 400)
 
     def test_a_mail_failure_does_not_undo_the_write(self):
         order, _ = make_order(self.site, status=C.VERIFIED)
@@ -189,6 +190,7 @@ class SwitchAndAccessTests(ShipCase):
         self.client.cookies.clear()
         r = self.client.post(
             self.ship_url(order), {"state_version": 1, **SHIP}, content_type="application/json", secure=True,
+            HTTP_ORIGIN=ORIGIN,
         )
         self.assertEqual(r.status_code, 401, r.content)
 
