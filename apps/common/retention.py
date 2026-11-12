@@ -5,7 +5,8 @@ it removed or blanked, or, on a dry run, the rows it would. Each app registers i
 from its `retention.py`, loaded in its `AppConfig.ready()`.
 
 `RETENTION_ENABLED` is checked inside the rules that are wrapped with `behind_switch`, not
-here: with the switch off such a rule touches nothing, whoever calls `run_all`.
+here: with the switch off such a rule touches nothing, whoever calls `run_all`. A rule with its
+own switch (`behind_setting`) answers to that setting instead and not to RETENTION_ENABLED.
 """
 import functools
 import logging
@@ -36,18 +37,33 @@ def enabled():
     return settings.RETENTION_ENABLED
 
 
-def behind_switch(fn):
-    """A rule that deletes or blanks only while RETENTION_ENABLED is on. Its dry run always
-    counts, because a dry run changes nothing."""
-
+def _guarded(fn, is_on):
     @functools.wraps(fn)
     def rule(now, dry_run):
-        if not dry_run and not enabled():
+        if not dry_run and not is_on():
             return 0
         return fn(now, dry_run)
 
     rule.behind_switch = True
+    rule.switch_is_on = is_on
     return rule
+
+
+def behind_switch(fn):
+    """A rule that deletes or blanks only while RETENTION_ENABLED is on. Its dry run always
+    counts, because a dry run changes nothing."""
+    return _guarded(fn, enabled)
+
+
+def behind_setting(name):
+    """Like behind_switch, for a rule that has its own switch: the setting `name` (a boolean
+    in settings) replaces RETENTION_ENABLED for that rule, and run_all reports it as switched
+    off while that setting is off."""
+
+    def decorate(fn):
+        return _guarded(fn, lambda: getattr(settings, name))
+
+    return decorate
 
 
 def register(name, fn):
@@ -81,7 +97,7 @@ def run_all(now=None, dry_run=False, only=None):
     report = Report(dry_run=dry_run)
     for name in chosen:
         rule = _rules[name]
-        if not dry_run and getattr(rule, "behind_switch", False) and not enabled():
+        if not dry_run and getattr(rule, "behind_switch", False) and not rule.switch_is_on():
             report.switched_off.append(name)
             continue
         try:
