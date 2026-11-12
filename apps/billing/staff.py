@@ -14,7 +14,7 @@ import json
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
-from apps.billing import plan, services
+from apps.billing import plan, services, usage
 from apps.billing.models import BankTransferPayment
 from apps.common.errors import ApiError, error_body
 from apps.common.pagination import page
@@ -66,6 +66,21 @@ def _route(view):
     return handler
 
 
+def _usage_route(view):
+    """The usage review routes: closed (404) while BILLING_USAGE_ENABLED is off, and a refusal
+    answered in the one error shape. They read no usage table then."""
+    def handler(request, operator):
+        try:
+            if not plan.usage_enabled():
+                raise ApiError("not_found", "Not found.", status=404)
+            return view(_body(request), operator)
+        except ApiError as refusal:
+            return JsonResponse(
+                error_body(refusal.code, refusal.message, refusal.fields), status=refusal.status
+            )
+    return handler
+
+
 def _payment_of(body):
     payment_id = body.get("payment")
     if not isinstance(payment_id, str) or not payment_id:
@@ -75,7 +90,10 @@ def _payment_of(body):
 
 def _payment(payment):
     """A payment as Finance sees it. Never where the file is kept, its hash or an account."""
-    bought = plan.version_of(payment.plan_code, payment.plan_version or 1)
+    if payment.plan_code == plan.USAGE_ONLY:
+        bought = None
+    else:
+        bought = plan.version_of(payment.plan_code, payment.plan_version or 1)
     site = payment.subscription.site
     rejected = payment.status == Status.REJECTED
     cycle = payment.cycle
@@ -83,7 +101,10 @@ def _payment(payment):
         "id": payment.public_id,
         "status": payment.status,
         "site": {"id": site.public_id, "name": site.display_name},
-        "plan": {"code": bought.code, "name": bought.name, "months": bought.months},
+        "plan": (
+            {"code": bought.code, "name": bought.name, "months": bought.months} if bought
+            else {"code": plan.USAGE_ONLY, "name": "Storage usage", "months": 0}
+        ),
         "amount_centavos": payment.amount_centavos,
         "currency": payment.currency,
         "transferred_on": payment.transferred_on.isoformat(),
@@ -176,10 +197,90 @@ def reject(body, operator):
     return JsonResponse(_payment(services.transfer_for_operator(payment.public_id)))
 
 
+def _entry(entry):
+    """A usage record as Finance sees it: no personal value and no producer detail."""
+    return {
+        "entry": entry.source_reference,
+        "kind": entry.kind,
+        "status": entry.status,
+        "reason": entry.reason,
+        "site": {
+            "id": entry.subscription.site.public_id, "name": entry.subscription.site.display_name,
+        },
+        "cycle": entry.cycle.sequence if entry.cycle else None,
+        "period_index": entry.period_index,
+        "period_end_at": _iso(entry.occurred_at),
+        "received_at": _iso(entry.received_at),
+        "measured_bytes": entry.quantity,
+    }
+
+
+@_usage_route
+def usage_list(body, operator):
+    limit, cursor = body.get("limit"), body.get("cursor") or ""
+    if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int)):
+        raise _invalid("limit", "Enter a whole number.")
+    if not isinstance(cursor, str):
+        raise ApiError("invalid_cursor", "That page marker is not valid.")
+    limit = max(1, min(limit if limit is not None else 20, 100))
+    rows = usage.review_rows()
+    if cursor:
+        last = rows.filter(source_reference=cursor).first()
+        if last is None:
+            raise ApiError("invalid_cursor", "That page marker is not valid.")
+        rows = rows.filter(pk__gt=last.pk)
+    items = list(rows[: limit + 1])
+    more = len(items) > limit
+    items = items[:limit]
+    return JsonResponse({
+        "items": [_entry(entry) for entry in items],
+        "next_cursor": items[-1].source_reference if more else None,
+        "needs_review_count": usage.review_rows().count(),
+    })
+
+
+@_usage_route
+def usage_detail(body, operator):
+    entry = usage.entry_for_review(body.get("entry"))
+    return JsonResponse({
+        **_entry(entry),
+        "history": [
+            {"code": event.code, "actor": event.actor, "at": _iso(event.recorded_at)}
+            for event in entry.events.order_by("pk")
+        ],
+    })
+
+
+def _decided(body, operator, action):
+    entry, _ = action(body.get("entry"), operator, body.get("reason"), now=_now())
+    entry = usage.entry_for_review(entry.source_reference)
+    return JsonResponse({
+        **_entry(entry),
+        "history": [
+            {"code": event.code, "actor": event.actor, "at": _iso(event.recorded_at)}
+            for event in entry.events.order_by("pk")
+        ],
+    })
+
+
+@_usage_route
+def usage_admit(body, operator):
+    return _decided(body, operator, usage.admit)
+
+
+@_usage_route
+def usage_dismiss(body, operator):
+    return _decided(body, operator, usage.dismiss)
+
+
 ROUTES = {
     "finance/payments/list/": queue,
     "finance/payments/detail/": detail,
     "finance/payments/proof/": proof,
     "finance/payments/confirm/": confirm,
     "finance/payments/reject/": reject,
+    "finance/usage/review/list/": usage_list,
+    "finance/usage/review/detail/": usage_detail,
+    "finance/usage/review/admit/": usage_admit,
+    "finance/usage/review/dismiss/": usage_dismiss,
 }

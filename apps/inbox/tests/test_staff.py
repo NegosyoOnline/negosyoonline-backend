@@ -15,12 +15,14 @@ from apps.billing import staff as billing_staff
 from apps.inbox import bulk_staff, contacts_staff, staff, storing
 from apps.inbox.models import Conversation, InboxAccess
 from apps.inbox.tests.base import SENDER, inbox_on
+from apps.invoices import staff as invoices_staff
 from apps.notifications.models import SmsDevice, SmsMessage
 from apps.notifications.tests.base import gateway_on, online_phone, set_policy
 from apps.operators import staff_views
 from apps.operators.models import OperatorAuditEntry
 from apps.operators.tests.test_staff_routes import STAFF, StaffTestCase, on_staff
 from apps.sites.tests.base import make_account, make_site
+from apps.statements import staff as statements_staff
 
 BASE = "/staff/v1/"
 PATHS = tuple(staff.ROUTES)
@@ -83,7 +85,7 @@ class InboxGateTests(InboxRouteCase):
         self.assertEqual(
             len(staff_views.ROUTES),
             len(sign_in) + len(billing_staff.ROUTES) + len(staff.ROUTES) + len(contacts_staff.ROUTES)
-            + len(bulk_staff.ROUTES),
+            + len(bulk_staff.ROUTES) + len(statements_staff.ROUTES) + len(invoices_staff.ROUTES),
         )
 
     def test_2_the_module_imports_nothing_from_the_staff_routes(self):

@@ -168,6 +168,7 @@ LATE_ADMISSION = timedelta(hours=72)  # L2: a snapshot is accepted up to 72 hour
 # L13: platform renditions and the 5 GB allowance are decided with the media upload task
 # before storage is metered. Until that task changes this, no snapshot is charged.
 STORAGE_METERED = False
+USAGE_ONLY = "usage_only"  # a payment of overage alone: no cycle, no base fee
 
 
 def usage_enabled():

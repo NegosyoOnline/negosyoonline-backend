@@ -13,11 +13,12 @@ import re
 from datetime import date, datetime
 
 from django.http import HttpResponse
+from django.utils import timezone
 from ninja import Router, Schema
 
 from apps.accounts.api import signed_in
 from apps.accounts.services import record_event
-from apps.billing import plan, proofs, services
+from apps.billing import plan, proofs, services, usage
 from apps.billing.models import BankTransferPayment
 from apps.common.errors import ApiError
 from apps.common.ids import is_public_id
@@ -105,6 +106,50 @@ def billing_detail(request, site_id: str):
     return services.overview(site)
 
 
+class UsageCycleOut(Schema):
+    sequence: int
+    start_at: datetime
+    end_at: datetime
+
+
+class UsagePeriodOut(Schema):
+    index: int
+    start_at: datetime
+    end_at: datetime
+
+
+class LastSnapshotOut(Schema):
+    period_end_at: datetime
+    measured_bytes: int
+    billed_gb: int
+    amount_centavos: int
+
+
+class UsageStorageOut(Schema):
+    metered: bool
+    included_gb: int
+    last_snapshot: LastSnapshotOut | None
+    held: int
+    pending_review: int
+
+
+class UsageOut(Schema):
+    billable: bool
+    cycle: UsageCycleOut | None
+    period: UsagePeriodOut | None
+    storage: UsageStorageOut
+    due_centavos: int
+
+
+@router.get("/sites/{site_id}/billing/usage/", response=UsageOut)
+def billing_usage(request, site_id: str):
+    """Storage allowance and overage. 404 while BILLING_USAGE_ENABLED is off."""
+    _, subscription = _subscription_for(request, site_id)
+    if not plan.usage_enabled():
+        raise ApiError("not_found", "Not found.", status=404)
+    return usage.owner_read(subscription, timezone.now())
+
+
 @router.post("/sites/{site_id}/billing/cancel/", response=BillingOut)
 def billing_cancel(request, site_id: str):
     site, subscription = _subscription_for(request, site_id)
@@ -182,6 +227,7 @@ class PaymentOut(Schema):
     status: str
     plan: str
     amount_centavos: int
+    usage_centavos: int
     currency: str
     transferred_on: date
     transfer_reference: str
@@ -216,6 +262,7 @@ class OfferOut(Schema):
     plan: str
     name: str
     amount_centavos: int
+    usage_centavos: int
     currency: str
     months: int
     version: int
@@ -239,11 +286,18 @@ class ProofRulesOut(Schema):
     content_types: list[str]
 
 
+class UsageDueOut(Schema):
+    centavos: int
+    lines: int
+    payable_alone: bool
+
+
 class PaymentOptionsOut(Schema):
     payable: bool
     not_payable_reason: str | None
     payable_from: datetime | None
     offers: list[OfferOut]
+    usage: UsageDueOut
     transfer_accounts: list[TransferAccountOut]
     under_review: PaymentOut | None
     latest: PaymentOut | None
@@ -262,6 +316,7 @@ def _payment(payment):
         "status": payment.status,
         "plan": payment.plan_code,
         "amount_centavos": payment.amount_centavos,
+        "usage_centavos": payment.usage_centavos,
         "currency": payment.currency,
         "transferred_on": payment.transferred_on,
         "transfer_reference": payment.transfer_reference,

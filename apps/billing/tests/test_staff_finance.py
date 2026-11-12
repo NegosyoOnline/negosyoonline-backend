@@ -19,12 +19,14 @@ from apps.billing.tests.base import (
 from apps.billing.tests.test_transitions import snapshot
 from apps.common.errors import ApiError
 from apps.inbox import bulk_staff, contacts_staff
+from apps.invoices import staff as invoices_staff
 from apps.inbox import staff as inbox_staff
 from apps.operators import staff_views
 from apps.operators.models import OperatorAuditEntry
 from apps.operators.tests.base import HQ, HqAdminMixin
 from apps.operators.tests.test_staff_routes import STAFF, StaffTestCase, on_staff
 from apps.sites.tests.test_concurrency import run_together
+from apps.statements import staff as statements_staff
 
 BASE = "/staff/v1/finance/payments/"
 PATHS = ("list/", "detail/", "proof/", "confirm/", "reject/")
@@ -61,11 +63,16 @@ class FinanceTestCase(StaffTestCase):
 
 class FinanceGateTests(FinanceTestCase):
     def test_the_routes_are_registered_beside_the_sign_in_routes_and_nothing_else_changed(self):
-        self.assertEqual(sorted(staff.ROUTES), sorted(f"finance/payments/{p}" for p in PATHS))
+        self.assertEqual(
+            sorted(staff.ROUTES),
+            sorted([f"finance/payments/{p}" for p in PATHS]
+                   + [f"finance/usage/review/{p}" for p in ("list/", "detail/", "admit/", "dismiss/")]),
+        )
         for path in staff.ROUTES:
             self.assertEqual(staff_views.ROUTES[path][0], "POST")
         self.assertEqual(
-            sorted(set(staff_views.ROUTES) - set(staff.ROUTES) - set(inbox_staff.ROUTES) - set(contacts_staff.ROUTES) - set(bulk_staff.ROUTES)),
+            sorted(set(staff_views.ROUTES) - set(staff.ROUTES) - set(inbox_staff.ROUTES) - set(contacts_staff.ROUTES) - set(bulk_staff.ROUTES)
+                   - set(statements_staff.ROUTES) - set(invoices_staff.ROUTES)),
             ["console/", "me/", "sign-in/", "sign-in/code/", "sign-in/verify/", "sign-out/"],
         )
 
@@ -77,7 +84,8 @@ class FinanceGateTests(FinanceTestCase):
             self.assertNotIn(path, sign_in_routes)
         self.assertIs(staff_views.ROUTES["me/"][1], staff_views.me)
         self.assertIs(staff_views.ROUTES["console/"][1], staff_views.console)
-        self.assertEqual(len(staff_views.ROUTES), len(sign_in_routes) + len(staff.ROUTES) + len(inbox_staff.ROUTES) + len(contacts_staff.ROUTES) + len(bulk_staff.ROUTES))
+        self.assertEqual(len(staff_views.ROUTES), len(sign_in_routes) + len(staff.ROUTES) + len(inbox_staff.ROUTES) + len(contacts_staff.ROUTES) + len(bulk_staff.ROUTES)
+            + len(statements_staff.ROUTES) + len(invoices_staff.ROUTES))
 
     def test_the_finance_module_imports_nothing_from_the_staff_routes(self):
         with open(staff.__file__) as source:

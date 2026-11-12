@@ -2,7 +2,6 @@
 consent record. The backfill is run on rows built as B2a wrote them."""
 import importlib
 
-from django.apps import apps as django_apps
 from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase, override_settings
@@ -32,7 +31,9 @@ class BackfillTests(TransactionTestCase):
     def migrate(name):
         executor = MigrationExecutor(connection)
         if name is None:
-            target = executor.loader.graph.leaf_nodes("billing")
+            # Every app, not only billing: the apps built on billing (statements, invoices)
+            # were unapplied by the step back and must come back for the tests that follow.
+            target = executor.loader.graph.leaf_nodes()
         else:
             target = [("billing", name)]
         executor.migrate(target)
@@ -44,16 +45,27 @@ class BackfillTests(TransactionTestCase):
         )
 
     def payment(self, plan_code, amount, cycle=None, status="submitted"):
-        values = {"cycle": cycle} if cycle is not None else {}
-        return BankTransferPayment.objects.create(
-            subscription=self.subscription, plan_code=plan_code, amount_centavos=amount,
-            status=status, transferred_on=T0.date(), proof_key="k", proof_content_type="image/png",
-            proof_size=1, proof_sha256="0" * 64, submitted_by=self.account, submitted_at=T0,
-            **values,
+        # The schema is at 0004: a payment is written through the model as that migration saw
+        # it, because 0007 (B4) added columns the table does not have yet.
+        state = MigrationExecutor(connection).loader.project_state(
+            ("billing", "0004_plan_snapshot_backfill")
         )
+        model = state.apps.get_model("billing", "BankTransferPayment")
+        values = {"cycle_id": cycle.pk} if cycle is not None else {}
+        row = model.objects.create(
+            subscription_id=self.subscription.pk, plan_code=plan_code, amount_centavos=amount,
+            status=status, transferred_on=T0.date(), proof_key="k", proof_content_type="image/png",
+            proof_size=1, proof_sha256="0" * 64, submitted_by_id=self.account.pk,
+            submitted_at=T0, **values,
+        )
+        return BankTransferPayment(pk=row.pk)
 
     def run_backfill(self):
-        backfill(django_apps, None)
+        # As the migration saw the tables: 0007 (B4) added payment columns this schema lacks.
+        state = MigrationExecutor(connection).loader.project_state(
+            ("billing", "0004_plan_snapshot_backfill")
+        )
+        backfill(state.apps, None)
 
     def test_a_paid_cycle_takes_the_plan_of_its_payment(self):
         promo = self.cycle(1, "paid")
@@ -83,7 +95,7 @@ class BackfillTests(TransactionTestCase):
     def test_a_payment_takes_version_one_and_its_term(self):
         payment = self.payment("launch_promo", 499_900, status="rejected")
         self.run_backfill()
-        payment.refresh_from_db()
+        payment.refresh_from_db(fields=["plan_version", "term_months"])
         self.assertEqual((payment.plan_version, payment.term_months), (1, 6))
 
     def test_a_second_run_changes_nothing(self):

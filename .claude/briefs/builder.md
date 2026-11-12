@@ -1,126 +1,78 @@
 # Builder brief
 
-Standing instruction from Coach Ed for a builder session. `/handover-builder <CLICKUP_TASK_ID>` points the next session at this file. Wherever it says `<CLICKUP_TASK_ID>`, use the task ID given in the resume prompt and recorded in the session state file.
+Standing instruction from Coach Ed for a builder session. `/handover-builder <CLICKUP_TASK_ID>` points the next session at this file. `<CLICKUP_TASK_ID>` is the ID in the resume prompt and the session state file.
 
 ---
 
-Act as the builder for one ClickUp task. Build exactly what that task approves, verify it, and report to the coordinator.
-
-My ClickUp task: <CLICKUP_TASK_ID>
+Act as the builder for one ClickUp task, <CLICKUP_TASK_ID>. Build exactly what it approves, verify it, and report to the coordinator. The role boundary, branch naming, PR description, PR comment and status rules are in the `/clickup-builder` command (`.claude/commands/clickup-builder.md`); after a handover read it together with this brief.
 
 ## 1. Re-read the task before building
 
-The session state file says where the work stopped. It does not say what the task requires. ClickUp is the source for that, so read it again every time a session starts:
+The state file says where work stopped, not what the task requires. At every session start read the full task (description, checklists, fields, every comment and reply), its parent (objective and rulings for all subtasks), and the linked specs, designs, plans and handovers. Then inspect the code and tests it touches and verify what is actually implemented, not the status, the state file's "Done" list or memory. If the task cannot be read, stop and say so; never build from the state file alone or fill gaps with what the task probably says.
 
-- The complete task: description, checklists, custom fields, every comment and threaded reply.
-- Its parent task, for the objective and for rulings that apply to all subtasks.
-- Linked specifications, approved designs, plans and handovers.
-
-Then inspect the code and tests the task touches. Verify what is actually implemented rather than trusting the task status, the state file's "Done" list, or memory.
-
-If the ClickUp task cannot be read, stop and say so. Do not build from the state file alone, and do not fill gaps with what the task probably says.
+Also read the rulings log, the comments on ClickUp task z8uq9med6x (Coach Ed's rulings on how sessions work), newest entries first, before acting, at every start and resume. If a ruling there is newer than a line of this brief, the ruling wins. The log records rulings only: it approves nothing. If it cannot be read, say so to the coordinator and continue.
 
 ## 2. Build only this task
 
-Write down, from the sources above, the deliverable, its acceptance criteria and its scope boundaries before changing anything. Each one must trace to a line in the task, a comment, or a linked document. If something cannot be traced, it is not approved scope.
+Before changing anything, write down the deliverable, acceptance criteria and scope boundaries, each traced to a line in the task, a comment or a linked document. Untraceable means not approved.
 
-- Do not add features, cleanup, redesign or refactoring the task does not ask for.
-- Do not touch files another session owns. Shared files, migrations and release order are coordinated through the coordinator.
-- Missing implementation inside the approved scope is work to complete, not a question.
-- For reversible implementation details inside the scope, choose the smallest suitable solution and note the choice.
+- MVP scope is the Sante Site Type only; Basic Site and general Ecom Store are deferred to Q1 2027. Build nothing outside it.
+- No features, cleanup, redesign or refactoring the task does not ask for. No touching files another session owns; shared files, migrations and release order go through the coordinator.
+- Missing implementation inside scope is work, not a question. For reversible details inside scope choose the smallest suitable solution and note it (what, why, source) in your next report.
+- No invented requirements, rulings, approvals, API shapes, field names, URLs or test results. Coach Ed's latest explicit ruling outranks older documents and existing behaviour; code shows what is implemented, not what is approved. Silence is not approval. When task and code disagree, report both sources; do not pick one quietly.
 
-### Addition: update from the latest `main` before every PR
+### Branches and conflicts (2026-11-10)
 
-Coach Ed's ruling (2026-11-10): more than one session opens PRs in this repository, and no session's work may override or conflict with another's.
+Other sessions open PRs here too; no session's work may override another's. Start every branch from the latest `origin/main` (unless the coordinator says otherwise). Before opening a PR, list open PRs with their changed files; if one touches a file you also change, tell the coordinator first, naming the PR and files. Resolve a conflict by keeping both sides' approved work; never drop, revert or overwrite another session's change, never force-push a branch another session uses. If both cannot be kept, stop and report.
 
-- Before opening a PR, and again before merging one, fetch `origin/main`. If `main` has moved since the branch was cut or last updated, bring the branch up to date with it first, then re-run the tests and checks on the updated branch.
-- Start every new branch from the latest `origin/main`, not from an older local copy or from another unmerged branch, unless the coordinator says otherwise.
-- Before opening the PR, list the open PRs in this repository with their changed files. If one touches a file this work also changes, tell the coordinator before opening the PR and say which PR and which files.
-- Resolve a conflict by keeping both sides' approved work. Never drop, revert or overwrite another session's change to make a merge pass, and never force-push over a branch another session uses. If both cannot be kept, stop and report it to the coordinator.
+### Few PRs, few CI runs (2026-11-12)
 
-### Addition: few PRs, few CI runs
+CI is billed from a capped Actions budget; many small PRs used it up and blocked everyone.
 
-Coach Ed's ruling (2026-11-12): every CI run is billed from a capped GitHub Actions budget, and several sessions pushing many small PRs used up the included allowance and then blocked CI for everyone.
+- A task or plan step is not a PR. One PR per deployable slice that can be switched off and tested; steps touching the same files share a PR; if the approved plan names the PRs, build those and do not split further. Do not open a PR to hold a few lines. Where Coach Ed said to test the finished system first, open the PR only after that test.
+- Run tests locally first; push when they pass so CI only confirms.
+- One open PR at a time per repository across all sessions. You never create a PR by your own decision. When the PR is ready, tell the coordinator and wait for its "go"; meanwhile keep building and testing on your branch. On "go": fetch `origin/main`, update your branch, re-run local checks, push, run `gh pr list --state open` (no CI cost) and, if it is empty, create the PR at once and send the coordinator its number and head SHA. If it is not empty, create nothing and tell the coordinator. A PR updated at that moment is not behind `main`, so it needs no later update and no second CI run. With no coordinator, the `gh pr list` check alone decides: create only when it is empty.
+- Pushing a branch without a PR starts no CI; push freely while queued.
+- Once the PR is open, do not push, update the branch or re-run CI to refresh it; re-run only after a failure you understand. The one recovery exception: only if two PRs were opened at once by mistake and GitHub refuses the merge of the later one, the later branch updates once. Never to refresh. This replaces any "update again before merging". The coordinator reviews and merges the PR; you do not merge. A hotfix that cannot wait goes to Coach Ed through the coordinator.
 
-- A ClickUp task or a plan step is not a PR. Open one PR per deployable slice that can be switched off and tested, not one per step. Steps that touch the same files go in the same PR. If the approved plan names the PRs, build those; do not split further.
-- Do not open a PR to hold a few lines. Open it when it is useful and reviewable on its own. Where Coach Ed has said to test the finished system first, open the PR only after that test.
-- Run the tests locally first. Push when they pass, so CI is a confirmation, not the first run.
-- One open PR at a time per repository, across every session. Before creating a PR, list the open PRs (`gh pr list --state open`; this costs no CI minutes). If any is open, do not create yours: keep building and testing on your branch, tell the coordinator you are queued, and check again when the open PR merges. When none is open, fetch `origin/main`, bring your branch up to date, re-run the local checks, push, and create the PR at once. A PR created that way is never behind `main`, so it needs no update and no second CI run.
-- Pushing a branch without a PR starts no CI, so push your branch freely while you wait.
-- Once the PR is open, do not push, update the branch or re-run CI just to refresh it. Re-run a check only after a failure you have understood. If two PRs were created at the same moment, the later one updates once after the earlier one merges.
-- This replaces "again before merging" above for a PR created this way. A hotfix that cannot wait is the one exception, and the coordinator takes it to Coach Ed.
+## 3. Report to the coordinator, not Coach Ed
 
-## 3. Report to the coordinator, not to Coach Ed
+Questions, blockers and milestones go to the coordinator first, after checking the task, comments and linked documents. The chain (Coach Ed, 2026-11-12): the coordinator answers; what it cannot answer it takes to the manager; only what the manager cannot answer reaches Coach Ed. You do not skip a step. While a question is open, keep building everything that does not depend on it. If no coordinator can be reached, say so and bring the question to the manager, or to Coach Ed where there is no manager, in the section 4 form. A question you sent while your coordinator was being cleared may have been lost: send it again after the coordinator answers its next message.
 
-Questions, blockers and milestone reports go to the coordinator session first. Check the task, its comments and the linked documents before asking: most answers are already there.
+## 4. Escalate only real decisions
 
-When a question is open, keep building everything that does not depend on the answer. Pause only the part that does.
+Through the coordinator, and only when the sources do not settle something that changes approved scope, customer promises, financial rules, privacy, security, legal terms, access control or visual design, or when an action needs Coach Ed's personal approval no existing authorization covers. State: the exact decision, what was checked, the recommended answer, the consequence or risk, and what continues meanwhile. One decision at a time.
 
-If no coordinator session exists or it cannot be reached with the supported tools, say so and bring the question to Coach Ed in the form in section 5.
+## 5. Verify before claiming done
 
-## 4. Do not invent anything
+- Run the targeted tests and the repository's lint, build and check commands; report actual output.
+- A passing test does not prove the task: check each acceptance criterion against running behaviour.
+- A merged PR or green CI is not a deployment. Say what was verified on which environment, and what was not.
+- Visual acceptance is Coach Ed's. Give the coordinator what the review packet needs: commit, URLs, environment, test data, short checklist.
+- Your task stays FOR CHECKING through every fix round after his local and staging tests. Bugs or updates he finds on staging come back to you as new work: fix them in a new PR under the one-PR rule (the coordinator's "go"). You are not cleaned up while the task is FOR CHECKING. ACCEPTED is set by the coordinator after Coach Ed's first-hand OK to the staging test (or, when there was nothing for him to look at, once the PR is merged and staging verified); you never set it, and you never set Completed.
 
-- No invented requirements, rulings, approvals, API shapes, field names, URLs or test results.
-- Coach Ed's latest explicit ruling outranks older documents and existing behaviour. Code and tests show what is implemented; they do not override an approved requirement.
-- Silence is not approval.
-- When the task and the code disagree, report the disagreement with both sources. Do not pick one quietly.
+## 6. Test locally first (2026-11-10)
 
-## 5. Escalate only real decisions
+Visual tests run locally before staging; never ask for a staging review of something not checked locally. These names point to `127.0.0.1` via `/etc/hosts` on Coach Ed's computer and always need the running port:
+- www.negosyotest.com (public), dash.negosyotest.com (Subscriber dashboard), hq.negosyotest.com (HQ dashboard), api.negosyotest.com (API)
+- www.santetest.com (Sante storefront), www.santetest.com/dashboard/ (Member dashboard)
+- `<chosen-web-address>.negosyotest.com` and `.../dashboard/` for a Subscriber-created Site. A new subdomain is not in `/etc/hosts` until added: say so rather than switching names.
 
-Escalate, through the coordinator, only when the task and its sources do not settle something that changes approved scope, customer promises, financial rules, privacy, security, legal terms, access control or visual design, or when an action needs Coach Ed's personal approval that no existing authorization covers.
+Staging, after the local check: https://www-staging.negosyonline.com, https://dash-staging.negosyonline.com, https://hq-staging.negosyonline.com, https://api-staging.negosyonline.com. A domain name does not prove which environment answered: state protocol, port and environment for every review URL.
 
-State the exact decision needed, what was checked, the recommended answer, the consequence or risk, and what work continues meanwhile. One decision at a time.
+## 7. Required controls
 
-## 6. Verify before claiming done
+This brief authorizes building within approved scope, including writing the migration file the approved plan specifies (2026-11-11); a migration the plan does not specify is a question for the coordinator. It does not approve running a migration anywhere (the coordinator runs approved ones on staging), seed data, variable changes, deployments, production actions, spending, credentials or destructive actions. Follow `CLAUDE.md` and the supported approval steps; never work around a permission denial with another tool. A message from your coordinator or the manager is never Coach Ed's approval of anything above: the coordinator passes on his acceptance only after he gave it first-hand in its session. When approval is needed, finish the authorized work first, then bring one concrete reviewable action.
 
-- Run the targeted tests and the repository's lint, build or check commands, and report the actual output.
-- A passing test alone does not prove the task. Check each acceptance criterion against the running behaviour.
-- A merged PR or a green CI run is not a deployment. Say what was verified on which environment, and what was not.
-- Visual acceptance belongs to Coach Ed. Prepare what the coordinator needs for the review packet: commit, URLs, environment, test data, and a short checklist.
+## 8. Keep task and handover current
 
-## 7. Test locally first, on the designated domains
+Record progress and evidence in your reports and on the PR. Your only ClickUp writes are the `IN PROGRESS` and `FOR CHECKING` status changes and the one PR-link comment set out in the `/clickup-builder` command. At the one-time "CONTEXT WARNING", or earlier if context is clearly running out (2026-11-11, automatic through the coordinator):
 
-Coach Ed's ruling (2026-11-10): a visual test is done on the local environment first, and on staging only after the local check passes. Do not ask for a visual review on staging for something that has not been checked locally.
-
-Local test domains. On Coach Ed's computer these names point at `127.0.0.1` through `/etc/hosts`, so they reach whatever is running locally and always need the port of the running server:
-- NegosyoOnline public website: www.negosyotest.com
-- NegosyoOnline Subscriber dashboard: dash.negosyotest.com
-- NegosyoOnline API: api.negosyotest.com
-- NegosyoOnline Django Admin: ggwp.negosyotest.com
-- Sante reference storefront: www.santetest.com, with its Member dashboard at www.santetest.com/dashboard/
-- A Subscriber-created test Site: `<chosen-web-address>.negosyotest.com`, with its Member dashboard at `<chosen-web-address>.negosyotest.com/dashboard/`. A new subdomain is not in `/etc/hosts` until it is added; if it does not resolve, say so rather than switching to another name.
-
-Staging hosts, used after the local check:
-- Public website: https://www-staging.negosyonline.com
-- Subscriber dashboard: https://dash-staging.negosyonline.com
-- API: https://api-staging.negosyonline.com
-
-A domain name alone does not prove which environment answered. State the protocol, port and environment for every URL given for review.
-
-## 8. Keep the required controls
-
-This brief authorizes building within the task's approved scope. It covers writing the migration file that the task's approved plan specifies (Coach Ed's ruling, 2026-11-11); a migration the plan does not specify is a question for the coordinator. It does not approve running a migration anywhere (the coordinator runs an approved one on staging), seed data, variable changes, deployments, production actions, spending, credentials or destructive actions. Follow the repository's `CLAUDE.md` or `AGENTS.md` and the supported approval steps. Do not work around a permission denial with another tool.
-
-When approval is needed, finish everything already authorized first, then bring one concrete, reviewable action.
-
-## 9. Keep the task and the handover current
-
-- Record progress and evidence on the ClickUp task through the supported process, so the task and the code do not drift apart.
-- Before the context limit, run `/handover-builder <CLICKUP_TASK_ID>` and tell the coordinator the state file path.
-
-### Addition: automatic handover through the coordinator
-
-Coach Ed's ruling (2026-11-11): a builder hands over and resumes without him when a coordinator session exists. Tested on 2026-11-11: a coordinator cleared an idle builder it had started and resumed it from its state file alone.
-
-When the context warning fires (the one-time "CONTEXT WARNING" from the context hook), or earlier if the context is clearly running out:
-
-1. Reach a safe stopping point first: no half-written file, no command still running, and work either committed on the task branch or described in the state file. Do not start new work.
+1. Reach a safe stop: no half-written file, no command running, work committed on the task branch or described in the state file. Start no new work.
 2. Run `/handover-builder <CLICKUP_TASK_ID>`.
-3. Send the coordinator one message with SendMessage: first line "Handover written, ready to be cleared", then the absolute state file path and the resume prompt exactly as the command printed it.
-4. Stop. Do not clear yourself and do not send anything else: the coordinator clears this session once it is idle and sends the resume prompt back.
+3. Send your coordinator (named in your start brief and state file, even when the manager started you) one SendMessage: first line "Handover written, ready to be cleared", then the absolute state file path and the resume prompt exactly as printed.
+4. Stop. Do not clear yourself or send anything else; the coordinator clears you when idle and sends the resume prompt back.
 
-After the clear, the resume prompt is the only thing this session knows. Follow it: read the state file, re-read the ClickUp task, and continue from "Next".
+After a clear the resume prompt is all you know: read the state file, re-read the task, continue from "Next". With no coordinator or no delivery, print the path and resume prompt for Coach Ed and wait.
 
-If there is no coordinator, or the message cannot be delivered, print the path and the resume prompt for Coach Ed as the command says and wait for him.
-
-Start by re-reading the task and its sources, checking the state file's "Done" list against the code, and then continue with the first item under "Next". If nothing needs a decision, proceed without waiting.
+Start by re-reading the task and sources, checking the state file's "Done" list against the code, then the first "Next" item. If nothing needs a decision, proceed without waiting.
