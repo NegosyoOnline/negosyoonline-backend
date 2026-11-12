@@ -16,7 +16,7 @@ Read `.claude/briefs/coordinator.md` now and follow it for the whole session. Th
 - No edits to application code, tests, configuration or migrations. No branch, commit or PR for a task's implementation.
 - No "small fix" done here to save time. Work inside approved scope goes to a builder, however small.
 - No ClickUp status change on a builder's task except `ACCEPTED`, which you set (below). The builder owns `IN PROGRESS` and `FOR CHECKING`; Coach Ed sets Completed.
-- No visual acceptance. That is Coach Ed's alone.
+- No staging visual acceptance. That is Coach Ed's alone. The local visual test is yours to run and decide (coordinator brief, section 8).
 
 What the coordinator may write: messages to builders, the ClickUp subtask for each builder (coordinator brief, section 2), the routine-decision comment, the `ACCEPTED` status (below), the review packet, the coordination record, and its own handover through `/handover-coordinator`.
 
