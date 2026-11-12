@@ -30,8 +30,8 @@ Write exactly these sections, whole file under 8 KB (the marching instruction al
     - First move: <the one thing the next session does first>
 
     ## Register
-    - Coordinators: title, session id, ClickUp task, repo areas owned, status, what each waits on.
-    - Coordinators' builders: only what a coordinator has told the manager (title, owning coordinator, state). The manager starts no builder and instructs none (Coach Ed, 2026-11-13); coordinators run their builders as their own sub-agents. Coordinators run on Opus 5.5 (`claude-opus-5-5`) and keep it across handovers.
+    - Supervisors: title, session id, ClickUp task, repo areas owned, status, what each waits on.
+    - Supervisors' builders: only what a Supervisor has told the manager (title, owning Supervisor, state). The manager starts no builder and instructs none (Coach Ed, 2026-11-13); Supervisors run their builders as their own sub-agents. Supervisors run on Opus 5.5 (`claude-opus-5-5`) and keep it across handovers.
 
     ## PR queue
     Per repository: the open PR and who holds the slot, then the queue in order.
@@ -55,19 +55,19 @@ Write exactly these sections, whole file under 8 KB (the marching instruction al
         When you do ask, give one recommended answer, the concrete risk, and the exact decision needed. Batch related questions into one message.
 
     ## Rulings
-    A pointer: the link of the rulings log, ClickUp task z8uq9med6x, and the date of the last entry read. Below it only rulings given in this session that are not yet logged, each quoted with its date and the coordinators told.
+    A pointer: the link of the rulings log, ClickUp task z8uq9med6x, and the date of the last entry read. Below it only rulings given in this session that are not yet logged, each quoted with its date and the Supervisors told.
 
     ## Owner decisions pending
-    Each with its coordinator, the exact decision, and whether it is covered by a ruling of his (name it) or needs his word, asked of him in the Manager session (he does not go to a coordinator's session; Coach Ed, 2026-11-13). Batch related ones.
+    Each with its Supervisor, the exact decision, and whether it is covered by a ruling of his (name it) or needs his word, asked of him in the Manager session (he does not go to a Supervisor's session; Coach Ed, 2026-11-13). Batch related ones.
 
     ## Plan
-    The order of work and the assignments to coordinators, and any change Coach Ed made to them.
+    The order of work and the assignments to Supervisors, and any change Coach Ed made to them.
 
     ## Next
     Bullets, in order.
 
     ## Verification still owed
-    Anything reported by a coordinator that the manager has not checked against `gh`, ClickUp or staging.
+    Anything reported by a Supervisor that the manager has not checked against `gh`, ClickUp or staging.
 
 Rules for the content:
 
@@ -82,7 +82,7 @@ Print exactly two things:
 1. The file path, and that it is safe to `/clear`.
 2. A ready-to-copy resume prompt in a plain fenced block (not tagged `bash`; it is a prompt, not a command):
 
-       Resume in <absolute session folder> as the manager of all coordinator sessions.
+       Resume in <absolute session folder> as the manager of all Supervisor sessions.
        Read <absolute state-file path>, then read and follow
        <absolute session folder>/.claude/briefs/manager.md. Run on Fable 5.2 (claude-fable-5-2).
        The marching instruction in the state file binds you; it is verbatim in the brief, section 3.

@@ -1,15 +1,17 @@
 ---
-description: Hand over a coordinator session: write its state file and a resume prompt that restores the coordinator role for a ClickUp task
+description: Hand over a Supervisor session: write its state file and a resume prompt that restores the Supervisor role for a ClickUp task
 argument-hint: "<CLICKUP_TASK_ID>"
 ---
 
-Hand over this coordinator session. Write its state file, then print a resume prompt that makes the next session the coordinator for the same ClickUp task.
+Hand over this Supervisor session. Write its state file, then print a resume prompt that makes the next session the Supervisor for the same ClickUp task.
 
 ClickUp task ID: `$ARGUMENTS`
 
-Use that value wherever this command says `<CLICKUP_TASK_ID>`. If it is empty, do not guess one from the conversation: say `/handover-coordinator <CLICKUP_TASK_ID>` needs the task ID, and stop.
+Use that value wherever this command says `<CLICKUP_TASK_ID>`. If it is empty, do not guess one from the conversation: say `/handover-supervisor <CLICKUP_TASK_ID>` needs the task ID, and stop.
 
-The role instructions themselves are in `.claude/briefs/coordinator.md`. Do not read or copy that file now: the resume prompt points the next session at it.
+An old resume prompt (or state file) written before the rename of 2026-11-13 may point at `.claude/briefs/coordinator.md`, `.claude/commands/clickup-coordinator.md` or `.claude/commands/handover-coordinator.md`: read `.claude/briefs/supervisor.md`, `.claude/commands/clickup-supervisor.md` and `.claude/commands/handover-supervisor.md` instead (update the worktree with `git fetch origin` first if a file is missing). Coach Ed ruled the rename, 2026-11-13: the coordinator role is the Supervisor.
+
+The role instructions themselves are in `.claude/briefs/supervisor.md`. Do not read or copy that file now: the resume prompt points the next session at it.
 
 ## Cost rule
 
@@ -45,7 +47,7 @@ Write exactly these sections, whole file under 6 KB:
 
     # Session state: <name>
 
-    Role: coordinator
+    Role: Supervisor
     ClickUp task: <CLICKUP_TASK_ID>
 
     ## Resume here
@@ -53,8 +55,8 @@ Write exactly these sections, whole file under 6 KB:
     - Work is in: <absolute path of each checkout or worktree actually edited, with its repo and branch>
     - Open PRs: <full PR URLs with their state, or "none">
     - Local servers: <command and folder for each one this session started, running or stopped, or "none">
-    - Coordinator brief: <absolute session folder>/.claude/briefs/coordinator.md
-    - This coordinator: <session id>, model Opus 5.5 (`claude-opus-5-5`; the resumed session keeps it, Coach Ed 2026-11-13). Manager: <session id, or "none">. Coordinator Helper: <session id, or "none"; unused once a manager exists>
+    - Supervisor brief: <absolute session folder>/.claude/briefs/supervisor.md
+    - This Supervisor: <session id>, model Opus 5.5 (`claude-opus-5-5`; the resumed session keeps it, Coach Ed 2026-11-13). Manager: <session id, or "none">. Supervisor Helper: <session id, or "none"; unused once a manager exists>
     - Rulings log: link of the rulings log, ClickUp task z8uq9med6x, and the date of the last entry read (the log itself is not copied here)
     - First move: <the one thing the next session does first>
 
@@ -90,7 +92,7 @@ Rules for the content:
 - Name the repo for every path, branch, and PR. Backend and frontend are separate repositories, and a session started in one often works in the other.
 - State local, staging and production separately. Visual checks are done locally first (the `negosyotest.com` and `santetest.com` domains, with the port), then on staging: say which were done where. A merged PR or a green CI run is not a deployment: say what was verified on the staging host and what was not.
 - List anything temporary that must be removed later, with the file and the condition for removing it.
-- Record each approval Coach Ed gave with its exact action, scope and environment. Per the coordinator brief, an approval still stands after a restart only for that same action, scope and environment; anything wider, and any migration, deploy, variable change or production action it does not name, needs a new approval.
+- Record each approval Coach Ed gave with its exact action, scope and environment. Per the Supervisor brief, an approval still stands after a restart only for that same action, scope and environment; anything wider, and any migration, deploy, variable change or production action it does not name, needs a new approval.
 
 ## Finish
 
@@ -99,18 +101,18 @@ Print exactly two things:
 1. The file path, and that it is safe to `/clear`.
 2. A ready-to-copy resume prompt in a plain fenced block (not tagged `bash`; it is a prompt, not a command):
 
-       Resume in <absolute session folder> as the coordinator for ClickUp task <CLICKUP_TASK_ID>.
+       Resume in <absolute session folder> as the Supervisor for ClickUp task <CLICKUP_TASK_ID>.
        Read <absolute state-file path>, then read and follow
-       <absolute session folder>/.claude/briefs/coordinator.md with Main ClickUp task: <CLICKUP_TASK_ID>,
-       and the role limits in <absolute session folder>/.claude/commands/clickup-coordinator.md.
+       <absolute session folder>/.claude/briefs/supervisor.md with Main ClickUp task: <CLICKUP_TASK_ID>,
+       and the role limits in <absolute session folder>/.claude/commands/clickup-supervisor.md.
        Read the rulings log, the comments on ClickUp task z8uq9med6x, newest first before acting.
        Run on Opus 5.5 (claude-opus-5-5).
        Do not re-explore anything already covered by "## Done".
 
 Then one of two endings.
 
-**Automatic, when a manager session exists** (coordinator brief, section 9). Send the manager one message with SendMessage: first line "Handover written, ready to be cleared", then the absolute state file path and the resume prompt exactly as printed. Then stop. Do not clear yourself and send nothing else: the manager clears this session once it is idle and sends the resume prompt back.
+**Automatic, when a manager session exists** (Supervisor brief, section 9). Send the manager one message with SendMessage: first line "Handover written, ready to be cleared", then the absolute state file path and the resume prompt exactly as printed. Then stop. Do not clear yourself and send nothing else: the manager clears this session once it is idle and sends the resume prompt back.
 
-**Automatic, with no manager but a Coordinator Helper named in this conversation** (a coordinator started before the manager existed; once a manager exists the helper is not used and you hand over through the manager). In one final message: send the helper the resume prompt unchanged with SendMessage, then `clear_session` with "self", and end the turn at once. If the app's hook refuses the clear, re-issue it with exactly the input the error quotes.
+**Automatic, with no manager but a Supervisor Helper named in this conversation** (a Supervisor started before the manager existed; once a manager exists the helper is not used and you hand over through the manager). In one final message: send the helper the resume prompt unchanged with SendMessage, then `clear_session` with "self", and end the turn at once. If the app's hook refuses the clear, re-issue it with exactly the input the error quotes.
 
 **By hand, otherwise** (no manager session and no helper, this session is served to Remote Control, or the manager cannot clear it). With a manager, send it the resume prompt and say the clear is refused, so it does the steps or tells Coach Ed in the Manager session; he does not come to this session (Coach Ed, 2026-11-13). With none, say plainly: `/clear`, then paste this. The paste is required: nothing else tells the next session where the state file is.
