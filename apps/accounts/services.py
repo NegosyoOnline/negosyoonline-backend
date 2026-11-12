@@ -37,8 +37,19 @@ def record_event(account, event, **detail):
     return AccountAuditEvent.objects.create(account=account, event=event, detail=detail)
 
 
-def _invalid_code():
-    return ApiError("invalid_code", "That code is wrong or has expired.")
+def _invalid_code(state="refused"):
+    return ApiError(
+        "invalid_code",
+        "That code is wrong or has expired.",
+        event="code_locked" if state == "locked" else "code_refused",
+        reason="missing",
+    )
+
+
+def _require_code(email, code, purpose):
+    state = codes.verify_code(email, code, purpose)
+    if state != "ok":
+        raise _invalid_code(state)
 
 
 def _email_taken():
@@ -92,8 +103,7 @@ def request_signin_code(email, ip):
 def verify_signin_code(email, code, accept_policies, request):
     """Sign in, creating the account on first use. Returns (account, session, token, created)."""
     email = normalise_email(email)
-    if not codes.check_code(email, code, SIGNIN):
-        raise _invalid_code()
+    _require_code(email, code, SIGNIN)
     account = Account.objects.filter(email=email).first()
     created = account is None
     if created:
@@ -211,8 +221,7 @@ def confirm_facebook_email(user_id, name, email, code, accept_policies, request)
     """
     email = normalise_email(email)
     purpose = _facebook_purpose(user_id)
-    if not codes.check_code(email, code, purpose):
-        raise _invalid_code()
+    _require_code(email, code, purpose)
     account = Account.objects.filter(email=email).first()
     created = account is None
     if created:
@@ -335,8 +344,7 @@ def _apply_email_change(account, new_email, code, current_session):
     _refuse_paused(account)
     new_email = normalise_email(new_email)
     purpose = _change_purpose(account)
-    if not codes.check_code(new_email, code, purpose):
-        raise _invalid_code()
+    _require_code(new_email, code, purpose)
     if Account.objects.filter(email=new_email).exclude(pk=account.pk).exists():
         raise _email_taken()
     codes.clear_code(new_email, purpose)

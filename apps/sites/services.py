@@ -86,8 +86,21 @@ def site_for(account, site_id, template=None):
         sites = sites.filter(template=template)
     site = sites.first()
     if site is None:
-        raise ApiError("not_found", "Not found.", status=404)
+        raise ApiError(
+            "not_found", "Not found.", status=404,
+            event="site_not_found", reason=_why_missing(account, site_id),
+        )
     return site
+
+
+def _why_missing(account, site_id):
+    """For the security log only: "deleted", "foreign" (another account's) or "missing"."""
+    found = Site.objects.filter(public_id=site_id).values("account_id", "deleted_at").first()
+    if found is None:
+        return "missing"
+    if found["account_id"] != getattr(account, "pk", None):
+        return "foreign"
+    return "deleted"
 
 
 def active_subdomain(site):

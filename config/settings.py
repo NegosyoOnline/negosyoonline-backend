@@ -28,7 +28,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "development-only-not-for-deployment")
 
-DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() == "true"
+DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
@@ -240,6 +240,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'apps.operators.middleware.HqHostMiddleware',
     'apps.common.middleware.ApiOriginMiddleware',
+    'apps.common.middleware.RequestSizeCapMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -401,3 +402,13 @@ if not DEBUG:
 
 # Short commit of the running release, used by /healthz/ to prove which build is live.
 RELEASE_COMMIT = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown")[:12]
+
+# Access denials go to the console, so Railway's logs hold them (apps/common/security_log.py).
+# Only the `security` logger is configured here; Django's own logging stays as it is.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"security": {"format": "%(asctime)s %(name)s %(levelname)s %(message)s"}},
+    "handlers": {"security_console": {"class": "logging.StreamHandler", "formatter": "security"}},
+    "loggers": {"security": {"handlers": ["security_console"], "level": "WARNING", "propagate": False}},
+}
