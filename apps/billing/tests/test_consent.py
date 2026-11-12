@@ -6,6 +6,7 @@ from apps.billing.models import BankTransferPayment, RenewalConsent
 from apps.billing.tests.base import (
     JPEG, PNG, T0, TRIAL_END, days, fresh, make_active, make_subscription, manila, submit,
 )
+from apps.billing.tests.base import SENDER
 from apps.billing.tests.test_transfer import TransferCase, confirm
 
 promo_on = override_settings(BILLING_LAUNCH_PROMO_ENABLED=True)
@@ -17,7 +18,7 @@ class ConsentTests(TransferCase):
     def send(self, subscription, at, **fields):
         return services.submit_transfer(
             subscription, subscription.site.account, plan_code="launch_promo", content=JPEG,
-            transferred_on=at.date(), now=at, **fields,
+            transferred_at=at, now=at, **{**SENDER, **fields},
         )
 
     def test_a_promo_without_consent_is_refused_and_nothing_is_stored(self):

@@ -181,6 +181,14 @@ class BankTransferPayment(models.Model):
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.SUBMITTED)
     transferred_on = models.DateField()  # the day the Subscriber says the transfer was made
     transfer_reference = models.CharField(max_length=64, blank=True)  # the bank's own number
+    # What the Subscriber typed about the transfer. Blank or null only on rows written before
+    # these were asked for. The amount typed may differ from `amount_centavos`; staff see it.
+    sender_bank = models.CharField(max_length=80, blank=True)
+    sender_first_name = models.CharField(max_length=80, blank=True)
+    sender_last_name = models.CharField(max_length=80, blank=True)
+    sender_account_number = models.CharField(max_length=34, blank=True)
+    amount_sent_centavos = models.PositiveIntegerField(null=True, blank=True)
+    transferred_at = models.DateTimeField(null=True, blank=True)  # `transferred_on` is its Manila date
     proof_key = models.CharField(max_length=64)
     proof_content_type = models.CharField(max_length=20)
     proof_size = models.PositiveIntegerField()

@@ -124,14 +124,23 @@ def make_operator(username="op"):
     return User.objects.create(username=username, is_staff=True)
 
 
+# The sender's details every test proof carries unless a test names its own.
+SENDER = dict(
+    transfer_reference="BANK-REF-1", sender_bank="Test Bank", sender_first_name="Juanito",
+    sender_last_name="Bautista", sender_account_number="1234 5678 90", amount_sent="999.00",
+)
+
+
 def submit(subscription, at, content=JPEG, plan_code="monthly", **fields):
     """The owner sends a proof at `at`. Returns the payment."""
     if plan_code == "launch_promo":  # the buyer accepts what follows, as the page asks
         fields.setdefault("renewal_consent", True)
         fields.setdefault("consent_version", plan.CONSENT_VERSION)
+    fields.setdefault("transferred_at", at)
+    for name, value in SENDER.items():
+        fields.setdefault(name, value)
     payment, _ = services.submit_transfer(
         subscription, subscription.site.account, plan_code=plan_code, content=content,
-        transferred_on=fields.pop("transferred_on", at.astimezone(MANILA).date()),
         now=at, **fields,
     )
     return payment

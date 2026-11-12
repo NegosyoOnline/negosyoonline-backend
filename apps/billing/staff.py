@@ -89,7 +89,7 @@ def _payment_of(body):
 
 
 def _payment(payment):
-    """A payment as Finance sees it. Never where the file is kept, its hash or an account."""
+    """A payment as Finance sees it. Never where the file is kept or its hash."""
     if payment.plan_code == plan.USAGE_ONLY:
         bought = None
     else:
@@ -109,6 +109,17 @@ def _payment(payment):
         "currency": payment.currency,
         "transferred_on": payment.transferred_on.isoformat(),
         "transfer_reference": payment.transfer_reference,
+        "transferred_at": _iso(payment.transferred_at),
+        "sender_bank": payment.sender_bank,
+        "sender_first_name": payment.sender_first_name,
+        "sender_last_name": payment.sender_last_name,
+        "sender_account_number": payment.sender_account_number,
+        "amount_sent_centavos": payment.amount_sent_centavos,
+        # What the Subscriber typed is not the amount due: staff see it before deciding.
+        "amount_sent_differs": (
+            payment.amount_sent_centavos is not None
+            and payment.amount_sent_centavos != payment.amount_centavos
+        ),
         "submitted_at": _iso(payment.submitted_at),
         "decided_at": _iso(payment.decided_at),
         "decided_by": payment.decided_by.username if payment.decided_by else None,
