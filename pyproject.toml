@@ -12,4 +12,5 @@ dependencies = [
     "gunicorn>=23,<24",
     "psycopg[binary]>=3.2,<4",
     "sentry-sdk>=2.20,<3",
+    "reportlab>=4.2,<5",
 ]
