@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from apps.billing import clock
 from apps.billing.models import BankTransferPayment, ChargeLine
-from apps.statements import documents, services as issuer_services, switch
+from apps.statements import delivery, documents, services as issuer_services, switch
 from apps.statements.models import (
     BillingProfile, Statement, StatementLine, StatementNumberSeries,
 )
@@ -234,7 +234,13 @@ def ensure_statements():
     many it issued. Does nothing while the statements switch is off."""
     if not switch.statements_enabled():
         return 0
-    return sum(1 for payment in _unissued() if issue_safely(payment) is not None)
+    issued = 0
+    for payment in _unissued():
+        statement = issue_safely(payment)
+        if statement is not None:
+            issued += 1
+            delivery.deliver_safely(statement)  # the first attempt; the delivery task retries
+    return issued
 
 
 def missing_statements():

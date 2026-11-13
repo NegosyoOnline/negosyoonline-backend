@@ -59,6 +59,7 @@ ACTIONS = {
     "billing_issuer_verified": KEPT,
     "billing_statement_adjusted": KEPT,
     "billing_statement_viewed": KEPT,
+    "billing_statement_resent": KEPT,
     "billing_invoice_book_set": KEPT,
     "billing_invoice_recorded": KEPT,
     "billing_invoice_voided": KEPT,

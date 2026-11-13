@@ -304,9 +304,9 @@ class StaffStatementRouteTests(StaffTestCase):
         from apps.inbox import staff as inbox_staff
         from apps.invoices import staff as invoices_staff
         from apps.operators import staff_views
-        keys = [f"finance/statements/{path}" for path in PATHS]
+        keys = [f"finance/statements/{path}" for path in (*PATHS, "resend/")]
         self.assertTrue(set(keys) <= set(staff.ROUTES))
-        self.assertNotIn("finance/statements/resend/", staff.ROUTES)  # PR 8 owns it
+        self.assertIn("finance/statements/resend/", staff.ROUTES)  # PR 8
         for other in (billing_staff.ROUTES, inbox_staff.ROUTES, invoices_staff.ROUTES):
             self.assertFalse(set(keys) & set(other))
         for key in keys:
