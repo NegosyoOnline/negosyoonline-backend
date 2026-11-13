@@ -11,10 +11,11 @@ puts no value in an address or a query string. Nothing here settles anything its
 """
 import json
 
+from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
-from apps.billing import plan, services, usage
+from apps.billing import accounts, plan, services, usage
 from apps.billing.models import BankTransferPayment
 from apps.common.errors import ApiError, error_body
 from apps.common.pagination import page
@@ -72,6 +73,22 @@ def _usage_route(view):
     def handler(request, operator):
         try:
             if not plan.usage_enabled():
+                raise ApiError("not_found", "Not found.", status=404)
+            return view(_body(request), operator)
+        except ApiError as refusal:
+            return JsonResponse(
+                error_body(refusal.code, refusal.message, refusal.fields), status=refusal.status
+            )
+    return handler
+
+
+def _accounts_route(view):
+    """The receiving account routes: closed (404) only while BILLING_ENABLED is off, and they
+    read no billing table then. They do not wait for `collection_live()`: that needs an
+    account, so the first one could never be entered."""
+    def handler(request, operator):
+        try:
+            if not settings.BILLING_ENABLED:
                 raise ApiError("not_found", "Not found.", status=404)
             return view(_body(request), operator)
         except ApiError as refusal:
@@ -284,6 +301,26 @@ def usage_dismiss(body, operator):
     return _decided(body, operator, usage.dismiss)
 
 
+@_accounts_route
+def accounts_list(body, operator):
+    return JsonResponse(accounts.listing())
+
+
+@_accounts_route
+def accounts_add(body, operator):
+    return JsonResponse(accounts.as_dict(accounts.add(operator, body)))
+
+
+@_accounts_route
+def accounts_edit(body, operator):
+    return JsonResponse(accounts.as_dict(accounts.edit(operator, body)))
+
+
+@_accounts_route
+def accounts_active(body, operator):
+    return JsonResponse(accounts.as_dict(accounts.set_active(operator, body)))
+
+
 ROUTES = {
     "finance/payments/list/": queue,
     "finance/payments/detail/": detail,
@@ -294,4 +331,8 @@ ROUTES = {
     "finance/usage/review/detail/": usage_detail,
     "finance/usage/review/admit/": usage_admit,
     "finance/usage/review/dismiss/": usage_dismiss,
+    "finance/accounts/list/": accounts_list,
+    "finance/accounts/add/": accounts_add,
+    "finance/accounts/edit/": accounts_edit,
+    "finance/accounts/active/": accounts_active,
 }

@@ -70,7 +70,8 @@ class FinanceGateTests(FinanceTestCase):
         self.assertEqual(
             sorted(staff.ROUTES),
             sorted([f"finance/payments/{p}" for p in PATHS]
-                   + [f"finance/usage/review/{p}" for p in ("list/", "detail/", "admit/", "dismiss/")]),
+                   + [f"finance/usage/review/{p}" for p in ("list/", "detail/", "admit/", "dismiss/")]
+                   + [f"finance/accounts/{p}" for p in ("list/", "add/", "edit/", "active/")]),
         )
         for path in staff.ROUTES:
             self.assertEqual(staff_views.ROUTES[path][0], "POST")

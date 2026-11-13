@@ -156,9 +156,6 @@ BILLING_STATEMENTS_ENABLED = os.environ.get("BILLING_STATEMENTS_ENABLED", "").st
 # "1" marks new statements and register items as live. Anything else marks them as test, labelled
 # so and never shown as a paid charge. Set to "1" in production only on Coach Ed's approval.
 BILLING_LIVE_DOCUMENTS = os.environ.get("BILLING_LIVE_DOCUMENTS", "").strip() == "1"
-# The accounts Subscribers send their payment to, as a JSON list of objects with `kind`
-# ("bank" or "ewallet"), `provider_name`, `account_name` and `account_number`. Never in code.
-BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").strip()
 # The one address told when a bank transfer proof waits for review (a shared mailbox). Empty
 # sends no alert.
 BILLING_STAFF_ALERT_EMAIL = os.environ.get("BILLING_STAFF_ALERT_EMAIL", "").strip()

@@ -459,3 +459,59 @@ class UsageEvent(models.Model):
 
     def __str__(self):
         return f"{self.code} on usage {self.entry_id}"
+
+
+def new_receiving_account_id():
+    return new_public_id("rca")
+
+
+class ReceivingAccount(models.Model):
+    """An account NegosyoOnline's Subscribers are told to pay into by bank transfer.
+
+    Set by staff in HQ Finance (no migration, seed or fixture creates one). Only active rows
+    reach a Subscriber or count for `plan.collection_live()`. Rows are kept: nothing deletes
+    one, so an old proof can still be reconciled. Write only through apps.billing.accounts.
+    """
+
+    class Kind(models.TextChoices):
+        BANK = "bank"
+        EWALLET = "ewallet"
+
+    public_id = models.CharField(
+        max_length=40, unique=True, default=new_receiving_account_id, editable=False
+    )
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    provider_name = models.CharField(max_length=60)
+    account_name = models.CharField(max_length=120)
+    account_number = models.CharField(max_length=40)
+    active = models.BooleanField(default=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(kind__in=["bank", "ewallet"]), name="billing_receiving_account_kind"
+            ),
+            models.CheckConstraint(
+                condition=~Q(provider_name="") & ~Q(account_name="") & ~Q(account_number=""),
+                name="billing_receiving_account_not_blank",
+            ),
+            models.UniqueConstraint(
+                fields=["provider_name", "account_number"],
+                name="billing_receiving_account_unique",
+            ),
+        ]
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("A receiving account is kept and cannot be deleted.")
+
+    def __str__(self):
+        return f"Receiving account {self.public_id}"

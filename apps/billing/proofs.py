@@ -6,7 +6,7 @@ Blob store in a shared environment, a local folder while DEBUG is on), under the
 `billing/proofs/`. Billing's other private files use sibling prefixes (Billing Build B5).
 """
 from django.conf import settings
-from django.core.checks import Error, register
+from django.core.checks import Error, Tags, register
 
 from apps.common import private_files
 
@@ -51,21 +51,29 @@ def discard(key):
 
 @register()
 def check_bank_transfer(app_configs, **kwargs):
-    """`manage.py check` refuses the switch without an account to pay to or a proof store.
-    A running service treats either as the switch being off."""
+    """`manage.py check` refuses the switch without a proof store. A running service treats it
+    as the switch being off. This reads settings only, so it is safe at `migrate` time."""
+    if not settings.BILLING_BANK_TRANSFER_ENABLED or available():
+        return []
+    return [Error(
+        "BILLING_BANK_TRANSFER_ENABLED is on but no private file store is available.",
+        id="billing.E002",
+    )]
+
+
+@register(Tags.database)
+def check_receiving_account(app_configs, databases=None, **kwargs):
+    """The switch is on but no active receiving account is saved. It reads the database, so it
+    is a database-tagged check. Django calls every registered check with `databases=None` on
+    `migrate`, `runserver`, a plain `check` and `check --deploy`; only `check --database
+    default` passes the names. Like Django's own database checks, this one does nothing unless
+    it is given a database, so it never queries before the table exists (or in CI)."""
     from apps.billing import plan
 
-    if not settings.BILLING_BANK_TRANSFER_ENABLED:
+    if not databases or not settings.BILLING_BANK_TRANSFER_ENABLED or plan.has_receiving_account():
         return []
-    errors = []
-    if not plan.transfer_accounts():
-        errors.append(Error(
-            "BILLING_BANK_TRANSFER_ENABLED is on but BILLING_TRANSFER_ACCOUNTS holds no complete account.",
-            id="billing.E001",
-        ))
-    if not available():
-        errors.append(Error(
-            "BILLING_BANK_TRANSFER_ENABLED is on but no private file store is available.",
-            id="billing.E002",
-        ))
-    return errors
+    return [Error(
+        "BILLING_BANK_TRANSFER_ENABLED is on but no active receiving account is saved.",
+        hint="Add one in HQ, Finance, Accounts.",
+        id="billing.E001",
+    )]

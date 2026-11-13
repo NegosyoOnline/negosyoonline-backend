@@ -11,7 +11,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from apps.billing import plan, proofs, services
 from apps.billing.models import BankTransferEvent, BankTransferPayment
 from apps.billing.tests.base import (
-    JPEG, PDF, PNG, T0, TEST_ACCOUNTS, days, make_operator, make_subscription, submit,
+    JPEG, PDF, PNG, T0, days, make_receiving_account, make_operator, make_subscription, submit,
     transfers_on,
 )
 from apps.billing.tests.test_transfer_api import TransferApiCase
@@ -22,7 +22,7 @@ TOKEN = "vercel_blob_rw_StoreId123_SecretPartOfTheToken"
 KEY_SHAPE = r"^billing/proofs/[0-9a-f]{32}\.(jpg|png|pdf)$"
 
 
-class AvailableTests(SimpleTestCase):
+class AvailableTests(TestCase):
     def test_a_token_makes_a_store_available_with_debug_off(self):
         with override_settings(PRIVATE_BLOB_READ_WRITE_TOKEN=TOKEN, DEBUG=False):
             self.assertTrue(proofs.available())
@@ -34,8 +34,8 @@ class AvailableTests(SimpleTestCase):
     def test_collection_is_live_only_with_a_store(self):
         switches = dict(
             BILLING_ENABLED=True, BILLING_BANK_TRANSFER_ENABLED=True,
-            BILLING_TRANSFER_ACCOUNTS=TEST_ACCOUNTS,
         )
+        make_receiving_account()
         with override_settings(PRIVATE_BLOB_READ_WRITE_TOKEN="", DEBUG=False, **switches):
             self.assertFalse(plan.collection_live())
         with override_settings(PRIVATE_BLOB_READ_WRITE_TOKEN=TOKEN, DEBUG=False, **switches):

@@ -1,6 +1,7 @@
 """Bank transfer with proof (Billing Build B2a, pull request 1): the payment record, the
 operator's confirmation and rejection, and how a confirmation settles a cycle."""
 from datetime import date
+from unittest import mock
 
 from django.core.checks import Error
 from django.db import IntegrityError, connection, transaction
@@ -9,11 +10,11 @@ from django.test.utils import CaptureQueriesContext
 
 from apps.billing import methods, plan, proofs, services
 from apps.billing.models import (
-    BankTransferEvent, BankTransferPayment, BillingCycle, Subscription, SubscriptionTransition,
+    BankTransferEvent, BankTransferPayment, BillingCycle, ReceivingAccount, Subscription, SubscriptionTransition,
 )
 from apps.billing.tests.base import (
-    CYCLE_1_END, CYCLE_2_END, JPEG, PDF, PNG, SECOND, T0, TEST_ACCOUNTS, TRIAL_END, days, fresh,
-    make_active, make_operator, make_subscription, make_suspended, submit, transfers_on,
+    CYCLE_1_END, CYCLE_2_END, JPEG, PDF, PNG, SECOND, T0, TRIAL_END, days, fresh,
+    make_active, make_operator, make_receiving_account, make_subscription, make_suspended, submit, transfers_on,
 )
 from apps.billing.tests.base import SENDER
 from apps.common.errors import ApiError
@@ -536,18 +537,54 @@ class SwitchTests(TestCase):
         self.assertFalse(plan.collection_live())
         with override_settings(BILLING_BANK_TRANSFER_ENABLED=True):
             self.assertFalse(plan.collection_live())  # no account, no store
-            with override_settings(BILLING_TRANSFER_ACCOUNTS=TEST_ACCOUNTS):
-                self.assertFalse(plan.collection_live())  # no store
+            make_receiving_account()
+            self.assertFalse(plan.collection_live())  # no store
+        ReceivingAccount.objects.all().delete()
         with transfers_on():
             self.assertTrue(plan.collection_live())
             self.assertEqual(plan.transfer_accounts()[0]["provider_name"], "Test Bank")
             with override_settings(BILLING_ENABLED=False):
                 self.assertFalse(plan.collection_live())
-            for bad in ("", "not json", "{}", '[{"kind": "bank"}]', '[{"kind": "card", '
-                        '"provider_name": "x", "account_name": "y", "account_number": "1"}]'):
-                with override_settings(BILLING_TRANSFER_ACCOUNTS=bad):
-                    self.assertEqual(plan.transfer_accounts(), [])
-                    self.assertFalse(plan.collection_live())
+
+    def test_no_row_or_only_inactive_rows_is_no_account_and_fails_closed(self):
+        with transfers_on():
+            ReceivingAccount.objects.update(active=False)
+            self.assertEqual(plan.transfer_accounts(), [])
+            self.assertFalse(plan.collection_live())
+            ReceivingAccount.objects.all().delete()
+            self.assertEqual(plan.transfer_accounts(), [])
+            self.assertFalse(plan.collection_live())
+
+    def test_switching_the_only_account_off_closes_collection_at_once(self):
+        with transfers_on():
+            self.assertTrue(plan.collection_live())
+            ReceivingAccount.objects.update(active=False)
+            self.assertFalse(plan.collection_live())  # no cache
+            ReceivingAccount.objects.update(active=True)
+            self.assertTrue(plan.collection_live())
+
+    def test_accounts_are_listed_by_order_then_id(self):
+        make_receiving_account([
+            {"kind": "bank", "provider_name": "B", "account_name": "n", "account_number": "111111"},
+            {"kind": "ewallet", "provider_name": "A", "account_name": "n", "account_number": "222222"},
+            {"kind": "bank", "provider_name": "C", "account_name": "n", "account_number": "333333"},
+        ])
+        ReceivingAccount.objects.filter(provider_name="C").update(sort_order=0)
+        ReceivingAccount.objects.filter(provider_name="B").update(active=False)
+        self.assertEqual([a["provider_name"] for a in plan.transfer_accounts()], ["C", "A"])
+        self.assertEqual(set(plan.transfer_accounts()[0]),
+                         {"kind", "provider_name", "account_name", "account_number"})
+
+    def test_a_switch_that_is_off_reads_no_account_table(self):
+        with CaptureQueriesContext(connection) as queries:
+            self.assertFalse(plan.collection_live())  # BILLING_BANK_TRANSFER_ENABLED off
+            with override_settings(BILLING_ENABLED=False, BILLING_BANK_TRANSFER_ENABLED=True):
+                self.assertFalse(plan.collection_live())
+            with override_settings(BILLING_BANK_TRANSFER_ENABLED=True), mock.patch(
+                "apps.billing.proofs.available", return_value=False
+            ):
+                self.assertFalse(plan.collection_live())  # no store
+        self.assertEqual([q for q in queries if "receivingaccount" in q["sql"].lower()], [])
 
     def test_switched_off_nothing_is_accepted_and_no_new_table_is_read(self):
         subscription = make_subscription()
@@ -579,9 +616,40 @@ class SwitchTests(TestCase):
         payment.refresh_from_db()
         self.assertEqual(payment.status, Status.SUBMITTED)
 
-    def test_the_check_refuses_the_switch_without_an_account_or_a_store(self):
+    def test_the_checks_refuse_the_switch_without_a_store_or_an_account(self):
         self.assertEqual(proofs.check_bank_transfer(None), [])
-        with override_settings(BILLING_BANK_TRANSFER_ENABLED=True):
+        self.assertEqual(proofs.check_receiving_account(None, databases=["default"]), [])
+        with override_settings(BILLING_BANK_TRANSFER_ENABLED=True), mock.patch(
+            "apps.billing.proofs.available", return_value=False
+        ):
             errors = proofs.check_bank_transfer(None)
-        self.assertEqual([type(e) for e in errors], [Error, Error])
-        self.assertEqual([e.id for e in errors], ["billing.E001", "billing.E002"])
+            self.assertEqual([(type(e), e.id) for e in errors], [(Error, "billing.E002")])
+        with override_settings(BILLING_BANK_TRANSFER_ENABLED=True):
+            self.assertEqual(proofs.check_receiving_account(None), [])  # no database named
+            errors = proofs.check_receiving_account(None, databases=["default"])
+            self.assertEqual([(type(e), e.id) for e in errors], [(Error, "billing.E001")])
+            make_receiving_account()
+            self.assertEqual(proofs.check_receiving_account(None, databases=["default"]), [])
+            ReceivingAccount.objects.update(active=False)
+            self.assertEqual(
+                [e.id for e in proofs.check_receiving_account(None, databases=["default"])],
+                ["billing.E001"],
+            )
+
+    def test_the_account_check_reads_the_database_only_when_asked_to(self):
+        # A database-tagged check does nothing on migrate, runserver or a plain check, so the
+        # table need not exist then. It runs on `check --database default`.
+        from io import StringIO
+
+        from django.core.management import call_command
+        from django.core.management.base import SystemCheckError
+
+        with override_settings(BILLING_BANK_TRANSFER_ENABLED=True), mock.patch(
+            "apps.billing.proofs.available", return_value=True
+        ):
+            with CaptureQueriesContext(connection) as queries:
+                call_command("check", stdout=StringIO())
+            self.assertEqual([q for q in queries if "receivingaccount" in q["sql"].lower()], [])
+            with self.assertRaises(SystemCheckError) as raised:
+                call_command("check", "--database", "default", stdout=StringIO(), stderr=StringIO())
+            self.assertIn("billing.E001", str(raised.exception))
