@@ -180,6 +180,8 @@ def facebook_data_deletion(request):
         raise ApiError("payload_too_large", "The request is too large.", status=413)
     try:
         user_id = facebook.parse_signed_request(request.POST.get("signed_request", ""))
+    except facebook.StaleSignedRequest:
+        raise ApiError("stale_request", "The request is too old or from the future.") from None
     except facebook.BadSignedRequest:
         raise ApiError("invalid_signature", "The request is not signed by Meta.") from None
     # The same answer whether or not we knew this Facebook user, so the call reveals nothing.

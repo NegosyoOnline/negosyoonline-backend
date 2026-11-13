@@ -205,6 +205,8 @@ railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e <env> -s api -- uv run py
 
 The file is personal data on your computer. Send it to the requester from the DPO mailbox, only after confirming who is asking, then delete it. Sending is done by hand; nothing here sends it.
 
+How a request arrives, its reference number and the support periods: `docs/runbooks/support-and-exit.md`.
+
 ## Billing statements and the invoice register
 
 No rule touches the `statements_*` or `invoices_*` tables (Billing Build B5). They are billing and tax records kept intact for at least five years (L76), and disposal of an account keeps the statement snapshots.

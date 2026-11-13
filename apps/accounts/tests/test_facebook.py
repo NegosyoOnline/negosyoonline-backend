@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import time
 from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
@@ -19,7 +20,7 @@ def _b64(raw):
 
 def signed_request(secret=SECRET, **overrides):
     """A request signed the way Meta signs its data deletion callback."""
-    data = {"algorithm": "HMAC-SHA256", "user_id": "fb-1", "issued_at": 1}
+    data = {"algorithm": "HMAC-SHA256", "user_id": "fb-1", "issued_at": int(time.time())}
     data.update(overrides)
     payload = _b64(json.dumps(data).encode())
     signature = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).digest()

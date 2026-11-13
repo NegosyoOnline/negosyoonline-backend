@@ -82,7 +82,7 @@ def enabled():
 
 
 def _not_found():
-    return ApiError("not_found", "Not found.", status=404)
+    return ApiError("not_found", "Not found.", status=404, event="object_not_found", reason="missing")
 
 
 def _read_only():

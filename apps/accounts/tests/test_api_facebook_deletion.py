@@ -1,7 +1,12 @@
+import hashlib
+import hmac
+import json
+import time
+
 from django.test import TestCase, override_settings
 
 from apps.accounts.models import Account, AccountAuditEvent, ExternalIdentity
-from apps.accounts.tests.test_facebook import SECRET, signed_request
+from apps.accounts.tests.test_facebook import SECRET, _b64, signed_request
 
 DELETION = "/v1/webhooks/facebook/data-deletion/"
 

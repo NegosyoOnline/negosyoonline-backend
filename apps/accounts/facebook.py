@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import urllib.parse
+import time
 import urllib.request
 from dataclasses import dataclass
 
@@ -35,6 +36,10 @@ class FacebookSignInFailed(Exception):
 
 class BadSignedRequest(Exception):
     """A request that claims to come from Meta but is not signed with our app secret."""
+
+
+class StaleSignedRequest(BadSignedRequest):
+    """A correctly signed request whose `issued_at` is too old or too far ahead."""
 
 
 def is_configured():
@@ -101,8 +106,17 @@ def _b64decode(text):
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
+# A signed request is accepted for a day after Meta issued it, and not from the future (clock skew).
+MAX_AGE_SECONDS = 24 * 3600
+MAX_FUTURE_SECONDS = 5 * 60
+
+
 def parse_signed_request(signed_request):
-    """The Facebook user id in a request Meta signed with our app secret. Raises BadSignedRequest."""
+    """The Facebook user id in a request Meta signed with our app secret.
+
+    Raises BadSignedRequest, or StaleSignedRequest when `issued_at` is over 24 hours old or more
+    than 5 minutes ahead. A request without `issued_at` is refused as BadSignedRequest.
+    """
     try:
         signature, payload = signed_request.split(".", 1)
         if not hmac.compare_digest(_b64decode(signature), _sign(payload).digest()):
@@ -110,7 +124,16 @@ def parse_signed_request(signed_request):
         data = json.loads(_b64decode(payload))
         if str(data["algorithm"]).upper() != "HMAC-SHA256" or not data["user_id"]:
             raise ValueError("unexpected content")
+        issued_at = data["issued_at"]
+        if isinstance(issued_at, bool) or not isinstance(issued_at, (int, float)):
+            raise ValueError("unexpected content")
+        age = time.time() - issued_at
+        if age > MAX_AGE_SECONDS or age < -MAX_FUTURE_SECONDS:
+            raise StaleSignedRequest()
         return str(data["user_id"])
+    except StaleSignedRequest:
+        logger.warning("Facebook signed request refused (stale)")
+        raise
     except (KeyError, TypeError, ValueError, AttributeError) as error:
         logger.warning("Facebook signed request refused (%s)", type(error).__name__)
         raise BadSignedRequest() from None

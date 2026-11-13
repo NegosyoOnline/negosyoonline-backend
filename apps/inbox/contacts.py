@@ -126,7 +126,7 @@ def _group_row(group, count):
 def _group_by_id(scope, group_id):
     group = scope.groups.filter(public_id=group_id).first() if is_public_id(group_id, "grp") else None
     if group is None:
-        raise ApiError("not_found", "Not found.", status=404)
+        raise ApiError("not_found", "Not found.", status=404, event="object_not_found", reason="missing")
     return group
 
 

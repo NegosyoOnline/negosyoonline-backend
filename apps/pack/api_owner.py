@@ -70,7 +70,7 @@ def _limit(request, scope):
 def _order(site, order_id):
     order = PackOrder.objects.select_related("member").filter(site=site, public_id=order_id).first()
     if order is None:
-        raise ApiError("not_found", "Not found.", status=404)
+        raise ApiError("not_found", "Not found.", status=404, event="object_not_found", reason="missing")
     return order
 
 
@@ -139,7 +139,7 @@ def order_proof(request, site_id: str, order_id: str, proof_id: str):
     order = _order(request.pack_site, order_id)
     sub = order.submissions.filter(public_id=proof_id).first()
     if sub is None:
-        raise ApiError("not_found", "Not found.", status=404)
+        raise ApiError("not_found", "Not found.", status=404, event="object_not_found", reason="missing")
     _limit(request, LINK_LIMIT)
     response = HttpResponse(private_files.read(sub.file_key), content_type=sub.content_type)
     response["Cache-Control"] = "private, no-store"
