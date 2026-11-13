@@ -51,8 +51,9 @@ def site_label(host):
     return label
 
 
-def served(host):
-    """(site, its billing position) when the host's site is served right now, else None."""
+def site_for_host(host):
+    """The site whose active name this host is, or None: not removed, not on operator hold.
+    Nothing about its billing position: `served` adds that."""
     label = site_label(host)
     if label is None:
         return None
@@ -64,10 +65,16 @@ def served(host):
         .select_related("site")
         .first()
     )
-    if row is None:
+    return None if row is None else row.site
+
+
+def served(host):
+    """(site, its billing position) when the host's site is served right now, else None."""
+    site = site_for_host(host)
+    if site is None:
         return None
-    position = billing.position(row.site)
-    return (row.site, position) if position.storefront_served else None
+    position = billing.position(site)
+    return (site, position) if position.storefront_served else None
 
 
 def _max_age(position):
