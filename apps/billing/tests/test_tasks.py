@@ -115,8 +115,8 @@ class QueueSetupTests(SimpleTestCase):
         self.assertEqual(
             sorted(name for name in celery_app.tasks if not name.startswith("celery.")),
             [
-                "billing.notices", "billing.sweep", "health.heartbeat", "invoices.ensure_items",
-                "meta_ads.send_order_event", "meta_ads.send_page_event", "meta_ads.sweep",
+                "billing.notices", "billing.sweep", "health.heartbeat", "invoices.daily_alert",
+                "invoices.ensure_items", "meta_ads.send_order_event", "meta_ads.send_page_event", "meta_ads.sweep",
                 "pack.buyer_notice", "pack.purge", "retention.run", "statements.ensure",
             ],
         )
@@ -129,7 +129,8 @@ class QueueSetupTests(SimpleTestCase):
         self.assertEqual(
             list(schedule),
             [
-                "billing-sweep", "invoices-ensure-items", "statements-ensure", "meta-ads-sweep",
+                "billing-sweep", "invoices-ensure-items", "invoices-daily-alert",
+                "statements-ensure", "meta-ads-sweep",
                 "billing-notices", "retention-daily", "pack-purge", "pack-buyer-notice",
                 "health-heartbeat",
             ],

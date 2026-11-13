@@ -366,6 +366,14 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": BILLING_SWEEP_EVERY_SECONDS,
         "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
     },
+    # One email a day to the active staff while an invoice waits to be written, at 08:00 Manila
+    # time. Does nothing while BILLING_INVOICE_REGISTER_ENABLED is off. A tick not picked up
+    # within the hour is dropped: it would no longer be the morning alert.
+    "invoices-daily-alert": {
+        "task": "invoices.daily_alert",
+        "schedule": crontab(hour=8, minute=0),
+        "options": {"expires": 3600},
+    },
     # Issues the statement of any confirmed payment that has none. Does nothing while
     # BILLING_STATEMENTS_ENABLED is off.
     "statements-ensure": {
