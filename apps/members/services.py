@@ -11,9 +11,12 @@ from django.db import IntegrityError, transaction
 from apps.common.errors import ApiError
 from apps.sites.models import Site
 
-from . import contacts, hooks
+from apps.common import throttle
+
+from . import contacts, holds, hooks
 from .models import (
-    ONBOARDING, PENDING, UNVERIFIED, VERIFIED, Member, MemberContactAudit, MemberOtpChallenge,
+    ONBOARDING, PENDING, UNVERIFIED, VERIFIED, Member, MemberAddressEvent, MemberContactAudit,
+    MemberOtpChallenge,
 )
 
 ADDRESS_KEYS = ("line", "barangay", "city", "province", "zip", "landmark")  # landmark is kept apart from the street line
@@ -221,3 +224,54 @@ def claim_onboarding_proof(site, member, *, mobile, proof):
     row = _consume_onboarding_proof(site, mobile, proof)
     MemberOtpChallenge.objects.filter(pk=row.pk, member__isnull=True).update(member=member)
     return row
+
+
+# -- the member edits their own saved delivery address (TWCinc negosyoonline_storefront/addresses.py:
+#    save_home_address). Future orders only: a placed order keeps its own snapshot. -----------------
+
+ADDRESS_THROTTLE = ("member-address", 10, 3600)  # saves per member per hour, as TWCinc LIMIT_ADDRESS
+ADDRESS_LOCKED = "Your home address cannot be changed right now."
+ADDRESS_REQUIRED = {"line": "Enter the street address.", "city": "Enter the city or municipality.",
+                    "province": "Enter the province."}
+ADDRESS_TOO_LONG = f"Keep this part under {ADDRESS_MAX} characters."
+
+
+def address_field_errors(data):
+    """Field errors for a posted address, in the checkout's wording; {} when it is acceptable. An
+    unknown key is refused under `delivery_address`."""
+    if not isinstance(data, dict):
+        return {"delivery_address": ADDRESS_ERROR}
+    errors = {}
+    if set(data) - set(ADDRESS_KEYS):
+        errors["delivery_address"] = ADDRESS_ERROR
+    for key in ADDRESS_KEYS:
+        value = str(data.get(key) or "").strip()
+        if not value and key in ADDRESS_REQUIRED:
+            errors[key] = ADDRESS_REQUIRED[key]
+        elif len(value) > ADDRESS_MAX:
+            errors[key] = ADDRESS_TOO_LONG
+    return errors
+
+
+def save_own_address(site, member, data, *, ip=None):
+    """Save the six address keys as the member's own delivery address and write one audit row.
+    Order: throttle (10 an hour), field errors (422 invalid_address), recovery hold (423
+    address_locked), then the write under the member row lock. Returns the cleaned address."""
+    scope, limit, window = ADDRESS_THROTTLE
+    throttle.hit(scope, member.pk, limit=limit, window=window)
+    errors = address_field_errors(data)
+    if errors:
+        raise ApiError("invalid_address", "Some values are missing or invalid.", status=422,
+                       fields={key: [message] for key, message in errors.items()})
+    cleaned = clean_address(data)
+    with transaction.atomic():
+        row = Member.objects.select_for_update().get(pk=member.pk, site=site)
+        if holds.active_hold(row, "address_change") is not None:
+            raise ApiError("address_locked", ADDRESS_LOCKED, status=423)
+        old = address_only(row.delivery_address)
+        # The saved address replaces the stored value whole; nothing else is kept beside the six keys.
+        row.delivery_address = cleaned
+        row.save(update_fields=["delivery_address", "updated_at"])
+        MemberAddressEvent.objects.create(site=site, member=row, old=old, new=cleaned,
+                                          ip_advisory=(ip or "")[:45])
+    return cleaned

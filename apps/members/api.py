@@ -6,6 +6,8 @@
     POST /storefront/v1/member/signin/verify/   {host, visitor_ip, binding, code}  -> {token, member}
     POST /storefront/v1/member/me/              {host, token}                    -> {member}
     POST /storefront/v1/member/signout/         {host, token}
+    POST /storefront/v1/member/address/         {host, visitor_ip, member_token, line, barangay, city, province,
+                                                 zip, landmark} -> {home_address, home_address_source}
 
 Every call carries the storefronts server's credential (the surface checks it). The session
 token travels as data: verify answers it once, for the storefronts server to put in its own
@@ -320,3 +322,42 @@ def change_act(request, field: str, body: ChangeIn):
     else:
         raise ApiError("not_found", "Not found.", status=404)
     return {"state": _change_state(site, member, raw, field), "changed": False}
+
+
+# -- the member edits their own saved delivery address (apps/members/services.py: save_own_address).
+#    The member is the verified session of this host's site, never a field of the body. -------------
+
+import json  # noqa: E402
+
+
+class AddressIn(Schema):
+    host: str = ""
+    visitor_ip: str = ""
+    member_token: str = ""
+    line: str = ""
+    barangay: str = ""
+    city: str = ""
+    province: str = ""
+    zip: str = ""
+    landmark: str = ""
+
+
+class AddressOut(Schema):
+    home_address: dict
+    home_address_source: str
+
+
+@router.post("/address/", response=AddressOut)
+def save_address(request, body: AddressIn):
+    site = _site(body.host)
+    member = _session(site, body.member_token).member
+    posted = {key: getattr(body, key) for key in services.ADDRESS_KEYS}
+    # An unknown key is refused by the service (never dropped): the schema drops extras, so read the raw body.
+    try:
+        raw = json.loads(request.body or b"{}")
+    except ValueError:
+        raw = {}
+    posted.update({k: v for k, v in raw.items() if k not in ("host", "visitor_ip", "member_token")}
+                  if isinstance(raw, dict) else {})
+    address = services.save_own_address(site, member, posted, ip=_ip(body.visitor_ip))
+    return {"home_address": address, "home_address_source": "profile"}

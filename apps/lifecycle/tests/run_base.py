@@ -17,7 +17,7 @@ from apps.lifecycle.models import ErasureBatch, ErasureItem
 from apps.lifecycle.tests.base import (
     DUE, ENDED, NOW, LifecycleTestCase, State, days, ended_site, second_site,
 )
-from apps.members.models import Member, MemberOtpChallenge, MemberSession
+from apps.members.models import Member, MemberAddressEvent, MemberOtpChallenge, MemberSession
 from apps.meta_ads.models import MetaOrderContext, MetaSettings
 from apps.notifications.models import SmsDevice
 from apps.pack.models import CheckoutToken, PackOrder, SanteRegistration
@@ -73,6 +73,10 @@ def fill(subscription, tag=""):
     SanteSiteSettings.objects.create(site=site, sponsor_id="PLANTED-SPONSOR")
     member = Member.objects.create(
         site=site, full_name=NAME, mobile=MOBILE, email=EMAIL, delivery_address={"line": NAME},
+    )
+    MemberAddressEvent.objects.create(
+        site=site, member=member, old={"line": f"Old {NAME}"}, new={"line": f"New {NAME}"},
+        ip_advisory="203.0.113.7",
     )
     MemberSession.objects.create(
         member=member, site=site, token_hash=f"s{site.pk}{tag}".ljust(64, "a"),

@@ -54,6 +54,7 @@ BLANKED = {
     member_retention.MEMBERS: list(member_retention.MEMBER_PERSONAL),
     member_retention.SESSIONS: ["all rows deleted"],
     member_retention.CHALLENGES: ["all rows deleted"],
+    member_retention.ADDRESS_EVENTS: list(member_retention.ADDRESS_EVENT_PERSONAL),
     pack_retention.ORDERS: list(pack_retention.ORDER_PERSONAL),
     pack_retention.PROOFS: list(purge.PROOF_TEXT_FIELDS),
     pack_retention.TOKENS: ["all rows deleted"],

@@ -205,6 +205,16 @@ def home_address(member):
     return (fallback, HOME_PACK_ORDER) if fallback is not None else (None, "")
 
 
+def _address_locked(buyer):
+    """True while the signed-in member with benefits cannot change their own address (an active
+    recovery hold). False for a guest or a member without benefits, who see no Edit anyway."""
+    if not buyer.benefits:
+        return False
+    from apps.members import holds  # read-only hand-off
+
+    return holds.active_hold(buyer.member, "address_change") is not None
+
+
 def _quote_address(buyer, ship_mode, posted):
     """Where the quote ships: the member's own address for `home`, else the posted one, else
     None (the Metro Manila estimate). Only the city and province are read; a quote validates
@@ -271,6 +281,7 @@ def quote(site, raw_lines, *, member_token="", ship_mode="", address=None):
         "ok": ok,
         "home_address": home,
         "home_address_source": home_source,
+        "home_address_locked": _address_locked(buyer),
         "member_price": buyer.benefits,
         "ship_mode": mode,
         "lines": rows,
