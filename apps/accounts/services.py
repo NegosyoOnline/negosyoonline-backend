@@ -355,8 +355,7 @@ def require_step_up(account, step_up_code, purpose):
             value, scope = _step_code_scope(account, purpose, channel)
             if codes.check_code(value, step_up_code, scope):
                 return
-    where = "your current email" if purpose == "email_change" else "your email or mobile"
-    raise ApiError("step_up_required", f"Enter the code we sent to {where} first.")
+    raise ApiError("step_up_required", "Enter the code we sent you first.")
 
 
 def clear_step_up(account, purpose):
