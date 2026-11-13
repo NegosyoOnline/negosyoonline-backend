@@ -27,6 +27,7 @@ from apps.notifications import retention as email_records
 from apps.operators import audit
 from apps.payments import retention as payment_retention
 from apps.sante import retention as sante_retention
+from apps.shop import retention as shop_retention
 from apps.sites import retention as site_retention
 
 # An account whose email was never verified is disposed of this long after sign-up.
@@ -169,6 +170,7 @@ def _dispose(account, now, rule, actor, request_ref, dry_run):
             **payment_retention.blank_payments_of(account, now, dry_run),
             **member_retention.blank_members_of(account, dry_run),
             **pack_retention.blank_packs_of(account, dry_run),
+            **shop_retention.blank_shop_of(account, dry_run),
             **meta_retention.blank_meta_of(account, dry_run),
             "email_send_records": email_records.delete_records_for(address, dry_run),
             "earlier_address_send_records": email_records.delete_earlier_records_for(
@@ -200,7 +202,8 @@ def _dispose(account, now, rule, actor, request_ref, dry_run):
                 "counts": counts,
                 "blanked": {
                     **BLANKED, **sante_retention.blanked(), **payment_retention.blanked(),
-                    **member_retention.blanked(), **pack_retention.blanked(), **meta_retention.blanked(),
+                    **member_retention.blanked(), **pack_retention.blanked(), **shop_retention.blanked(),
+                    **meta_retention.blanked(),
                 },
             },
         )
@@ -301,6 +304,8 @@ def export_account_data(account, *, actor, request_ref):
     data.update(packs)
     transfers = billing.export_transfers_of(account)
     data.update(transfers)
+    shops = shop_retention.export_shop_of(account)
+    data.update(shops)
     lists = (
         "policy_acceptances", "sign_in_providers", "sessions", "audit_events",
         "mobile_challenges", "email_send_records", "sites",
@@ -312,6 +317,7 @@ def export_account_data(account, *, actor, request_ref):
     counts.update({name: len(rows) for name, rows in members.items()})
     counts.update({name: len(rows) for name, rows in packs.items()})
     counts.update({name: len(rows) for name, rows in transfers.items()})
+    counts.update({name: len(rows) for name, rows in shops.items()})
     audit.record(
         actor,
         "account_exported",
