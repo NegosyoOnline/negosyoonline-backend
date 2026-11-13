@@ -83,6 +83,8 @@ class ManualInvoiceItem(FrozenFieldsMixin, models.Model):
     `statement` move."""
 
     MOVES = ("status", "statement")
+    REFUSAL_TARGET_TYPE = "invoice_item"  # a refused edit or delete is audited
+    REFUSAL_ID_PATH = "public_id"
 
     class Status(models.TextChoices):
         PENDING = "pending"

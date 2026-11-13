@@ -66,6 +66,10 @@ ACTIONS = {
     "billing_invoice_scan_viewed": KEPT,
     "billing_invoice_verified": KEPT,
     "billing_invoice_scan_rejected": KEPT,
+    # A refused edit or delete of an issued statement, its lines or an invoice item (B5 section 5.4).
+    # Ids, the name of a field and counts: never a value.
+    "billing_record_edit_refused": KEPT,
+    "billing_record_delete_refused": KEPT,
     "sante_catalog_owner_set": KEPT,
     "sante_agreement_version_created": KEPT,
     "sante_agreement_version_updated": KEPT,

@@ -114,7 +114,7 @@ Key: **KEPT** (tested), **BLOCKED** (listed, not tested, reason), **DROPPED** (n
 | 6e | Owner uploads an image of the physical receipt | **DROPPED as written** | Design is staff-operated (F3). The real flow is 6f |
 | 6f | Staff record the handwritten invoice, upload and verify its scan; owner gets the verified copy only; sha256/size recorded; audit rows; link to the statement; statement facts unchanged | KEPT | `record_invoice` (`invoices/services.py:327`), `upload_scan` (`:448`), `verify_scan` (`:505`), `copy_for_owner` (`:609`), staff routes (`invoices/staff.py:192`), owner route (`billing/api.py:529`); item `statement` link set by `issue._link_item` (`issue.py:193`). The statement's row, lines and PDF hash are compared before and after |
 | 6g | Edit or delete after finalisation is rejected | KEPT | `Statement.save()` on a stored row, `QuerySet.update/delete/bulk_update`, `StatementLine`, and on PostgreSQL a raw `UPDATE`/`DELETE` (trigger) all refuse (`managers.py`, `statements.0002`) |
-| 6h | Audit evidence of the refused edit or delete | **BLOCKED** | A refused attempt writes no audit row on main (F3). Audit rows that do exist are asserted: `billing_statement_viewed`, `billing_statement_adjusted`, `billing_invoice_recorded/scan_uploaded/verified`, `billing_payment_confirmed` |
+| 6h | Audit evidence of the refused edit or delete | **BUILT** (z8uq9mevfx) | A refused edit or delete of a statement, a statement line or an invoice item now writes one `billing_record_edit_refused` / `billing_record_delete_refused` row (`managers.audit_refusal`). `test_a_refused_edit_leaves_audit_evidence` asserts it. Audit rows that already existed are asserted too: `billing_statement_viewed`, `billing_statement_adjusted`, `billing_invoice_recorded/scan_uploaded/verified`, `billing_payment_confirmed` |
 
 ### Scenario 7, correction flow
 
@@ -307,7 +307,7 @@ The module is `apps/statements/tests/test_launch_acceptance.py` (the only file a
 
 - **Storage review (K5b, 11p)** calls `usage.admit` and `usage.dismiss` directly (with their audit rows asserted), not the `finance/usage/review/*` staff routes, which B4's own tests already cover.
 - **Scenario 8e** (an owner using a staff route) is covered by the staff gate case in `StaffFinanceTests` (signed out and foreign origin are refused on all four statement routes); no non-staff session is built.
-- **6h** is `test_a_refused_edit_leaves_audit_evidence_pending_z8uq9mevfx`, decorated `unittest.expectedFailure` (the runner reports an unexpected success as a failure, so it is strict). Remove the decorator when z8uq9mevfx ships.
+- **6h** is `test_a_refused_edit_leaves_audit_evidence`. It was an expected failure until z8uq9mevfx; the marker is removed and the audit row is built (see the 6h row). A database-trigger refusal (raw SQL) still leaves no row: a trigger has no application context.
 - **K4's order activity** uses the shop order builder (verified, cancelled, pending review) on the site; the Pack order builder is not used.
 - **K10** also runs the billing emails (trial reminders, proof received, rejected, approved, renewal reminder, paused, trial ended, export notice) and checks each for the banned claims, for attachments, and for any statement number.
 - **K12** is `NoSecondCalculationPathTests` (a plain `unittest.TestCase`, no database).

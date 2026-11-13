@@ -129,6 +129,9 @@ class StatementNumberSeries(models.Model):
 class Statement(AppendOnlyMixin, models.Model):
     """One issued document. Insert-only."""
 
+    REFUSAL_TARGET_TYPE = "statement"  # a refused edit or delete is audited (managers.audit_refusal)
+    REFUSAL_ID_PATH = "public_id"
+
     class DocumentType(models.TextChoices):
         STATEMENT = "statement"
         ADJUSTMENT = "adjustment"  # a reduction; an increase is a new statement
@@ -209,6 +212,9 @@ class Statement(AppendOnlyMixin, models.Model):
 
 class StatementLine(AppendOnlyMixin, models.Model):
     """One line of a statement, frozen from the charge sources. Insert-only."""
+
+    REFUSAL_TARGET_TYPE = "statement"  # audited against the statement it belongs to
+    REFUSAL_ID_PATH = "statement__public_id"
 
     class Kind(models.TextChoices):
         BASE = "base"
