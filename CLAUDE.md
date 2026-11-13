@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This repository is the clean Django backend foundation for NegosyoOnline. It is independent of TWCinc. TWCinc may be consulted only to understand a confirmed legacy behavior; never copy its code, dependencies, secrets, or deployment configuration wholesale.
+This repository is the clean Django backend foundation for NegosyoOnline. It is independent of TWCinc. TWCinc code may be read and ported, adapted to this Django backend, the Vercel frontend apps, and our models, routes, and conventions; never paste it in unchanged, and never bring over its secrets, dependencies wholesale, or deployment configuration.
 
 ## Working rules
 

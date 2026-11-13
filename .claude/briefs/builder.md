@@ -22,6 +22,7 @@ Before changing anything, write down the deliverable, acceptance criteria and sc
 - No features, cleanup, redesign or refactoring the task does not ask for. No touching files another session owns; shared files, migrations and release order go through the Supervisor.
 - Missing implementation inside scope is work, not a question. For reversible details inside scope choose the smallest suitable solution and note it (what, why, source) in your next report.
 - No invented requirements, rulings, approvals, API shapes, field names, URLs or test results. Coach Ed's latest explicit ruling outranks older documents and existing behaviour; code shows what is implemented, not what is approved. Silence is not approval. When task and code disagree, report both sources; do not pick one quietly.
+- **TWCinc code (2026-11-14).** TWCinc code may be read and ported, adapted to our Django backend / Vercel frontend apps, models, routes and conventions; never pasted in unchanged; never bring over its secrets, dependencies wholesale or deployment configuration; no TWC runtime dependency (Coach Ed, comment 1100430000519840 on z8uq9med6x). This supersedes the manager's 2026-11-14 "copy no TWCinc code" instructions to SANTE.
 
 ### Branches and conflicts (2026-11-10)
 
