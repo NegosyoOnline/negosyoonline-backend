@@ -68,6 +68,12 @@ class ProductCreateIn(StrictSchema):
     height_cm: str | None = None
 
 
+class ProductOrderIn(StrictSchema):
+    """Every product of the catalog, active or not, once each, in the order to show them."""
+
+    product_ids: list[str] = Field(max_length=2000)
+
+
 class ProductUpdateIn(StrictSchema):
     """Only the keys sent are changed. A null for a value is refused with that field's
     message; there is no `code`, which is fixed after creation."""
@@ -136,6 +142,12 @@ def product_list(request, site_id: str):
 def product_create(request, site_id: str, payload: ProductCreateIn):
     product = services.create_product(request.account, request.catalog_site, payload.dict())
     return 201, services.product_out(product)
+
+
+@router.post("/sites/{site_id}/catalog/products/order/", response=ProductListOut)
+def product_order(request, site_id: str, payload: ProductOrderIn):
+    """Arrange (owner only): answers the owner list in the new order."""
+    return services.reorder_products(request.account, request.catalog_site, payload.product_ids)
 
 
 @router.patch("/sites/{site_id}/catalog/products/{product_id}/", response=ProductOut)

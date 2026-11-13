@@ -30,7 +30,8 @@ EXPECTED = {
     CatalogProduct: {
         "id": ("BigAutoField", None, False), "public_id": ("CharField", 40, False),
         "catalog": ("ForeignKey", ("catalog.Catalog", "PROTECT"), False),
-        **COPIED, "revision": ("PositiveIntegerField", None, False),
+        **COPIED, "display_order": ("PositiveIntegerField", None, False),
+        "revision": ("PositiveIntegerField", None, False),
         "created_at": ("DateTimeField", None, False), "updated_at": ("DateTimeField", None, False),
     },
     CatalogProductRevision: {

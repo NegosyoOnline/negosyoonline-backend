@@ -24,6 +24,7 @@ M = services.FIELD_MESSAGES
 ROUTES = [
     ("GET", "/sites/{site_id}/catalog/products/"),
     ("POST", "/sites/{site_id}/catalog/products/"),
+    ("POST", "/sites/{site_id}/catalog/products/order/"),
     ("PATCH", "/sites/{site_id}/catalog/products/{product_id}/"),
     ("GET", "/sites/{site_id}/catalog/products/{product_id}/revisions/"),
     ("POST", "/sites/{site_id}/catalog/products/{product_id}/image/"),
@@ -403,7 +404,7 @@ class IsolationTests(CatalogApiTestCase):
 
     def test_every_route_under_a_site_is_one_this_test_knows(self):
         self.assertEqual(sorted(routes_under_a_site(router)), sorted(ROUTES))
-        self.assertEqual(len(router.path_operations), 4)  # none outside a site
+        self.assertEqual(len(router.path_operations), 5)  # none outside a site
 
     def test_another_accounts_site(self):
         self.assert_same_404(self.ben_site.public_id)
@@ -445,6 +446,7 @@ class SwitchedOffTests(CatalogApiTestCase):
             lambda: self.get(self.products),
             lambda: self.create(),
             lambda: self.update(product.public_id, {"revision": 1, "name": "X"}),
+            lambda: self.arrange([product.public_id]),
             lambda: self.revisions(product.public_id),
             lambda: self.post(
                 f"{self.products}{product.public_id}/image/", {"revision": 1}

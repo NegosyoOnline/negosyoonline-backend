@@ -43,6 +43,7 @@ TURNED_OFF = [
     ("PATCH", "/sites/{site_id}/sante/settings/"),
     ("GET", "/sites/{site_id}/catalog/products/"),
     ("POST", "/sites/{site_id}/catalog/products/"),
+    ("POST", "/sites/{site_id}/catalog/products/order/"),
     ("PATCH", "/sites/{site_id}/catalog/products/{product_id}/"),
     ("GET", "/sites/{site_id}/catalog/products/{product_id}/revisions/"),
     ("POST", "/sites/{site_id}/catalog/products/{product_id}/image/"),
