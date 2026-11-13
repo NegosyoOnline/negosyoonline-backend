@@ -200,14 +200,31 @@ class PurgeScopeTests(PurgeBase):
 
 
 class PurgeProofFileTests(PurgeBase):
-    def test_images_stay_while_the_export_constant_is_none(self):
-        self.assertIsNone(purge.PROOF_EXPORT_READY_FROM)
-        self.assertEqual(len(self.proof_files()), 1)
+    def test_the_export_is_ready_from_the_manila_day_after_the_verified_deploy(self):
+        self.assertEqual(purge.PROOF_EXPORT_READY_FROM, date(2026, 11, 14))
+
+    def test_images_go_when_the_ready_day_is_not_after_the_service_end_day(self):
+        service_end_day = purge.portal.manila(SUSPENDED_AT).date()
+        self.assertLessEqual(purge.PROOF_EXPORT_READY_FROM, service_end_day)
+        self.assertTrue(purge.files_deletable(SUSPENDED_AT))
 
         self.purge_at(POINT)
 
+        self.assertEqual(self.proof_files(), [])
+
+    def test_images_stay_while_the_constant_is_none(self):
+        with mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None):
+            self.purge_at(POINT)
+
         self.assertEqual(len(self.proof_files()), 1)
         self.assertNotEqual(PackProofSubmission.objects.get(site=self.site).file_key, "")
+
+    def test_images_stay_when_the_site_ended_before_the_ready_day(self):
+        ended_day = purge.portal.manila(SUSPENDED_AT).date()
+        with mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", date.fromordinal(ended_day.toordinal() + 1)):
+            self.purge_at(POINT)
+
+        self.assertEqual(len(self.proof_files()), 1)
 
     def test_images_go_when_the_export_held_them_from_before_the_window(self):
         with mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", date(2026, 12, 1)):
@@ -294,9 +311,6 @@ class PurgeSwitchTests(PurgeBase):
         with mock.patch("apps.pack.purge.timezone") as clock:
             clock.now.return_value = POINT
             self.assertEqual(tasks.run_purge.apply().result, {"purged": 1, "failed": 0})
-
-    def test_the_export_constant_is_none_on_main(self):
-        self.assertIsNone(purge.PROOF_EXPORT_READY_FROM)
 
     def test_the_banner_carries_the_deletion_line_only_while_the_purge_is_on(self):
         self.at(POINT - days(5))

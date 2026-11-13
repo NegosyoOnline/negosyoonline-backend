@@ -41,7 +41,8 @@ class PerTableTests(RunTestCase):
             "shop_proofs": ShopProofSubmission._base_manager.count(),
             "subdomains": Subdomain.objects.count(), "sites": Site.objects.count(),
         }
-        self.result = self.run_batch(self.approved())
+        with mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None):  # gate closed
+            self.result = self.run_batch(self.approved())
 
     def test_the_run_erases_the_site(self):
         self.assertEqual(self.result["erased"], 1)
@@ -145,6 +146,7 @@ class KeptListTests(RunTestCase):
         subscription = Subscription.objects.get(pk=self.sub.pk)
         self.assertEqual(subscription.deletion_due_at, DUE)
 
+    @mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None)  # gate closed
     def test_no_billing_proof_key_is_deleted(self):
         key = private_files.save("billing/proofs", b"\x89PNG\r\n\x1a\n" + b"1" * 32, "image/png")
         BankTransferPayment.objects.create(
@@ -278,6 +280,7 @@ class IdempotenceTests(RunTestCase):
 
 
 class PackProofTests(RunTestCase):
+    @mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None)  # gate closed
     def test_a_pack_proof_file_is_never_deleted_while_the_export_gate_is_closed(self):
         deleted = []
         real = private_files.delete
@@ -292,6 +295,7 @@ class PackProofTests(RunTestCase):
         )
         self.assertIsNone(purge.PROOF_EXPORT_READY_FROM)
 
+    @mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None)  # gate closed
     def test_the_account_step_keeps_them_too_and_the_file_count_excludes_them(self):
         self.run_batch(self.approved())
         self.assertTrue(account_retention.is_disposed(Account.objects.get(pk=self.site.account_id)))
@@ -351,6 +355,7 @@ class FailureTests(RunTestCase):
         self.assertFalse(account_retention.is_disposed(Account.objects.get(pk=self.site.account_id)))
         self.assertEqual(self.fresh_batch(batch).status, "running")
 
+    @mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None)  # gate closed
     def test_a_later_run_with_the_store_fixed_erases_it_and_a_file_already_gone_counts(self):
         batch = self.approved()
         with self.fail_on_third():
@@ -620,6 +625,7 @@ class PackPurgeOverlapTests(RunTestCase):
             "members": list(Member.objects.order_by("pk").values_list("delivery_address", flat=True)),
         }
 
+    @mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None)  # gate closed
     def test_purge_first_then_executor_equals_executor_alone(self):
         CheckoutToken.objects.create(
             site=self.site, token_hash="t" * 64, expires_at=NOW, pending_contact={"email": "m@x.test"},
