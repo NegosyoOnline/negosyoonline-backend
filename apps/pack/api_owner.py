@@ -109,7 +109,8 @@ def row(order):
         "payment_status": order.payment_status, "created_at": order.created_at.isoformat(),
         "state_version": order.state_version, "price_centavos": order.price_centavos,
         "shipment_status": order.shipment_status, "shipping_enabled": settings.PACK_SHIPPING_ENABLED,
-        "courier": order.courier_name, "shipped_on": order.shipped_on.isoformat() if order.shipped_on else None,
+        "courier": order.courier_name, "tracking_number": order.tracking_number,
+        "shipped_on": order.shipped_on.isoformat() if order.shipped_on else None,
         "delivered_on": order.delivered_on.isoformat() if order.delivered_on else None,
     }
 
