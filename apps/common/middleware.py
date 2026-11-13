@@ -5,6 +5,8 @@ from django.utils.cache import patch_vary_headers
 
 from apps.common.errors import ApiError, error_body
 
+# The largest existing file limit is 20 MiB (the Santé agreement); the rest is the multipart form.
+MAX_REQUEST_BYTES = 21 * 1024 * 1024
 API_PREFIX = "/v1/"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 ALLOW_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
@@ -58,3 +60,25 @@ class ApiOriginMiddleware:
             response["Access-Control-Allow-Credentials"] = "true"
         patch_vary_headers(response, ["Origin"])
         return response
+
+
+class RequestSizeCapMiddleware:
+    """Answer 413 before any body is read when the declared size is above MAX_REQUEST_BYTES.
+
+    A body sent without a Content-Length is never read by Django (its stream is empty), so
+    there is nothing more to cap.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        try:
+            declared = int(request.META.get("CONTENT_LENGTH") or 0)
+        except ValueError:
+            declared = 0
+        if declared > MAX_REQUEST_BYTES:
+            return JsonResponse(
+                error_body("payload_too_large", "The request is too large."), status=413
+            )
+        return self.get_response(request)

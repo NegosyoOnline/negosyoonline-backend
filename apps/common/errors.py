@@ -4,6 +4,8 @@ import logging
 from django.http import Http404
 from ninja.errors import AuthenticationError, HttpError, ValidationError
 
+from apps.common import security_log
+
 logger = logging.getLogger(__name__)
 
 STATUS_CODES = {
@@ -19,8 +21,10 @@ STATUS_CODES = {
 class ApiError(Exception):
     """Raise from a view or service to answer with a specific code and status."""
 
-    def __init__(self, code, message, *, status=400, fields=None):
+    def __init__(self, code, message, *, status=400, fields=None, event=None, reason=None):
         super().__init__(message)
+        self.event = event  # a denial worth a `security` log line (apps/common/security_log.py)
+        self.reason = reason
         self.code = code
         self.message = message
         self.status = status
@@ -37,6 +41,8 @@ def error_body(code, message, fields=None):
 def register_error_handlers(api):
     @api.exception_handler(ApiError)
     def on_api_error(request, exc):
+        if exc.event:
+            security_log.log_denial(request, exc.event, exc.reason or "missing")
         return api.create_response(
             request, error_body(exc.code, exc.message, exc.fields), status=exc.status
         )

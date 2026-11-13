@@ -82,7 +82,7 @@ class SiteOut(Schema):
 def _site(host):
     site = services.served_sante_site(host)
     if site is None:
-        raise ApiError("not_found", "Not found.", status=404)
+        raise ApiError("not_found", "Not found.", status=404, event="site_not_found", reason="missing")
     return site
 
 
