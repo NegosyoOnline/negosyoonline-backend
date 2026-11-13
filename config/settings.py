@@ -85,8 +85,8 @@ SITE_URL = os.environ.get("SITE_URL", "http://localhost:3000").rstrip("/")
 # Admin two-step sign-in. The key encrypts authenticator secrets; with no key nobody can be
 # enrolled.
 ADMIN_SECRETS_KEY = os.environ.get("ADMIN_SECRETS_KEY", "").strip()
-# The one host that serves hq, the admin's console, and the admin lists behind its sign-in.
-# Empty means hq is off and the lists are served nowhere.
+# The one host that serves hq, the admin's console.
+# Empty means hq is off.
 HQ_HOST = os.environ.get("HQ_HOST", "").strip().lower()
 if HQ_HOST and HQ_HOST not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(HQ_HOST)
@@ -221,8 +221,7 @@ LEDGER_LIVE_BOOKS = os.environ.get("LEDGER_LIVE_BOOKS", "").strip() == "1"
 # Application definition
 
 INSTALLED_APPS = [
-    'apps.operators',  # before the admin, so its admin/base_site.html is the one used
-    'apps.operators.admin_config.HqAdminConfig',  # django.contrib.admin, opened only by hq
+    'apps.operators',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',

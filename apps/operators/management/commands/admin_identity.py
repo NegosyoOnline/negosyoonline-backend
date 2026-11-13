@@ -159,7 +159,7 @@ class Command(BaseCommand):
         )
         if uncovered:
             self.stdout.write(
-                "\nStaff users with no enrolled identity (they cannot open the admin lists):"
+                "\nStaff users with no enrolled identity (they cannot sign in to hq):"
             )
             for user in uncovered:
                 self.stdout.write(f"  {user.username}")

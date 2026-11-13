@@ -1,5 +1,4 @@
 """Everything the hq host serves. HqHostMiddleware selects this instead of config.urls."""
-from django.contrib import admin
 from django.urls import path, re_path
 
 from apps.operators import hq_views
@@ -10,9 +9,6 @@ urlpatterns = [
     path("code/", hq_views.code),
     path("verify/", hq_views.verify),
     path("sign-out/", hq_views.sign_out),
-    # The admin lists and their own CSS and script. Both need a session that passed both steps.
-    path("static/admin/<path:path>", hq_views.admin_static),
-    path("admin/", admin.site.urls),
     # Matched here rather than left to handler404, so that DEBUG shows the same page.
     re_path(r"^.*$", hq_views.not_found),
 ]

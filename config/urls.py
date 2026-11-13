@@ -27,7 +27,7 @@ def healthz(_request):
     return JsonResponse({"status": "ok", "commit": settings.RELEASE_COMMIT})
 
 urlpatterns = [
-    # No admin here: the admin lists are served only on the hq host (apps/operators/hq_urls.py).
+    # No admin here: the Django admin is switched off.
     path("healthz/", healthz, name="healthz"),
     # The SMS phone's calls. Outside /v1/, so they are not in the published API.
     path("gateway/v1/poll", gateway.poll),

@@ -2,7 +2,7 @@
 import json
 from datetime import timedelta
 
-from django.contrib import admin
+from django.apps import apps
 from django.utils import timezone
 
 from apps.inbox import reading, storing
@@ -161,9 +161,8 @@ class ReadingTests(ReadingCase):
         entry, = self.entries("sms_inbox_find")
         self.assertEqual(entry.detail, {"platform": "sms", "matches": 0})
 
-    def test_9_no_django_admin_screen(self):
-        registered = [m._meta.label for m in admin.site._registry if m._meta.app_label == "inbox"]
-        self.assertEqual(registered, [])
+    def test_9_the_django_admin_is_not_installed(self):
+        self.assertFalse(apps.is_installed("django.contrib.admin"))
 
 
 class PagingTests(ReadingCase):

@@ -28,7 +28,7 @@ Subscriber path and no admin screen. Every step is in the operator audit log. Th
 of chat, logs and output (`--file -` reads standard input; `--file <path>` a file on the machine
 running the command). Run on the `api` service, single-quoting the whole remote command.
 
-1. A catalog owner is set (`sante_catalog_owner_set`, existing). Set it on the HQ Settings page (coming in the next frontend PR; until then the admin list "Santé catalog owner" still works).
+1. A catalog owner is set (`sante_catalog_owner_set`, existing). Set it on the HQ Settings page.
 2. `draft --operator NAME --title T --label L --effective-date D --file -` stores the PDF as a draft; prints label and SHA-256.
 3. `publish --operator NAME --label L --reason "Authorized by <who>, filed at <where>"` makes it the active version.
 

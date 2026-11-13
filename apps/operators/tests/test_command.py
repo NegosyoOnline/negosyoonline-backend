@@ -172,7 +172,7 @@ class AdminIdentityCommandTests(TwoStepTestCase):
         self.assertIn("Staff users with no enrolled identity", output)
         self.assertIn("  coach", output)
         self.assertNotIn("  operator", output)
-        self.assertIn("(they cannot open the admin lists)", output)
+        self.assertIn("(they cannot sign in to hq)", output)
         self.assertNotIn("ADMIN_TWO_STEP_REQUIRED", output)
         self.assertNotIn("Warning", output)
         self.assertEqual(self.audit(), [])
