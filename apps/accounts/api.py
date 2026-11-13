@@ -116,6 +116,11 @@ class StepUpIn(Schema):
     purpose: str = Field(max_length=20)
 
 
+class StepUpVerifyIn(Schema):
+    purpose: str = Field(max_length=20)
+    code: str = Field(max_length=20)
+
+
 class MobileCodeIn(Schema):
     code: str = Field(max_length=20)
 
@@ -253,6 +258,12 @@ def email_change_step_up(request):
 @router.post("/account/step-up/", response={204: None}, auth=signed_in)
 def step_up(request, payload: StepUpIn):
     services.send_step_up(request.account, client_ip(request), payload.channel, payload.purpose)
+    return 204, None
+
+
+@router.post("/account/step-up/verify/", response={204: None}, auth=signed_in)
+def step_up_verify(request, payload: StepUpVerifyIn):
+    services.verify_step_up(request.account, payload.purpose, payload.code)
     return 204, None
 
 
