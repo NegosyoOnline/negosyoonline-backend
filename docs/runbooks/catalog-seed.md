@@ -71,6 +71,17 @@ configured."). The seed does not need them unless `--images-dir` is given.
    the catalog owner) shows 18; the storefront read for a served Santé host shows 18. A second
    run of step 4 prints `Created 0, skipped 18.` and writes nothing.
 
+## Main Santé site (catalog owner)
+
+The main Santé site, whose account owns the shared Santé catalog and template, is the
+Live4More site: public id `site_1tqtmvvpn6ksqv3b8b16`, display name "Sante Barley", account
+`admin@live4moreonline.store`, staging host `live4more.storefronts-staging.negosyonline.com`.
+
+On staging it is set as the catalog owner (`SanteCatalogOwner` pk 1). The operator sets the
+owner in HQ; the seed does not (it needs no owner, as above). This replaces the old E3 launch
+step O-E3-6 ("designate the main Santé Barley PH site as catalog owner"): at production launch
+the staging database is moved once into production, so the same site stays the owner.
+
 ## Undo
 
 There is none by deletion: products and revisions are never deleted. A mistaken seed row is
