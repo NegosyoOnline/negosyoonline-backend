@@ -137,6 +137,7 @@ This is the "runbooks for each" line of the working statement.
 | Support and exit | `docs/runbooks/support-and-exit.md` | Pass | GATES |
 | Retention, deletion and export | `docs/runbooks/retention.md` | Pass | GATES |
 | Billing | `docs/runbooks/billing.md` | Pass | BILLING |
+| No backup of private files (Vercel Blob private store); the restore test covers the database only. Medium | Payment proofs and other private uploads would be lost with no recovery if the store or account were lost, and some are records kept for years. Not a launch blocker on its own; whether to add a backup is a later decision. `docs/runbooks/backups-and-restore.md` sections 1 and 6 | Open | GATES |
 | SMS gateway | `docs/runbooks/sms-gateway.md` | Pass | HQ Supervisor |
 | Membership Package | `docs/runbooks/pack.md`, `docs/runbooks/membership-package-routes.md` | Pass | SANTE |
 | Migrations | `docs/runbooks/migrations.md` | Pass | GATES |
@@ -146,6 +147,8 @@ This is the "runbooks for each" line of the working statement.
 - Worker and beat run as root on staging: fix z8uq9mevfy (GATES).
 - Backup schedule boxes to confirm in the Backups tab (GATES).
 - Point-in-time recovery decision before production (GATES).
+- No backup of private files (Vercel Blob private store); the restore test covers the database only (GATES).
+- NPC P5 section 3 and section 5 wording about files in the restore test, to be corrected by its owner (HQ/NPC kit).
 - Sentry `SENTRY_DSN`: waits 30 days after the Privacy line is live (Coach Ed).
 - Public claim row on referral credits (Open).
 - Mobile and accessibility audit z8uq9m7ydk: findings above still Pending or Open (GATES, SANTE, BILLING, HQ Supervisor); Usage Admit and Dismiss to be re-checked in a browser once usage is turned on after launch (GATES).

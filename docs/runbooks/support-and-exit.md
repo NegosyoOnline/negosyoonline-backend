@@ -6,14 +6,14 @@ How staff handle a support request, a data export, and what closes when a site e
 
 By email to support@negosyoonline.com or by call or text to +63 917 309 8619 (the Terms, "Support and Complaints", step 1).
 
-- A privacy request (access, correction, deletion, objection) may also arrive at dpo@negosyoonline.com (Privacy Policy, section on privacy rights). It goes into HQ's privacy-request log. That log is HQ's and is not built or described here.
+- A privacy request (access, correction, deletion, objection) may also arrive at dpo@negosyoonline.com (Privacy Policy, section on privacy rights). It goes into the privacy-request log kept by the operator as part of the NPC practice kit (the spreadsheet described under the privacy manual P2, section 5; NPC Build 5 kit item D2), not in HQ. There is no HQ page for it.
 - A deletion request has its own steps: "A deletion request" in `docs/runbooks/retention.md`.
 
 ## 2. Reference number
 
 - Format `NS-YYYYMMDD-NN`: the date the request arrived, then a two-digit running number for that date.
 - It is given in the acknowledgement reply and kept in the subject line of every later message of the thread.
-- The mailbox thread is the support record (Coach Ed's ruling, relayed 2026-11-13). Nothing is copied to ClickUp or to any other tool.
+- The mailbox thread is the support record for a support request (Coach Ed's ruling, relayed 2026-11-13). Nothing is copied to ClickUp or to any other tool. The one exception is a privacy request, which also gets a row in the privacy-request log of section 1.
 - A support record never holds a sign-in code, a proof of payment or any payment detail. If a customer sends one, do not quote or forward it.
 - Where a command asks for `--request-ref`, give the reference number. It must be a number, never a name or an address: the command refuses an address, because the value is written to the audit record (`apps/accounts/retention.py:101-106`).
 
