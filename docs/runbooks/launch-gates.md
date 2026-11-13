@@ -2,7 +2,7 @@
 
 ClickUp z8uq9m7ydn. Draft prepared 2026-11-13 against main `dc17431`. This file lists what must be shown before public launch, and before the first real buyer on staging (staging holds live Santé data). It approves nothing. A gate passes only on linked evidence: a merged pull request, a test module, a runbook, or a dated staging check. A row with no link is Pending or Not run, never Pass.
 
-How to read Status. **Pass**: the evidence in the row exists and is linked. For gates 2 to 4, a merged pull request and its test module show that the behaviour is built and tested in CI. They do not show it working on staging; the walkthrough rows in each table are for that and stay Not run until someone runs and dates them. **Pending**: work or a decision is still open. **Not run**: a check that has not been performed yet.
+How to read Status. **Pass**: the evidence in the row exists and is linked. For gates 2 to 4, a merged pull request and its test module show that the behaviour is built and tested in CI. They do not show it working on staging; the walkthrough rows in each table are for that and stay Not run until someone runs and dates them. **Pending**: work or a decision is still open. **Not run**: a check that has not been performed yet. **Open**: an audit finding that is reported and not yet fixed or accepted.
 
 Owners: GATES, SANTE, BILLING, HQ Supervisor. "BE #N" is backend pull request https://github.com/NegosyoOnline/negosyoonline-backend/pull/N and "FE #N" is frontend pull request https://github.com/NegosyoOnline/negosyoonline-frontend/pull/N. Owners for gates 2 to 4 are the list the work belongs to; the Supervisor of each list should confirm them. Test paths are in the backend repository.
 
@@ -80,7 +80,18 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Account disposal and deletion request steps | BE #52; `apps/accounts/tests/test_disposal.py`; `docs/runbooks/retention.md` | Pass | GATES |
 | Help Center, five articles (z8uq9mekvc) | FE #60; task ACCEPTED | Pass | GATES |
 | Help Center, second subtask (z8uq9memmp), including article 5 | FE #64 (merged 5144a12); task ACCEPTED; Coach Ed approved the article 5 staging visual test on 2026-11-13 | Pass | GATES |
-| Mobile and accessibility audit (z8uq9m7ydk) | HQ Supervisor is running it; no report linked yet | Pending | HQ Supervisor |
+| Mobile and accessibility audit (z8uq9m7ydk), summary | ClickUp z8uq9m7ydk comments 1100430000510246 (pass 1, signed-out pages) and 1100430000510420 (pass 2, signed-in pages and keyboard), 2026-11-13. Two passes on local TEST builds, headless Chrome at 390 and 1400 px, manual (no axe or Lighthouse). No High findings. Rows below are the findings and the gaps; the audit passes when each is fixed or accepted by Coach Ed | Pending | HQ Supervisor |
+| Audit: site eyebrow, compare and timeline gold text contrast (2.26 to 3.96, target 4.5), and the `#switch-mode` button 23 px high at 390. Medium | Proposal branch `fix/z8uq9m7ydk-site-contrast@cf028b4` awaits Coach Ed's OK | Pending | GATES |
+| Audit: dash Help Center h3 subheadings invisible in dark theme (contrast 1.05). Medium | Fixed on main by FE #64 (5144a12). Regression test on `fix/z8uq9memqv-dash-dark-h3-seal-label@4c82946`, queued for frontend round 2 | Pass | GATES |
+| Audit: dash Business Settings seal file input `#bs-seal-file` has no label. Low | Same branch `fix/z8uq9memqv-dash-dark-h3-seal-label@4c82946`, not merged | Pending | GATES |
+| Audit: Santé storefront home images about 3.3 MB at 390 (4.3 MB at 1400). Medium | Pass 1 comment 1100430000510246; no fix yet | Open | SANTE |
+| Audit: storefront product card image links are empty (no name, a tab stop). Medium | Pass 1 comment 1100430000510246; no fix yet | Open | SANTE |
+| Audit: storefront contrast (star rating 2.20, contact labels 3.79, "Clear Basket" 3.58, "We typically respond" 4.02). Medium | Pass 1 comment 1100430000510246; no fix yet | Open | SANTE |
+| Audit: storefront home shows three h1s; Basket icon link is 22 px. Low | Pass 1 comment 1100430000510246; no fix yet | Open | SANTE |
+| Audit: storefront has no skip link and only the browser's default 1 px focus ring. Low | Pass 2 comment 1100430000510420; no fix yet | Open | SANTE |
+| Audit: HQ Finance "Replaced" tab sits off-screen at 390 with no scroll cue. Low | Pass 2 comment 1100430000510420; no fix yet | Open | HQ Supervisor |
+| Audit: public site home page overflowed sideways at 390 (comment 1100430000509383) | Pass 1 confirmed fixed: page is 390 wide, the comparison table scrolls in its own box | Pass | GATES |
+| Audit: not covered yet: member signed-in pages (My Orders, account) and form error states | Not covered by passes 1 and 2; SANTE is giving HQ a test member | Pending | HQ Supervisor |
 
 ## Gate 6: Runbooks
 
@@ -104,7 +115,7 @@ This is the "runbooks for each" line of the working statement.
 - Uptime check account and its email alert not created (Coach Ed); this is also what turns the SMS offline log line into an alert.
 - Sentry account and `SENTRY_DSN` not created; waits 30 days after the Privacy line is live (Coach Ed).
 - Export dry run on a test account named as a test (Coach Ed's word).
-- Mobile and accessibility audit z8uq9m7ydk (HQ Supervisor).
+- Mobile and accessibility audit z8uq9m7ydk: findings above still Pending or Open (GATES, SANTE, HQ Supervisor); member signed-in pages and form error states not covered by passes 1 and 2.
 - Facebook replay window tests are on a ready branch and not yet merged (GATES).
 - Dated staging walkthroughs for gates 2 and 3 (Not run); ended-site 404 not checked on staging.
 - Production does not exist yet. Every staging item must be repeated for production once it does.
