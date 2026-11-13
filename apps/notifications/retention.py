@@ -25,19 +25,15 @@ CHALLENGE_KEPT = timedelta(hours=24)
 _LOCK_KEPT = 2 * 24 * 3600
 
 
-# The emails to a Subscriber about billing: the records of them are billing records (Privacy,
+# The payment emails to a Subscriber: the records of them are billing records (Privacy,
 # section 8), kept under BILLING_RECORD_YEARS below, not the 2-year rule. Named here once; the
 # codes are the `code` passed to `_send_once` in apps/billing/notices.py, sent as `billing_<code>`.
-# Left out: `billing_staff_proof_waiting` (an internal alert to staff, no billing document) and
-# `invoice_queue_alert` (internal, apps/invoices/alert.py). The statements and invoices apps send
-# no email.
-BILLING_DOCUMENT_CATEGORIES = tuple(
-    f"billing_{code}"
-    for code in (
-        "proof_received", "payment_approved", "payment_rejected",
-        "trial_reminder_1d", "trial_reminder_3d", "renewal_reminder_3d", "renewal_reminder_7d",
-        "trial_ended", "service_paused", "export_notice",
-    )
+# Only the emails tied to a payment and its Billing Statement. The trial and renewal reminders,
+# trial_ended, service_paused and export_notice are notices, not billing records, so they stay
+# on the 2-year rule ("2 years, then deleted"); so do billing_staff_proof_waiting (a staff
+# alert) and invoice_queue_alert (internal). The statements and invoices apps send no email.
+BILLING_DOCUMENT_CATEGORIES = (
+    "billing_proof_received", "billing_payment_approved", "billing_payment_rejected",
 )
 
 # Privacy: kept at least 5 years, counted from the day after the filing deadline of the tax

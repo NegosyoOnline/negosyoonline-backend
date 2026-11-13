@@ -90,6 +90,14 @@ class BillingEmailRecordsRetentionTests(TestCase):
             self.left(), sorted(notifications_retention.BILLING_DOCUMENT_CATEGORIES)
         )
 
+    def test_a_billing_notice_that_is_not_a_payment_email_is_deleted_at_2_years(self):
+        now = self.at(2031, 6, 1)
+        for code in ("trial_reminder_1d", "renewal_reminder_7d", "trial_ended",
+                     "service_paused", "export_notice"):
+            self.record(f"billing_{code}", self.at(2028, 1, 10))
+        retention.run_all(now=now, only=[RULE])
+        self.assertEqual(self.left(), [])
+
     def test_a_non_billing_record_is_still_deleted_at_2_years(self):
         now = self.at(2031, 6, 1)
         self.record("signin_code", now - timedelta(days=731))
