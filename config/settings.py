@@ -162,6 +162,9 @@ BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").stri
 # The one address told when a bank transfer proof waits for review (a shared mailbox). Empty
 # sends no alert.
 BILLING_STAFF_ALERT_EMAIL = os.environ.get("BILLING_STAFF_ALERT_EMAIL", "").strip()
+# The service-end export notice to the owner of a cancelled site. "1" sends it (still only
+# while BILLING_ENABLED and payment collection are live). Off, nothing is read or sent.
+OWNER_NOTICES_ENABLED = os.environ.get("OWNER_NOTICES_ENABLED", "").strip() == "1"
 # Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints.
 # Off, the endpoints answer 404 and the Santé tables are not read or written.
 SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() == "1"
@@ -365,6 +368,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "invoices.ensure_items",
         "schedule": BILLING_SWEEP_EVERY_SECONDS,
         "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
+    },
+    # One email a day to the active staff while an invoice waits to be written, at 08:00 Manila
+    # time. Does nothing while BILLING_INVOICE_REGISTER_ENABLED is off. A tick not picked up
+    # within the hour is dropped: it would no longer be the morning alert.
+    "invoices-daily-alert": {
+        "task": "invoices.daily_alert",
+        "schedule": crontab(hour=8, minute=0),
+        "options": {"expires": 3600},
     },
     # Issues the statement of any confirmed payment that has none. Does nothing while
     # BILLING_STATEMENTS_ENABLED is off.
