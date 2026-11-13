@@ -142,6 +142,8 @@ Check every 1 to 5 minutes, alert after two failures in a row. Production gets t
 
 `apps/common/sentry.py`, started from `config/settings.py` only when `SENTRY_DSN` is set. With no DSN it does nothing. Set it on `api` and `worker` (and `beat`) by name, value from the Sentry project, with Coach Ed's word.
 
+Before SENTRY_DSN is set anywhere, staging included: Sentry is a new sub-processor, and the published Terms give Subscribers 30 days' notice. The Privacy page must first list "Sentry, error reports from our servers, in the United States;" (HQ's change; HQ records the date it goes live on ClickUp z8uq9mbreu). The DSN may be set no earlier than 30 days after that date. The Sentry account must be created in the US data region, or the Privacy line changes first.
+
 - Errors only: `traces_sample_rate=0`, `send_default_pii=False`.
 - `before_send` removes the request body, cookies, query string and headers (Authorization included) and the user, and masks anything that looks like an email address or a Philippine mobile number in messages, exception values and breadcrumbs.
 - Covers the API (Django integration) and the Celery worker.
