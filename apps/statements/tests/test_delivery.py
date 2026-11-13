@@ -23,7 +23,7 @@ DASHBOARD = "https://dash.example.test"
 def make(**fields):
     values = dict(
         bill_to={"name": "Ana Cruz", "email": "x@example.test"}, period_start=WHEN,
-        period_end=WHEN + timedelta(days=30), total_centavos=249900,
+        period_end=WHEN + timedelta(days=30), total_centavos=249900, is_test=False,
     )
     values.update(fields)
     return make_statement(new_subscription(), **values)
@@ -110,6 +110,16 @@ class DeliverTests(TestCase):
         with override_settings(BILLING_STATEMENTS_ENABLED=False):
             self.assertIsNone(delivery.deliver(statement))
             self.assertEqual(tasks.deliver(), 0)
+        self.assertEqual(mail.outbox, [])
+        self.assertFalse(StatementDelivery.objects.exists())
+
+    def test_a_test_statement_is_never_mailed_and_leaves_no_row(self):
+        statement = make(is_test=True)
+
+        self.assertIsNone(delivery.deliver(statement))
+        self.assertIsNone(delivery.deliver(statement, manual=True))
+        self.assertEqual(delivery.due(), [])
+        self.assertEqual(tasks.deliver(), 0)
         self.assertEqual(mail.outbox, [])
         self.assertFalse(StatementDelivery.objects.exists())
 
@@ -231,6 +241,18 @@ class ResendTests(StaffTestCase):
         detail = self.post("detail/", {"statement": failed.public_id}).json()
         self.assertEqual(detail["deliveries"][0]["status"], "failed")
 
+    def test_a_test_statement_is_refused_with_409_and_no_audit(self):
+        statement = make(is_test=True)
+        self.staff_sign_in()
+
+        self.assertError(
+            self.post("resend/", {"statement": statement.public_id}), 409, "test_document"
+        )
+
+        self.assertFalse(OperatorAuditEntry.objects.filter(action="billing_statement_resent"))
+        self.assertEqual(self.statement_mail(), [])
+        self.assertFalse(StatementDelivery.objects.exists())
+
     def test_gates_adjustments_unknown_ids_and_switch_off(self):
         statement = make()
         self.assertError(self.post("resend/", {"statement": statement.public_id}), 401, "unauthenticated")
@@ -245,6 +267,7 @@ class ResendTests(StaffTestCase):
         self.assertEqual(self.statement_mail(), [])
 
 
+@override_settings(BILLING_LIVE_DOCUMENTS=True)
 class AfterIssueTests(IssueCase):
     def test_the_safety_net_mails_each_new_statement_once(self):
         payment = self.paid()

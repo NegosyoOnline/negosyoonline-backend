@@ -253,6 +253,10 @@ def statements_resend(body, operator):
             "invalid_request", "Some values are missing or invalid.",
             fields={"statement": ["Only a statement can be sent."]},
         )
+    if statement.is_test:
+        raise ApiError(
+            "test_document", "A test statement is never emailed.", status=409
+        )
     row = delivery.deliver(statement, manual=True)
     audit.record(
         operator, "billing_statement_resent", target_type="statement",

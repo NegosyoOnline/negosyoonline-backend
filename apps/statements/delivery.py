@@ -6,7 +6,7 @@ billing email (else the account email), with no attachment: it carries the numbe
 the period, the exact label and a link to the Billing page. A failed attempt keeps only a code.
 The beat task retries with a backoff until 5 attempts have been made, then the delivery stays
 failed and shows in HQ for a manual resend. Nothing is sent while the statements switch is off,
-and a disposed address is never mailed. Wording approved by Coach Ed, 2026-11-14.
+a test statement is never mailed, and a disposed address is never mailed. Wording approved by Coach Ed, 2026-11-14.
 """
 import logging
 from datetime import timedelta
@@ -62,9 +62,11 @@ def body_for(statement):
 
 def deliver(statement, *, manual=False):
     """One attempt. Returns the `StatementDelivery` row, or None when nothing was attempted
-    (switch off, not a statement, already delivered, or out of attempts). `manual=True` is a
+    (switch off, not a statement, a test statement, already delivered, or out of attempts). `manual=True` is a
     staff resend: it always makes one more attempt, even after a delivery or five failures."""
     if not switch.statements_enabled() or statement.document_type != Statement.DocumentType.STATEMENT:
+        return None
+    if statement.is_test:  # a test document is never mailed, even on a staff resend
         return None
     with transaction.atomic():
         locked = (
@@ -126,7 +128,7 @@ def due(now=None):
     now = now or timezone.now()
     found = []
     candidates = (
-        Statement.objects.filter(document_type=Statement.DocumentType.STATEMENT)
+        Statement.objects.filter(document_type=Statement.DocumentType.STATEMENT, is_test=False)
         .exclude(deliveries__status=StatementDelivery.Status.SENT)
         .prefetch_related("deliveries").order_by("pk")
     )
