@@ -10,13 +10,15 @@ the same rows at once, with no draft step. An owner write is not written to the 
 audit; the revision table is its record.
 
 Lock order of a write: the catalog owner row, then the caller's Site row, then the Catalog
-row (a create) or the product row (an update).
+row (a create or a reorder) or the product row (an update).
 """
+import hashlib
 import re
 from decimal import Decimal
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.db.models import Max
 
 from apps.catalog import media, pricing
 from apps.catalog.models import Catalog, CatalogProduct, CatalogProductRevision
@@ -108,12 +110,13 @@ def is_writer(site, *, lock=False):
 
 
 def products_for_site(site, *, include_inactive=False):
-    """The products of the catalog the site reads, oldest first. Empty when it reads none or
+    """The products of the catalog the site reads, in shop order: (display_order, pk), which is
+    creation order until the owner first arranges them. Empty when it reads none or
     nothing was written yet. Never creates the catalog row."""
     key = catalog_key_for(site)
     if not key:
         return CatalogProduct.objects.none()
-    products = CatalogProduct.objects.filter(catalog__template_key=key).order_by("pk")
+    products = CatalogProduct.objects.filter(catalog__template_key=key).order_by("display_order", "pk")
     return products if include_inactive else products.filter(is_active=True)
 
 
@@ -178,7 +181,7 @@ def public_product_out(product):
 
 
 def storefront_products(site):
-    """The active products of the site's catalog, in creation order."""
+    """The active products of the site's catalog, in shop order."""
     return [public_product_out(product) for product in products_for_site(site)]
 
 
@@ -361,6 +364,13 @@ def _owner_writer(account, site):
     }
 
 
+def _next_display_order(catalog):
+    """The position after the last product of the catalog. Only inside a write that holds the
+    Catalog row lock."""
+    highest = catalog.products.aggregate(highest=Max("display_order"))["highest"]
+    return 0 if highest is None else highest + 1
+
+
 def _code_taken():
     return ApiError("code_taken", CODE_TAKEN_MSG, status=409, fields={"code": [CODE_TAKEN_MSG]})
 
@@ -381,7 +391,8 @@ def create_product(account, site, data):
     try:
         with transaction.atomic():
             product = CatalogProduct.objects.create(
-                catalog=catalog, revision=1, is_active=True, **cleaned
+                catalog=catalog, revision=1, is_active=True,
+                display_order=_next_display_order(catalog), **cleaned,
             )
     except IntegrityError:
         raise _code_taken() from None
@@ -417,6 +428,38 @@ def update_product(account, site, product_id, data):
     product.save(update_fields=[*changed, "revision", "updated_at"])
     _append_revision(product, **_owner_writer(account, site))
     return product
+
+
+ORDER_MSG = (
+    "Send every product of the catalog exactly once. The catalog may have changed, so reload "
+    "the list and try again."
+)
+
+
+@transaction.atomic
+def reorder_products(account, site, product_ids):
+    """Arrange: set the shop position of every product (active and inactive) to its place in
+    `product_ids`, which must name each product of the catalog exactly once. The Catalog row
+    and every product row are locked, so two reorders and a create queue. Writes no revision:
+    the order is not a product value, and a revision bump would make a form open in another tab
+    stale. A product left in its place is not written."""
+    site = _writer_site(account, site)
+    catalog = _locked_catalog(catalog_key_for(site))
+    products = list(
+        CatalogProduct.objects.select_for_update(of=("self",)).filter(catalog=catalog).order_by("pk")
+    )
+    if len(set(product_ids)) != len(product_ids) or set(product_ids) != {
+        product.public_id for product in products
+    }:
+        raise _invalid({"product_ids": ORDER_MSG})
+    place = {public_id: number for number, public_id in enumerate(product_ids, start=1)}
+    moved = []
+    for product in products:
+        if product.display_order != place[product.public_id]:
+            product.display_order = place[product.public_id]
+            moved.append(product)
+    CatalogProduct.objects.bulk_update(moved, ["display_order"])
+    return list_for(site)
 
 
 # The product image
@@ -557,7 +600,7 @@ def seed_products(rows, *, operator, file_sha256, images=None):
                     stored.append(key)
                 product = CatalogProduct.objects.create(
                     catalog=catalog, code=code, revision=1, is_active=True, image_key=key,
-                    **cleaned,
+                    display_order=_next_display_order(catalog), **cleaned,
                 )
                 existing[code] = product
                 _append_revision(
@@ -567,6 +610,79 @@ def seed_products(rows, *, operator, file_sha256, images=None):
                     changed_by_operator_username=operator.get_username(),
                     seed_file_sha256=file_sha256,
                 )
+    except BaseException:
+        for key in stored:
+            media.discard(key)
+        raise
+    return result
+
+
+# Product images set by an operator (manage.py catalog_set_images)
+
+def image_outcome(product, replace):
+    """What catalog_set_images does with one image file for `product` (None: no such product)."""
+    if product is None:
+        return "skip (no such product)"
+    if product.image_key and not replace:
+        return "skip (has image)"
+    return "set"
+
+
+def image_state(images, *, replace=False):
+    """[(code, outcome)] for the image files in `images` ({code: (bytes, type)}), writing
+    nothing. None while the catalog is switched off: the products are not read."""
+    if not enabled():
+        return None
+    products = {
+        product.code: product
+        for product in CatalogProduct.objects.filter(
+            catalog__template_key="sante", code__in=list(images)
+        )
+    }
+    return [(code, image_outcome(products.get(code), replace)) for code in sorted(images)]
+
+
+def set_images_as_operator(images, *, operator, replace=False):
+    """Store `images` ({code: (bytes, content type)}) as the images of the Santé products of
+    those codes. One transaction: all or none. A product that has an image is left alone unless
+    `replace`. Each product set gets a revision with source "seed", `operator` (an active staff
+    user) and, as the file hash, the SHA-256 of the image bytes. A replaced file is removed once
+    committed; a new file whose change failed is removed at once. Returns what image_state gives,
+    taken under the lock."""
+    stored = []
+    try:
+        with transaction.atomic():
+            catalog = Catalog.objects.select_for_update().filter(template_key="sante").first()
+            products = {}
+            if catalog is not None:
+                products = {
+                    product.code: product
+                    for product in CatalogProduct.objects.select_for_update(of=("self",)).filter(
+                        catalog=catalog, code__in=list(images)
+                    )
+                }
+            result = []
+            for code in sorted(images):
+                product = products.get(code)
+                outcome = image_outcome(product, replace)
+                result.append((code, outcome))
+                if outcome != "set":
+                    continue
+                content, content_type = images[code]
+                key = media.save(content, content_type)
+                stored.append(key)
+                old_key = product.image_key
+                product.image_key = key
+                product.revision += 1
+                product.save(update_fields=["image_key", "revision", "updated_at"])
+                _append_revision(
+                    product,
+                    source=CatalogProductRevision.SEED,
+                    changed_by_operator_user_id=operator.pk,
+                    changed_by_operator_username=operator.get_username(),
+                    seed_file_sha256=hashlib.sha256(content).hexdigest(),
+                )
+                transaction.on_commit(lambda old_key=old_key: media.discard(old_key))
     except BaseException:
         for key in stored:
             media.discard(key)

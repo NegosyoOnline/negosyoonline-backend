@@ -94,6 +94,7 @@ OWNER_ROUTES = {
     # catalog (one shared catalog: these routes get the foreign-site check only)
     ("GET", "/sites/{site_id}/catalog/products/"): 200,
     ("POST", "/sites/{site_id}/catalog/products/"): 201,
+    ("POST", "/sites/{site_id}/catalog/products/order/"): 200,
     ("PATCH", "/sites/{site_id}/catalog/products/{product_id}/"): 200,
     ("GET", "/sites/{site_id}/catalog/products/{product_id}/revisions/"): 200,
     ("POST", "/sites/{site_id}/catalog/products/{product_id}/image/"): 200,
@@ -392,6 +393,10 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return {"sponsor_id": "TAKEN-1"}
         if "/catalog/" in template:
             self.product.refresh_from_db()
+            if template.endswith("/products/order/"):
+                return {"product_ids": list(
+                    CatalogProduct.objects.order_by("pk").values_list("public_id", flat=True)
+                )}
             if method == "PATCH":
                 return {"revision": self.product.revision, "name": self.product.name}
             self.creates += 1

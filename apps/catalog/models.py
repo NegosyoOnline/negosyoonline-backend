@@ -61,6 +61,11 @@ class CatalogProduct(models.Model):
     srp_centavos = models.PositiveBigIntegerField()
     earnings_rate = models.DecimalField(max_digits=5, decimal_places=4)
     is_active = models.BooleanField(default=True)
+    # The shop position set by the owner's Arrange (services.reorder_products). Products are
+    # listed by (display_order, pk): every row starts at 0, so until the first reorder the order
+    # is creation order. A new product is put after the last (services._next_display_order).
+    # Not part of a revision: a reorder is a presentation change, not a product change.
+    display_order = models.PositiveIntegerField(default=0)
     revision = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)

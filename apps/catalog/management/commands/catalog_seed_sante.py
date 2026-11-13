@@ -22,11 +22,10 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.catalog import media, services
-from apps.common import private_files
+from apps.catalog.management.image_files import read_images
 from apps.common.errors import ApiError
 
 DEFAULT_FILE = Path(__file__).resolve().parents[2] / "seed" / "sante_catalog_2026-11.json"
-IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 
 
 def _load(path):
@@ -44,49 +43,6 @@ def _load(path):
 def _error_text(error):
     fields = "; ".join(f"{name}: {' '.join(msgs)}" for name, msgs in (error.fields or {}).items())
     return f"{error.message} {fields}".strip()
-
-
-def _images(folder, codes):
-    """{code: (bytes, content type)} for the files of `folder` named by a code in the seed.
-    Other files are ignored. A named file that is not an allowed image refuses the run."""
-    found = {}
-    directory = Path(folder)
-    if not directory.is_dir():
-        raise CommandError("--images-dir is not a folder.")
-    for path in sorted(directory.iterdir()):
-        code = path.stem.upper()
-        if path.suffix.lower() not in IMAGE_EXTENSIONS or code not in codes or not path.is_file():
-            continue
-        if code in found:
-            raise CommandError(f"More than one image file is named for {code}.")
-        try:
-            with open(path, "rb") as handle:
-                upload = _Upload(handle.read(media.MAX_BYTES + 1))
-            found[code] = private_files.check(
-                upload, allowed=private_files.IMAGE_TYPES, max_bytes=media.MAX_BYTES
-            )
-        except (OSError, private_files.FileRefused):
-            raise CommandError(f"The image for {code} is not a JPEG, PNG or WebP of 2 MB or less.") from None
-    return found
-
-
-class _Upload:
-    """Just enough of an uploaded file for private_files.check: the browser's declared type
-    is taken from the bytes, since a folder has none."""
-
-    def __init__(self, content):
-        self._content = content
-        self.size = len(content)
-        self.content_type = private_files.sniff(content[:16])
-        self._at = 0
-
-    def seek(self, at):
-        self._at = at
-
-    def read(self, count):
-        chunk = self._content[self._at:self._at + count]
-        self._at += len(chunk)
-        return chunk
 
 
 def _describe(outcome):
@@ -117,7 +73,7 @@ class Command(BaseCommand):
         if options["images_dir"]:
             if apply and not media.configured():
                 raise CommandError("--images-dir needs the media store: it is not configured.")
-            images = _images(options["images_dir"], {row.get("code") for row in rows})
+            images = read_images(options["images_dir"], {row.get("code") for row in rows})
         try:
             if apply:
                 result = services.seed_products(

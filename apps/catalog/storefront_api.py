@@ -5,7 +5,7 @@
 
 Behind SANTE_CATALOG_ENABLED. An unknown host, a site that is not a Santé site, the switch
 off, an unknown product and an inactive product all answer the same 404. Active products only,
-in creation order. The credential check wraps every route in apps/storefront/api.py.
+in shop order (display_order, then creation). The credential check wraps every route in apps/storefront/api.py.
 
 A product is shown by `services.public_product_out`: never the earnings rate, a writer, the
 revision history, `is_active`, a weight, a size or a file key. Prices are whole centavos.

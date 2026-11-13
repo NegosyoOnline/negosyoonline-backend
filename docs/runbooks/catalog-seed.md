@@ -21,6 +21,15 @@ hash. Production is never covered. Nothing here runs by itself.
 - Command `catalog_seed_sante`. Its default is a dry run.
 - Owner routes `POST` and `DELETE /v1/sites/{site_id}/catalog/products/{product_id}/image/`,
   and the storefront reads `GET /storefront/v1/catalog/products/` and `/{public_id}/`.
+- Arrange (migration `catalog.0003_product_display_order`, additive): the owner route
+  `POST /v1/sites/{site_id}/catalog/products/order/` takes `{"product_ids": [...]}`, every
+  product of the catalog (active and hidden) exactly once, and sets the shop order for every
+  Santé store. Lists and the storefront read `(display_order, id)`; every row starts at 0, so
+  the order stays today's creation order until the first Arrange, and a new product (create or
+  seed) goes last. An Arrange writes no product revision and no operator audit; to undo one,
+  Arrange again. The migration is run like `0002` (staging by the Supervisor, production
+  never without Coach Ed's approval) and is reversible (`migrate catalog 0002` drops the
+  column and the order falls back to creation order).
 
 ## Variables (read by `config/settings.py`; names only, values are Coach Ed's to set)
 
@@ -81,6 +90,38 @@ On staging it is set as the catalog owner (`SanteCatalogOwner` pk 1). The operat
 owner in HQ; the seed does not (it needs no owner, as above). This replaces the old E3 launch
 step O-E3-6 ("designate the main Santé Barley PH site as catalog owner"): at production launch
 the staging database is moved once into production, so the same site stays the owner.
+
+## Adding images to existing products
+
+`catalog_set_images` gives images to products already in the catalog (the seed only images the
+products it creates). Files are named `<CODE>.jpg|.jpeg|.png|.webp` (any letter case), each a
+JPEG, PNG or WebP of 2 MB or less; the same check as the seed, and one bad file refuses the
+whole run. It needs `PUBLIC_BLOB_READ_WRITE_TOKEN` and `PUBLIC_MEDIA_BASE_URL` on the service
+for `--apply` only.
+
+1. Copy the files into a folder the `api` service can read (for example `/tmp/product-images/`
+   on the running container, copied in with `railway ssh`; the folder is not in the repo).
+2. Dry run. It writes nothing and prints one line per file, then a summary:
+
+   ```
+   railway ssh -p <project-id> -e staging -s api -- uv run python manage.py catalog_set_images --images-dir /tmp/product-images
+   ```
+
+   `CODE: would set`, `CODE: skip (has image)` or `CODE: skip (no such product)`, then
+   `Dry run, would set N, skipped M.` Check the codes against the catalog.
+3. Only on Coach Ed's word, write (whole remote command single-quoted):
+
+   ```
+   railway ssh -p <project-id> -e staging -s api -- 'uv run python manage.py catalog_set_images --images-dir /tmp/product-images --apply --operator <staff username>'
+   ```
+
+   It refuses, writing nothing, without `--operator` (an active staff user), while
+   `SANTE_CATALOG_ENABLED` and `SANTE_SETTINGS_ENABLED` are not both on, or with the media
+   store not configured. All images are one transaction: all or none. Each product set gets a
+   revision (source `seed`, naming the operator; the revision's file hash is the SHA-256 of the
+   image). A product that already has an image is skipped unless `--replace` is added, and the
+   replaced file is removed once the change is committed. Output never shows a key or token.
+4. Verify: the owner list shows `image_url` for those products and the storefront read does too.
 
 ## Undo
 
