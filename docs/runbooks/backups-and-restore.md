@@ -6,10 +6,12 @@ Production does not exist yet. Everything below names staging; production gets t
 
 ## 1. What is backed up, and what is not
 
+**Scope: the restore covers the database only.** The files in the private Vercel Blob store (payment proofs and uploaded seals, among others, listed below) have no backup and are not part of any restore test. The business continuity note (NPC P5, outside this repository) says files are covered by the yearly restore test and that one private file is restored. That is not true today; the note must be corrected by its owner before it is signed.
+
 | Data | Backed up? | Where it lives |
 |---|---|---|
 | PostgreSQL | Railway's scheduled volume backups (below). | Railway Postgres service. |
-| Private Blob files (billing proofs, statement and invoice PDFs, payment QR, pack files) | No. Vercel Blob keeps no versions; a deleted file is gone. | Private Vercel Blob store, `PRIVATE_BLOB_READ_WRITE_TOKEN`. |
+| Private Blob files (billing proofs, shop payment proofs, statement and invoice PDFs, payment QR, pack files, membership agreement files, business seals) | No. Vercel Blob keeps no versions; a deleted file is gone. | Private Vercel Blob store, `PRIVATE_BLOB_READ_WRITE_TOKEN`. |
 | Public Blob files (catalog images) | No. Same as above. | Public Vercel Blob store, `PUBLIC_BLOB_READ_WRITE_TOKEN`. |
 | Redis | No, by design. | Railway Redis. Holds sign-in and verification codes, throttle counters, the encrypted text of queued SMS, the Celery queue and the beat heartbeat. Losing it expires codes and drops queued SMS texts. |
 | Variables | By name only, here and in `docs/runbooks/billing.md`. Values are in Railway (api, worker, beat) and Vercel and nowhere in the repository. | Railway service variables; Vercel project variables. |
@@ -17,7 +19,8 @@ Production does not exist yet. Everything below names staging; production gets t
 ### Railway database backups (read from Railway's documentation on 2026-11-13)
 
 - Schedules a volume can use: daily (every 24 hours, kept 6 days), weekly (every 7 days, kept 27 days), monthly (every 30 days, kept 89 days). Several can be selected; manual backups are possible. Set under the service's Backups tab.
-- What staging has set, seen by Coach Ed in staging Postgres > Backups on 2026-11-13: at first there was no schedule and no backups at all, with PITR off. This was a gap. He then set a schedule (the screen showed "Next backup in 12 hours") and took an on-demand volume backup, 2026-11-13 19:33, 1.11 GB. Schedule boxes: to confirm.
+- What staging has set, seen by Coach Ed in staging Postgres > Backups on 2026-11-13: at first there was no schedule and no backups at all, with PITR off. This was a gap. He then set a schedule (the screen showed "Next backup in 12 hours") and took an on-demand volume backup, 2026-11-13 19:33, 1.11 GB. Schedule boxes: to confirm. Retention: 6 days for a daily backup per Railway's documentation, not confirmed in the console.
+- History: on 2026-11-09 a screenshot of Coach Ed's (NPC Build 4, z8uq9md33y, comment 1100430000451493) showed the staging backup schedule as Daily, with weekly and monthly not set. The 2026-11-13 read found no schedule. Why the two differ is not known: the schedule may have been removed between those dates, or the earlier view may have shown something else. The 2026-11-13 read above is the current state.
 - PITR is left off on purpose: it costs more and redeploys the database. Revisit before production.
 - **A volume backup can only be restored in place**, into the same project and environment. It cannot go to a separate service. Restoring mounts a new volume (named with the backup's date stamp) at the original path; the previous volume stays unmounted in the project; the change takes effect when you click Deploy, which redeploys the service. Newer backups stay with the previous volume.
 - Point-in-time recovery (PITR) is different: it creates a sibling Postgres service at a chosen time and leaves the source untouched. It must be enabled first and only covers the time after it was enabled (a window of about four weeks). It is not enabled on staging as far as this runbook knows.
@@ -30,7 +33,7 @@ Rows hold keys only; a file has a key and no row link in the other direction. Af
 - A row may point at a file that was deleted after the restore point.
 - A file may exist with no row (uploaded after the restore point).
 
-Keys are stored in these columns: `catalog` category and product `image_key`, `billing` `BankTransferPayment.proof_key`, `invoices` `store_key`, `statements` `pdf_key`, `pack` `file_key`, and the payment account's QR key (`apps/payments/models.py`). To find rows pointing at a missing file, list the store's keys (Vercel dashboard, or the store's list API with the read-write token on your own machine) and compare with `uv run python manage.py shell`:
+Keys are stored in these columns: `catalog` category and product `image_key`, `billing` `BankTransferPayment.proof_key`, `invoices` `store_key`, `statements` `pdf_key`, `pack` `file_key`, `shop` `ShopProofSubmission.file_key`, `sante` `MembershipAgreementVersion.storage_key`, `sites` `SiteBusinessProfile.seal_key`, and the payment account's QR key (`apps/payments/models.py`). To find rows pointing at a missing file, list the store's keys (Vercel dashboard, or the store's list API with the read-write token on your own machine) and compare with `uv run python manage.py shell`:
 
 ```python
 from apps.billing.models import BankTransferPayment
@@ -163,6 +166,8 @@ Before SENTRY_DSN is set anywhere, staging included: Sentry is a new sub-process
 Pause the uptime monitors (or put them in the service's maintenance window) before step 2 of section 2, and resume them at the end. The Sentry alert needs no silencing. Never delete a monitor to silence it.
 
 ## 6. Restore test (staging only, run 2026-11-13)
+
+**Scope: this test and any restore test cover the database only.** Private files in the Vercel Blob private store (payment proofs, uploaded seals, payment QR codes, billing proofs, statement PDFs, invoice scans, agreement and pack files; `apps/common/private_files.py`) have no backup and were not tested. The NPC P5 note (outside this repository) saying files are covered by the yearly restore test, with one private file restored, is not true today and must be corrected by its owner before it is signed.
 
 Run on 2026-11-13. Evidence: the "Restore test" row in `docs/runbooks/launch-gates.md` (Gate 5). No production data, no change to staging itself.
 

@@ -396,6 +396,13 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": BILLING_SWEEP_EVERY_SECONDS,
         "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
     },
+    # Emails issued statements and retries failed deliveries (5 attempts). Does nothing while
+    # BILLING_STATEMENTS_ENABLED is off.
+    "statements-deliver": {
+        "task": "statements.deliver",
+        "schedule": BILLING_SWEEP_EVERY_SECONDS,
+        "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
+    },
     # Re-queues any Purchase or AddPaymentInfo delivery to Meta that is still waiting. Does
     # nothing while META_EVENTS_ENABLED is off.
     "meta-ads-sweep": {
