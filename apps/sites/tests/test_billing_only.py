@@ -16,6 +16,8 @@ from apps.catalog.api import router as catalog_router
 from apps.catalog.tests.base import catalog_call
 from apps.pack.api_owner import router as pack_router
 from apps.pack.tests.owner_base import pack_call
+from apps.shop.api_owner import router as shop_router
+from apps.shop.tests.owner_base import shop_call
 from apps.payments.api import router as payments_router
 from apps.accounts.tests.base import ORIGIN
 from apps.common import private_files
@@ -53,6 +55,13 @@ TURNED_OFF = [
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"),
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/approve/"),
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/reject/"),
+    ("GET", "/sites/{site_id}/shop/orders/"),
+    ("GET", "/sites/{site_id}/shop/orders/{order_id}/"),
+    ("GET", "/sites/{site_id}/shop/orders/{order_id}/proofs/{proof_id}/"),
+    ("POST", "/sites/{site_id}/shop/orders/{order_id}/confirm-receipt/"),
+    ("POST", "/sites/{site_id}/shop/orders/{order_id}/cancel/"),
+    ("POST", "/sites/{site_id}/shop/orders/{order_id}/ship/"),
+    ("POST", "/sites/{site_id}/shop/orders/{order_id}/deliver/"),
 ]
 # These answer 201 when they work.
 CREATED = [
@@ -78,7 +87,7 @@ SANTE_BODY = {"sponsor_id": "TAKEN-1"}
 
 @override_settings(
     BILLING_ENABLED=True, SANTE_SETTINGS_ENABLED=True, SANTE_CATALOG_ENABLED=True,
-    PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True,
+    PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True, SHOP_ENABLED=True,
 )
 class BillingOnlyTestCase(SitesApiTestCase):
     def setUp(self):
@@ -106,6 +115,8 @@ class BillingOnlyTestCase(SitesApiTestCase):
             return catalog_call(self, method, path, client=client)
         if "/pack/" in path:
             return pack_call(self, method, path, client=client)
+        if "/shop/" in path:
+            return shop_call(self, method, path, client=client)
         if "/payment-methods/" in path:
             return payments_call(self, method, path, client=client)
         if path.endswith("/business-profile/seal/"):
@@ -278,6 +289,7 @@ class RouteInventoryTests(BillingOnlyTestCase):
             + routes_under_a_site(catalog_router)
             + routes_under_a_site(payments_router)
             + routes_under_a_site(pack_router)
+            + routes_under_a_site(shop_router)
         )
 
     def test_every_route_under_a_site_is_turned_off_or_allowed_by_name(self):
