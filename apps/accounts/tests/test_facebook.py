@@ -120,3 +120,49 @@ class FacebookClientTests(SimpleTestCase):
             with self.assertLogs("apps.accounts.facebook", level="WARNING"):
                 with self.assertRaises(facebook.BadSignedRequest):
                     facebook.parse_signed_request(value)
+
+
+NOW = 1_800_000_000
+
+
+@override_settings(FACEBOOK_APP_ID="app-id", FACEBOOK_APP_SECRET=SECRET)
+class SignedRequestReplayWindowTests(SimpleTestCase):
+    """The parser refuses a request issued over 24 hours ago or over 5 minutes ahead."""
+
+    def parse(self, **overrides):
+        # Only the parser's clock is fixed, so the bounds are exact.
+        with mock.patch("apps.accounts.facebook.time") as clock:
+            clock.time.return_value = NOW
+            return facebook.parse_signed_request(signed_request(secret=SECRET, **overrides))
+
+    def test_a_request_one_second_over_24_hours_old_is_stale(self):
+        with self.assertLogs("apps.accounts.facebook", level="WARNING"):
+            with self.assertRaises(facebook.StaleSignedRequest):
+                self.parse(issued_at=NOW - 24 * 3600 - 1)
+
+    def test_a_request_6_minutes_ahead_is_stale(self):
+        with self.assertLogs("apps.accounts.facebook", level="WARNING"):
+            with self.assertRaises(facebook.StaleSignedRequest):
+                self.parse(issued_at=NOW + 6 * 60)
+
+    def test_requests_exactly_on_both_bounds_are_accepted(self):
+        for issued_at in (NOW - 24 * 3600, NOW + 5 * 60, NOW):
+            with self.subTest(issued_at=issued_at):
+                self.assertEqual(self.parse(issued_at=issued_at), "fb-1")
+
+    def test_a_missing_issued_at_is_bad_not_stale(self):
+        data = {"algorithm": "HMAC-SHA256", "user_id": "fb-1"}
+        payload = _b64(json.dumps(data).encode())
+        signature = hmac.new(SECRET.encode(), payload.encode(), hashlib.sha256).digest()
+        with self.assertLogs("apps.accounts.facebook", level="WARNING"):
+            with self.assertRaises(facebook.BadSignedRequest) as caught:
+                facebook.parse_signed_request(f"{_b64(signature)}.{payload}")
+        self.assertNotIsInstance(caught.exception, facebook.StaleSignedRequest)
+
+    def test_a_string_bool_or_null_issued_at_is_bad_not_stale(self):
+        for bad in ("1800000000", True, None, [NOW]):
+            with self.subTest(issued_at=bad):
+                with self.assertLogs("apps.accounts.facebook", level="WARNING"):
+                    with self.assertRaises(facebook.BadSignedRequest) as caught:
+                        self.parse(issued_at=bad)
+                self.assertNotIsInstance(caught.exception, facebook.StaleSignedRequest)
