@@ -26,7 +26,8 @@ class ReadyzTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertJSONEqual(
             response.content,
-            {"ok": True, "db": True, "cache": True, "beat": True, "sms_queue": True, "email": True},
+            {"ok": True, "db": True, "cache": True, "beat": True, "sms_queue": True, "email": True,
+             "files_backup": True},
         )
 
     def test_db_failure_is_503(self):
@@ -137,6 +138,21 @@ class ReadyzTests(TestCase):
     def test_email_failures_older_than_the_window_are_ignored(self):
         self._emails("failed", 3, age=timedelta(minutes=31))
         self.assertEqual(self.get().status_code, 200)
+
+    def test_files_backup_off_is_true_and_calls_nothing(self):
+        with mock.patch.object(views, "_files_backup_fresh") as fresh:
+            self.assertTrue(self.get().json()["files_backup"])
+        fresh.assert_not_called()
+
+    @override_settings(FILE_BACKUP_ENABLED=True, FILE_BACKUP_STALE_HOURS=36)
+    def test_files_backup_on_flips_the_status_when_stale_or_never_run(self):
+        response = self.get()
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.json()["files_backup"])
+        cache.set("file_backup:last_ok", timezone.now().timestamp(), None)
+        self.assertEqual(self.get().status_code, 200)
+        cache.set("file_backup:last_ok", (timezone.now() - timedelta(hours=37)).timestamp(), None)
+        self.assertEqual(self.get().status_code, 503)
 
     def test_email_pending_counts_neither_way(self):
         self._emails("failed", 3)

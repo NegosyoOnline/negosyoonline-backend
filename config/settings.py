@@ -187,6 +187,21 @@ PRIVATE_BLOB_READ_WRITE_TOKEN = os.environ.get("PRIVATE_BLOB_READ_WRITE_TOKEN", 
 PRIVATE_FILES_DIR = os.environ.get("PRIVATE_FILES_DIR", "").strip() or str(
     BASE_DIR / ".private-files"
 )
+# Private file backup (apps/file_backup): a daily copy of the private Blob store to a Railway
+# Storage Bucket, encrypted before upload. "1" turns on the daily run and the /readyz/
+# `files_backup` field. Off, the task and the field call no client. All read here and nowhere
+# else; the values are set on the `worker` service only.
+FILE_BACKUP_ENABLED = os.environ.get("FILE_BACKUP_ENABLED", "").strip() == "1"
+FILE_BACKUP_BUCKET = os.environ.get("FILE_BACKUP_BUCKET", "").strip()
+FILE_BACKUP_ENDPOINT = os.environ.get("FILE_BACKUP_ENDPOINT", "").strip()
+FILE_BACKUP_REGION = os.environ.get("FILE_BACKUP_REGION", "").strip()
+FILE_BACKUP_ACCESS_KEY_ID = os.environ.get("FILE_BACKUP_ACCESS_KEY_ID", "").strip()
+FILE_BACKUP_SECRET_ACCESS_KEY = os.environ.get("FILE_BACKUP_SECRET_ACCESS_KEY", "").strip()
+# base64 of 32 random bytes. Lose it and the backup cannot be read: keep a copy.
+FILE_BACKUP_ENCRYPTION_KEY = os.environ.get("FILE_BACKUP_ENCRYPTION_KEY", "").strip()
+# How long a copy outlives its source object, and how old the last good run may be in /readyz/.
+FILE_BACKUP_DELETED_KEEP_DAYS = int(os.environ.get("FILE_BACKUP_DELETED_KEEP_DAYS", "35"))
+FILE_BACKUP_STALE_HOURS = int(os.environ.get("FILE_BACKUP_STALE_HOURS", "36"))
 # Product photos (apps/catalog/media.py): the read-write token of the public Vercel Blob media
 # store and that store's public host (not a secret). Read here and nowhere else. With either
 # unset, no product photo can be uploaded; the rest of the catalog works.
@@ -290,6 +305,7 @@ INSTALLED_APPS = [
     'apps.inquiries',
     'apps.ledger',
     'apps.lifecycle',
+    'apps.file_backup',
 ]
 
 AUTH_USER_MODEL = "operators.User"
@@ -426,6 +442,14 @@ CELERY_BEAT_SCHEDULE = {
     "retention-daily": {
         "task": "retention.run",
         "schedule": crontab(hour=3, minute=0),
+        "options": {"expires": 3600},
+    },
+    # The private file backup, once a day at 04:00 Manila time (after the 03:00 retention run).
+    # Does nothing, and calls no store, while FILE_BACKUP_ENABLED is off. A tick not picked up
+    # within the hour is dropped: the next day's run copies everything new.
+    "file-backup-daily": {
+        "task": "file_backup.run",
+        "schedule": crontab(hour=4, minute=0),
         "options": {"expires": 3600},
     },
     # The Membership Pack buyer purge and the day-76 buyer email, each hourly. Both do nothing
