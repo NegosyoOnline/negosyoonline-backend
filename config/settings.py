@@ -82,6 +82,21 @@ FACEBOOK_APP_SECRET = os.environ.get("FACEBOOK_APP_SECRET", "")
 # site's sign-in popup when it did not. No trailing slashes.
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3001").rstrip("/")
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:3000").rstrip("/")
+# The six account emails (sign-in code, Facebook confirmation, email change code, and the three
+# security notices) as branded HTML with a plain-text part. "1" turns it on; off, they are the
+# plain text they always were. Turn on only once the Resend domain is verified.
+ACCOUNT_EMAILS_BRANDED = os.environ.get("ACCOUNT_EMAILS_BRANDED", "").strip() == "1"
+# Account Settings email change: "1" asks for a code sent to the current address before the
+# change can start, and answers a taken address like a free one. Off: the change works as it did.
+ACCOUNT_EMAIL_CHANGE_HARDENED = os.environ.get("ACCOUNT_EMAIL_CHANGE_HARDENED", "").strip() == "1"
+# What a store's members and buyers are emailed (member codes and notices, Pack buyer emails): a
+# branded HTML layout, a plain-text part, and, where the store has one, the store's own From
+# address from STORE_SENDERS. "1" turns it on; off, they are the plain text they always were.
+STORE_EMAILS_BRANDED = os.environ.get("STORE_EMAILS_BRANDED", "").strip() == "1"
+# `key=address` pairs, comma separated, where key is a store's web-address name or site id, e.g.
+# `live4more=orders@liveformore.com`. Set by the operator only; the domain must be verified in
+# Resend first. A store with no pair sends from DEFAULT_FROM_EMAIL under its own name.
+STORE_SENDERS = os.environ.get("STORE_SENDERS", "").strip()
 # Admin two-step sign-in. The key encrypts authenticator secrets; with no key nobody can be
 # enrolled.
 ADMIN_SECRETS_KEY = os.environ.get("ADMIN_SECRETS_KEY", "").strip()
@@ -183,6 +198,11 @@ MEMBERS_ENABLED = os.environ.get("MEMBERS_ENABLED", "").strip() == "1"
 # they answer the 404 of an unknown site and no pack table is read or written. Needs
 # MEMBERS_ENABLED, SANTE_AGREEMENT_ENABLED and a private file store (see apps/pack/checks.py).
 PACK_ENABLED = os.environ.get("PACK_ENABLED", "").strip() == "1"
+# Shipment by hand on a Membership Pack order (PK-SHIP): the Subscriber records courier and tracking,
+# corrects them and marks delivery; the buyer is emailed on shipped and delivered. "1" turns it on.
+# Off, its three owner routes answer 404, no shipment email is sent and the dash shows no shipment
+# control. Needs PACK_ENABLED and migration pack.0004 (see apps/pack/checks.py).
+PACK_SHIPPING_ENABLED = os.environ.get("PACK_SHIPPING_ENABLED", "").strip() == "1"
 # The Santé shop (apps/shop): cart quote, checkout with bank-transfer proof, product orders and the
 # Subscriber's order review. "1" turns on its storefront and owner routes. Off, every one of them
 # answers the 404 of an unknown site and no shop table is read or written. Needs

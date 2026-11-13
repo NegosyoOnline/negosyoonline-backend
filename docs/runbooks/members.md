@@ -13,7 +13,7 @@ Migration `members.0001` (tables for members, sessions, sign-in challenges, reco
 
 ## Routes
 
-All are `POST`, JSON, `Authorization: Bearer <STOREFRONT_SERVER_SECRET>`, answers `Cache-Control: no-store`, and set no cookie. The storefronts server holds the visitor's cookie and the browser `binding` (16 to 200 characters, opaque, the same value for every step of one sign-in) and passes the raw session token as data. The Subscriber recovery routes (`/v1/sites/...`) are a later slice; `recovery.py` and `contact_change.py` hold the service logic only.
+All are `POST`, JSON, `Authorization: Bearer <STOREFRONT_SERVER_SECRET>`, answers `Cache-Control: no-store`, and set no cookie. The storefronts server holds the visitor's cookie and the browser `binding` (16 to 200 characters, opaque, the same value for every step of one sign-in) and passes the raw session token as data. Signed-in change-mobile and change-email are built (`apps/members/api.py`). The Subscriber recovery routes (`/v1/sites/...`) are listed under Subscriber recovery below.
 
 | Route | Body | Answer |
 |---|---|---|
@@ -24,6 +24,20 @@ All are `POST`, JSON, `Authorization: Bearer <STOREFRONT_SERVER_SECRET>`, answer
 | `member/signout/` | `host`, `token` | `{"status": "signed_out"}`, also for a token that is already gone |
 
 An unknown host, a host that is not a served Santé site, and the switch off all answer `404 {"error": {"code": "not_found", "message": "Not found."}}`.
+
+## Subscriber recovery routes (ClickUp z8uq9mek5y)
+
+Owner session (not the storefront secret), `apps/members/api_owner.py`, prefix `/v1/sites/{site_id}/members/`. Gated by `MEMBERS_ENABLED` (off: every route 404, signed in or not); a missing, foreign or non-Santé site is 404, a Billing-only site 403. Every answer is `Cache-Control: no-store` and carries masked contacts only. Ids are public ids; a member of another site is 404.
+
+| Route | Purpose |
+|---|---|
+| `GET members/?q=` | Search by name, mobile or email (2+ characters, 20 rows). |
+| `GET members/by-order/?ids=` | The member row (masked contacts, running hold) for each Membership Package order id. |
+| `GET members/{id}/recovery/` | Member row, checklist items with what the store holds, hold, recent recoveries, failed checks, `locked`. |
+| `POST members/{id}/recovery/check/` | `{answers: {item: matched\|not_matched}}` records the owner-attested check (15 minutes, single use). |
+| `POST members/{id}/recovery/` | `{check_id, new_email, new_mobile?}` saves the new contact as pending, starts the 24-hour hold, revokes sessions, tells the old contacts. |
+
+Limits per account: search 60 per 10 minutes, check 10 per hour, recover 5 per day (cache; per process without `REDIS_URL`). There is no per-member lock: failed checks are audited and limited only by the per-account check rate, and a recovery during a running hold restarts the 24-hour hold and notifies the old verified contacts again (the Subscriber owns the recovery of their members, Coach Ed 2026-11-13). A closed member is 409 `member_closed`. While texts are off (`sms.available()` false) `new_email` is required (422 `email_required`), because a mobile sign-in goes to the old email. The Membership Package order number is a checklist item when the member has an order (`apps/pack/recovery_item.py`). No migration.
 
 ## Rules
 

@@ -35,6 +35,14 @@ class PackRetentionTests(PackTestCase):
         self.assertEqual((proof.sender_name, proof.file_key, proof.reference_number), ("", "", ""))
         self.assertEqual(proof.amount_sent_centavos, 148800)
 
+    def test_blanking_keeps_the_shipment(self):
+        PackOrder.objects.update(
+            payment_status="verified", courier="lbc", tracking_number="LBC1", shipment_recorded_at=timezone.now(),
+        )
+        retention.blank_packs_of(self.account_row)
+        order = PackOrder.objects.get()
+        self.assertEqual((order.buyer_name, order.courier, order.tracking_number), ("", "lbc", "LBC1"))
+
     def test_a_dry_run_changes_nothing(self):
         retention.blank_packs_of(self.account_row, dry_run=True)
         self.assertEqual(len(self.proof_files()), 1)

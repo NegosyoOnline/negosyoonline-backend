@@ -7,9 +7,15 @@ from apps.common import private_files
 
 @register(deploy=True)
 def check_pack_dependencies(app_configs, **kwargs):
-    if not settings.PACK_ENABLED:
-        return []
     found = []
+    if settings.PACK_SHIPPING_ENABLED and not settings.PACK_ENABLED:
+        found.append(Error(
+            "PACK_SHIPPING_ENABLED is on but PACK_ENABLED is not.",
+            hint="Shipment is recorded on Membership Pack orders; turn PACK_ENABLED on first.",
+            id="pack.E003",
+        ))
+    if not settings.PACK_ENABLED:
+        return found
     if not settings.MEMBERS_ENABLED:
         found.append(Error(
             "PACK_ENABLED is on but MEMBERS_ENABLED is not.",

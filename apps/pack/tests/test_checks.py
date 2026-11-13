@@ -18,3 +18,11 @@ class PackChecksTests(SimpleTestCase):
     @override_settings(PACK_ENABLED=True, MEMBERS_ENABLED=True, SANTE_AGREEMENT_ENABLED=True)
     def test_on_with_dependencies_has_no_errors(self):
         self.assertFalse({"pack.E001", "pack.E002"} & self.ids())
+
+    @override_settings(PACK_ENABLED=False, PACK_SHIPPING_ENABLED=True)
+    def test_shipping_needs_the_pack_switch(self):
+        self.assertIn("pack.E003", self.ids())
+
+    @override_settings(PACK_ENABLED=False, PACK_SHIPPING_ENABLED=False)
+    def test_shipping_off_is_silent(self):
+        self.assertNotIn("pack.E003", self.ids())

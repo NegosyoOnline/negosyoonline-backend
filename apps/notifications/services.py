@@ -7,7 +7,7 @@ from email.utils import parseaddr
 from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ValidationError
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives, send_mail
 from django.core.validators import validate_email
 from django.db import transaction
 from django.utils import timezone
@@ -33,13 +33,24 @@ def _has_line_break(value):
     return "\r" in value or "\n" in value
 
 
-def _named_sender(sender_name):
-    """`"Store name" <the address of DEFAULT_FROM_EMAIL>`. Only the name changes: the address
-    the mail is sent from is always ours."""
+def _named_sender(sender_name, from_address=""):
+    """`"Store name" <address>`. The address is that of DEFAULT_FROM_EMAIL unless the caller
+    gives `from_address` (an operator-set store sender, never user input)."""
     if _has_line_break(sender_name):
         raise ValueError("The sender name holds a line break.")
     name = sender_name.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{name}" <{parseaddr(settings.DEFAULT_FROM_EMAIL)[1]}>'
+    address = from_address or parseaddr(settings.DEFAULT_FROM_EMAIL)[1]
+    return f'"{name}" <{address}>'
+
+
+def _checked_from_address(from_address):
+    try:
+        if _has_line_break(from_address):
+            raise ValidationError("line break")
+        validate_email(from_address)
+    except ValidationError:
+        raise ValueError("The From address is not one valid email address.") from None
+    return from_address
 
 
 def _checked_reply_to(reply_to):
@@ -52,28 +63,44 @@ def _checked_reply_to(reply_to):
     return reply_to
 
 
-def _deliver(to, subject, body, sender_name, reply_to):
-    if not sender_name and not reply_to:
+def _deliver(to, subject, body, sender_name, reply_to, html_body="", from_address=""):
+    if from_address:
+        from_address = _checked_from_address(from_address)
+    if html_body:
+        message = EmailMultiAlternatives(
+            subject, body,
+            _named_sender(sender_name, from_address) if sender_name else (from_address or settings.DEFAULT_FROM_EMAIL),
+            [to],
+            reply_to=[_checked_reply_to(reply_to)] if reply_to else None,
+        )
+        message.attach_alternative(html_body, "text/html")
+        message.send()
+        return
+    if not sender_name and not reply_to and not from_address:
         send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [to])
         return
     mail.EmailMessage(
         subject, body,
-        _named_sender(sender_name) if sender_name else settings.DEFAULT_FROM_EMAIL,
+        _named_sender(sender_name, from_address) if sender_name else (from_address or settings.DEFAULT_FROM_EMAIL),
         [to],
         reply_to=[_checked_reply_to(reply_to)] if reply_to else None,
     ).send()
 
 
-def send_email(*, to, category, subject, body, sender_name="", reply_to=""):
+def send_email(*, to, category, subject, body, sender_name="", reply_to="", html_body="", from_address=""):
     """`sender_name` is the name shown beside our own From address, `reply_to` the one address
     a reply goes to. Neither may hold a line break, and `reply_to` must be a valid address:
-    otherwise nothing is sent and the send is recorded as failed, like any other bad header."""
+    otherwise nothing is sent and the send is recorded as failed, like any other bad header.
+    `html_body`, when given, is sent as the HTML alternative of the plain-text `body`; empty,
+    the email is plain text exactly as before. `from_address` replaces the address of
+    DEFAULT_FROM_EMAIL for a store's own sender (see store_email.py); it must be one valid
+    address with no line break, else nothing is sent and the send is recorded as failed."""
     if is_disposed_address(to):  # a disposed contact is never emailed, and no record is kept
         logger.warning("Email refused: the recipient is a disposed account (category=%s)", category)
         raise EmailNotSent()
     message = EmailMessage.objects.create(recipient=to, category=category)
     try:
-        _deliver(to, subject, body, sender_name, reply_to)
+        _deliver(to, subject, body, sender_name, reply_to, html_body, from_address)
     except Exception:
         logger.exception("Email send failed (category=%s)", category)
         message.status = EmailMessage.Status.FAILED
