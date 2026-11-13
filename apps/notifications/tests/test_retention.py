@@ -131,6 +131,35 @@ class BillingEmailRecordsRetentionTests(TestCase):
         self.assertEqual(self.left(), ["billing_payment_approved"])
 
 
+class DisposalKeepsBillingDocumentRecordsTests(TestCase):
+    ADDRESS = "ana@example.test"
+
+    def setUp(self):
+        for category in ("billing_payment_approved", "billing_proof_received", "signin_code"):
+            EmailMessage.objects.create(recipient=self.ADDRESS, category=category)
+
+    def test_disposal_keeps_the_billing_records_and_deletes_the_others(self):
+        self.assertEqual(notifications_retention.delete_records_for(self.ADDRESS, dry_run=True), 1)
+        self.assertEqual(EmailMessage.objects.count(), 3)
+        self.assertEqual(notifications_retention.delete_records_for(self.ADDRESS), 1)
+        self.assertEqual(
+            sorted(EmailMessage.objects.values_list("category", flat=True)),
+            ["billing_payment_approved", "billing_proof_received"],
+        )
+        exported = notifications_retention.export_records_for(self.ADDRESS)
+        self.assertEqual(len(exported), 2)
+
+    @override_settings(RETENTION_ENABLED=True)
+    def test_the_kept_record_is_deleted_by_email_messages_past_its_cutoff(self):
+        notifications_retention.delete_records_for(self.ADDRESS)
+        now = datetime(2031, 6, 1, tzinfo=notifications_retention.MANILA)
+        EmailMessage.objects.update(created_at=datetime(2025, 3, 1, tzinfo=notifications_retention.MANILA))
+        retention.run_all(now=datetime(2031, 4, 30, tzinfo=notifications_retention.MANILA), only=[RULE])
+        self.assertEqual(EmailMessage.objects.count(), 2)
+        retention.run_all(now=now, only=[RULE])
+        self.assertEqual(EmailMessage.objects.count(), 0)
+
+
 class EarlierAddressRecordsTests(TestCase):
     """The send records of an address an account used before an email change (called only by
     account disposal)."""
@@ -163,6 +192,14 @@ class EarlierAddressRecordsTests(TestCase):
         self.assertEqual(notifications_retention.delete_earlier_records_for(self.periods), 3)
         self.assertFalse(EmailMessage.objects.filter(pk__in=gone).exists())
         self.assertEqual(EmailMessage.objects.filter(pk__in=stay).count(), 5)
+
+    def test_a_billing_document_record_to_the_old_address_stays(self):
+        stay = [self.record(c, -timedelta(days=5)) for c in notifications_retention.BILLING_DOCUMENT_CATEGORIES]
+        gone = self.record("signin_code", -timedelta(days=5))
+        self.assertEqual(notifications_retention.delete_earlier_records_for(self.periods, dry_run=True), 1)
+        self.assertEqual(notifications_retention.delete_earlier_records_for(self.periods), 1)
+        self.assertFalse(EmailMessage.objects.filter(pk=gone).exists())
+        self.assertEqual(EmailMessage.objects.filter(pk__in=stay).count(), 3)
 
     def test_no_earlier_address_deletes_nothing(self):
         self.record("signin_code", timedelta(0))
