@@ -1,5 +1,4 @@
 """Helpers shared by the billing tests. Time is always passed in; no test reads the clock."""
-import json
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from unittest import mock
@@ -8,7 +7,7 @@ from django.test import override_settings
 
 from apps.accounts.models import Account
 from apps.billing import clock, plan, proofs, services
-from apps.billing.models import Subscription
+from apps.billing.models import ReceivingAccount, Subscription
 from apps.common import private_files
 from apps.operators.models import User
 from apps.sites.models import Site
@@ -84,10 +83,21 @@ def make_suspended(**kwargs):
 JPEG = b"\xff\xd8\xff\xe0" + b"proof-one" * 20
 PNG = b"\x89PNG\r\n\x1a\n" + b"proof-two" * 20
 PDF = b"%PDF-1.7\n" + b"proof-three" * 20
-TEST_ACCOUNTS = json.dumps([
+TEST_ACCOUNTS = [
     {"kind": "bank", "provider_name": "Test Bank", "account_name": "Test Receiver",
      "account_number": "0000 0000 00"},
-])
+]
+
+
+def make_receiving_account(accounts=None, **fields):
+    """Active receiving accounts (the made-up TEST_ACCOUNTS unless told otherwise). Returns the rows."""
+    staff, _ = User.objects.get_or_create(username="receiving-account-seed", defaults={"is_staff": True})
+    rows = []
+    for number, values in enumerate(accounts if accounts is not None else TEST_ACCOUNTS):
+        rows.append(ReceivingAccount.objects.create(
+            **{**values, "sort_order": number, **fields}, created_by=staff, updated_by=staff,
+        ))
+    return rows
 
 
 class MemoryProofStore:
@@ -110,14 +120,17 @@ class MemoryProofStore:
 def transfers_on():
     """Bank transfer switched on, with a made-up receiving account and a store in memory."""
     store = MemoryProofStore()
-    with override_settings(
-        BILLING_BANK_TRANSFER_ENABLED=True, BILLING_TRANSFER_ACCOUNTS=TEST_ACCOUNTS
-    ), mock.patch("apps.billing.proofs.save", side_effect=store.save), mock.patch(
-        "apps.billing.proofs.read", side_effect=store.read
-    ), mock.patch("apps.billing.proofs.discard", side_effect=store.discard), mock.patch(
-        "apps.billing.proofs.available", return_value=True
-    ):
-        yield store
+    rows = make_receiving_account()
+    try:
+        with override_settings(BILLING_BANK_TRANSFER_ENABLED=True), mock.patch(
+            "apps.billing.proofs.save", side_effect=store.save
+        ), mock.patch("apps.billing.proofs.read", side_effect=store.read), mock.patch(
+            "apps.billing.proofs.discard", side_effect=store.discard
+        ), mock.patch("apps.billing.proofs.available", return_value=True):
+            yield store
+    finally:
+        # A queryset delete: the model refuses to delete a row, as it must in the product.
+        ReceivingAccount.objects.filter(pk__in=[row.pk for row in rows]).delete()
 
 
 def make_operator(username="op"):
