@@ -2,8 +2,7 @@ name: Backend CI
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
@@ -14,66 +13,18 @@ concurrency:
 
 jobs:
   django:
+    # Required check name kept for branch protection. The real work (migration
+    # check, system checks, production configuration check) runs in the
+    # PostgreSQL job so dependencies are installed once.
     name: Django checks and tests
     runs-on: ubuntu-24.04
-    env:
-      DJANGO_SECRET_KEY: ci-only-long-randomized-value-5rYxP2nQ8kL7mV4cD9aF1wH6sT3uJ0bE
-      DJANGO_DEBUG: "true"
     steps:
-      - name: Check out source
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 2
-      - name: Detect docs-only pull request
-        id: scope
-        run: |
-          # Docs-only = every changed file is under docs/ or .claude/, or is *.md.
-          # Pull requests only: a push to main always runs everything.
-          full=true
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            files="$(git diff --name-only HEAD^1 HEAD)"
-            full=false
-            while IFS= read -r f; do
-              case "$f" in
-                docs/*|.claude/*|*.md) ;;
-                *) full=true ;;
-              esac
-            done <<< "$files"
-            [ -n "$files" ] || full=true
-          fi
-          echo "full=$full" >> "$GITHUB_OUTPUT"
-          echo "Run full checks: $full"
-      - name: Set up Python
-        if: steps.scope.outputs.full == 'true'
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: "3.12"
-      - name: Cache uv downloads
-        if: steps.scope.outputs.full == 'true'
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: ~/.cache/uv
-          key: uv-${{ runner.os }}-py3.12-${{ hashFiles('uv.lock') }}
-          restore-keys: uv-${{ runner.os }}-py3.12-
-      - name: Install locked dependencies
-        if: steps.scope.outputs.full == 'true'
-        run: python -m pip install uv && uv sync --frozen
-      - name: Check model migrations
-        if: steps.scope.outputs.full == 'true'
-        run: uv run python manage.py makemigrations --check --dry-run
-      - name: Run Django system checks
-        if: steps.scope.outputs.full == 'true'
-        run: uv run python manage.py check
-      - name: Check production configuration
-        if: steps.scope.outputs.full == 'true'
-        env:
-          DJANGO_DEBUG: "false"
-        run: uv run python manage.py check --deploy
+      - name: Covered by the PostgreSQL and Redis job
+        run: echo "Django checks and tests run in the PostgreSQL and Redis configuration job."
 
   postgres-and-redis:
     name: PostgreSQL and Redis configuration
     runs-on: ubuntu-24.04
-    needs: django
     services:
       postgres:
         image: postgres:16-alpine
@@ -109,7 +60,7 @@ jobs:
         id: scope
         run: |
           # Docs-only = every changed file is under docs/ or .claude/, or is *.md.
-          # Pull requests only: a push to main always runs everything.
+          # Pull requests only: a called run (release tag) always runs everything.
           full=true
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             files="$(git diff --name-only HEAD^1 HEAD)"
@@ -139,9 +90,16 @@ jobs:
       - name: Install locked dependencies
         if: steps.scope.outputs.full == 'true'
         run: python -m pip install uv && uv sync --frozen
+      - name: Check model migrations
+        if: steps.scope.outputs.full == 'true'
+        run: uv run python manage.py makemigrations --check --dry-run
       - name: Verify PostgreSQL and Redis configuration
         if: steps.scope.outputs.full == 'true'
         run: uv run python manage.py check
+      - name: Check production configuration
+        if: steps.scope.outputs.full == 'true'
+        run: uv run python manage.py check --deploy
       - name: Run tests against PostgreSQL and Redis
         if: steps.scope.outputs.full == 'true'
-        run: uv run python manage.py test
+        # tblib is not a project dependency; it lets parallel workers print full tracebacks.
+        run: uv run --with tblib python manage.py test --parallel
