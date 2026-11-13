@@ -12,8 +12,9 @@ from .models import MemberSecurityHold
 
 MANILA = ZoneInfo("Asia/Manila")
 HOLD_DURATION = timedelta(hours=24)
-ACTIONS = ("payout_destination_change", "withdrawal_request", "record_payout")
-# A recovery hold blocks all three; payout_fallback blocks new withdrawal requests only: destination
+ACTIONS = ("payout_destination_change", "withdrawal_request", "record_payout", "address_change")
+# A recovery hold blocks all four (address_change: the member's own delivery address, since a recovery
+# hold means the account may be in other hands); payout_fallback blocks new withdrawal requests only: destination
 # changes and paying existing requests stay allowed.
 BLOCKS = {"recovery": frozenset(ACTIONS), "payout_fallback": frozenset({"withdrawal_request"})}
 FALLBACK_BANNER = "New withdrawal requests are paused until {end} because your payout account was changed."

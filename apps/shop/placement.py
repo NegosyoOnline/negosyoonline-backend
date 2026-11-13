@@ -103,9 +103,8 @@ def clean_address(buyer, mode, posted):
     server's, never the posted one); any other mode needs the typed address, with a province the
     ZIP dataset knows."""
     if mode == C.HOME:
-        saved = buyer.member.delivery_address or {}
-        out = {k: str(saved.get(k) or "").strip() for k in ADDRESS_KEYS}
-        if not (out["line"] and out["city"] and out["province"]):
+        out, _source = quote.home_address(buyer.member)  # the profile, else the pack order's
+        if out is None:
             raise ApiError("no_home_address", C.MSG_NO_HOME_ADDRESS, status=422)
         return out
     if not isinstance(posted, dict) or set(posted) - set(ADDRESS_KEYS):

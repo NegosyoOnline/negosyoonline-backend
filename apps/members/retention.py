@@ -9,12 +9,16 @@ from django.db.models import Q
 from apps.common import retention
 from apps.common.disposal import disposed_address
 from apps.members import services
-from apps.members.models import Member, MemberContactAudit, MemberOtpChallenge, MemberSession
+from apps.members.models import (
+    Member, MemberAddressEvent, MemberContactAudit, MemberOtpChallenge, MemberSession,
+)
 from apps.sites.models import Site
 
 MEMBERS, SESSIONS = "members", "member_sessions"
 CHALLENGES, AUDITS = "member_otp_challenges", "member_contact_audits"
 MEMBER_PERSONAL = ("full_name", "mobile", "email", "delivery_address")
+ADDRESS_EVENTS = "member_address_events"
+ADDRESS_EVENT_PERSONAL = ("old", "new", "ip_advisory")  # the rows stay; these three are blanked
 
 
 def _iso(moment):
@@ -32,6 +36,7 @@ def blanked():
         return {}
     return {
         MEMBERS: list(MEMBER_PERSONAL), SESSIONS: ["all rows deleted"], CHALLENGES: ["all rows deleted"],
+        ADDRESS_EVENTS: list(ADDRESS_EVENT_PERSONAL),
     }
 
 
@@ -51,10 +56,15 @@ def blank_members(sites, dry_run=False, *, ignore_switch=False):
     members = Member.objects.filter(site__in=sites)
     sessions = MemberSession.objects.filter(member__site__in=sites)
     challenges = MemberOtpChallenge.objects.filter(site__in=sites)
-    counts = {MEMBERS: members.count(), SESSIONS: sessions.count(), CHALLENGES: challenges.count()}
+    events = MemberAddressEvent.objects.filter(site__in=sites)
+    counts = {MEMBERS: members.count(), SESSIONS: sessions.count(), CHALLENGES: challenges.count(),
+              ADDRESS_EVENTS: events.count()}
     if not dry_run:
         sessions.delete()
         challenges.delete()
+        # The edit history holds the old and new address and the IP: blanked in the same
+        # transaction as the member. A queryset update is the one write these append-only rows take.
+        events.update(old={}, new={}, ip_advisory="")
         for member in list(members.select_for_update()):
             Member.objects.filter(pk=member.pk).update(
                 full_name="", delivery_address={}, email=disposed_address(f"member-{member.pk}"),
@@ -73,6 +83,7 @@ def export_members_of(account):
     rows = Member.objects.filter(site__account=account).order_by("pk")
     sessions = MemberSession.objects.filter(member__site__account=account).select_related("member")
     audits = MemberContactAudit.objects.filter(site__account=account).select_related("member")
+    events = MemberAddressEvent.objects.filter(site__account=account).select_related("member")
     return {
         MEMBERS: [
             {
@@ -99,6 +110,15 @@ def export_members_of(account):
                 "created_at": _iso(row.created_at),
             }
             for row in audits.order_by("pk")
+        ],
+        ADDRESS_EVENTS: [
+            {
+                "member": row.member.public_id,
+                "old": row.old,
+                "new": row.new,
+                "created_at": _iso(row.created_at),
+            }
+            for row in events.order_by("pk")
         ],
         SESSIONS: [
             {
