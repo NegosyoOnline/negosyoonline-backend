@@ -6,6 +6,7 @@ here reads another site's rows. The Subscriber's registration workflow is a late
 from django.db import transaction
 from django.utils import timezone
 
+from apps.billing import services as billing
 from apps.common.errors import ApiError
 from apps.members import contacts, services as member_services
 from apps.pack import address_zip, constants as C, records, registration_rules as rules
@@ -34,6 +35,21 @@ MOBILE_FIRST = "Confirm your mobile number first."
 ZIP_UNCONFIRMED = (
     "We could not confirm the ZIP code for your delivery address. Please contact the store."
 )
+
+
+def past_deletion_point(site_id):
+    """Whether the site's data is due for deletion: the registration is then closed to every
+    action, whether or not the purge has run yet (ClickUp z8uq9mep8p). A read error counts as
+    closed. A reactivated site has no point, so it is open again."""
+    try:
+        return billing.deletion_reached(site_id)
+    except Exception:
+        return True
+
+
+def refuse_after_point(site_id):
+    if past_deletion_point(site_id):
+        raise ApiError("not_found", "Not found.", status=404)
 
 
 def _wrong_status():
@@ -137,6 +153,7 @@ def save_delivery(site, member, order, data):
     """Keeps the cleaned delivery details on the order being shipped, and only there: the
     receiver may not be the subscriber, so neither the receiver nor the address goes onto the
     member's account."""
+    refuse_after_point(site.pk)
     cleaned = clean_delivery(data)
     with transaction.atomic():
         locked = PackOrder.objects.select_for_update().get(pk=order.pk, site=site)
@@ -252,6 +269,7 @@ def submit_details(site, member, *, date_of_birth, desired_username, alternate_u
     an order that already has one (placed by an older storefront) writes no second row and needs no
     tick. The dashboard card works the same way. The note names the Membership Terms version the buyer agreed to, read from the acceptance record. The dashboard card asks for the delivery address while
     the member has none (or when one is posted); the ZIP is derived and checked on the server."""
+    refuse_after_point(site.pk)
     if member.mobile_state == "pending":
         raise ApiError("mobile_not_verified", MOBILE_FIRST, status=409)
     posted = bool(delivery_address and any(str(v or "").strip() for v in delivery_address.values()))
@@ -308,5 +326,5 @@ def on_payment_verified(order):
         SanteRegistration.objects.select_for_update().select_related("pack_order")
         .filter(pack_order=order).first()
     )
-    if reg is not None and reg.status == "waiting_for_accept":
+    if reg is not None and reg.status == "waiting_for_accept" and not past_deletion_point(reg.site_id):
         _transition(reg, "T8", actor=SYSTEM)

@@ -53,7 +53,7 @@ Write exactly these sections, whole file under 6 KB:
     ## Resume here
     - Session folder: <absolute path of this session's working directory>
     - Work is in: <absolute path of each checkout or worktree actually edited, with its repo and branch>
-    - Open PRs: <full PR URLs with their state, or "none">
+    - Ready branches and PRs: <each branch reported ready to the manager (repo, branch, head SHA, ClickUp task) and the release PR that carries it with its state, or "none". A Supervisor opens no PR and combines no branches; it reports ready branches to the manager's release train (Coach Ed, 2026-11-13, supervisor brief section 6)>
     - Local servers: <command and folder for each one this session started, running or stopped, or "none">
     - Supervisor brief: <absolute session folder>/.claude/briefs/supervisor.md
     - This Supervisor: <session id>, model Opus 5.5 (`claude-opus-5-5`; the resumed session keeps it, Coach Ed 2026-11-13). Manager: <session id, or "none">. Supervisor Helper: <session id, or "none"; unused once a manager exists>
@@ -106,7 +106,7 @@ Print exactly two things:
        <absolute session folder>/.claude/briefs/supervisor.md with Main ClickUp task: <CLICKUP_TASK_ID>,
        and the role limits in <absolute session folder>/.claude/commands/clickup-supervisor.md.
        Read the rulings log, the comments on ClickUp task z8uq9med6x, newest first before acting.
-       Run on Opus 5.5 (claude-opus-5-5).
+       Run on Opus 5.5 (claude-opus-5-5). You open no PR and combine no branches: report each ready branch to the manager (brief, section 6).
        Do not re-explore anything already covered by "## Done".
 
 Then one of two endings.

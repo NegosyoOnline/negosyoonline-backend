@@ -84,6 +84,7 @@ class AccountSettingsOut(AccountOut):
 
     writes_open: bool
     email_change_step_up: bool
+    step_up_channels: list[str]
     email_changed_at: datetime | None
     email_change_available_at: datetime | None
     providers: list[ProviderOut]
@@ -107,6 +108,12 @@ class AccountPatch(Schema):
 
 class MobileStartIn(Schema):
     mobile: str = Field(max_length=20)
+    step_up_code: str = Field("", max_length=20)
+
+
+class StepUpIn(Schema):
+    channel: str = Field(max_length=10)
+    purpose: str = Field(max_length=20)
 
 
 class MobileCodeIn(Schema):
@@ -176,6 +183,7 @@ def settings_out(request):
         **account_out(account),
         "writes_open": True,  # there is no launch gate in this backend
         "email_change_step_up": settings.ACCOUNT_EMAIL_CHANGE_HARDENED,
+        "step_up_channels": services.step_up_channels(account),
         "email_changed_at": changed_at,
         "email_change_available_at": available_at,
         "providers": [
@@ -242,6 +250,12 @@ def email_change_step_up(request):
     return 204, None
 
 
+@router.post("/account/step-up/", response={204: None}, auth=signed_in)
+def step_up(request, payload: StepUpIn):
+    services.send_step_up(request.account, client_ip(request), payload.channel, payload.purpose)
+    return 204, None
+
+
 @router.post("/account/email/confirm/", response=AccountSettingsOut, auth=signed_in)
 def email_change_confirm(request, payload: EmailConfirmIn):
     services.confirm_email_change(
@@ -252,7 +266,7 @@ def email_change_confirm(request, payload: EmailConfirmIn):
 
 @router.post("/account/mobile/start/", response=QueuedOut, auth=signed_in)
 def mobile_start(request, payload: MobileStartIn):
-    mobile.start(request.account, payload.mobile, client_ip(request))
+    mobile.start(request.account, payload.mobile, client_ip(request), payload.step_up_code)
     return {"queued": True}
 
 

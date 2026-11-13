@@ -37,6 +37,27 @@ Throttles are TWCinc's: contact 20 an hour per IP and 10 an hour per token, chec
 - **Evidence tables** (proof submissions, order events, agreement acceptances, enrollment authorizations) are append-only, orders cannot be deleted, one live order per member, one fixed amount.
 - Support contacts in notices come from the Subscriber's own site profile, never TWC's.
 
+## The buyer portal (a site that is off)
+
+A paid Membership Pack buyer of a Santé site that is suspended, or cancelled past its service end or with no payment method, can still sign in and read their own order. The routes are a separate set under `/storefront/v1/portal/` (`apps/pack/api_portal.py`); `served()` and the member and pack routes still answer the neutral 404 for that site. Every call is `POST`, carries the server credential, sets no cookie and answers `Cache-Control: no-store`.
+
+| Route | Answer |
+|---|---|
+| `portal/site/` | `{display_name, accent_color, closes_at, banner}` |
+| `portal/signin/request/`, `resend/`, `accept-email/` | as `member/signin/*` |
+| `portal/signin/verify/` | `{token}` only, never the buyer's contacts |
+| `portal/me/` | `{first_name}`, only for a member with a verified order |
+| `portal/signout/` | `{status}` |
+| `portal/orders/` | `{cards, closes_at, banner}`, read-only cards |
+| `portal/proof/` | the buyer's own proof file |
+
+- **Opens** when `MEMBERS_ENABLED` and `PACK_ENABLED` are on, the site is a Santé site, not removed, not on operator hold, and its billing position is `billing_only`. A served, unknown, exempt or no-subscription site, or a billing read error, answers the neutral 404. There is no switch: the portal must not be turned off after sales.
+- **Closes** at `billing.deletion_point(site)`: 90 days after service ends for a site that paid, 30 days for one that never paid (suspended and cancelled alike), read from the clock so the sweep does not have to have run. A site with no clock (never paid, collection not live) has no end yet. After the point the portal answers the neutral 404.
+- **Shows** only the buyer's own verified order: number, amount, payment label, shipment, own proofs, registration label and line. Never the address, receiver, date of birth, usernames, contacts, billing facts or other buyers.
+- **Banner.** "This store is not taking orders." and, from 14 days before the closing instant, when the page closes. It says nothing about deletion or why the store is off.
+- **Sale gate (L45).** `BUYER_PORTAL_READY` in `apps/pack/portal.py` is a code constant, `True`. While it is `False`, `checkout/contact/` and `place_pack_order` answer the unserved-site 404; product orders are not touched. No variable, no migration.
+- **Purge and day-76 email** (ClickUp z8uq9mep8p): behind `PACK_PURGE_ENABLED` and `PACK_BUYER_NOTICE_ENABLED`, both off by default; see `docs/runbooks/retention.md`. With the purge on, the banner's last-14-days text also carries the deletion sentence of the email. Migration `pack.0005_buyer_notice` (one new table) is written, not run; the Supervisor runs it on staging after merge, before `PACK_BUYER_NOTICE_ENABLED` is turned on there. Never on production without Coach Ed.
+
 ## Local check
 
 With the switches on, the local private store and a published agreement, `curl` `checkout/contact/` (JSON) then `checkout/place/` (`-F proof=@file.png;type=image/png`): the file lands under `sante/proofs/site-<pk>/` in the local private folder, the order row exists, and both emails print in the service log.

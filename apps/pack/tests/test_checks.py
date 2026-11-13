@@ -26,3 +26,15 @@ class PackChecksTests(SimpleTestCase):
     @override_settings(PACK_ENABLED=False, PACK_SHIPPING_ENABLED=False)
     def test_shipping_off_is_silent(self):
         self.assertNotIn("pack.E003", self.ids())
+
+    @override_settings(PACK_ENABLED=False, PACK_PURGE_ENABLED=True)
+    def test_the_purge_needs_the_pack_switch(self):
+        self.assertIn("pack.E004", self.ids())
+
+    @override_settings(PACK_ENABLED=True, PACK_PURGE_ENABLED=False, PACK_BUYER_NOTICE_ENABLED=True)
+    def test_the_buyer_notice_needs_the_purge(self):
+        self.assertIn("pack.E005", self.ids())
+
+    @override_settings(PACK_ENABLED=False, PACK_PURGE_ENABLED=False, PACK_BUYER_NOTICE_ENABLED=False)
+    def test_both_off_is_silent(self):
+        self.assertFalse({"pack.E004", "pack.E005"} & self.ids())

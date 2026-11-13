@@ -16,6 +16,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from apps.accounts.models import AccountMobile, MobileOtpChallenge
+from apps.accounts import services
 from apps.accounts.services import record_event
 from apps.common import throttle
 from apps.common.errors import ApiError
@@ -78,8 +79,11 @@ def _open_challenges(account):
     )
 
 
-def start(account, raw_mobile, ip):
-    """Text a code to the number. Raises ApiError; returns nothing."""
+def start(account, raw_mobile, ip, step_up_code=""):
+    """Text a code to the number. Raises ApiError; returns nothing.
+
+    With ACCOUNT_EMAIL_CHANGE_HARDENED on, adding or changing a number first needs a step-up
+    code (purpose mobile_change) from the account's email or its verified mobile."""
     if not sms_on():
         raise _unavailable()
     try:
@@ -90,6 +94,8 @@ def start(account, raw_mobile, ip):
         ) from None
     if AccountMobile.objects.filter(account=account, number=number).exists():
         raise _field_error("mobile_unchanged", "mobile", "That is already your mobile number.")
+    if settings.ACCOUNT_EMAIL_CHANGE_HARDENED:
+        services.require_step_up(account, step_up_code, "mobile_change")
     number_key = _number_key(number)
     throttle.hit("mobile-start-account", account.pk, limit=3, window=MINUTES_15)
     throttle.hit("mobile-start-number", number_key, limit=3, window=MINUTES_15)
@@ -156,6 +162,7 @@ def verify(account, raw_code):
             held.save(update_fields=["number", "verified_at", "updated_at"])
         # The audit event never holds a number.
         record_event(account, "mobile_changed" if changed else "mobile_verified")
+        services.clear_step_up(account, "mobile_change")
     if changed:
         _notify_change(account, challenge.number)
     return {"verified": True, "mobile_masked": mask_mobile(challenge.number)}

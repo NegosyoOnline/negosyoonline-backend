@@ -26,15 +26,16 @@ Write exactly these sections, whole file under 8 KB (the marching instruction al
     - Session folder: <absolute path>
     - Manager brief: <absolute session folder>/.claude/briefs/manager.md
     - Task map: <absolute path>, last full study <date>, last refresh <date>
-    - This manager: <session id>. Model: Fable 5.2 (`claude-fable-5-2`); the next manager runs on it (Coach Ed, 2026-11-13)
+    - This manager: <session id>. Model: Opus 5.5 (`claude-opus-5-5`); the next manager runs on it (Coach Ed, 2026-11-13, rulings log comment 1100430000509659; it replaces Fable 5.2)
     - First move: <the one thing the next session does first>
 
     ## Register
     - Supervisors: title, session id, ClickUp task, repo areas owned, status, what each waits on.
-    - Supervisors' builders: only what a Supervisor has told the manager (title, owning Supervisor, state). The manager starts no builder and instructs none (Coach Ed, 2026-11-13); Supervisors run their builders as their own sub-agents. Supervisors run on Opus 5.5 (`claude-opus-5-5`) and keep it across handovers.
+    - Release Builders (Coach Ed, 2026-11-13, comment 1100430000509929): "Release Builder backend" and "Release Builder frontend" (Sonnet 5.5, medium): session id, state, the round each is on.
+- Supervisors' builders: only what a Supervisor has told the manager (title, owning Supervisor, state). The manager starts no builder and instructs none (Coach Ed, 2026-11-13); Supervisors run their builders as their own sub-agents. Supervisors run on Opus 5.5 (`claude-opus-5-5`) and keep it across handovers.
 
-    ## PR queue
-    Per repository: the open PR and who holds the slot, then the queue in order.
+    ## Release train
+    Per repository: the ready branches reported by Supervisors (Supervisor, ClickUp task, head SHA, date reported), the current round and its release PR (number, head, checks listed in the PR body, CI state), and any hotfix first. The workflow, which the next manager follows (Coach Ed, 2026-11-13, comments 1100430000509657, 509929, 509948, 512065; manager brief, sections 3 and 4): Supervisors and builders open no PR and combine no branches; they report a ready branch (head SHA, local suite green, reviewed, local visual test passed where there is something to look at, ClickUp task). Two Release Builders under the manager cut a release branch each round, merge the ready branches, run every check the repository's CI runs locally (backend: SQLite and PostgreSQL suites with local Redis, `check`, `makemigrations --check`, migrate on a fresh PostgreSQL; frontend: frozen-lockfile install, lint, tests, build for every app in the CI matrix) and only then push and open one PR; the manager says "go: create the PR now" only after reading that all passed. The manager's reading (2026-11-13) of comments 509929 and 512065: the Release Builder merges its release PR once CI is green at its head; only when that merge is refused does the manager squash-merge it (keeping the branch); either way the manager checks staging health after the merge. Production is never covered. A branch that fails locally drops out of the round, never fixed inside the release branch. Rounds: two or more ready branches or half a day waited, at most two a day per repository, an approved hotfix alone and first.
 
     ## Marching instruction (Coach Ed, 2026-11-13)
     This section holds Coach Ed's marching instruction verbatim, exactly as in `.claude/briefs/manager.md` section 3. Copy the whole text below, unchanged, into every state file (he asked: "save this to your memory so all future managers especially when we do a handover command"). A state file without it is incomplete.
@@ -53,6 +54,9 @@ Write exactly these sections, whole file under 8 KB (the marching instruction al
         two valid options have materially different customer, financial, or security outcomes.
 
         When you do ask, give one recommended answer, the concrete risk, and the exact decision needed. Batch related questions into one message.
+
+    ## Keep every Supervisor working (Coach Ed, 2026-11-13, comment 1100430000509255)
+    Carry this order with the marching instruction: the manager checks each Supervisor from time to time and, when one is not working, reads its ClickUp list and tells it which task to work on next (manager brief, section 7). Record in the register any Supervisor found idle and what it was told.
 
     ## Rulings
     A pointer: the link of the rulings log, ClickUp task z8uq9med6x, and the date of the last entry read. Below it only rulings given in this session that are not yet logged, each quoted with its date and the Supervisors told.
@@ -85,10 +89,10 @@ Print exactly two things:
        I'm IN: before any other tool call, SendMessage "I'm IN" to the Asst. Manager (the session titled "Asst. Manager"); send it once more if another copy of this prompt arrives.
        Resume in <absolute session folder> as the manager of all Supervisor sessions.
        Read <absolute state-file path>, then read and follow
-       <absolute session folder>/.claude/briefs/manager.md. Run on Fable 5.2 (claude-fable-5-2).
-       The marching instruction in the state file binds you; it is verbatim in the brief, section 3.
+       <absolute session folder>/.claude/briefs/manager.md. Run on Opus 5.5 (claude-opus-5-5).
+       The marching instruction in the state file binds you; it is verbatim in the brief, section 3. The release train (brief, section 4) is the standing PR workflow.
        Read the rulings log, the comments on ClickUp task z8uq9med6x, newest first, then the task map before re-reading ClickUp. Do not re-explore anything already recorded in the register.
 
-Then hand over automatically (manager brief, section 8; Coach Ed, 2026-11-13, comment 1100430000508710): SendMessage the Asst. Manager a message whose first line is "HANDOVER PROMPT", followed by the resume prompt; then `clear_session` "self" and end the turn at once, with no message queued (a clear is refused while a message is queued, and dropped if a new message arrives before the turn ends). The Asst. Manager resends the prompt every 10 seconds until it gets "I'm IN" (60 sends at most).
+Then hand over automatically (manager brief, section 8; Coach Ed, 2026-11-13, comment 1100430000508710): SendMessage the Asst. Manager a message whose first line is "HANDOVER PROMPT", followed by the resume prompt; then `clear_session` "self" and end the turn at once, with no message queued (a clear is refused while a message is queued, and dropped if a new message arrives before the turn ends). The Asst. Manager waits 1 minute after "HANDOVER PROMPT" before its first send (Coach Ed, 2026-11-13, comment 1100430000509303), then resends the prompt every 30 seconds until it gets "I'm IN" (60 sends at most; Coach Ed, 2026-11-13, comment 1100430000509314: "let's update the interval.. make it 30secs not 10 sec"). Finish your replies to Supervisors first, and hand over any Supervisor at its context limit before this step.
 
 Fallback, when the Asst. Manager is not running or the clear is refused: say plainly `/clear`, then paste this. Coach Ed's paste is then required.

@@ -162,6 +162,9 @@ BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").stri
 # The one address told when a bank transfer proof waits for review (a shared mailbox). Empty
 # sends no alert.
 BILLING_STAFF_ALERT_EMAIL = os.environ.get("BILLING_STAFF_ALERT_EMAIL", "").strip()
+# The service-end export notice to the owner of a cancelled site. "1" sends it (still only
+# while BILLING_ENABLED and payment collection are live). Off, nothing is read or sent.
+OWNER_NOTICES_ENABLED = os.environ.get("OWNER_NOTICES_ENABLED", "").strip() == "1"
 # Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints.
 # Off, the endpoints answer 404 and the Santé tables are not read or written.
 SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() == "1"
@@ -203,6 +206,13 @@ PACK_ENABLED = os.environ.get("PACK_ENABLED", "").strip() == "1"
 # Off, its three owner routes answer 404, no shipment email is sent and the dash shows no shipment
 # control. Needs PACK_ENABLED and migration pack.0004 (see apps/pack/checks.py).
 PACK_SHIPPING_ENABLED = os.environ.get("PACK_SHIPPING_ENABLED", "").strip() == "1"
+# The day-90 purge of Membership Pack buyer data (ClickUp z8uq9mep8p). "1" lets the hourly task
+# clear a buyer's personal details once the site's deletion point has passed. Off, the task reads
+# nothing and changes nothing. Needs PACK_ENABLED. Needs Coach Ed's word, per environment.
+PACK_PURGE_ENABLED = os.environ.get("PACK_PURGE_ENABLED", "").strip() == "1"
+# The day-76 email to a paid buyer, 14 days before the portal closes. "1" lets the hourly task
+# send it. It is never sent unless PACK_PURGE_ENABLED is on as well. Off, nothing is read or sent.
+PACK_BUYER_NOTICE_ENABLED = os.environ.get("PACK_BUYER_NOTICE_ENABLED", "").strip() == "1"
 # The Santé shop (apps/shop): cart quote, checkout with bank-transfer proof, product orders and the
 # Subscriber's order review. "1" turns on its storefront and owner routes. Off, every one of them
 # answers the 404 of an unknown site and no shop table is read or written. Needs
@@ -359,6 +369,14 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": BILLING_SWEEP_EVERY_SECONDS,
         "options": {"expires": BILLING_SWEEP_EVERY_SECONDS},
     },
+    # One email a day to the active staff while an invoice waits to be written, at 08:00 Manila
+    # time. Does nothing while BILLING_INVOICE_REGISTER_ENABLED is off. A tick not picked up
+    # within the hour is dropped: it would no longer be the morning alert.
+    "invoices-daily-alert": {
+        "task": "invoices.daily_alert",
+        "schedule": crontab(hour=8, minute=0),
+        "options": {"expires": 3600},
+    },
     # Issues the statement of any confirmed payment that has none. Does nothing while
     # BILLING_STATEMENTS_ENABLED is off.
     "statements-ensure": {
@@ -386,6 +404,19 @@ CELERY_BEAT_SCHEDULE = {
     "retention-daily": {
         "task": "retention.run",
         "schedule": crontab(hour=3, minute=0),
+        "options": {"expires": 3600},
+    },
+    # The Membership Pack buyer purge and the day-76 buyer email, each hourly. Both do nothing
+    # while their switch (PACK_PURGE_ENABLED, PACK_BUYER_NOTICE_ENABLED) is off. A tick not picked
+    # up within the hour is dropped: the next one finds everything that is due.
+    "pack-purge": {
+        "task": "pack.purge",
+        "schedule": 3600,
+        "options": {"expires": 3600},
+    },
+    "pack-buyer-notice": {
+        "task": "pack.buyer_notice",
+        "schedule": 3600,
         "options": {"expires": 3600},
     },
     # The heartbeat /readyz/ reads: a fresh one proves beat, the broker and the worker all work.
