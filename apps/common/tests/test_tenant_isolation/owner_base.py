@@ -213,6 +213,10 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return client.post(
                 path, secure=True, HTTP_ORIGIN=ORIGIN,
                 data={"plan": "monthly", "transferred_on": timezone.localdate().isoformat(),
+                      "transferred_at": timezone.localtime().strftime("%Y-%m-%dT%H:%M"),
+                      "transfer_reference": "REF-0001", "sender_bank": "BDO",
+                      "sender_first_name": "Ana", "sender_last_name": "Reyes",
+                      "sender_account_number": "001234567890", "amount_sent": "499.00",
                       "proof": SimpleUploadedFile("slip.jpg", JPEG, content_type="image/jpeg")},
             )
         if path.endswith("/payment-methods/accounts/") and method == "POST":
