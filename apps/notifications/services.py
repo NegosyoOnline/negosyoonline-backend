@@ -7,7 +7,7 @@ from email.utils import parseaddr
 from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ValidationError
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives, send_mail
 from django.core.validators import validate_email
 from django.utils import timezone
 
@@ -51,7 +51,17 @@ def _checked_reply_to(reply_to):
     return reply_to
 
 
-def _deliver(to, subject, body, sender_name, reply_to):
+def _deliver(to, subject, body, sender_name, reply_to, html_body=""):
+    if html_body:
+        message = EmailMultiAlternatives(
+            subject, body,
+            _named_sender(sender_name) if sender_name else settings.DEFAULT_FROM_EMAIL,
+            [to],
+            reply_to=[_checked_reply_to(reply_to)] if reply_to else None,
+        )
+        message.attach_alternative(html_body, "text/html")
+        message.send()
+        return
     if not sender_name and not reply_to:
         send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [to])
         return
@@ -63,16 +73,18 @@ def _deliver(to, subject, body, sender_name, reply_to):
     ).send()
 
 
-def send_email(*, to, category, subject, body, sender_name="", reply_to=""):
+def send_email(*, to, category, subject, body, sender_name="", reply_to="", html_body=""):
     """`sender_name` is the name shown beside our own From address, `reply_to` the one address
     a reply goes to. Neither may hold a line break, and `reply_to` must be a valid address:
-    otherwise nothing is sent and the send is recorded as failed, like any other bad header."""
+    otherwise nothing is sent and the send is recorded as failed, like any other bad header.
+    `html_body`, when given, is sent as the HTML alternative of the plain-text `body`; empty,
+    the email is plain text exactly as before."""
     if is_disposed_address(to):  # a disposed contact is never emailed, and no record is kept
         logger.warning("Email refused: the recipient is a disposed account (category=%s)", category)
         raise EmailNotSent()
     message = EmailMessage.objects.create(recipient=to, category=category)
     try:
-        _deliver(to, subject, body, sender_name, reply_to)
+        _deliver(to, subject, body, sender_name, reply_to, html_body)
     except Exception:
         logger.exception("Email send failed (category=%s)", category)
         message.status = EmailMessage.Status.FAILED

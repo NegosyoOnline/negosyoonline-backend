@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>{{ subject }}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6fa;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#f4f6fa;">{{ preheader }}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f6fa;">
+<tr><td align="center" style="padding:24px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;">
+<tr><td align="center" style="padding:0 0 16px 0;font-family:Arial,Helvetica,sans-serif;font-size:26px;font-weight:bold;letter-spacing:0.3px;color:#0b3d91;">Negosyo<span style="color:#c99a1c;">Online</span></td></tr>
+<tr><td style="background-color:#ffffff;border:1px solid #dde3ee;border-top:4px solid #c99a1c;border-radius:6px;padding:32px 28px;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
+<h1 style="margin:0 0 16px 0;font-size:22px;line-height:28px;color:#0b3d91;">{{ heading }}</h1>
+{% block body %}{% endblock %}
+</td></tr>
+<tr><td align="center" style="padding:20px 8px 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#6b7280;">
+{% if ignore_line %}<p style="margin:0 0 8px 0;">{{ ignore_line }}</p>{% endif %}
+<p style="margin:0 0 8px 0;">NegosyoOnline &middot; <a href="mailto:{{ support_email }}" style="color:#0b3d91;">{{ support_email }}</a></p>
+<p style="margin:0;"><a href="{{ terms_url }}" style="color:#0b3d91;">Terms</a> &middot; <a href="{{ privacy_url }}" style="color:#0b3d91;">Privacy</a></p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

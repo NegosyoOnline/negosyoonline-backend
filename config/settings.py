@@ -82,6 +82,10 @@ FACEBOOK_APP_SECRET = os.environ.get("FACEBOOK_APP_SECRET", "")
 # site's sign-in popup when it did not. No trailing slashes.
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3001").rstrip("/")
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:3000").rstrip("/")
+# The six account emails (sign-in code, Facebook confirmation, email change code, and the three
+# security notices) as branded HTML with a plain-text part. "1" turns it on; off, they are the
+# plain text they always were. Turn on only once the Resend domain is verified.
+ACCOUNT_EMAILS_BRANDED = os.environ.get("ACCOUNT_EMAILS_BRANDED", "").strip() == "1"
 # Admin two-step sign-in. The key encrypts authenticator secrets; with no key nobody can be
 # enrolled.
 ADMIN_SECRETS_KEY = os.environ.get("ADMIN_SECRETS_KEY", "").strip()
