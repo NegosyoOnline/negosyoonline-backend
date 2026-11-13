@@ -203,6 +203,13 @@ PACK_ENABLED = os.environ.get("PACK_ENABLED", "").strip() == "1"
 # Off, its three owner routes answer 404, no shipment email is sent and the dash shows no shipment
 # control. Needs PACK_ENABLED and migration pack.0004 (see apps/pack/checks.py).
 PACK_SHIPPING_ENABLED = os.environ.get("PACK_SHIPPING_ENABLED", "").strip() == "1"
+# The day-90 purge of Membership Pack buyer data (ClickUp z8uq9mep8p). "1" lets the hourly task
+# clear a buyer's personal details once the site's deletion point has passed. Off, the task reads
+# nothing and changes nothing. Needs PACK_ENABLED. Needs Coach Ed's word, per environment.
+PACK_PURGE_ENABLED = os.environ.get("PACK_PURGE_ENABLED", "").strip() == "1"
+# The day-76 email to a paid buyer, 14 days before the portal closes. "1" lets the hourly task
+# send it. It is never sent unless PACK_PURGE_ENABLED is on as well. Off, nothing is read or sent.
+PACK_BUYER_NOTICE_ENABLED = os.environ.get("PACK_BUYER_NOTICE_ENABLED", "").strip() == "1"
 # The Santé shop (apps/shop): cart quote, checkout with bank-transfer proof, product orders and the
 # Subscriber's order review. "1" turns on its storefront and owner routes. Off, every one of them
 # answers the 404 of an unknown site and no shop table is read or written. Needs
@@ -386,6 +393,19 @@ CELERY_BEAT_SCHEDULE = {
     "retention-daily": {
         "task": "retention.run",
         "schedule": crontab(hour=3, minute=0),
+        "options": {"expires": 3600},
+    },
+    # The Membership Pack buyer purge and the day-76 buyer email, each hourly. Both do nothing
+    # while their switch (PACK_PURGE_ENABLED, PACK_BUYER_NOTICE_ENABLED) is off. A tick not picked
+    # up within the hour is dropped: the next one finds everything that is due.
+    "pack-purge": {
+        "task": "pack.purge",
+        "schedule": 3600,
+        "options": {"expires": 3600},
+    },
+    "pack-buyer-notice": {
+        "task": "pack.buyer_notice",
+        "schedule": 3600,
         "options": {"expires": 3600},
     },
     # The heartbeat /readyz/ reads: a fresh one proves beat, the broker and the worker all work.

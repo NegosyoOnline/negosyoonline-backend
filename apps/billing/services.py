@@ -341,6 +341,14 @@ def deletion_point(site, at=None):
     return None if found is None else found[1]
 
 
+def deletion_reached(site, at=None):
+    """Whether the site's deletion point has been reached at `at` (now). False when there is no
+    clock. Writes nothing."""
+    now = at or timezone.now()
+    point = deletion_point(site, now)
+    return point is not None and now >= point
+
+
 # Writing
 
 def _write(subscription, at, change, *, key=None):
