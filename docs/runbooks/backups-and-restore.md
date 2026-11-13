@@ -6,12 +6,12 @@ Production does not exist yet. Everything below names staging; production gets t
 
 ## 1. What is backed up, and what is not
 
-**Scope: the restore covers the database only.** The files in the private Vercel Blob store (payment proofs and uploaded seals, among others, listed below) have no backup and are not part of any restore test. The business continuity note (NPC P5, outside this repository) says files are covered by the yearly restore test and that one private file is restored. That is not true today; the note must be corrected by its owner before it is signed.
+**Scope: the database is backed up by Railway; the private Blob files are backed up by the daily file backup in section 7, once its switch (`FILE_BACKUP_ENABLED`) is on.** The file backup is built (ClickUp z8uq9mewtf) but is not on and not yet proved on staging: until its `--selftest` has passed and the switch is on, the files have no backup and are not part of any restore test. The business continuity note (NPC P5, outside this repository) says files are covered by the yearly restore test and that one private file is restored. That stays untrue until the staging proof passes; the note must not be signed before then. The public store (catalog images) is not backed up.
 
 | Data | Backed up? | Where it lives |
 |---|---|---|
 | PostgreSQL | Railway's scheduled volume backups (below). | Railway Postgres service. |
-| Private Blob files (billing proofs, shop payment proofs, statement and invoice PDFs, payment QR, pack files, membership agreement files, business seals) | No. Vercel Blob keeps no versions; a deleted file is gone. | Private Vercel Blob store, `PRIVATE_BLOB_READ_WRITE_TOKEN`. |
+| Private Blob files (billing proofs, shop payment proofs, statement and invoice PDFs, payment QR, pack files, membership agreement files, business seals) | Yes, daily to a Railway Storage Bucket, encrypted, once `FILE_BACKUP_ENABLED` is on (section 7; off and unproved until the staging selftest passes). Vercel Blob itself keeps no versions; a deleted file is gone. | Private Vercel Blob store, `PRIVATE_BLOB_READ_WRITE_TOKEN`; the copy in the bucket named by `FILE_BACKUP_BUCKET`. |
 | Public Blob files (catalog images) | No. Same as above. | Public Vercel Blob store, `PUBLIC_BLOB_READ_WRITE_TOKEN`. |
 | Redis | No, by design. | Railway Redis. Holds sign-in and verification codes, throttle counters, the encrypted text of queued SMS, the Celery queue and the beat heartbeat. Losing it expires codes and drops queued SMS texts. |
 | Variables | By name only, here and in `docs/runbooks/billing.md`. Values are in Railway (api, worker, beat) and Vercel and nowhere in the repository. | Railway service variables; Vercel project variables. |
@@ -49,7 +49,7 @@ Repeat for each column above. Files with no row are listed the other way round (
 2. Silence the uptime alert (section 5) and tell the Supervisor.
 3. **Stop the worker and beat** services first, and keep them stopped until step 8. The api may stay up read-only or be stopped; it does not send billing email or run sweeps.
 4. Restore the backup in Railway (Backups tab, Restore, review the staged change under Details, Deploy). Record the backup's date and time.
-5. Run the restore safety checks (section 3) with worker and beat still stopped.
+5. Run the restore safety checks (section 3) with worker and beat still stopped. If the file backup is on, restore the private files too, before the checks that list missing files (section 7, "Restore").
 6. Show what would migrate. This changes nothing: the `migrate --plan` command in `docs/runbooks/migrations.md` (Procedure, step 1). If it lists migrations, do not run them; take the list to the Supervisor (`docs/runbooks/migrations.md`).
 7. Start the api. Check `https://<api host>/healthz/` and `https://<api host>/readyz/`. `/readyz/` will say `"beat": false` until step 8; that is expected.
 8. Only then start the worker, then beat. After about two minutes `/readyz/` must answer 200 with every field `true`. Re-enable the uptime alert.
@@ -120,7 +120,7 @@ SmsMessage.objects.filter(status__in=("queued", "dispatched")).values("public_id
 
 ## 4. Readiness and the heartbeat
 
-`GET /readyz/` (`apps/health/views.py`), unauthenticated, beside `/healthz/`, which is unchanged (liveness only). It answers 200 or 503 with booleans only, for example `{"ok": true, "db": true, "cache": true, "beat": true, "sms_queue": true, "email": true}`: no versions, counts, hosts or errors.
+`GET /readyz/` (`apps/health/views.py`), unauthenticated, beside `/healthz/`, which is unchanged (liveness only). It answers 200 or 503 with booleans only, for example `{"ok": true, "db": true, "cache": true, "beat": true, "sms_queue": true, "email": true, "files_backup": true}`: no versions, counts, hosts or errors.
 
 | Field | True when |
 |---|---|
@@ -129,6 +129,7 @@ SmsMessage.objects.filter(status__in=("queued", "dispatched")).values("public_id
 | `beat` | the heartbeat is under 3 minutes old. The Celery task `health.heartbeat` (`apps/health/tasks.py`) runs every 60 seconds from the `health-heartbeat` beat entry and writes the time to the cache, so a fresh value proves beat, the broker and the worker. With no `REDIS_URL` (tasks run in-process) this is always true. |
 | `sms_queue` | no SMS row has been `queued` for more than 15 minutes. Counted only while `SMS_GATEWAY_ENABLED` is on; otherwise true. |
 | `email` | not (at least `READYZ_EMAIL_FAILURES` of the newest emails sent in the last `READYZ_EMAIL_WINDOW_MINUTES` failed and none sent). Defaults 3 failures and 30 minutes, both environment variables read in `config/settings.py`; change them in Railway without a code change. It reads the newest 20 `EmailMessage` rows by primary key (one query), ignores `pending`, and is true when there are no recent rows. The body says only `true` or `false`, never an address. |
+| `files_backup` | True while `FILE_BACKUP_ENABLED` is off (the field then builds and calls no client). Switched on, true while the last fully good backup run (no failure, no anomaly, every source file copied) is younger than `FILE_BACKUP_STALE_HOURS` (default 36). One cache read (`file_backup:last_ok`), no database query. Redis is not backed up, so after a Redis loss the field is false until the next daily run (at most a day; a false alarm, not a miss). A false field turns `/readyz/` into 503, which the uptime check emails. |
 
 It is limited to 30 calls a minute per client address (answers 429 `{"ok": false}`), using the last `X-Forwarded-For` entry. No migration, no variable, no new service.
 
@@ -170,9 +171,11 @@ Pause the uptime monitors (or put them in the service's maintenance window) befo
 
 Once a week the Manager checks, read-only, in the Railway dashboard: the Postgres Backups tab shows a backup no older than the schedule (24 hours for a daily schedule), and Postgres volume usage (the service Metrics or Volume view) is below 80%. Record the date and both readings (backup age, usage percent) in the ClickUp rulings or gates record. At 80% or more, or a late backup, raise it with Coach Ed.
 
+With the file backup on, also run `manage.py backup_private_files --status` on the worker (`railway ssh`, whole remote command in single quotes) and record the last success time and the two counts (files in the store and files in the backup). The week fails if the last success is older than 36 hours or the two counts differ.
+
 ## 6. Restore test (staging only, run 2026-11-13)
 
-**Scope: this test and any restore test cover the database only.** Private files in the Vercel Blob private store (payment proofs, uploaded seals, payment QR codes, billing proofs, statement PDFs, invoice scans, agreement and pack files; `apps/common/private_files.py`) have no backup and were not tested. The NPC P5 note (outside this repository) saying files are covered by the yearly restore test, with one private file restored, is not true today and must be corrected by its owner before it is signed.
+**Scope: the 2026-11-13 test below covers the database only.** Private files in the Vercel Blob private store (payment proofs, uploaded seals, payment QR codes, billing proofs, statement PDFs, invoice scans, agreement and pack files; `apps/common/private_files.py`) were not part of it. The file restore test is `backup_private_files --selftest` (section 7): three synthetic test files, backed up and restored byte for byte, no real member file read or restored. It has not been run on staging yet. The NPC P5 note (outside this repository) saying files are covered by the yearly restore test, with one private file restored, is not true until the `--selftest` has passed on staging; the note must be corrected, or reworded after that proof, by its owner before it is signed.
 
 Run on 2026-11-13. Evidence: the "Restore test" row in `docs/runbooks/launch-gates.md` (Gate 5). No production data, no change to staging itself.
 
@@ -194,3 +197,49 @@ Steps:
 8. Delete the scratch service and its volume, and confirm in the dashboard that both are gone.
 
 Record in the ClickUp task: versions, start and finish times, row counts side by side, the `django_migrations` comparison, the db and sms_queue results, the deletion time.
+
+## 7. Private file backup (ClickUp z8uq9mewtf)
+
+Code: `apps/file_backup/`. No migration and no table: the bucket holds all state. It never changes how files are uploaded or served (`apps/common/private_files.py` is untouched).
+
+**What it does.** Every day at 04:00 Manila time (after the 03:00 retention run) the `worker` lists the whole private Blob store (no folder filter, so a new feature's folder cannot be missed), copies each new object to a Railway Storage Bucket, and checks 20 stored copies. It runs only while `FILE_BACKUP_ENABLED=1`. Switched off, the task and the `/readyz/` field build and call no client. Once per Manila day, one run at a time; a run stops starting copies after 25 minutes and queues the next chunk itself (at most 12), so the first catch-up copy of a large store finishes over a few hours. Copies run at up to 10 a second, under Vercel's limit (Pro: 120 simple and 75 advanced operations a second; Hobby: 20 and 15; the plan on the Vercel dashboard was not read by the build, so check it before the first run).
+
+**Layout in the bucket.** `data/<pathname>` the encrypted bytes; `index/<run time>.json.gz.enc` and `index/latest` the encrypted index (pathname to content type, size, etag, sha256, backup time, deleted-seen time; 30 kept); `status.json` the last run's counts, no pathnames.
+
+**Encryption.** Railway encrypts the bucket at rest. The bytes are also encrypted before upload: AES-256-GCM, a random nonce per object, the pathname bound in as associated data, key `FILE_BACKUP_ENCRYPTION_KEY` (base64 of 32 random bytes; `openssl rand -base64 32`). **If the key is lost the backup cannot be read.** Coach Ed keeps a copy in his password manager. The bucket has public networking only, so its access key is the only other gate. It has no versioning and no object lock: a compromised `worker` could delete the backup. A copy that survives that needs a provider with versioning or lock, a decision for before production.
+
+**Variables** (names only; set on `worker` only, never `api`; the bucket values by reference to the bucket's own variables; read in `config/settings.py` and nowhere else):
+
+| Variable | Meaning |
+|---|---|
+| `FILE_BACKUP_ENABLED` | `1` turns the daily run and the `/readyz/` field on. Unset: off. |
+| `FILE_BACKUP_BUCKET`, `FILE_BACKUP_ENDPOINT`, `FILE_BACKUP_REGION`, `FILE_BACKUP_ACCESS_KEY_ID`, `FILE_BACKUP_SECRET_ACCESS_KEY` | The Railway bucket. |
+| `FILE_BACKUP_ENCRYPTION_KEY` | The key above. |
+| `FILE_BACKUP_DELETED_KEEP_DAYS` | How long a copy outlives its source object. Default 35. |
+| `FILE_BACKUP_STALE_HOURS` | How old the last good run may be in `/readyz/`. Default 36. |
+
+`PRIVATE_BLOB_READ_WRITE_TOKEN` is reused (Vercel has no read-only token); the `worker` has it already. `manage.py check` warns (`file_backup.W001` to `W003`) when the switch is on and a value above is missing.
+
+**Retention of deleted files.** A file deleted at the source (an erasure, a retention rule) stays in the backup, marked deleted, for 35 days and is then removed. That sits inside the 89 days already stated for database backups (`docs/runbooks/retention.md`) and adds no Terms or Privacy promise. A file never deleted at the source stays as long as the source has it. A restore skips files marked deleted unless `--include-deleted` is given.
+
+**Safety brake.** If the store listing is empty while the index is not, or more than 20% (and more than 10) of the indexed files are missing at once, the run copies what it can, marks `anomaly`, deletes and purges nothing, and `/readyz/` goes red. This stops a wrong token or an emptied store from erasing the backup. A file over 50 MB is skipped and reported (also red) until the cap is raised in `apps/file_backup/service.py`.
+
+**Commands** (on the `worker` through `railway ssh`, the whole remote command in single quotes; output is counts only, never a pathname):
+
+- `manage.py backup_private_files --measure`: read-only, runs with the switch off. Prints the file count and bytes of the live store, in total and per top folder. First run on staging also proves the Vercel list call (the REST form is not in Vercel's docs). Cost: backup storage per month is the measured GB times $0.015 (Railway bucket); retained deleted copies add deleted GB a month times 35/30 times $0.015; the one-time first copy adds Vercel reads ($0.40 per million files), Vercel data transfer (about $0.05 a GB) and Railway service egress (rate not read).
+- `manage.py backup_private_files --status`: the last run's counts from the bucket, and whether the store's file count equals the backup's.
+- `manage.py backup_private_files --selftest`: the restore test below. Runs with the switch off.
+- `manage.py backup_private_files --purge-prefix P --actor NAME --request-ref REF [--apply]`: removes the copies and index entries under `P` now (an urgent erasure; Coach Ed's word each time). Dry run unless `--apply`. A file the store still has is not touched. Logs counts, actor and reference only.
+- `manage.py restore_private_files --list [--prefix P]`, `--missing`, `--prefix P`, `--key K`, `--include-deleted`, `--apply`: dry run unless `--apply`. It never overwrites a file the store has, checks each file's sha256 before writing it, and refuses a mismatch.
+
+**Restore (after a data loss).** Coach Ed gives his word for the environment each time.
+
+1. Restore the database first (section 2, steps 1 to 4), worker and beat still stopped.
+2. `restore_private_files --missing` (dry run), then `--missing --apply`. Add `--include-deleted` only if the database restore point is older than some deletions, for example rows that point at files deleted after the restore point.
+3. Run the "rows pointing at missing files" check (section 1) against the restored store. The list should be empty or explained.
+4. If `--include-deleted` was used, or rows came back from before an erasure, run the "Erased sites" re-erasure (section 3), which deletes the files again.
+5. Start api, then worker, then beat (section 2). Only then may the next 04:00 run mark anything deleted.
+
+**Staging restore test (test files only).** `backup_private_files --selftest` creates three synthetic files (a tiny PNG, a tiny PDF, a 1 MB PNG-typed random file) under `backup-selftest/` in the staging private store, backs up only that prefix into the bucket under `selftest/`, checks the stored bytes are the plaintext plus 29 bytes and not the plaintext, deletes the live files, restores them, and compares byte for byte (and sha256). It then checks that a second restore changes nothing and that a tampered copy and a wrong key are refused, and removes the test files and the test copy. No real member file is read, copied or restored. It runs before the switch is turned on. Record: the PASS lines, the object counts and the times. The first full run after the switch is on copies real staging files from Vercel into the Railway bucket in the same staging project (the manager's reading of ruling 509745: Railway is already where staging's database lives).
+
+**Not done until proved on staging:** `--measure`, `--selftest`, and the switch, all waiting for Coach Ed's word (and the bucket, its variables and the key, which are his).

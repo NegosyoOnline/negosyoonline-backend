@@ -13,4 +13,5 @@ dependencies = [
     "psycopg[binary]>=3.2,<4",
     "sentry-sdk>=2.20,<3",
     "reportlab>=4.2,<5",
+    "boto3>=1.40,<2",
 ]

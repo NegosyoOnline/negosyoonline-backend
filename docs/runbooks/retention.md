@@ -291,7 +291,7 @@ Plan: `docs/superpowers/plans/2026-11-13-site-deletion-executor-z8uq9mb22v.md` (
 
 **Holds.** `manage.py erasure_hold SITE --actor USER --reason-code CODE --reference REF`, `--release` to lift it. A held site is skipped by the executor and by the Pack purge.
 
-**Restore.** Erasure cannot be undone from the application. Backups keep erased data for up to about 89 days. After a restore, erase again the sites listed in the `site_data_erased` and `account_disposed` records kept outside the database (support mailbox, PR and ClickUp record of each batch).
+**Restore.** Erasure cannot be undone from the application. Backups keep erased data for up to about 89 days. When the private file backup is on (`docs/runbooks/backups-and-restore.md`, section 7), the copy of a deleted private file is kept 35 days after the file is seen deleted, then removed; an urgent erasure can remove it sooner with `backup_private_files --purge-prefix`. After a restore, erase again the sites listed in the `site_data_erased` and `account_disposed` records kept outside the database (support mailbox, PR and ClickUp record of each batch).
 
 ## Turning it off
 

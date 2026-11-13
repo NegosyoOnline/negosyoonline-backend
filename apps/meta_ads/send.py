@@ -8,7 +8,9 @@ import urllib.error
 import urllib.request
 from typing import NamedTuple
 
-GRAPH_VERSION = "v23.0"  # pinned here; confirm against Meta's current documentation before staging
+# Meta's versions page (developers.facebook.com/docs/graph-api/changelog/versions, read 2026-11-14): Marketing API
+# v23.0 expired 2026-06-09, v24.0 expired 2026-10-06, v25.0 is current. The Conversions API is a Marketing API endpoint.
+GRAPH_VERSION = "v25.0"
 TIMEOUT_SECONDS = 5
 MAX_ERROR_BODY = 20_000
 
