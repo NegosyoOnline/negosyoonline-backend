@@ -4,7 +4,7 @@ from django.contrib import admin
 from apps.common.admin import MaskedListAdmin
 from apps.common.masking import mask_email, mask_mobile
 from apps.notifications.models import EmailMessage, SmsDevice, SmsMessage, SmsPolicy
-from apps.operators import audit
+from apps.notifications import services
 
 
 @admin.display(description="Recipient", ordering="recipient")
@@ -81,7 +81,7 @@ class SmsDeviceAdmin(GatewayAdmin):
     )
 
 
-POLICY_FIELDS = ("sending_stopped", "platform_daily_limit", "site_daily_limit")
+POLICY_FIELDS = services.POLICY_FIELDS
 
 
 @admin.register(SmsPolicy)
@@ -104,15 +104,4 @@ class SmsPolicyAdmin(GatewayAdmin):
     def save_model(self, request, obj, form, change):
         was = SmsPolicy.objects.get(pk=obj.pk)
         super().save_model(request, obj, form, change)
-        changed = [name for name in POLICY_FIELDS if getattr(was, name) != getattr(obj, name)]
-        if changed:
-            audit.record(
-                request.user,
-                "sms_policy_change",
-                target_type="sms_policy",
-                target_id=obj.pk,
-                detail={
-                    "before": {name: getattr(was, name) for name in changed},
-                    "after": {name: getattr(obj, name) for name in changed},
-                },
-            )
+        services.record_policy_change(request.user, was, obj)
