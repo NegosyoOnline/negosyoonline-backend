@@ -9,6 +9,7 @@ from django.conf import settings
 from apps.common import retention
 from apps.inbox import retention as inbox_retention
 from apps.lifecycle import eligibility
+from apps.inquiries import retention as inquiries_retention
 from apps.members import retention as member_retention
 from apps.meta_ads import retention as meta_retention
 from apps.pack import retention as pack_retention
@@ -45,6 +46,7 @@ def planned_counts(site):
         shop_retention.blank_shop(sites, dry_run=True, ignore_switch=True),
         meta_retention.blank_meta(sites, dry_run=True),
         inbox_retention.erase_site_inbox(sites, dry_run=True),
+        inquiries_retention.blank_inquiries(sites, dry_run=True),
     ):
         counts.update(part)
     seals = SiteBusinessProfile.objects.filter(site__in=sites).exclude(seal_key="").count()
