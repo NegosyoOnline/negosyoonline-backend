@@ -39,9 +39,15 @@ def disposal_refusals(account, dry_run=False):
 def blank_settings_of(account, dry_run=False):
     """Blank the sponsor ID of every site of the account. The rows stay. Returns the count;
     a dry run only counts. Call it inside a transaction."""
-    if not services.enabled():
+    return blank_settings(Site.objects.filter(account=account), dry_run)
+
+
+def blank_settings(sites, dry_run=False, *, ignore_switch=False):
+    """The same for the sites in `sites`. `ignore_switch` reads the table whatever
+    SANTE_SETTINGS_ENABLED says (the site erasure, plan D13); the default is unchanged."""
+    if not ignore_switch and not services.enabled():
         return {}
-    rows = SanteSiteSettings.objects.filter(site__account=account)
+    rows = SanteSiteSettings.objects.filter(site__in=sites)
     count = rows.count()
     if not dry_run:
         rows.update(sponsor_id="")

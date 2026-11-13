@@ -1501,11 +1501,12 @@ def prepare_disposal(account, now, actor=Actor.OPERATOR, dry_run=False):
         Onboarding.objects.select_for_update().filter(account=account).first()
         rows = rows.select_for_update(of=("self",))
     cancelled, reasons = [], []
+    live = plan.collection_live()
     for subscription in rows.select_related("site"):
         if subscription.billing_exempt:
             continue
         site_id = subscription.site.public_id
-        if plan.collection_live() and subscription.transfers.filter(
+        if live and subscription.transfers.filter(
             status=TransferStatus.SUBMITTED
         ).exists():
             reasons.append({"reason": PAYMENT_UNDER_REVIEW, "site": site_id})

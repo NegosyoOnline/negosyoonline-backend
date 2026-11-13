@@ -17,6 +17,8 @@ from apps.notifications.services import EmailNotSent
 from apps.notifications.tests.base import gateway_on, online_phone
 
 STEP_UP = "/v1/account/step-up/"
+VERIFY = "/v1/account/step-up/verify/"
+WRONG_CODE = "That code is wrong or has expired. Ask for a new one."
 MOBILE = "+639171234567"
 NEW_MOBILE = "+639189999999"
 NEW_EMAIL = "new@example.test"
@@ -59,6 +61,11 @@ class SwitchOffTests(StepUpCase):
         body = self.get("/v1/account/").json()
         self.assertIs(body["email_change_step_up"], False)
         self.assertEqual(body["step_up_channels"], [])
+
+    def test_the_verify_route_is_404(self):
+        self.assertEqual(
+            self.post(VERIFY, {"purpose": "email_change", "code": "123456"}).status_code, 404
+        )
 
     def test_the_old_route_is_404(self):
         self.assertEqual(self.post("/v1/account/email/step-up/").status_code, 404)
@@ -219,3 +226,80 @@ class MobileChannelOffTests(StepUpCase):
         self.hold_mobile()
         self.assertEqual(self.get("/v1/account/").json()["step_up_channels"], ["email"])
         self.step_up("mobile", "email_change", expect=400)
+
+
+@override_settings(ACCOUNT_EMAIL_CHANGE_HARDENED=True)
+class VerifyTests(StepUpCase):
+    def verify(self, code, purpose="email_change", expect=204):
+        response = self.post(VERIFY, {"purpose": purpose, "code": code})
+        self.assertEqual(response.status_code, expect, response.content)
+        return response
+
+    def wrong(self, code):
+        return "000000" if code != "000000" else "111111"
+
+    def test_a_right_code_is_accepted_and_still_usable_at_start(self):
+        self.step_up("email", "email_change")
+        code = self.emailed_code()
+        self.verify(code)
+        self.verify(code)  # not consumed
+        self.assertEqual(self.start_email(code).status_code, 204)
+
+    def test_a_right_mobile_change_code_is_still_usable_at_start(self):
+        self.step_up("email", "mobile_change")
+        code = self.emailed_code()
+        self.verify(code, "mobile_change")
+        with gateway_on:
+            online_phone()
+            self.assertEqual(self.start_mobile(code).status_code, 200)
+
+    def test_a_wrong_code_gets_one_neutral_error(self):
+        self.step_up("email", "email_change")
+        response = self.verify(self.wrong(self.emailed_code()), expect=400)
+        error = response.json()["error"]
+        self.assertEqual(error["code"], "step_up_code_invalid")
+        self.assertEqual(error["message"], WRONG_CODE)
+
+    def test_no_code_issued_gets_the_same_error(self):
+        response = self.verify("123456", expect=400)
+        self.assertEqual(response.json()["error"]["message"], WRONG_CODE)
+
+    def test_a_code_for_another_purpose_is_refused(self):
+        self.step_up("email", "email_change")
+        self.verify(self.emailed_code(), "mobile_change", expect=400)
+
+    @gateway_on
+    def test_a_code_from_the_mobile_channel_is_accepted(self):
+        self.hold_mobile()
+        online_phone()
+        self.step_up("mobile", "email_change")
+        self.verify(self.texted_code())
+
+    def test_the_attempt_cap_locks_the_code(self):
+        self.step_up("email", "email_change")
+        code = self.emailed_code()
+        bad = self.wrong(code)
+        for _ in range(5):
+            self.verify(bad, expect=400)
+        self.verify(code, expect=400)  # locked: even the right code is dead now
+        self.assertEqual(self.start_email(code).status_code, 400)
+
+    def test_signed_out_is_refused(self):
+        self.client.cookies.clear()
+        self.assertEqual(
+            self.post(VERIFY, {"purpose": "email_change", "code": "123456"}).status_code, 401
+        )
+
+    def test_an_invalid_purpose_is_refused(self):
+        response = self.verify("123456", "password_change", expect=400)
+        self.assertEqual(response.json()["error"]["code"], "invalid_request")
+
+    def test_the_cap_is_shared_with_the_start_step(self):
+        self.step_up("email", "email_change")
+        code = self.emailed_code()
+        bad = self.wrong(code)
+        for _ in range(4):
+            self.verify(bad, expect=400)
+        self.assertEqual(self.start_email(bad).status_code, 400)  # the fifth try
+        self.assertEqual(self.start_email(code).status_code, 400)  # locked
+        self.verify(code, expect=400)

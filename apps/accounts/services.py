@@ -358,6 +358,22 @@ def require_step_up(account, step_up_code, purpose):
     raise ApiError("step_up_required", "Enter the code we sent you first.")
 
 
+def verify_step_up(account, purpose, code):
+    """Check a step-up code without using it up, so the dashboard can refuse a wrong one before
+    it opens the new address or number step. The start step still checks it again. Each check
+    counts toward the code's attempt limit. Only while ACCOUNT_EMAIL_CHANGE_HARDENED is on."""
+    if not settings.ACCOUNT_EMAIL_CHANGE_HARDENED:
+        raise ApiError("not_found", "Not found.", status=404)
+    if purpose not in STEP_UP_PURPOSES:
+        raise ApiError("invalid_request", "Some values are missing or invalid.")
+    try:
+        require_step_up(account, code, purpose)
+    except ApiError:
+        raise ApiError(
+            "step_up_code_invalid", "That code is wrong or has expired. Ask for a new one."
+        ) from None
+
+
 def clear_step_up(account, purpose):
     for channel in STEP_UP_CHANNELS:
         value, scope = _step_code_scope(account, purpose, channel)

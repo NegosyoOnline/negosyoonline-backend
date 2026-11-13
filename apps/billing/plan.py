@@ -1,14 +1,10 @@
 """The plans and the periods of the subscription lifecycle. No table holds these."""
-import json
-import logging
 from dataclasses import dataclass
 from datetime import timedelta
 
 from django.conf import settings
 
 from apps.billing import proofs
-
-logger = logging.getLogger(__name__)
 
 PLAN_NAME = "NegosyoOnline Monthly"
 PRICE_CENTAVOS = 249_900  # PHP 2,499
@@ -84,9 +80,6 @@ def snapshot(bought):
     }
 
 
-ACCOUNT_KINDS = ("bank", "ewallet")
-ACCOUNT_FIELDS = ("kind", "provider_name", "account_name", "account_number")
-
 
 def offers(subscription, now):
     """The plans this subscription can buy at `now`, in the order the page shows them.
@@ -117,45 +110,40 @@ def never_paid(subscription):
 
 
 def transfer_accounts():
-    """The receiving accounts in BILLING_TRANSFER_ACCOUNTS. A value that is not a list of
-    complete accounts counts as none, so a half-set variable never shows a broken account."""
-    raw = settings.BILLING_TRANSFER_ACCOUNTS
-    if not raw:
-        return []
-    try:
-        rows = json.loads(raw)
-    except ValueError:
-        rows = None
-    if not isinstance(rows, list) or not rows:
-        return _bad_accounts()
-    accounts = []
-    for row in rows:
-        if not isinstance(row, dict) or set(row) != set(ACCOUNT_FIELDS):
-            return _bad_accounts()
-        if not all(isinstance(row[name], str) and row[name].strip() for name in ACCOUNT_FIELDS):
-            return _bad_accounts()
-        if row["kind"] not in ACCOUNT_KINDS:
-            return _bad_accounts()
-        accounts.append({name: row[name].strip() for name in ACCOUNT_FIELDS})
-    return accounts
+    """The active receiving accounts, in the order the page shows them, as the four fields a
+    Subscriber is told. Staff set them in HQ Finance; none is in code or in a variable."""
+    from apps.billing.models import ReceivingAccount
+
+    rows = ReceivingAccount.objects.filter(active=True).order_by("sort_order", "pk")
+    return [
+        {
+            "kind": row.kind, "provider_name": row.provider_name,
+            "account_name": row.account_name, "account_number": row.account_number,
+        }
+        for row in rows
+    ]
 
 
-def _bad_accounts():
-    logger.error("BILLING_TRANSFER_ACCOUNTS is not a list of complete accounts; treated as empty.")
-    return []
+def has_receiving_account():
+    from apps.billing.models import ReceivingAccount
+
+    return ReceivingAccount.objects.filter(active=True).exists()
 
 
 def collection_live():
-    """Whether NegosyoOnline can take a payment: bank transfer is switched on, there is an
-    account to pay to and a store for the proof.
+    """Whether NegosyoOnline can take a payment: bank transfer is switched on, there is a store
+    for the proof and an active account to pay to.
+
+    The table is read last: a switch that is off, or no store, reads nothing. Never cached, so
+    an account staff just switched off stops being offered at once.
 
     R-4a: the dates of a subscription that never paid start only once it can be paid for.
     """
     return bool(
         settings.BILLING_ENABLED
         and settings.BILLING_BANK_TRANSFER_ENABLED
-        and transfer_accounts()
         and proofs.available()
+        and has_receiving_account()
     )
 
 
