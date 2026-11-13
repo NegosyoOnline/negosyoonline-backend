@@ -183,6 +183,11 @@ MEMBERS_ENABLED = os.environ.get("MEMBERS_ENABLED", "").strip() == "1"
 # they answer the 404 of an unknown site and no pack table is read or written. Needs
 # MEMBERS_ENABLED, SANTE_AGREEMENT_ENABLED and a private file store (see apps/pack/checks.py).
 PACK_ENABLED = os.environ.get("PACK_ENABLED", "").strip() == "1"
+# Shipment by hand on a Membership Pack order (PK-SHIP): the Subscriber records courier and tracking,
+# corrects them and marks delivery; the buyer is emailed on shipped and delivered. "1" turns it on.
+# Off, its three owner routes answer 404, no shipment email is sent and the dash shows no shipment
+# control. Needs PACK_ENABLED and migration pack.0004 (see apps/pack/checks.py).
+PACK_SHIPPING_ENABLED = os.environ.get("PACK_SHIPPING_ENABLED", "").strip() == "1"
 # Meta Pixel and Conversions API (apps/meta_ads): the Subscriber's per-site settings routes, the
 # storefront events route and the sender. "1" turns it on. Off, every one of them answers the 404
 # of an unknown site, no meta table is read or written and nothing is sent to Meta. Needs

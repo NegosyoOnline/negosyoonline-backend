@@ -95,11 +95,14 @@ On the owner API, `https://<api>/v1/sites/{site_id}/pack/orders/...`, signed in 
 
 | Route | Body | Answer |
 |---|---|---|
-| `GET .../pack/orders/?filter=to_review\|rejected\|all` | | `{orders: [row]}` newest 200 |
+| `GET .../pack/orders/?filter=to_review\|rejected\|ready_to_ship\|shipped\|delivered\|all` | | `{orders: [row]}` newest 200 |
 | `GET .../pack/orders/{order_id}/` | | detail |
 | `GET .../pack/orders/{order_id}/proofs/{proof_id}/` | | the file, `Cache-Control: private, no-store`, `nosniff` |
 | `POST .../pack/orders/{order_id}/approve/` | `{state_version}` | detail |
 | `POST .../pack/orders/{order_id}/reject/` | `{state_version, reason_code, other_text?}` | detail |
+| `POST .../pack/orders/{order_id}/shipment/` | `{state_version, courier, courier_other_name?, tracking_number, shipped_on?}` | detail. Only from `verified`, not yet shipped. `409 wrong_status`, `already_shipped`; `422 invalid_shipment` with field messages. Switch `PACK_SHIPPING_ENABLED` off: `404`. Sends the shipped email after commit |
+| `POST .../pack/orders/{order_id}/shipment/correct/` | same body | detail. Shipped and not delivered only; `409 not_shipped`, `delivered_final`. No email |
+| `POST .../pack/orders/{order_id}/delivery/` | `{state_version, delivered_on?}` | detail. Shipped only; date from the shipped date to today (Manila); final. `409 not_shipped`, `delivered_final`; `422 invalid_delivery`. Sends the delivered email |
 
 `row`: `{id, order_number, buyer_name, mobile_masked, method, payment_status, created_at, state_version, price_centavos}`. `detail` is `row` plus `{currency, delivery_address, rejection_lock_active, submissions, events}`; a submission is `{id, seq, account_kind, account_provider_name, account_name, account_number_last4, reference_number, amount_sent_centavos, sender_bank, sender_name, sender_account_number, transferred_at, submitted_at, content_type, decisions: [{decision, reason_code, reason_label, other_text, actor_label, decided_at}]}`.
 
@@ -124,7 +127,7 @@ TWCinc routes carried (negosyoonline_members `urls.py`): `dashboard/account/`, `
 
 ## Member Dashboard and My Orders (home and orders reads)
 
-Both are `POST`, body `{host, token}`, built from the member's pack order only (no product orders yet: their counts are zero, and there is no shipment data, so courier and tracking are always empty and `Shipped`/`Delivered` never complete). Money is PESOS as a number (`1488`, as TWCinc's templates format it: add the peso sign and thousands separators), with `*_centavos` (integer) and `*_text` (`"1,488.00"`) beside it. `h` is 0 to 100 in steps of 5. Dates are ISO strings; show them in Manila time.
+Both are `POST`, body `{host, token}`, built from the member's pack order only (no product orders yet: their counts are zero, and shipment data comes from the Subscriber's manual entry: courier and tracking stay empty and `Shipped`/`Delivered` stay incomplete until the Subscriber records the shipment and the delivery, which needs `PACK_SHIPPING_ENABLED`). Money is PESOS as a number (`1488`, as TWCinc's templates format it: add the peso sign and thousands separators), with `*_centavos` (integer) and `*_text` (`"1,488.00"`) beside it. `h` is 0 to 100 in steps of 5. Dates are ISO strings; show them in Manila time.
 
 `member/home/` -> `{summary, order_monitor}`:
 
