@@ -186,6 +186,31 @@ class MemberContactAudit(models.Model):
         raise ImmutableRecordError("Member contact audit rows are append-only.")
 
 
+class MemberAddressEvent(models.Model):
+    """Append-only history of the member's own delivery-address edits: the address before and
+    after (the six address keys) and the advisory IP. All three are personal data: a member's
+    blanking or erasure blanks them (apps/members/retention.py), through a queryset update, the
+    only write these rows ever take after they are created."""
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="member_address_events")
+    member = models.ForeignKey(Member, on_delete=models.PROTECT, related_name="address_events")
+    old = models.JSONField(default=dict, blank=True)
+    new = models.JSONField(default=dict, blank=True)
+    ip_advisory = models.CharField(max_length=45, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None and not self._state.adding:
+            raise ImmutableRecordError("Member address events are append-only.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ImmutableRecordError("Member address events are append-only.")
+
+
 class MemberSecurityHold(models.Model):
     """A security hold. Stored once, never shortened or deleted; active while now < ends_at. A
     recovery hold names its contact audit; a payout-fallback hold names the payout destination

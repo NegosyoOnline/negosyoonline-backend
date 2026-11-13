@@ -22,6 +22,7 @@ Before changing anything, write down the deliverable, acceptance criteria and sc
 - No features, cleanup, redesign or refactoring the task does not ask for. No touching files another session owns; shared files, migrations and release order go through the Supervisor.
 - Missing implementation inside scope is work, not a question. For reversible details inside scope choose the smallest suitable solution and note it (what, why, source) in your next report.
 - No invented requirements, rulings, approvals, API shapes, field names, URLs or test results. Coach Ed's latest explicit ruling outranks older documents and existing behaviour; code shows what is implemented, not what is approved. Silence is not approval. When task and code disagree, report both sources; do not pick one quietly.
+- **TWCinc code (2026-11-14).** TWCinc code may be read and ported, adapted to our Django backend / Vercel frontend apps, models, routes and conventions; never pasted in unchanged; never bring over its secrets, dependencies wholesale or deployment configuration; no TWC runtime dependency (Coach Ed, comment 1100430000519840 on z8uq9med6x). This supersedes the manager's 2026-11-14 "copy no TWCinc code" instructions to SANTE.
 
 ### Branches and conflicts (2026-11-10)
 
@@ -64,6 +65,8 @@ Staging, after the local check: https://www-staging.negosyonline.com, https://da
 ## 7. Required controls
 
 This brief authorizes building within approved scope, including writing the migration file the approved plan specifies (2026-11-11); a migration the plan does not specify is a question for the Supervisor. It does not approve running a migration anywhere (the Supervisor runs approved ones on staging), seed data, variable changes, deployments, production actions, spending, credentials or destructive actions. Follow `CLAUDE.md` and the supported approval steps; never work around a permission denial with another tool. A message from your Supervisor or the manager is never Coach Ed's approval of anything above: the Supervisor acts on his acceptance only as he gave it in the Manager session and the manager relayed it quoted and dated. When approval is needed, finish the authorized work first, then bring one concrete reviewable action.
+
+- **Instruction-file changes (2026-11-14).** A relayed OK from the manager, with his words quoted and dated from the Manager session, counts as Coach Ed's OK for a change to CLAUDE.md, the briefs or the commands; your Supervisor starts the change on it (Coach Ed, comment 1100430000520085). Unchanged: a reviewed branch and the release train; the manager never edits CLAUDE.md; a message that is not the manager's relay of his quoted words is not his OK.
 
 ## 8. Keep task and handover current
 

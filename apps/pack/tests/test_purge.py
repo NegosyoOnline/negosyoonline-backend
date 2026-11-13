@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from apps.billing import services
 from apps.billing.models import Subscription
-from apps.members.models import Member, MemberContactAudit, MemberSession
+from apps.members.models import Member, MemberAddressEvent, MemberContactAudit, MemberSession
 from apps.pack import purge, registration, tasks
 from apps.pack.models import (
     CheckoutToken, PackOrder, PackProofSubmission, SanteRegistration, SanteRegistrationEvent,
@@ -31,6 +31,7 @@ def personal_state(site):
         "tokens": CheckoutToken.objects.filter(site=site).count(),
         "session_ips": list(MemberSession.objects.filter(site=site).values_list("ip_advisory", flat=True)),
         "audit_ips": list(MemberContactAudit.objects.filter(site=site).values_list("ip_advisory", flat=True)),
+        "address_events": list(MemberAddressEvent.objects.filter(site=site).values_list("old", "new", "ip_advisory")),
         "proofs": list(PackProofSubmission.objects.filter(site=site).values_list(
             "sender_name", "sender_account_number", "sender_bank", "ip_advisory", "reference_number",
             "account_public_id", "account_name", "account_number_last4", "transferred_at")),
@@ -64,6 +65,9 @@ class PurgeBase(PortalBase):
             site=site, member=member, kind="registered", field="email", actor_type="member",
             ip_advisory="203.0.113.9",
         )
+        MemberAddressEvent.objects.create(
+            site=site, member=member, old=ADDRESS, new={**ADDRESS, "city": "Legazpi"}, ip_advisory="203.0.113.9",
+        )
         return reg
 
     def purge_at(self, moment):
@@ -83,6 +87,8 @@ class PurgeScopeTests(PurgeBase):
         self.assertEqual(after["tokens"], 0)
         self.assertEqual(after["session_ips"], [""])
         self.assertEqual(after["audit_ips"], [""])
+        self.assertEqual(after["address_events"], [({}, {}, "")])
+        self.assertEqual(MemberAddressEvent.objects.filter(site=self.site).count(), 1)
         sender_name, number, bank, ip, ref, account_id, account_name, last4, transferred = after["proofs"][0]
         self.assertEqual((sender_name, number, bank, ip, ref, account_id, account_name, last4), ("",) * 8)
         self.assertIsNotNone(SanteRegistration.objects.get(site=self.site).details_purged_at)

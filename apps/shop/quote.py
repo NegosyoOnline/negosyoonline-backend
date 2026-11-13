@@ -175,11 +175,51 @@ def assemble(lines, buyer, ship_mode, address):
 
 # -- the quote ------------------------------------------------------------------------------------
 
+ADDRESS_KEYS = ("line", "barangay", "city", "province", "zip", "landmark")
+HOME_PROFILE, HOME_PACK_ORDER = "profile", "pack_order"
+
+
+def _usable(raw):
+    """The six address keys as trimmed text, or None when line, city or province is missing."""
+    if not isinstance(raw, dict):
+        return None
+    out = {k: str(raw.get(k) or "").strip() for k in ADDRESS_KEYS}
+    return out if out["line"] and out["city"] and out["province"] else None
+
+
+def home_address(member):
+    """(address, source) of the member's own delivery address, or (None, "").
+
+    The member's saved `delivery_address` first. When it is missing or unusable, the delivery
+    address of the member's latest Membership Package order on this site, as TWCinc does
+    (`negosyoonline_sante_storefront/providers.py: pack_address`, registered as the home-address
+    fallback and read by `negosyoonline_storefront/addresses.py: home_address`). Used both to show
+    the address and to place a `home` order, so the two cannot disagree."""
+    saved = _usable(member.delivery_address)
+    if saved is not None:
+        return saved, HOME_PROFILE
+    from apps.pack.models import PackOrder  # read-only hand-off
+
+    latest = PackOrder.objects.filter(member=member, site_id=member.site_id).order_by("-pk").first()
+    fallback = _usable(latest.delivery_address) if latest is not None else None
+    return (fallback, HOME_PACK_ORDER) if fallback is not None else (None, "")
+
+
+def _address_locked(buyer):
+    """True while the signed-in member with benefits cannot change their own address (an active
+    recovery hold). False for a guest or a member without benefits, who see no Edit anyway."""
+    if not buyer.benefits:
+        return False
+    from apps.members import holds  # read-only hand-off
+
+    return holds.active_hold(buyer.member, "address_change") is not None
+
+
 def _quote_address(buyer, ship_mode, posted):
     """Where the quote ships: the member's own address for `home`, else the posted one, else
     None (the Metro Manila estimate). Only the city and province are read; a quote validates
     nothing else."""
-    source = buyer.member.delivery_address if ship_mode == C.HOME else posted
+    source = home_address(buyer.member)[0] if ship_mode == C.HOME else posted
     if not isinstance(source, dict):
         return None
     address = {k: str(source.get(k) or "").strip() for k in ("city", "province")}
@@ -233,8 +273,15 @@ def quote(site, raw_lines, *, member_token="", ship_mode="", address=None):
     ship = assembled.shipping if assembled else None
     ok = assembled is not None and len(priced) == len(wanted)
     shipping_charged = ship.charged_centavos if ship else 0
+    # The member's own address, read-only, for the "Ship to my address" step: only a signed-in
+    # member with active benefits (the buyers who may choose `home`). Never a guest's or another
+    # member's: it comes from this request's own verified session.
+    home, home_source = home_address(buyer.member) if buyer.benefits else (None, "")
     return {
         "ok": ok,
+        "home_address": home,
+        "home_address_source": home_source,
+        "home_address_locked": _address_locked(buyer),
         "member_price": buyer.benefits,
         "ship_mode": mode,
         "lines": rows,

@@ -28,6 +28,10 @@ def product_url(site_id, product_id):
     return f"/v1/sites/{site_id}/catalog/products/{product_id}/"
 
 
+def order_url(site_id):
+    return f"/v1/sites/{site_id}/catalog/products/order/"
+
+
 def revisions_url(site_id, product_id):
     return f"/v1/sites/{site_id}/catalog/products/{product_id}/revisions/"
 
@@ -78,6 +82,9 @@ def catalog_call(case, method, path, client=None):
         return _image_call(case, method, path, revision, client)
     if method == "GET":
         return case.get(path, client=client)
+    if path.endswith("/products/order/"):  # every product there is, in the order it has
+        ids = list(CatalogProduct.objects.order_by("pk").values_list("public_id", flat=True))
+        return case.send("post", path, {"product_ids": ids}, client=client)
     if method == "PATCH":  # the values on file: it works and changes nothing
         body = {"revision": revision, "name": case.catalog_product.name}
     else:  # a new code each time, so a repeated create is never a 409
@@ -195,6 +202,10 @@ class CatalogApiTestCase(SitesApiTestCase):
         response = self.get(products_url((site or self.site).public_id), client=client)
         self.assertEqual(response.status_code, 200, response.content)
         return response.json()
+
+    def arrange(self, product_ids, site=None, client=None):
+        return self.post(order_url((site or self.site).public_id), {"product_ids": product_ids},
+                         client=client)
 
     def revisions(self, product_id, site=None, client=None):
         return self.get(revisions_url((site or self.site).public_id, product_id), client=client)
