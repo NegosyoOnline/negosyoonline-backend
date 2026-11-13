@@ -12,7 +12,7 @@ The site and Terms state only what launches (G1, FE #55 merged; also FE #56, FE 
 
 | Check | Evidence | Status | Owner |
 |---|---|---|---|
-| Public claim: `https://www-staging.negosyonline.com/referral-terms` (`apps/site/public/referral-terms.html`) promises Subscription Credits of 20% of each qualifying payment. The Terms, the sign-up note and the dash footer link to it, and the dash shows a referral link card. Referral credits are deferred to after launch | Manager ruling 2026-11-13; BILLING task z8uq9mdwt1. Found by the BILLING Supervisor; page checked by fetch 2026-11-13 (200, two "20%" mentions) | Open | Manager to assign (fix wording pending) |
+| Public claim: `https://www-staging.negosyonline.com/referral-terms` (`apps/site/public/referral-terms.html`) promises Subscription Credits of 20% of each qualifying payment. The Terms, the sign-up note and the dash footer link to it, and the dash shows a referral link card. Referral credits are deferred to after launch | Manager ruling 2026-11-13; BILLING task z8uq9mdwt1. Found by the BILLING Supervisor; page checked by fetch 2026-11-13 (200, two "20%" mentions). Fixed in FE #77 (frontend main 04a80ac, merged 2026-11-13): the usage-overage credit wording is removed, and section 12 now says the Referral Program has not started yet and that the page will announce when referral links and Subscription Credits become available (Manager ruling 2026-11-13, bare-compliance rule). Staging fetch 2026-11-14: `https://www-staging.negosyonline.com/referral-terms` answers 200 with that line and no "usage-overage" | Pass | GATES |
 
 Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, FE #N = `https://github.com/NegosyoOnline/negosyoonline-frontend/pull/N`.
 
@@ -68,7 +68,8 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Readiness reports a stuck SMS queue | BE #148; `apps/health/test_readyz.py` | Pass | GATES |
 | Retention: send records deleted after 1 year, challenges 24 hours after expiry | BE #53; `apps/notifications/tests/test_retention.py`; `docs/runbooks/retention.md`; daily scheduled run BE #145 | Pass | HQ Supervisor |
 | SMS gateway runbook | `docs/runbooks/sms-gateway.md` | Pass | HQ Supervisor |
-| Security finding (Low): the staging Celery worker logs "running with superuser privileges"; worker and beat run as root. Found during ops B on 2026-11-13 | Fix in ClickUp z8uq9mevfy, on branch `fix/z8uq9mevfy-celery-nonroot`: the start scripts drop to `nobody:nogroup`, plus a one-time Railway start-command change on staging after merge | Open | GATES |
+| Security finding (Low): the staging Celery worker logs "running with superuser privileges"; worker and beat run as root. Found during ops B on 2026-11-13 | Fixed in z8uq9mevfy, merged in BE #157 (main 4ee411f). On 2026-11-13 the Manager set the staging worker and beat start commands to `sh scripts/start_worker.sh` and `sh scripts/start_beat.sh` and deployed (worker deploy 8c970f20, 16:18 UTC): no SecurityWarning, Celery processes run as nobody, `/readyz/` stayed ok, scheduled tasks succeeded at 16:23. ClickUp comment 1100430000519722 | Pass | GATES |
+| Pull request CI runs the SQLite suite; PostgreSQL and Redis run on the release tag (z8uq9mevga) | BE #157 (main 4ee411f): on that PR 'Django checks and tests' ran the SQLite suite (pass, 6m55s) and 'PostgreSQL and Redis configuration' was skipped. Release Builders run PostgreSQL and Redis locally before each PR | Pass | GATES |
 
 ## Gate 5: Backups, restore, monitoring, support and exit, mobile and accessibility
 
@@ -144,13 +145,11 @@ This is the "runbooks for each" line of the working statement.
 
 ## Still open
 
-- Worker and beat run as root on staging: fix z8uq9mevfy (GATES).
 - Backup schedule boxes to confirm in the Backups tab (GATES).
 - Point-in-time recovery decision before production (GATES).
 - No backup of private files (Vercel Blob private store); the restore test covers the database only (GATES).
 - NPC P5 section 3 and section 5 wording about files in the restore test, to be corrected by its owner (HQ/NPC kit).
 - Sentry `SENTRY_DSN`: waits 30 days after the Privacy line is live (Coach Ed).
-- Public claim row on referral credits (Open).
 - Mobile and accessibility audit z8uq9m7ydk: findings above still Pending or Open (GATES, SANTE, BILLING, HQ Supervisor); Usage Admit and Dismiss to be re-checked in a browser once usage is turned on after launch (GATES).
 - Dated staging walkthroughs for gates 2 and 3 (Not run); ended-site 404 not checked on staging.
 - Production does not exist yet. Every staging item must be repeated for production once it does.
