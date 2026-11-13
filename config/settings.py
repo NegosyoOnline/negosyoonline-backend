@@ -357,6 +357,12 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(hour=3, minute=0),
         "options": {"expires": 3600},
     },
+    # The heartbeat /readyz/ reads: a fresh one proves beat, the broker and the worker all work.
+    "health-heartbeat": {
+        "task": "health.heartbeat",
+        "schedule": 60,
+        "options": {"expires": 60},
+    },
 }
 
 
@@ -425,3 +431,9 @@ LOGGING = {
     "handlers": {"security_console": {"class": "logging.StreamHandler", "formatter": "security"}},
     "loggers": {"security": {"handlers": ["security_console"], "level": "WARNING", "propagate": False}},
 }
+
+# Error tracking (apps/common/sentry.py). Does nothing until SENTRY_DSN is set; errors only,
+# no personal data.
+from apps.common import sentry  # noqa: E402
+
+sentry.init()
