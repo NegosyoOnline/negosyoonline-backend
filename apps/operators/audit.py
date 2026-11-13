@@ -70,6 +70,15 @@ ACTIONS = {
     "sante_agreement_version_updated": KEPT,
     "sante_agreement_version_deleted": KEPT,
     "sante_agreement_published": KEPT,
+    # The site deletion executor (plan z8uq9mb22v, section 7). Ids, codes, counts and the names of
+    # fields: never a value.
+    "erasure_batch_proposed": KEPT,
+    "erasure_batch_approved": KEPT,
+    "erasure_batch_cancelled": KEPT,
+    "site_data_erased": KEPT,
+    "site_erasure_skipped": KEPT,
+    "erasure_hold_set": KEPT,
+    "erasure_hold_released": KEPT,
 }
 SIGN_IN_ACTIONS = ("admin_sign_in_ok", "admin_sign_in_failed", "admin_locked", "admin_sign_out")
 IDENTITY_TARGET = "admin_identity"

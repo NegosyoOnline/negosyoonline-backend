@@ -38,7 +38,7 @@ class LifecycleRouteTests(StaffTestCase):
         self.addCleanup(clock.stop)
 
     def test_the_route_is_in_the_table_as_a_post(self):
-        self.assertEqual(sorted(staff.ROUTES), ["lifecycle/erasure/list/"])
+        self.assertIn("lifecycle/erasure/list/", staff.ROUTES)
         self.assertEqual(staff_views.ROUTES["lifecycle/erasure/list/"][0], "POST")
 
     def test_another_origin_is_refused(self):

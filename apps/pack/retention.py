@@ -57,14 +57,14 @@ def blanked():
     }
 
 
-def blank_packs_of(account, dry_run=False):
+def blank_packs_of(account, dry_run=False, *, keep_files=False):
     """Delete every proof file and every checkout token of the account's sites and blank the
     personal fields of its orders and proofs. The rows stay. Returns the counts; a dry run only
     counts. Call it inside a transaction.
 
     A file that cannot be deleted raises private_files.StoreError, so the disposal is undone and
     can be run again; deleting a file that is already gone succeeds."""
-    return blank_packs(Site.objects.filter(account=account), dry_run)
+    return blank_packs(Site.objects.filter(account=account), dry_run, keep_files=keep_files)
 
 
 def blank_packs(sites, dry_run=False, *, ignore_switch=False, keep_files=False):

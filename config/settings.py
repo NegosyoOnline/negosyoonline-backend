@@ -422,6 +422,14 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 3600,
         "options": {"expires": 3600},
     },
+    # The site deletion executor: runs only batches a person approved in HQ. Does nothing, and
+    # reads no lifecycle table, while SITE_ERASURE_ENABLED is off. A tick not picked up within
+    # five minutes is dropped: the next one finds the same batches.
+    "lifecycle-run-approved": {
+        "task": "lifecycle.run_approved",
+        "schedule": 300,
+        "options": {"expires": 300},
+    },
     # The heartbeat /readyz/ reads: a fresh one proves beat, the broker and the worker all work.
     "health-heartbeat": {
         "task": "health.heartbeat",
