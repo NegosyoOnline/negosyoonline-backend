@@ -91,12 +91,12 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Audit: storefront has no skip link and only the browser's default 1 px focus ring. Low | Pass 2 comment 1100430000510420; no fix yet | Open | SANTE |
 | Audit: HQ Finance "Replaced" tab sits off-screen at 390 with no scroll cue. Low | Pass 2 comment 1100430000510420; no fix yet | Open | HQ Supervisor |
 | Audit: public site home page overflowed sideways at 390 (comment 1100430000509383) | Pass 1 confirmed fixed: page is 390 wide, the comparison table scrolls in its own box | Pass | GATES |
-| Audit: Dashboard Membership Pack card says the order has not shipped while My Orders shows it Shipped and Delivered. Medium | Pass 3 comment 1100430000510829; no fix yet | Open | SANTE |
-| Audit: My Orders small text below 4.5:1 ("Placed" date 4.02, "Total" line 4.02, "Delivered" badge 4.36). Low | Pass 3 comment 1100430000510829; no fix yet | Open | SANTE |
-| Audit: sign-in contact-step error is linked to the field but not announced, and focus drops to the page body. Low | Pass 3 comment 1100430000510829; no fix yet | Open | SANTE |
-| Audit: change-email step 1 (confirm code) error not announced, focus drops to the body, empty submit gives no feedback; change mobile likely shares it. Low | Pass 3 comment 1100430000510829; no fix yet | Open | SANTE |
-| Audit: My Orders "View Details" toggle has aria-expanded but no aria-controls. Low | Pass 3 comment 1100430000510829; no fix yet | Open | SANTE |
-| Audit: My Orders 4-step tracker wraps 3 + 1 at 390 (cosmetic; only if the approved design shows one row). Low | Pass 3 comment 1100430000510829; no fix yet | Open | SANTE |
+| Audit: Dashboard Membership Pack card says the order has not shipped while My Orders shows it Shipped and Delivered. Medium | Pass 3 comment 1100430000510829; no fix yet; tracked on SANTE task z8uq9memuj | Open | SANTE |
+| Audit: My Orders small text below 4.5:1 ("Placed" date 4.02, "Total" line 4.02, "Delivered" badge 4.36). Low | Pass 3 comment 1100430000510829; no fix yet; goes to the contrast batch | Open | SANTE |
+| Audit: sign-in contact-step error is linked to the field but not announced, and focus drops to the page body. Low | Pass 3 comment 1100430000510829; no fix yet; tracked on SANTE task z8uq9memuj | Open | SANTE |
+| Audit: change-email step 1 (confirm code) error not announced, focus drops to the body, empty submit gives no feedback; change mobile likely shares it. Low | Pass 3 comment 1100430000510829; no fix yet; tracked on SANTE task z8uq9memuj | Open | SANTE |
+| Audit: My Orders "View Details" toggle has aria-expanded but no aria-controls. Low | Pass 3 comment 1100430000510829; no fix yet; tracked on SANTE task z8uq9memuj | Open | SANTE |
+| Audit: My Orders 4-step tracker wraps 3 + 1 at 390 (cosmetic; only if the approved design shows one row). Low | Pass 3 comment 1100430000510829; no fix yet; tracked on SANTE task z8uq9memuj | Open | SANTE |
 | Audit: membership landing page weighs about 0.9 to 1.2 MB, mostly images. Low | Pass 1 comment 1100430000510246; no fix yet | Open | SANTE |
 | Audit: not audited: change-email steps 2 and 3, change-mobile beyond step 1, dash and HQ form error states | Pass 3 stopped when SANTE's preview restarted (comment 1100430000510829); pass 2 did not exercise error states | Pending | HQ Supervisor |
 
