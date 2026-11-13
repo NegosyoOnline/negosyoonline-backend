@@ -112,6 +112,9 @@ HQ_STAFF_ORIGIN = os.environ.get("HQ_STAFF_ORIGIN", "").strip()
 # The SMS gateway. "1" turns on the send function and the admin's SMS lists. Off, no text is
 # queued and the gateway's tables are not read or written.
 SMS_GATEWAY_ENABLED = os.environ.get("SMS_GATEWAY_ENABLED", "").strip() == "1"
+# /readyz/ "email" fails when this many of the newest emails inside the window failed and none sent.
+READYZ_EMAIL_FAILURES = int(os.environ.get("READYZ_EMAIL_FAILURES", "3"))
+READYZ_EMAIL_WINDOW_MINUTES = int(os.environ.get("READYZ_EMAIL_WINDOW_MINUTES", "30"))
 # The SMS inbox. "1" lets texts a phone forwards be stored and read. Off, nothing is stored or
 # shown and `received` discards what a phone sends, as before the inbox existed. Texts already
 # stored are still deleted at 365 days, and on a person's request, whatever this says.

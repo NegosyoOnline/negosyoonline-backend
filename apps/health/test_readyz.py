@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from apps.common import sentry
 from apps.health import tasks, views
-from apps.notifications.models import SmsMessage
+from apps.notifications.models import EmailMessage, SmsMessage
 
 
 class ReadyzTests(TestCase):
@@ -26,7 +26,7 @@ class ReadyzTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertJSONEqual(
             response.content,
-            {"ok": True, "db": True, "cache": True, "beat": True, "sms_queue": True},
+            {"ok": True, "db": True, "cache": True, "beat": True, "sms_queue": True, "email": True},
         )
 
     def test_db_failure_is_503(self):
@@ -107,6 +107,64 @@ class ReadyzTests(TestCase):
     def test_sms_queue_not_counted_when_gateway_off(self):
         self._queued(timedelta(minutes=30))
         self.assertTrue(self.get().json()["sms_queue"])
+
+    def _emails(self, status, count, age=timedelta(minutes=1)):
+        for _ in range(count):
+            row = EmailMessage.objects.create(recipient="owner@example.com", category="x", status=status)
+            EmailMessage.objects.filter(pk=row.pk).update(created_at=timezone.now() - age)
+
+    def test_email_no_rows_is_ok(self):
+        response = self.get()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["email"])
+
+    def test_email_three_failed_none_sent_is_503_without_addresses(self):
+        self._emails("failed", 3)
+        response = self.get()
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.json()["email"])
+        self.assertNotIn(b"owner@example.com", response.content)
+
+    def test_email_one_sent_keeps_it_ok(self):
+        self._emails("failed", 3)
+        self._emails("sent", 1)
+        self.assertEqual(self.get().status_code, 200)
+
+    def test_email_below_threshold_is_ok(self):
+        self._emails("failed", 2)
+        self.assertEqual(self.get().status_code, 200)
+
+    def test_email_failures_older_than_the_window_are_ignored(self):
+        self._emails("failed", 3, age=timedelta(minutes=31))
+        self.assertEqual(self.get().status_code, 200)
+
+    def test_email_pending_counts_neither_way(self):
+        self._emails("failed", 3)
+        self._emails("pending", 5)
+        self.assertEqual(self.get().status_code, 503)
+        EmailMessage.objects.filter(status="failed").delete()
+        self._emails("failed", 2)
+        self.assertEqual(self.get().status_code, 200)
+
+    @override_settings(READYZ_EMAIL_FAILURES=5)
+    def test_email_threshold_is_a_setting(self):
+        self._emails("failed", 3)
+        self.assertEqual(self.get().status_code, 200)
+
+    def test_email_check_is_one_query(self):
+        self._emails("failed", 3)
+        with self.assertNumQueries(1):
+            self.assertFalse(views.check_email())
+
+    def test_email_head_answers_like_get(self):
+        self._emails("failed", 3)
+        self.assertEqual(self.client.head("/readyz/", secure=True).status_code, 503)
+
+    def test_email_query_error_is_a_failure(self):
+        with mock.patch.object(EmailMessage.objects, "order_by", side_effect=Exception("boom")):
+            response = self.get()
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.json()["email"])
 
     def test_throttled_per_ip(self):
         with mock.patch.object(views, "READYZ_LIMIT", (2, 60)):

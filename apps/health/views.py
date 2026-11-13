@@ -21,6 +21,7 @@ from apps.health.tasks import HEARTBEAT_KEY
 CHECK_TIMEOUT = 2  # seconds each check may take
 BEAT_MAX_AGE = timedelta(minutes=3)
 SMS_QUEUE_MAX_AGE = timedelta(minutes=15)
+READYZ_EMAIL_SAMPLE = 20  # newest email rows read by check_email
 READYZ_LIMIT = (30, 60)  # attempts per IP per window (seconds)
 
 
@@ -96,6 +97,22 @@ def check_sms_queue():
         return False
 
 
+def check_email():
+    """False when the newest emails inside the window are all failures: at least the threshold
+    failed and none sent. One query by primary key (no index on created_at or status needed)."""
+    from apps.notifications.models import EmailMessage
+
+    try:
+        cutoff = timezone.now() - timedelta(minutes=settings.READYZ_EMAIL_WINDOW_MINUTES)
+        rows = EmailMessage.objects.order_by("-pk").values_list("status", "created_at")[:READYZ_EMAIL_SAMPLE]
+        statuses = [status for status, created_at in rows if created_at >= cutoff]
+        failed = statuses.count(EmailMessage.Status.FAILED)
+        sent = statuses.count(EmailMessage.Status.SENT)
+        return not (failed >= settings.READYZ_EMAIL_FAILURES and sent == 0)
+    except Exception:
+        return False
+
+
 @require_safe
 def readyz(request):
     limit, window = READYZ_LIMIT
@@ -110,6 +127,7 @@ def readyz(request):
         "cache": check_cache(),
         "beat": check_beat(),
         "sms_queue": check_sms_queue(),
+        "email": check_email(),
     }
     ok = all(checks.values())
     return JsonResponse({"ok": ok, **checks}, status=200 if ok else 503)
