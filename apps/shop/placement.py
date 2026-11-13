@@ -17,6 +17,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
 
+from apps.billing import services as billing
 from apps.catalog import services as catalog, snapshot
 from apps.catalog.models import CatalogProduct
 from apps.common import private_files
@@ -176,6 +177,11 @@ def place(site, *, lines, member_token="", ship_mode="", address=None, receiver=
             if again is not None:
                 transaction.on_commit(lambda: private_files.discard(file_key))
                 return Placed(again, "", True)
+            if locked.deleted_at or locked.operator_hold or not billing.position(locked).storefront_served:
+                # The storefront's own refusal, asked again under the lock: a request that passed it
+                # and then lost service (sweep, cancellation, due date, operator hold) creates nothing.
+                # The stored proof file is discarded by the handler below.
+                raise ApiError("not_found", "Not found.", status=404)
             if not payments.any_method(locked) or not payments.active_accounts(locked).filter(
                 pk=proof.account.pk
             ).exists():
