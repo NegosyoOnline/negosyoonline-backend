@@ -70,6 +70,9 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Check | Evidence | Status | Owner |
 |---|---|---|---|
 | `/readyz/` with db, cache, beat and sms_queue checks | BE #148; `apps/health/test_readyz.py`. Staging check 2026-11-13: `/readyz/` 200, all four checks true (re-read read-only while drafting, same result) | Pass | GATES |
+| Staging runs backend release round 1 (BE #149, merged at 58271aa on 2026-11-13) | Supervisor check 2026-11-13: `https://api-staging.negosyonline.com/healthz/` answers 200 with commit `58271aa2868d`; `/readyz/` answers with all checks true | Pass | GATES |
+| Django admin removed on staging (BE #149) | Supervisor check 2026-11-13: `https://api-staging.negosyonline.com/admin/` answers 404 | Pass | GATES |
+| HQ API host health (BE #149) | Supervisor check 2026-11-13: `https://hq-api-staging.negosyonline.com/healthz/` answers 404 by design. The HQ host serves only HQ paths (`apps/operators/tests/test_hq.py`, `HqHostTests.test_the_hq_host_serves_only_hq`; Manager ruling 2026-11-13). Staging health is checked on api-staging only | Pass (by design) | GATES |
 | Backups, restore and monitoring runbook | `docs/runbooks/backups-and-restore.md`; BE #148 | Pass | GATES |
 | Railway backups exist on staging | Not seen yet | Pending | HQ Supervisor |
 | Restore test (staging dump into a scratch service; deleting the dump is a required privacy step) | Written, not run (`docs/runbooks/backups-and-restore.md` section 6); waits for Coach Ed's word | Not run | GATES |
