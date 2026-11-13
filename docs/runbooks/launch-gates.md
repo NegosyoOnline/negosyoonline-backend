@@ -19,7 +19,7 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Tenant isolation suite over owner routes, storefront hosts, members, SMS and private files, with a guard that every owner route is covered (z8uq9m7ycc) | BE #148; `apps/common/tests/test_tenant_isolation/` | Pass | GATES |
 | Upload size cap, DEBUG fails closed, Redis deploy check (z8uq9mekqj) | BE #148; `apps/common/tests/test_hardening.py` | Pass | GATES |
 | Security denial log without email or code (z8uq9mekqj) | BE #148; `apps/common/tests/test_hardening.py` (SecurityLogTests, StorefrontDenialLogTests) | Pass | GATES |
-| Facebook replay window (z8uq9mekqj) | BE #148 (named in its description). No test module was checked for this draft | Pending | GATES |
+| Facebook deletion callback replay window (z8uq9mekqj): refused over 24 hours old or over 5 minutes ahead; `issued_at` missing, a string or a bool refused | Code merged in BE #148. Tests are on branch `test/z8uq9mekqj-facebook-replay-tests@898e795`, not yet merged: `apps/accounts/tests/test_facebook.py::SignedRequestReplayWindowTests` (`test_a_request_one_second_over_24_hours_old_is_stale`, `test_a_request_6_minutes_ahead_is_stale`, `test_requests_exactly_on_both_bounds_are_accepted`, `test_a_missing_issued_at_is_bad_not_stale`, `test_a_string_bool_or_null_issued_at_is_bad_not_stale`) and `apps/accounts/tests/test_api_facebook_deletion.py::FacebookDataDeletionTests` (`test_a_request_older_than_24_hours_or_ahead_of_the_clock_is_refused`, `test_a_request_just_inside_both_bounds_is_accepted`, `test_a_missing_string_or_bool_issued_at_is_refused_and_changes_nothing`) | Pending (tests on a ready branch, not yet merged) | GATES |
 | Incident runbook | `docs/runbooks/incident.md`; BE #148 | Pass | GATES |
 | CSP `object-src 'none'` on dash and site (z8uq9mekm5) | FE #58 | Pass | GATES |
 | HSTS max-age only (z8uq9mekbe) | FE #51 | Pass | GATES |
@@ -78,12 +78,13 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Support and exit runbook | `docs/runbooks/support-and-exit.md`; BE #148 | Pass | GATES |
 | Export dry run on a test account named as a test (never a real member) | Not run (Coach Ed's word). Code: BE #52; `apps/accounts/tests/test_export.py` | Not run | GATES |
 | Account disposal and deletion request steps | BE #52; `apps/accounts/tests/test_disposal.py`; `docs/runbooks/retention.md` | Pass | GATES |
-| Help Center articles (z8uq9mekvc) | FE #60; FE #64 (article 5) | Pass | SANTE |
-| Help Center article 5 staging OK | Waits for Coach Ed | Pending | SANTE |
-| Help Center second subtask (z8uq9memmp) | No merged pull request found for it in the lists read | Pending | SANTE |
+| Help Center, five articles (z8uq9mekvc) | FE #60; task ACCEPTED | Pass | GATES |
+| Help Center, second subtask (z8uq9memmp), including article 5 | FE #64 (merged 5144a12); task ACCEPTED; Coach Ed approved the article 5 staging visual test on 2026-11-13 | Pass | GATES |
 | Mobile and accessibility audit (z8uq9m7ydk) | HQ Supervisor is running it; no report linked yet | Pending | HQ Supervisor |
 
 ## Gate 6: Runbooks
+
+This is the "runbooks for each" line of the working statement.
 
 | Check | Evidence | Status | Owner |
 |---|---|---|---|
@@ -104,8 +105,7 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 - Sentry account and `SENTRY_DSN` not created; waits 30 days after the Privacy line is live (Coach Ed).
 - Export dry run on a test account named as a test (Coach Ed's word).
 - Mobile and accessibility audit z8uq9m7ydk (HQ Supervisor).
-- Help Center article 5 staging OK (Coach Ed); z8uq9memmp has no evidence yet.
-- Facebook replay window: no test module confirmed in this draft.
+- Facebook replay window tests are on a ready branch and not yet merged (GATES).
 - Dated staging walkthroughs for gates 2 and 3 (Not run); ended-site 404 not checked on staging.
 - Production does not exist yet. Every staging item must be repeated for production once it does.
 
