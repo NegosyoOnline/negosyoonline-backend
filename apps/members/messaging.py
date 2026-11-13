@@ -11,7 +11,8 @@ from apps.common.errors import ApiError
 from apps.members import holds, hooks, otp
 from apps.members.models import MemberOtpChallenge
 from apps.notifications import sms
-from apps.notifications.services import EmailNotSent, send_email
+from apps.notifications.services import EmailNotSent
+from apps.notifications.store_email import send_store_email
 
 logger = logging.getLogger(__name__)
 
@@ -130,11 +131,10 @@ def deliver_code(challenge, code, *, sms_category="otp_no_fallback"):
         if outcome in HELD_OUTCOMES:
             otp.mark_held(challenge.pk)
         return outcome
-    from_name, reply_to = sender(site)
     subject, body = otp_email(site, code, challenge.purpose)
     try:
-        send_email(to=challenge.target, category=f"member_{challenge.purpose}", subject=subject, body=body,
-                   sender_name=from_name, reply_to=reply_to)
+        send_store_email(site, to=challenge.target, category=f"member_{challenge.purpose}", subject=subject,
+                         body=body, code=code)
     except (EmailNotSent, ValueError):
         logger.warning("member code email not sent, site %s", site.public_id)
         MemberOtpChallenge.objects.filter(pk=challenge.pk, delivery="sending").update(delivery="failed")
@@ -176,12 +176,10 @@ def send_contact_notice(site, audit, *, kind, prior_verified, field=None, hold_e
                 transport["send_notice"](site, value, sms_body, f"member_contact:{audit.pk}:sms:{n}")
             except Exception:  # noqa: BLE001 - the change is committed
                 logger.exception("member contact notice text failed, site %s", site.public_id)
-    from_name, reply_to = sender(site)
     for kind_, address in prior_verified:
         if kind_ != "email":
             continue
         try:
-            send_email(to=address, category=category, subject=subject, body=email_body,
-                       sender_name=from_name, reply_to=reply_to)
+            send_store_email(site, to=address, category=category, subject=subject, body=email_body)
         except (EmailNotSent, ValueError):
             logger.warning("member contact notice email not sent, site %s", site.public_id)

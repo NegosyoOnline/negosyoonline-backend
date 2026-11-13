@@ -35,6 +35,16 @@ class RequestTests(MembersTestCase):
         self.assertRegex(mail.outbox[0].body, r"code is \d{6}\. It expires in 10 minutes")
         self.assertNotIn(self.last_code(), response.content.decode())
 
+    def test_branded_switch_on_sends_html_from_the_store_sender_with_the_code_once(self):
+        with override_settings(STORE_EMAILS_BRANDED=True, STORE_SENDERS="anas-store=orders@liveformore.test"):
+            self.request_code()
+        sent = mail.outbox[0]
+        code = self.last_code()
+        self.assertEqual(sent.from_email, '"Ana\'s Store" <orders@liveformore.test>')
+        self.assertEqual(sent.reply_to, [self.site.account.email] if self.site.account.email_verified_at else [])
+        self.assertEqual(sent.alternatives[0][0].count(code), 1)
+        self.assertNotIn(code, sent.subject)
+
     def test_the_email_goes_out_after_the_rows_are_written_and_before_the_floor(self):
         order = []
         real_pad = signin.pad
@@ -141,7 +151,7 @@ class RequestTests(MembersTestCase):
         from apps.notifications.services import EmailNotSent
         from apps.members import messaging
 
-        with mock.patch.object(messaging, "send_email", side_effect=EmailNotSent()):
+        with mock.patch.object(messaging, "send_store_email", side_effect=EmailNotSent()):
             with self.assertLogs(messaging.logger, logging.WARNING) as logged:
                 response = self.request_code()
         self.assertEqual((response.status_code, response.json()), (200, GENERIC))

@@ -89,6 +89,14 @@ ACCOUNT_EMAILS_BRANDED = os.environ.get("ACCOUNT_EMAILS_BRANDED", "").strip() ==
 # Account Settings email change: "1" asks for a code sent to the current address before the
 # change can start, and answers a taken address like a free one. Off: the change works as it did.
 ACCOUNT_EMAIL_CHANGE_HARDENED = os.environ.get("ACCOUNT_EMAIL_CHANGE_HARDENED", "").strip() == "1"
+# What a store's members and buyers are emailed (member codes and notices, Pack buyer emails): a
+# branded HTML layout, a plain-text part, and, where the store has one, the store's own From
+# address from STORE_SENDERS. "1" turns it on; off, they are the plain text they always were.
+STORE_EMAILS_BRANDED = os.environ.get("STORE_EMAILS_BRANDED", "").strip() == "1"
+# `key=address` pairs, comma separated, where key is a store's web-address name or site id, e.g.
+# `live4more=orders@liveformore.com`. Set by the operator only; the domain must be verified in
+# Resend first. A store with no pair sends from DEFAULT_FROM_EMAIL under its own name.
+STORE_SENDERS = os.environ.get("STORE_SENDERS", "").strip()
 # Admin two-step sign-in. The key encrypts authenticator secrets; with no key nobody can be
 # enrolled.
 ADMIN_SECRETS_KEY = os.environ.get("ADMIN_SECRETS_KEY", "").strip()
