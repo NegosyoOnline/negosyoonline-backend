@@ -231,6 +231,14 @@ SHOP_SHIPPING_POLICY = os.environ.get("SHOP_SHIPPING_POLICY", "").strip().lower(
 # per-site credential key (a Fernet key); no new variable.
 META_EVENTS_ENABLED = os.environ.get("META_EVENTS_ENABLED", "").strip() == "1"
 META_CREDENTIALS_KEY = os.environ.get("PAYMENT_CREDENTIALS_ENCRYPTION_KEY", "").strip()
+# Customer inquiries (apps/inquiries): the Subscriber's per-site provider connection (Pancake,
+# Facebook Messenger only) and the inbox routes. "1" turns it on. Off, every route answers the
+# 404 of an unknown site, no inquiries table is read or written and nothing is sent to a
+# provider. Needs the key below (see apps/inquiries/checks.py). The page token is stored
+# encrypted under INQUIRIES_CREDENTIALS_KEY, which reads the platform's existing per-site
+# credential key (a Fernet key); no new variable.
+INQUIRIES_ENABLED = os.environ.get("INQUIRIES_ENABLED", "").strip() == "1"
+INQUIRIES_CREDENTIALS_KEY = os.environ.get("PAYMENT_CREDENTIALS_ENCRYPTION_KEY", "").strip()
 # The storefront surface (/storefront/v1/), called only by the storefronts server. "1" turns
 # it on, and only while STOREFRONT_SERVER_SECRET holds at least 32 characters. Off, every path
 # under it answers 404. The secret is read here and nowhere else.
@@ -276,6 +284,7 @@ INSTALLED_APPS = [
     'apps.pack',
     'apps.shop',
     'apps.meta_ads',
+    'apps.inquiries',
     'apps.ledger',
     'apps.lifecycle',
 ]

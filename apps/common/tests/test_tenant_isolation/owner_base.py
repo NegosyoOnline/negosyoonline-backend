@@ -21,6 +21,7 @@ from apps.invoices import services as invoice_services
 from apps.invoices.tests.test_scans import MemoryScanStore
 from apps.members import recovery
 from apps.members.models import Member
+from apps.inquiries.tests import base as inquiries_base
 from apps.meta_ads.tests.base import CODE, KEY, PIXEL, TOKEN, FakeMeta, configure
 from apps.pack import constants as PACK
 from apps.pack.tests.owner_base import make_order
@@ -36,6 +37,8 @@ from apps.statements.tests.base import make_book, make_item, make_staff
 from apps.statements.tests.test_owner_api import PDF_BYTES, PROFILE, issue_for
 from apps.common import private_files
 
+BEN_PAGE = "5000000000005"
+BEN_REF = f"{BEN_PAGE}_7000000000001"
 MISSING_SITE = "site_00000000000000000000"
 MISSING_CHILD = {
     "order_id": "pko_00000000000000000000",
@@ -46,6 +49,7 @@ MISSING_CHILD = {
     "member_id": "mem_00000000000000000000",
     "invoice_id": "mbi_00000000000000000000000000",
     "number": "NOBS-2026-000000",
+    "ref": "999999_7000000000000",  # a conversation ref of no page of ours
 }
 PLACEHOLDERS = tuple("{%s}" % name for name in MISSING_CHILD)
 
@@ -122,6 +126,14 @@ OWNER_ROUTES = {
     ("PUT", "/sites/{site_id}/meta/"): 200,
     ("POST", "/sites/{site_id}/meta/test/"): 200,
     ("DELETE", "/sites/{site_id}/meta/token/"): 200,
+    # inquiries (the order matters: the connection is saved and tested, read, then disconnected)
+    ("GET", "/sites/{site_id}/inquiries/connection/"): 200,
+    ("PUT", "/sites/{site_id}/inquiries/connection/"): 200,
+    ("POST", "/sites/{site_id}/inquiries/connection/test/"): 200,
+    ("GET", "/sites/{site_id}/inquiries/conversations/"): 200,
+    ("GET", "/sites/{site_id}/inquiries/conversations/{ref}/"): 200,
+    ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reply/"): 200,
+    ("DELETE", "/sites/{site_id}/inquiries/connection/"): 200,
     # last: a cancelled trial is Billing-only, so every route called after it would answer 403
     ("POST", "/sites/{site_id}/billing/cancel/"): 200,
 }
@@ -129,6 +141,7 @@ APP_PREFIXES = [
     ("/sites/{site_id}/billing/", "billing"), ("/sites/{site_id}/sante/", "sante"),
     ("/sites/{site_id}/catalog/", "catalog"), ("/sites/{site_id}/payment-methods/", "payments"),
     ("/sites/{site_id}/pack/", "pack_owner"), ("/sites/{site_id}/meta/", "meta_ads"),
+    ("/sites/{site_id}/inquiries/", "inquiries"),
     ("/sites/{site_id}/shop/", "shop_owner"),
 ]
 
@@ -175,7 +188,7 @@ def child_variants(template, own, foreign):
     PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True, META_EVENTS_ENABLED=True,
     BILLING_USAGE_ENABLED=True, SHOP_ENABLED=True, BILLING_INVOICE_REGISTER_ENABLED=True,
     MEMBERS_ENABLED=True, PACK_SHIPPING_ENABLED=True, BILLING_STATEMENTS_ENABLED=True,
-    META_CREDENTIALS_KEY=KEY,
+    META_CREDENTIALS_KEY=KEY, INQUIRIES_ENABLED=True, INQUIRIES_CREDENTIALS_KEY=inquiries_base.KEY,
 )
 class TwoOwnersTestCase(SitesApiTestCase):
     """Ana (self.client, self.site) and Ben (self.ben, self.ben_site), each with a Santé site and
@@ -192,6 +205,9 @@ class TwoOwnersTestCase(SitesApiTestCase):
         self.addCleanup(self.media.__exit__, None, None, None)
         self.meta = FakeMeta().__enter__()
         self.addCleanup(self.meta.__exit__, None, None, None)
+        self.pancake = inquiries_base.FakePancake().__enter__()
+        self.addCleanup(self.pancake.__exit__, None, None, None)
+        inquiries_base.no_limiter(self)
         usage_on = mock.patch.object(plan, "STORAGE_METERED", True)  # usage is shown only when metered
         usage_on.start()
         self.addCleanup(usage_on.stop)
@@ -228,8 +244,13 @@ class TwoOwnersTestCase(SitesApiTestCase):
         self.ben_ids = self.make_children(self.ben_site, payment=True)
         self.ben_shop_ids = self.make_children(self.ben_site, shop=True)
         configure(self.ben_site)
+        inquiries_base.configure(self.site)
+        inquiries_base.configure(self.ben_site, page=BEN_PAGE)
+        for ids in (self.ben_ids, self.ben_shop_ids):
+            ids["ref"] = BEN_REF
         mail.outbox.clear()
         self.meta.requests.clear()
+        self.pancake.requests.clear()
 
     # children ---------------------------------------------------------------
     def make_invoice_copy(self, site):
@@ -292,6 +313,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             ids.update(self.make_children(self.site))
         elif "{account_id}" in template:
             ids["account_id"] = make_payment_account(self.site).public_id
+        if "{ref}" in template:
+            ids["ref"] = inquiries_base.REF
         if "{invoice_id}" in template:
             ids["invoice_id"] = self.invoice_ids[self.site.pk]
         if "{number}" in template:
@@ -394,6 +417,11 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return body
         if "/meta/" in template and method == "PUT":
             return {"pixel_id": PIXEL, "access_token": TOKEN, "test_event_code": CODE}
+        if "/inquiries/" in template and method == "PUT":
+            return {"page_id": inquiries_base.PAGE, "access_token": inquiries_base.TOKEN}
+        if template.endswith("/reply/"):
+            self.creates += 1
+            return {"text": "Fixture reply", "idempotency_key": f"fixture-key-{self.creates:06d}"}
         return None
 
     # what a refused request must not touch ---------------------------------
@@ -405,6 +433,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
             "public_media": (sorted(self.media.files), list(self.media.deleted)),
             "outbox": [(m.to, m.subject) for m in mail.outbox],
             "meta_requests": len(self.meta.requests),
+            "inquiry_requests": len(self.pancake.requests),
         }
 
     def assertUnchanged(self, before, message):

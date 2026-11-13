@@ -9,6 +9,7 @@ from django.conf import settings
 from apps.common import retention
 from apps.inbox.models import Contact, ContactGroup, Conversation, ConversationMessage
 from apps.lifecycle import eligibility
+from apps.inquiries import retention as inquiries_retention
 from apps.members import retention as member_retention
 from apps.meta_ads import retention as meta_retention
 from apps.pack import retention as pack_retention
@@ -54,6 +55,7 @@ def planned_counts(site):
         pack_retention.blank_packs(sites, dry_run=True, ignore_switch=True, keep_files=True),
         shop_retention.blank_shop(sites, dry_run=True, ignore_switch=True),
         meta_retention.blank_meta(sites, dry_run=True),
+        inquiries_retention.blank_inquiries(sites, dry_run=True),
         _inbox_counts(sites),
     ):
         counts.update(part)
