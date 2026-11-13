@@ -35,11 +35,13 @@ from apps.sites.models import Site
 
 logger = logging.getLogger(__name__)
 
-# The export of a Subscriber's data holds no proof image today, so no image may be deleted: the
-# day the export gained images, set by the export extension (ClickUp z8uq9mbu0p). While None,
-# every proof file stays in the private store (reachable by no route) and the personal columns
-# still clear. Fail closed (L65, L67, L71, L72).
-PROOF_EXPORT_READY_FROM: date | None = None
+# The first Manila day on which the Subscriber's data export (`export_pack_files`, ClickUp
+# z8uq9mbu0p) held the proof images: the day after the verified staging deploy of that archive. A
+# proof image may be deleted only for a site whose service ended on or after this day, so the
+# export held it for the site's whole 30-day window; a site that ended earlier keeps its images
+# (Finance-only, no route, no automatic deletion; L72). Setting it deletes nothing by itself:
+# deletion also needs PACK_PURGE_ENABLED or an approved executor batch. None fails closed.
+PROOF_EXPORT_READY_FROM: date | None = date(2026, 11, 14)
 
 BUYER_PLACEHOLDER = "Deleted buyer"
 PROOF_TEXT_FIELDS = (

@@ -12,7 +12,7 @@ ledger, audit) apart from the new audit entries and, for a suspended site's open
 write-off that the billing sweep makes at this same date (`usage.write_off_unreturned`, R-4c).
 
 Pack proof files are never deleted here (L67): the Pack purge's own gate `files_deletable` decides,
-and it is closed until z8uq9mbu0p sets `PROOF_EXPORT_READY_FROM`.
+and it is open only for a site whose service ended on or after `PROOF_EXPORT_READY_FROM`.
 """
 from apps.accounts import retention as account_retention
 from apps.accounts.models import Account
