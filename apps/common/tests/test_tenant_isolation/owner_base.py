@@ -2,6 +2,7 @@
 site, every owner switch is on, and everything a route could write to is snapshotted so a test
 can prove a refused request changed nothing."""
 import itertools
+from unittest import mock
 
 from django.apps import apps as django_apps
 from django.core import mail
@@ -11,11 +12,17 @@ from django.test import override_settings
 from django.utils import timezone
 
 from apps.accounts.tests.base import ORIGIN
+from apps.billing import plan
 from apps.billing.models import BankTransferPayment, Subscription
 from apps.billing.tests.base import JPEG, submit, transfers_on
 from apps.catalog.models import CatalogProduct
 from apps.catalog.tests.base import FakeMedia, designate, image_file, make_product
+from apps.invoices import services as invoice_services
+from apps.invoices.tests.test_scans import MemoryScanStore
+from apps.members import recovery
+from apps.members.models import Member
 from apps.meta_ads.tests.base import CODE, KEY, PIXEL, TOKEN, FakeMeta, configure
+from apps.pack import constants as PACK
 from apps.pack.tests.owner_base import make_order
 from apps.payments.models import SitePaymentAccount
 from apps.shop import constants as SHOP
@@ -24,6 +31,7 @@ from apps.payments.tests.base import BANK, make_payment_account, qr_file, stored
 from apps.sites.models import Site
 from apps.sites.tests.api_base import SitesApiTestCase
 from apps.sites.tests.test_isolation import PROFILE_BODY, SITE_BODY
+from apps.statements.tests.base import make_book, make_item, make_staff
 
 MISSING_SITE = "site_00000000000000000000"
 MISSING_CHILD = {
@@ -32,6 +40,8 @@ MISSING_CHILD = {
     "account_id": "pay_00000000000000000000",
     "payment_id": "btp_00000000000000000000",
     "product_id": "prod_00000000000000000000",
+    "member_id": "mem_00000000000000000000",
+    "invoice_id": "mbi_00000000000000000000000000",
 }
 PLACEHOLDERS = tuple("{%s}" % name for name in MISSING_CHILD)
 
@@ -48,10 +58,18 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/business-profile/seal/"): 200,
     ("GET", "/sites/{site_id}/business-profile/seal/"): 200,
     ("DELETE", "/sites/{site_id}/business-profile/seal/"): 200,
+    # members (the Subscriber's recovery of a member who lost both contacts)
+    ("GET", "/sites/{site_id}/members/"): 200,
+    ("GET", "/sites/{site_id}/members/by-order/"): 200,
+    ("GET", "/sites/{site_id}/members/{member_id}/recovery/"): 200,
+    ("POST", "/sites/{site_id}/members/{member_id}/recovery/check/"): 200,
+    ("POST", "/sites/{site_id}/members/{member_id}/recovery/"): 200,
     # billing
     ("GET", "/sites/{site_id}/billing/"): 200,
     ("GET", "/sites/{site_id}/billing/payment/"): 200,
-    ("GET", "/sites/{site_id}/billing/usage/"): 200,
+    ("GET", "/sites/{site_id}/billing/usage/"): 200,  # the usage-on world; UsageSwitchTests covers off
+    ("GET", "/sites/{site_id}/billing/invoices/"): 200,
+    ("GET", "/sites/{site_id}/billing/invoices/{invoice_id}/copy/"): 200,
     ("POST", "/sites/{site_id}/billing/payments/"): 201,
     ("GET", "/sites/{site_id}/billing/payments/"): 200,
     ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"): 200,
@@ -79,6 +97,9 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"): 200,
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/approve/"): 200,
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/reject/"): 200,
+    ("POST", "/sites/{site_id}/pack/orders/{order_id}/shipment/"): 200,
+    ("POST", "/sites/{site_id}/pack/orders/{order_id}/shipment/correct/"): 200,
+    ("POST", "/sites/{site_id}/pack/orders/{order_id}/delivery/"): 200,
     # shop owner (the Subscriber's product orders; each call gets a fresh order in the state it needs)
     ("GET", "/sites/{site_id}/shop/orders/"): 200,
     ("GET", "/sites/{site_id}/shop/orders/{order_id}/"): 200,
@@ -143,7 +164,8 @@ def child_variants(template, own, foreign):
 @override_settings(
     BILLING_ENABLED=True, SANTE_SETTINGS_ENABLED=True, SANTE_CATALOG_ENABLED=True,
     PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True, META_EVENTS_ENABLED=True,
-    BILLING_USAGE_ENABLED=True, SHOP_ENABLED=True,
+    BILLING_USAGE_ENABLED=True, SHOP_ENABLED=True, BILLING_INVOICE_REGISTER_ENABLED=True,
+    MEMBERS_ENABLED=True, PACK_SHIPPING_ENABLED=True,
     META_CREDENTIALS_KEY=KEY,
 )
 class TwoOwnersTestCase(SitesApiTestCase):
@@ -161,6 +183,14 @@ class TwoOwnersTestCase(SitesApiTestCase):
         self.addCleanup(self.media.__exit__, None, None, None)
         self.meta = FakeMeta().__enter__()
         self.addCleanup(self.meta.__exit__, None, None, None)
+        usage_on = mock.patch.object(plan, "STORAGE_METERED", True)  # usage is shown only when metered
+        usage_on.start()
+        self.addCleanup(usage_on.stop)
+        self.scan_store = MemoryScanStore()
+        for name in ("save", "read", "discard"):
+            patcher = mock.patch(f"apps.invoices.scans.{name}", side_effect=getattr(self.scan_store, name))
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.site_id = self.create_site()["id"]
         self.site = Site.objects.get(public_id=self.site_id)
         self.ben = self.other_client()
@@ -169,6 +199,9 @@ class TwoOwnersTestCase(SitesApiTestCase):
         )["id"]
         self.ben_site = Site.objects.get(public_id=self.ben_site_id)
         designate(self.site)  # Ana's site owns the one shared catalog
+        self.invoice_ids = {
+            site.pk: self.make_invoice_copy(site) for site in (self.site, self.ben_site)
+        }
         self.product = make_product()
         self.creates = 0
         self.ben_ids = self.make_children(self.ben_site, payment=True)
@@ -178,19 +211,38 @@ class TwoOwnersTestCase(SitesApiTestCase):
         self.meta.requests.clear()
 
     # children ---------------------------------------------------------------
+    def make_invoice_copy(self, site):
+        """A paid sale of this site with a verified invoice scan: the id of its register item. The item is
+        written directly, so the subscription itself is not touched."""
+        item = make_item(Subscription.objects.get(site=site), site_public_id=site.public_id)
+        staff = make_staff("finance")
+        book = make_book(series=f"S{site.pk}")
+        invoice = invoice_services.record_invoice(staff, {
+            "item": item.public_id, "series": book.series, "serial_from": book.serial_from,
+            "serial_number": 1, "issued_on": item.sale_date.isoformat(), "sale_type": "cash",
+            "buyer_name": "Fixture Buyer", "description": "Paper",
+            "service_start": "2026-12-01", "service_end": "2026-12-31",
+            "total_sales_centavos": item.total_centavos,
+        })
+        scan = invoice_services.upload_scan(staff, invoice.public_id, JPEG + b"scan" + bytes([site.pk % 250]))
+        invoice_services.verify_scan(staff, scan.public_id)
+        return item.public_id
+
     def make_children(self, site, payment=False, shop=False, shop_status=SHOP.PENDING_REVIEW,
-                      shop_shipped=False):
+                      shop_shipped=False, pack_status=PACK.PENDING_REVIEW, pack_shipped=False):
         """A shop order has its own ids: with shop=True order_id and proof_id name it, not the pack's."""
         if shop:
             order, proof = make_shop_order(site, status=shop_status, shipped=shop_shipped)
         else:
-            order, proof = make_order(site)
+            order, proof = make_order(site, status=pack_status, shipped=pack_shipped)
         ids = {
             **MISSING_CHILD,
             "order_id": order.public_id,
             "proof_id": proof.public_id,
             "account_id": SitePaymentAccount.objects.filter(site=site).order_by("-pk").first().public_id,
             "product_id": self.product.public_id,
+            "member_id": order.member.public_id if not shop else MISSING_CHILD["member_id"],
+            "invoice_id": self.invoice_ids[site.pk],
         }
         if payment:
             ids["payment_id"] = submit(
@@ -209,9 +261,17 @@ class TwoOwnersTestCase(SitesApiTestCase):
                 shop_shipped=template.endswith("/deliver/"),
             ))
         elif "{order_id}" in template:
+            ids.update(self.make_children(
+                self.site,
+                pack_status=PACK.VERIFIED if template.endswith(("/shipment/", "/shipment/correct/", "/delivery/")) else PACK.PENDING_REVIEW,
+                pack_shipped=template.endswith(("/shipment/correct/", "/delivery/")),
+            ))
+        elif "{member_id}" in template:
             ids.update(self.make_children(self.site))
         elif "{account_id}" in template:
             ids["account_id"] = make_payment_account(self.site).public_id
+        if "{invoice_id}" in template:
+            ids["invoice_id"] = self.invoice_ids[self.site.pk]
         if "{payment_id}" in template:
             payment = BankTransferPayment.objects.filter(
                 subscription__site=self.site
@@ -258,9 +318,23 @@ class TwoOwnersTestCase(SitesApiTestCase):
                     HTTP_ORIGIN=ORIGIN,
                 )
             return client.delete(f"{path}?revision={revision}", secure=True, HTTP_ORIGIN=ORIGIN)
+        if "/recovery/" in path and method == "POST":
+            return self.call_recovery(path, client)
         if method == "GET":
             return self.get(path, client=client)
         return self.send(method.lower(), path, self.body_for(method, template), client=client)
+
+    def call_recovery(self, path, client):
+        """The checklist of a member, answered as the Subscriber would, then the contact change
+        that the passed check allows. A member that is not the caller's has no checklist: the
+        change is tried with a check that does not exist."""
+        member = Member.objects.filter(public_id=path.split("/members/")[1].split("/")[0]).first()
+        answers = {k: "matched" for k in recovery.applicable_for(member)} if member else {}
+        if path.endswith("/recovery/check/"):
+            return self.send("post", path, {"answers": answers}, client=client)
+        check = self.send("post", path + "check/", {"answers": answers}, client=client)
+        check_id = check.json().get("check_id", "0") if check.status_code == 200 else "0"
+        return self.send("post", path, {"check_id": check_id, "new_email": "new-contact@buyer.test"}, client=client)
 
     def body_for(self, method, template):
         if template.endswith("/business-profile/"):
@@ -287,6 +361,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return body
         if "/pack/" in template:
             body = {"state_version": 1}
+            if template.endswith(("/shipment/", "/shipment/correct/")):
+                body.update(courier="lbc", tracking_number="LBC123456")
             if template.endswith("/reject/"):
                 body["reason_code"] = "proof_unreadable"
             return body
