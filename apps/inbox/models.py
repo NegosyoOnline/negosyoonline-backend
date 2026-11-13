@@ -1,5 +1,5 @@
 """The inbox's three records. `body` is the only column in the database that holds message
-text. No record here has a Django admin screen."""
+text."""
 from django.conf import settings
 from django.db import models
 from django.db.models import Q

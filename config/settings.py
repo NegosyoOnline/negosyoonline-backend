@@ -147,10 +147,10 @@ BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").stri
 # The one address told when a bank transfer proof waits for review (a shared mailbox). Empty
 # sends no alert.
 BILLING_STAFF_ALERT_EMAIL = os.environ.get("BILLING_STAFF_ALERT_EMAIL", "").strip()
-# Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints and admin
-# lists. Off, the endpoints answer 404 and the Santé tables are not read or written.
+# Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints.
+# Off, the endpoints answer 404 and the Santé tables are not read or written.
 SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() == "1"
-# The shared Santé catalog. "1" turns on its endpoints and admin lists, and only while
+# The shared Santé catalog. "1" turns on its endpoints, and only while
 # SANTE_SETTINGS_ENABLED is on too: the catalog reads the catalog owner row. Off, the
 # endpoints answer 404 and the catalog tables are not read or written.
 SANTE_CATALOG_ENABLED = os.environ.get("SANTE_CATALOG_ENABLED", "").strip() == "1"
@@ -159,7 +159,7 @@ SANTE_CATALOG_ENABLED = os.environ.get("SANTE_CATALOG_ENABLED", "").strip() == "
 # publish command refuses; the tables are not read or written.
 SANTE_AGREEMENT_ENABLED = os.environ.get("SANTE_AGREEMENT_ENABLED", "").strip() == "1"
 # A site's payment methods (its bank and e-wallet accounts for direct transfer). "1" turns
-# on their endpoints and admin lists. Off, the endpoints answer 404 and the payment tables
+# on their endpoints. Off, the endpoints answer 404 and the payment tables
 # are not read or written.
 PAYMENT_METHODS_ENABLED = os.environ.get("PAYMENT_METHODS_ENABLED", "").strip() == "1"
 # Private files (apps/common/private_files.py): a payment QR code today. The read-write token

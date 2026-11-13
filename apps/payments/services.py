@@ -1,7 +1,7 @@
 """A site's payment methods. Other apps call these functions, never the tables.
 
 Everything here is behind PAYMENT_METHODS_ENABLED. While it is off the routes answer 404, the
-admin lists are closed and the two tables are not read or written: the code is released
+two tables are not read or written: the code is released
 before its tables are created.
 
 A method is usable at checkout only while it is switched on and set up. The store's own

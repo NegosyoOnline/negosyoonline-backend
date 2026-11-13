@@ -6,7 +6,7 @@ Origin, the method and the session are checked there and nowhere else. A handler
 if it did not exist while SMS_GATEWAY_ENABLED is off, and reads no SMS table then.
 
 Every route is a POST with a small JSON body, the one that only reads too. The settings are
-changed only through `services.change_policy`, whose audit entry the admin list shares.
+changed only through `services.change_policy`, which writes the audit entry.
 """
 import json
 
