@@ -92,9 +92,9 @@ class PackConcurrencyTests(TransactionTestCase):
         order, _ = make_order(site, status=C.PENDING_REVIEW)
         version = order.state_version
         results = run_together(
-            lambda: review.approve(account, site, order.public_id, state_version=version),
+            lambda: review.approve(account, site, order.pk, state_version=version),
             lambda: fulfillment.record_shipment(
-                account, site, order.public_id, state_version=version, courier="lbc", tracking_number="T1"),
+                account, site, order.pk, state_version=version, courier="lbc", tracking_number="T1"),
         )
         self.assertIsInstance(results[1], ApiError, results)
         order.refresh_from_db()
@@ -107,7 +107,7 @@ class PackConcurrencyTests(TransactionTestCase):
         order, _ = make_order(site, status=C.VERIFIED)
         version = order.state_version
         ship = lambda: fulfillment.record_shipment(  # noqa: E731
-            account, site, order.public_id, state_version=version, courier="lbc", tracking_number="T1")
+            account, site, order.pk, state_version=version, courier="lbc", tracking_number="T1")
         results = run_together(ship, ship)
         self.assertEqual(sum(isinstance(r, ApiError) for r in results), 1, results)
         self.assertEqual(order.events.filter(kind=C.EVENT_SHIPMENT_RECORDED).count(), 1)
