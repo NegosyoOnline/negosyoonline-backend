@@ -10,16 +10,20 @@ Owners: GATES, SANTE, BILLING, HQ Supervisor. "BE #N" is backend pull request ht
 
 The site and Terms state only what launches (G1, FE #55 merged; also FE #56, FE #59, FE #61). HSTS is max-age only (G4, FE #51). The site must never claim unlimited SMS, automatic courier integration, guaranteed delivery or an uptime SLA. The old "up to 1,000 online orders monthly" sentence is deliberately not used: there is no per-order billing.
 
+| Check | Evidence | Status | Owner |
+|---|---|---|---|
+| Public claim: `https://www-staging.negosyonline.com/referral-terms` (`apps/site/public/referral-terms.html`) promises Subscription Credits of 20% of each qualifying payment. The Terms, the sign-up note and the dash footer link to it, and the dash shows a referral link card. Referral credits are deferred to after launch | Manager ruling 2026-11-13; BILLING task z8uq9mdwt1. Found by the BILLING Supervisor; page checked by fetch 2026-11-13 (200, two "20%" mentions) | Open | Manager to assign (fix wording pending) |
+
 Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, FE #N = `https://github.com/NegosyoOnline/negosyoonline-frontend/pull/N`.
 
 ## Gate 1: Tenant isolation, security hardening, incident readiness
 
 | Check | Evidence | Status | Owner |
 |---|---|---|---|
-| Tenant isolation suite over owner routes, storefront hosts, members, SMS and private files, with a guard that every owner route is covered (z8uq9m7ycc) | BE #148; `apps/common/tests/test_tenant_isolation/` | Pass | GATES |
+| Tenant isolation suite over owner routes, storefront hosts, members, SMS and private files, with a guard that every owner route is covered (z8uq9m7ycc) | BE #148; round 2 (d785dfb) in BE #150 (02dde96); `apps/common/tests/test_tenant_isolation/` | Pass | GATES |
 | Upload size cap, DEBUG fails closed, Redis deploy check (z8uq9mekqj) | BE #148; `apps/common/tests/test_hardening.py` | Pass | GATES |
 | Security denial log without email or code (z8uq9mekqj) | BE #148; `apps/common/tests/test_hardening.py` (SecurityLogTests, StorefrontDenialLogTests) | Pass | GATES |
-| Facebook deletion callback replay window (z8uq9mekqj): refused over 24 hours old or over 5 minutes ahead; `issued_at` missing, a string or a bool refused | Code merged in BE #148. Tests are on branch `test/z8uq9mekqj-facebook-replay-tests@898e795`, not yet merged: `apps/accounts/tests/test_facebook.py::SignedRequestReplayWindowTests` (`test_a_request_one_second_over_24_hours_old_is_stale`, `test_a_request_6_minutes_ahead_is_stale`, `test_requests_exactly_on_both_bounds_are_accepted`, `test_a_missing_issued_at_is_bad_not_stale`, `test_a_string_bool_or_null_issued_at_is_bad_not_stale`) and `apps/accounts/tests/test_api_facebook_deletion.py::FacebookDataDeletionTests` (`test_a_request_older_than_24_hours_or_ahead_of_the_clock_is_refused`, `test_a_request_just_inside_both_bounds_is_accepted`, `test_a_missing_string_or_bool_issued_at_is_refused_and_changes_nothing`) | Pending (tests on a ready branch, not yet merged) | GATES |
+| Facebook deletion callback replay window (z8uq9mekqj): refused over 24 hours old or over 5 minutes ahead; `issued_at` missing, a string or a bool refused | Code merged in BE #148. Tests merged in BE #150 (02dde96), from branch `test/z8uq9mekqj-facebook-replay-tests@898e795`: `apps/accounts/tests/test_facebook.py::SignedRequestReplayWindowTests` (`test_a_request_one_second_over_24_hours_old_is_stale`, `test_a_request_6_minutes_ahead_is_stale`, `test_requests_exactly_on_both_bounds_are_accepted`, `test_a_missing_issued_at_is_bad_not_stale`, `test_a_string_bool_or_null_issued_at_is_bad_not_stale`) and `apps/accounts/tests/test_api_facebook_deletion.py::FacebookDataDeletionTests` (`test_a_request_older_than_24_hours_or_ahead_of_the_clock_is_refused`, `test_a_request_just_inside_both_bounds_is_accepted`, `test_a_missing_string_or_bool_issued_at_is_refused_and_changes_nothing`) | Pass | GATES |
 | Incident runbook | `docs/runbooks/incident.md`; BE #148 | Pass | GATES |
 | CSP `object-src 'none'` on dash and site (z8uq9mekm5) | FE #58 | Pass | GATES |
 | HSTS max-age only (z8uq9mekbe) | FE #51 | Pass | GATES |
@@ -83,10 +87,10 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Account disposal and deletion request steps | BE #52; `apps/accounts/tests/test_disposal.py`; `docs/runbooks/retention.md` | Pass | GATES |
 | Help Center, five articles (z8uq9mekvc) | FE #60; task ACCEPTED | Pass | GATES |
 | Help Center, second subtask (z8uq9memmp), including article 5 | FE #64 (merged 5144a12); task ACCEPTED; Coach Ed approved the article 5 staging visual test on 2026-11-13 | Pass | GATES |
-| Mobile and accessibility audit (z8uq9m7ydk), summary | ClickUp z8uq9m7ydk comments 1100430000510246 (pass 1, signed-out pages), 1100430000510420 (pass 2, signed-in pages and keyboard) and 1100430000510829 (pass 3, member signed-in pages and form error states), 2026-11-13. Three passes on local TEST builds and previews, headless Chrome at 390 and 1400 px, manual (no axe or Lighthouse). No High findings. Rows below are the findings and the gaps; the audit passes when each is fixed or accepted by Coach Ed | Pending | HQ Supervisor |
-| Audit: site eyebrow, compare and timeline gold text contrast (2.26 to 3.96, target 4.5), and the `#switch-mode` button 23 px high at 390. Medium | Proposal branch `fix/z8uq9m7ydk-site-contrast@cf028b4` awaits Coach Ed's OK | Pending | GATES |
-| Audit: dash Help Center h3 subheadings invisible in dark theme (contrast 1.05). Medium | Fixed on main by FE #64 (5144a12). Regression test on `fix/z8uq9memqv-dash-dark-h3-seal-label@4c82946`, queued for frontend round 2 | Pass | GATES |
-| Audit: dash Business Settings seal file input `#bs-seal-file` has no label. Low | Same branch `fix/z8uq9memqv-dash-dark-h3-seal-label@4c82946`, not merged | Pending | GATES |
+| Mobile and accessibility audit (z8uq9m7ydk), summary | ClickUp z8uq9m7ydk comments 1100430000510246 (pass 1, signed-out pages), 1100430000510420 (pass 2, signed-in pages and keyboard) and 1100430000510829 (pass 3, member signed-in pages and form error states) and 1100430000511422 (pass 4, dash and HQ form error states), 2026-11-13. Four passes on local TEST builds and previews, headless Chrome at 390 and 1400 px, manual (no axe or Lighthouse). No High findings. Rows below are the findings and the gaps; the audit passes when each is fixed or accepted by Coach Ed | Pending | HQ Supervisor |
+| Audit: site eyebrow, compare and timeline gold text contrast (2.26 to 3.96, target 4.5), and the `#switch-mode` button 23 px high at 390. Medium | FE #66 (merged at 1fe7d6d, 2026-11-13), branch `fix/z8uq9m7ydk-site-contrast@cf028b4`: `--gold-text: #8A6513` on the eyebrow, compare eyebrow and timeline years; `.switch-mode .link-inline { min-height: 24px }`. Approved by Coach Ed as "Site gold text: #8A6513 on light backgrounds" (rulings log comment 1100430000512065). Verified by fetch of `https://www-staging.negosyonline.com/assets/css/site.css` on 2026-11-13 | Pass | GATES |
+| Audit: dash Help Center h3 subheadings invisible in dark theme (contrast 1.05). Medium | Fixed on main by FE #64 (5144a12). Readable in dark theme through FE #65 (a037c94, z8uq9memqv ACCEPTED 2026-11-13), which carries the regression test | Pass | GATES |
+| Audit: dash Business Settings seal file input `#bs-seal-file` has no label. Low | FE #65 a037c94, label on `#bs-seal-file` live on dash-staging; z8uq9memqv ACCEPTED 2026-11-13 | Pass | GATES |
 | Audit: Santé storefront home images about 3.3 MB at 390 (4.3 MB at 1400). Medium | Pass 1 comment 1100430000510246; no fix yet | Open | SANTE |
 | Audit: storefront product card image links are empty (no name, a tab stop). Medium | Pass 1 comment 1100430000510246; no fix yet | Open | SANTE |
 | Audit: storefront contrast (star rating 2.20, contact labels 3.79, "Clear Basket" 3.58, "We typically respond" 4.02). Medium | Pass 1 comment 1100430000510246; no fix yet | Open | SANTE |
@@ -101,7 +105,16 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Audit: My Orders "View Details" toggle has aria-expanded but no aria-controls. Low | Pass 3 comment 1100430000510829; no fix yet; tracked on SANTE task z8uq9memuj | Open | SANTE |
 | Audit: My Orders 4-step tracker wraps 3 + 1 at 390 (cosmetic; only if the approved design shows one row). Low | Pass 3 comment 1100430000510829; no fix yet; tracked on SANTE task z8uq9memuj | Open | SANTE |
 | Audit: membership landing page weighs about 0.9 to 1.2 MB, mostly images. Low | Pass 1 comment 1100430000510246; no fix yet | Open | SANTE |
-| Audit: not audited: change-email steps 2 and 3, change-mobile beyond step 1, dash and HQ form error states | Pass 3 stopped when SANTE's preview restarted (comment 1100430000510829); pass 2 did not exercise error states | Pending | HQ Supervisor |
+| Audit pass 4 fix: form error focus and messages L1, L3, L4, L5 and client-side email length L2 (z8uq9men7r) | `fix/z8uq9men7r-form-errors@ca82932`, live on dash-staging via FE #66 (1fe7d6d); local visual test passed; waiting for Coach Ed's staging look | Pending | GATES |
+| Audit pass 4 fix: dash dark-theme focus outline was gold #F2D99B, now light blue (z8uq9menbg) | `fix/z8uq9menbg-dash-focus-blue@73ded19`, live via FE #66 (1fe7d6d); local visual test passed; waiting for Coach Ed's staging look | Pending | GATES |
+| Audit pass 4 fix: server-side email length limit of 254 (L2, z8uq9men7t) | `fix/z8uq9men7t-email-length@df30c81`; BE #150 02dde96; staging POST `/v1/auth/email-code/request/` with a 256-character email returned 400 "String should have at most 254 characters" (2026-11-13); z8uq9men7t ACCEPTED | Pass | GATES |
+| Audit pass 4: Dash Payments QR upload with a non-image file leaves the crop panel stuck (M1). Medium | Pass 4 comment 1100430000511422; no fix yet | Open | SANTE |
+| Audit pass 4: Dash Billing "Send proof" is disabled with no hint, and focus goes to the body (M2). Medium | Pass 4 comment 1100430000511422; no fix yet | Open | BILLING |
+| Audit pass 4: HQ New SMS is disabled with no reason, and the textarea allows 400 characters against a 160 limit (M3). Medium | Pass 4 comment 1100430000511422; no fix yet | Open | HQ Supervisor |
+| Audit pass 4: Dash Payments add account has weak messages, aria and focus (L6); pack-order Reject dialog (L7). Low | Pass 4 comment 1100430000511422; no fix yet | Open | SANTE |
+| Audit pass 4: Dash Billing focus after an invalid submit (L8). Low | Pass 4 comment 1100430000511422; no fix yet | Open | BILLING |
+| Audit pass 4: HQ Finance issuer form shows one summary error (L9); Confirm and Reject lack aria-invalid and focus (L10); HQ Contacts add (L11); HQ Contacts groups and CSV show a stale error (L12); HQ SMS inbox "Find number" gives no message (L13); HQ Bulk SMS is not flagged (L14); HQ sign-in puts aria-live on the whole main (L15). Low | Pass 4 comment 1100430000511422; no fix yet | Open | HQ Supervisor |
+| Audit: not audited: an expired (10-minute) code, change-mobile code step, Product Orders and Pack Order shipment forms, HQ invoice books "Add a book", Usage Admit and Dismiss, the CSV file-type error, change-email steps 2 and 3, and change-mobile beyond step 1. Dash and HQ form error states are now covered by pass 4 | Pass 4 comment 1100430000511422. The SANTE part waits for SANTE's next local visual test | Pending | GATES (pass 5 audit; SANTE part with SANTE) |
 
 ## Gate 6: Runbooks
 
@@ -125,8 +138,7 @@ This is the "runbooks for each" line of the working statement.
 - Uptime check account and its email alert not created (Coach Ed); this is also what turns the SMS offline log line into an alert.
 - Sentry account and `SENTRY_DSN` not created; waits 30 days after the Privacy line is live (Coach Ed).
 - Export dry run on a test account named as a test (Coach Ed's word).
-- Mobile and accessibility audit z8uq9m7ydk: findings above still Pending or Open (GATES, SANTE, HQ Supervisor); change-email steps 2 and 3, change-mobile beyond step 1 and dash and HQ form error states not audited.
-- Facebook replay window tests are on a ready branch and not yet merged (GATES).
+- Mobile and accessibility audit z8uq9m7ydk: findings above still Pending or Open (GATES, SANTE, BILLING, HQ Supervisor); the not-audited list in that table is for the pass 5 audit.
 - Dated staging walkthroughs for gates 2 and 3 (Not run); ended-site 404 not checked on staging.
 - Production does not exist yet. Every staging item must be repeated for production once it does.
 
