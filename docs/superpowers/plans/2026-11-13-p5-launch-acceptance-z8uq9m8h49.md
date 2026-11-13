@@ -298,3 +298,17 @@ Scenario 11 and 5d cannot be closed by this module (Coach Ed, 2026-11-08: "Do no
 - **Q5. Scenario numbering.** Your note says "1 and 4 to 10" and the comment says "1 and 3 to 10". Both include scenarios that are order-based (3 and 4). This plan drops 2, 3 and 4 and adds the K4 guard. Confirm.
 - **Q6. Visual-proof evidence (section 10)** is outside a backend module. Recommended: leave it to the frontend/staging test and record it separately before the task is closed.
 - **Q7. Audit row for a refused edit (6h)** and **statement delivery (6d)** are real gaps against the task text, not test omissions. Recommended: report them to the Manager as findings on B5; this plan does not ask for code.
+
+## 12. As built (2026-11-13) and the answers received
+
+Approved by the Manager at `ad59ddb` ("The builder may write apps/statements/tests/test_launch_acceptance.py as planned"). Answers from the Supervisor (ClickUp comment 1100430000517799): Q1 assert main (30 days, refusal from day 44); Q2 keep K5b in its own labelled class; Q3 keep K11r, one thin case; Q4 allow exactly the copy label, on the invoice-copy route only; Q5 scenarios 2, 3, 4 and the order lines of 11 dropped, K4 replaces them; Q6 visual proof stays outside the module; Q7 the audit row on a refused edit is written as an expected failure naming subtask z8uq9mevfx, no application code; `StatementDelivery` stays blocked (PR 8).
+
+The module is `apps/statements/tests/test_launch_acceptance.py` (the only file added besides this plan). Differences from the plan above, all in the direction of calling less:
+
+- **Storage review (K5b, 11p)** calls `usage.admit` and `usage.dismiss` directly (with their audit rows asserted), not the `finance/usage/review/*` staff routes, which B4's own tests already cover.
+- **Scenario 8e** (an owner using a staff route) is covered by the staff gate case in `StaffFinanceTests` (signed out and foreign origin are refused on all four statement routes); no non-staff session is built.
+- **6h** is `test_a_refused_edit_leaves_audit_evidence_pending_z8uq9mevfx`, decorated `unittest.expectedFailure` (the runner reports an unexpected success as a failure, so it is strict). Remove the decorator when z8uq9mevfx ships.
+- **K4's order activity** uses the shop order builder (verified, cancelled, pending review) on the site; the Pack order builder is not used.
+- **K10** also runs the billing emails (trial reminders, proof received, rejected, approved, renewal reminder, paused, trial ended, export notice) and checks each for the banned claims, for attachments, and for any statement number.
+- **K12** is `NoSecondCalculationPathTests` (a plain `unittest.TestCase`, no database).
+- Test classes: `TrialBoundaryTests`, `OrdersAreNeverBilledTests`, `StorageAtLaunchTests`, `PostLaunchStorageRehearsal`, `NoSecondCalculationPathTests`, `StatementJourneyTests`, `EmailsMakeNoBirClaimTests`, `PlanListMakesNoBirClaimTests`, `OwnerApiTests`, `StaffFinanceTests`, `SuspensionAndRecoveryTests`, `ServiceEndNoticeTests`, `ErasureKeepsBillingRecordsTests`, `ConcurrencyTests` (PostgreSQL only), `ReconciliationTests`.
