@@ -168,21 +168,25 @@ def issue_for_payment(payment, *, now=None):
             ],
         }
         stored = documents.store_document(document)  # raises StoreUnavailable: nothing written
-        statement = Statement.objects.create(
-            number=number, document_type=Statement.DocumentType.STATEMENT, kind=kind,
-            subscription=payment.subscription, cycle=cycle, source_key=key, period_start=start,
-            period_end=end, total_centavos=total, is_test=is_test, issuer=issuer,
-            bill_to=bill_to, payment_reference=payment.reference, pdf_key=stored.key,
-            pdf_sha256=stored.sha256, pdf_size=stored.size, issued_at=issued_at,
-        )
-        StatementLine.objects.bulk_create([
-            StatementLine(
-                statement=statement, position=position, kind=k, description=d, quantity=q,
-                unit_centavos=u, amount_centavos=a, source_ref=ref,
+        try:
+            statement = Statement.objects.create(
+                number=number, document_type=Statement.DocumentType.STATEMENT, kind=kind,
+                subscription=payment.subscription, cycle=cycle, source_key=key, period_start=start,
+                period_end=end, total_centavos=total, is_test=is_test, issuer=issuer,
+                bill_to=bill_to, payment_reference=payment.reference, pdf_key=stored.key,
+                pdf_sha256=stored.sha256, pdf_size=stored.size, issued_at=issued_at,
             )
-            for position, (k, d, q, u, a, ref) in enumerate(lines, start=1)
-        ])
-        _link_item(payment, statement)
+            StatementLine.objects.bulk_create([
+                StatementLine(
+                    statement=statement, position=position, kind=k, description=d, quantity=q,
+                    unit_centavos=u, amount_centavos=a, source_ref=ref,
+                )
+                for position, (k, d, q, u, a, ref) in enumerate(lines, start=1)
+            ])
+            _link_item(payment, statement)
+        except Exception:
+            documents.discard(stored.key)  # no statement will point at the file
+            raise
         return statement
 
 
