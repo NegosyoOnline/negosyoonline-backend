@@ -101,8 +101,8 @@ One account at a time, in one transaction. The rows stay; the personal values go
 | Web address | Retired | The name stays taken and is never reissued |
 | Santé site settings, where `SANTE_SETTINGS_ENABLED` is on | The sponsor ID | The row |
 | Site payment accounts, where `PAYMENT_METHODS_ENABLED` is on | The account name and account number; every account is marked removed; each account's QR code file is deleted from the private store | The row, its kind, bank or e-wallet name and type, dates |
-| Email send records to the account's address | Deleted, except hq sign-in codes and lockout notices | |
-| Email send records to an address the account used before an email change | Deleted when written up to the moment of that change, plus the change notice sent to the old address; hq sign-in codes and lockout notices stay. Later records to that address are not touched: it may belong to another account by then | |
+| Email send records to the account's address | Deleted, except hq sign-in codes and lockout notices | The records of the three payment emails (`billing_proof_received`, `billing_payment_approved`, `billing_payment_rejected`): billing records, kept 5 years (Privacy, section 8), then deleted by `email_messages` |
+| Email send records to an address the account used before an email change | Deleted when written up to the moment of that change, plus the change notice sent to the old address; hq sign-in codes, lockout notices and the three payment-email records stay. Later records to that address are not touched: it may belong to another account by then | |
 
 Each disposal writes one audit entry, action `account_disposed`: the operator (none when the never-verified rule did it), the account's public id, the rule and the request reference, the count per table and the names of the blanked fields. Never a personal value.
 

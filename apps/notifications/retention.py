@@ -82,10 +82,18 @@ def _records_for(address):
     )
 
 
+def _without_billing_documents(rows):
+    """Account disposal leaves the records of BILLING_DOCUMENT_CATEGORIES where they are: they
+    are billing records, kept at least 5 years (Privacy, section 8), and `email_messages`
+    removes them at the end of that period. The export does not use this: it still lists them."""
+    return rows.exclude(category__in=BILLING_DOCUMENT_CATEGORIES)
+
+
 def delete_records_for(address, dry_run=False):
-    """Delete the send records of one address when its account is disposed of. Returns the
+    """Delete the send records of one address when its account is disposed of, except the
+    admin ones and the billing-document ones (see `_without_billing_documents`). Returns the
     count; a dry run only counts. Called only by apps.accounts.retention."""
-    return retention.remove(_records_for(address), dry_run)
+    return retention.remove(_without_billing_documents(_records_for(address)), dry_run)
 
 
 # The notice of an email change goes to the old address just after the change.
@@ -99,8 +107,8 @@ def delete_earlier_records_for(periods, dry_run=False):
     `periods` is (address, changed_at) pairs: the old address of each change and when the
     account left it. Only records written up to that moment go, plus the change notice sent
     to the old address: afterwards the address may belong to another account. Admin
-    categories stay. Returns the count; a dry run only counts. Called only by
-    apps.accounts.retention.
+    categories and billing-document records stay (see `_without_billing_documents`). Returns
+    the count; a dry run only counts. Called only by apps.accounts.retention.
     """
     match = Q()
     for address, changed_at in periods:
@@ -111,7 +119,7 @@ def delete_earlier_records_for(periods, dry_run=False):
     if not match:
         return 0
     rows = EmailMessage.objects.filter(match).exclude(category__in=ADMIN_CATEGORIES)
-    return retention.remove(rows, dry_run)
+    return retention.remove(_without_billing_documents(rows), dry_run)
 
 
 def export_records_for(address):
