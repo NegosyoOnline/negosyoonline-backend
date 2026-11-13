@@ -37,10 +37,11 @@ The published pages say: the customer emails support from the account email, and
 1. Confirm the request comes from the account's registered email. If it does not, do not run anything: reply asking the customer to write from the account email.
 2. Give the request its reference number (section 2).
 3. Run `export_account` as set out in "An export request" in `docs/runbooks/retention.md`, with the reference number as `--request-ref`. Do not copy the command here; that page is the one that stays current.
-4. Send the file to the registered email only, from the DPO mailbox, then delete your copy of the file (retention.md, same section: "Sending is done by hand; nothing here sends it").
-5. Running it against staging or production needs Coach Ed's word each time, including a dry run, which runs only on a test account named as a test (`docs/runbooks/retention.md`, "What needs Coach Ed's approval, each time and per environment"). The environment's migrations must be applied first ("Before any command here").
+4. If the site is inside its 30 days and sold Membership Packs, also run `export_pack_files` for it (retention.md, "The Pack files of an ended site") with the same reference number, and send both files together. For a person's own request on a site that is still served, use `--basis request`, and always before any `dispose_account` of an account that sold Packs.
+5. Send the file to the registered email only, from the DPO mailbox, then delete your copy of the file (retention.md, same section: "Sending is done by hand; nothing here sends it").
+6. Running it against staging or production needs Coach Ed's word each time, including a dry run, which runs only on a test account named as a test (`docs/runbooks/retention.md`, "What needs Coach Ed's approval, each time and per environment"). The environment's migrations must be applied first ("Before any command here").
 
-The export changes nothing and writes one audit entry, `account_exported`, with counts only.
+The export changes nothing and writes one audit entry, `account_exported`, with counts only. `export_pack_files` writes `pack_files_exported`, counts only.
 
 ## 5. What closes when a subscription ends
 
@@ -52,7 +53,7 @@ When the site is ended:
 
 - **The storefront and the Santé checkout and member routes answer 404**, the same 404 as for a name nobody holds. They all go through `served()` (`apps/sites/api_public.py:54-70`; `apps/storefront/services.py:21-26`; used by `apps/pack/api.py`, `apps/members/api.py`).
 - **The owner is limited to Billing.** Owner routes that check the position answer 403 `billing_only` (`apps/sites/api.py:145-155`; the same check in `apps/sante` and `apps/payments`). Billing stays available so the owner can pay and reactivate (Terms, "Payment Requires Attention" paragraphs).
-- **The windows.** From the end of the service: 30 days to download (`DOWNLOAD_WINDOW`, `apps/billing/plan.py:22`), and deletion due at 90 days (`DELETION_AFTER_PAID`, plan.py:23) or 30 days for a site that never had a successful payment (`DELETION_NEVER_PAID`, plan.py:24). They are set in `apps/billing/services.py:393-408`. The published periods are the same (Terms, "Your data after the service ends"; Privacy Policy, section 8).
+- **The windows.** From the end of the service: 30 days to download (`DOWNLOAD_WINDOW`, `apps/billing/plan.py:22`), and deletion due at 90 days (`DELETION_AFTER_PAID`, plan.py:23) or 30 days for a site that never had a successful payment (`DELETION_NEVER_PAID`, plan.py:24). They are set in `apps/billing/services.py:393-408`. The Pack files archive (`export_pack_files`) is refused outside the 30 days and at or after the deletion point. The published periods are the same (Terms, "Your data after the service ends"; Privacy Policy, section 8).
 - **Approval and weekly review.** At the deletion date nothing is erased by itself: Coach Ed reviews the due list in HQ weekly and approves a batch by typing its confirmation (`docs/runbooks/retention.md`, "An ended site's data"). The first batch in each environment is one site. A site with an open export or deletion request is held or excluded first. Until the executor is switched on in an environment, a site past its date simply keeps its data.
 - **Cancel while suspended:** the day of the suspension stays the end of the service for the data (same published paragraphs).
 
