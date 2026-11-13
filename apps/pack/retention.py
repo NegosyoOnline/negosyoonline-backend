@@ -57,14 +57,14 @@ def blanked():
     }
 
 
-def blank_packs_of(account, dry_run=False):
+def blank_packs_of(account, dry_run=False, *, keep_files=False):
     """Delete every proof file and every checkout token of the account's sites and blank the
     personal fields of its orders and proofs. The rows stay. Returns the counts; a dry run only
     counts. Call it inside a transaction.
 
     A file that cannot be deleted raises private_files.StoreError, so the disposal is undone and
     can be run again; deleting a file that is already gone succeeds."""
-    return blank_packs(Site.objects.filter(account=account), dry_run)
+    return blank_packs(Site.objects.filter(account=account), dry_run, keep_files=keep_files)
 
 
 def blank_packs(sites, dry_run=False, *, ignore_switch=False, keep_files=False):
@@ -93,17 +93,21 @@ def blank_packs(sites, dry_run=False, *, ignore_switch=False, keep_files=False):
     return counts
 
 
-def export_packs_of(account):  # noqa: C901
+def export_packs_of(account):
     """The pack orders and proofs of the account's sites as plain values: no file key, no token,
     no row number. Reads only."""
     if not enabled():
         return {}
-    public_ids = dict(Site.objects.filter(account=account).values_list("pk", "public_id"))
-    orders = PackOrder.objects.filter(site__account=account).select_related("member").order_by("pk")
-    proofs = (
-        PackProofSubmission.objects.filter(site__account=account).select_related("order").order_by("pk")
-    )
-    registrations = SanteRegistration.objects.filter(site__account=account).select_related("member").order_by("pk")
+    return export_packs(Site.objects.filter(account=account))
+
+
+def export_packs(sites):
+    """The same values for the sites in `sites` (a queryset of Site). The account export and the
+    Pack files archive (apps.pack.export) both build from this, so they cannot drift."""
+    public_ids = dict(sites.values_list("pk", "public_id"))
+    orders = PackOrder.objects.filter(site__in=sites).select_related("member").order_by("pk")
+    proofs = PackProofSubmission.objects.filter(site__in=sites).select_related("order").order_by("pk")
+    registrations = SanteRegistration.objects.filter(site__in=sites).select_related("member").order_by("pk")
     return {
         REGISTRATIONS: [
             {

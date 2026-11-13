@@ -7,8 +7,9 @@ only: never a name, an email, a number, an address or a file key.
 from django.conf import settings
 
 from apps.common import retention
-from apps.inbox.models import Contact, ContactGroup, Conversation, ConversationMessage
+from apps.inbox import retention as inbox_retention
 from apps.lifecycle import eligibility
+from apps.inquiries import retention as inquiries_retention
 from apps.members import retention as member_retention
 from apps.meta_ads import retention as meta_retention
 from apps.pack import retention as pack_retention
@@ -31,16 +32,6 @@ def _iso(moment):
     return moment.isoformat() if moment else None
 
 
-def _inbox_counts(sites):
-    conversations = Conversation.objects.filter(owner_kind="site", site__in=sites)
-    return {
-        "inbox_conversations": conversations.count(),
-        "inbox_messages": ConversationMessage.objects.filter(conversation__in=conversations).count(),
-        "inbox_contacts": Contact.objects.filter(owner_kind="site", site__in=sites).count(),
-        "inbox_groups": ContactGroup.objects.filter(owner_kind="site", site__in=sites).count(),
-    }
-
-
 def planned_counts(site):
     """What an erasure of this site would blank or delete, per table, and how many private files
     it would delete. Every table is read whatever its feature switch says (plan D13). Reads only."""
@@ -54,7 +45,8 @@ def planned_counts(site):
         pack_retention.blank_packs(sites, dry_run=True, ignore_switch=True, keep_files=True),
         shop_retention.blank_shop(sites, dry_run=True, ignore_switch=True),
         meta_retention.blank_meta(sites, dry_run=True),
-        _inbox_counts(sites),
+        inbox_retention.erase_site_inbox(sites, dry_run=True),
+        inquiries_retention.blank_inquiries(sites, dry_run=True),
     ):
         counts.update(part)
     seals = SiteBusinessProfile.objects.filter(site__in=sites).exclude(seal_key="").count()
@@ -63,7 +55,7 @@ def planned_counts(site):
     return counts, seals + sum(counts.get(key, 0) for key in FILE_KEYS)
 
 
-def _account_step(candidate, eligible_ids, erased_ids):
+def account_step(candidate, eligible_ids, erased_ids):
     """('dispose' | 'keep', reason). The account goes with its last site (plan D7)."""
     account = candidate.site.account
     if SanteCatalogOwner.objects.filter(site__account=account).exists():
@@ -80,7 +72,7 @@ def _account_step(candidate, eligible_ids, erased_ids):
 def _eligible_entry(candidate, now, eligible_ids, erased_ids):
     sub = candidate.subscription
     counts, files = planned_counts(candidate.site)
-    action, reason = _account_step(candidate, eligible_ids, erased_ids)
+    action, reason = account_step(candidate, eligible_ids, erased_ids)
     return {
         "site": candidate.site.public_id,
         "template": candidate.site.template,

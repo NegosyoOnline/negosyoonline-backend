@@ -21,6 +21,7 @@ from apps.billing import services as billing
 from apps.common import retention
 from apps.common.disposal import DISPOSED_DOMAIN, disposed_address, is_disposed_address
 from apps.members import retention as member_retention
+from apps.inquiries import retention as inquiries_retention
 from apps.meta_ads import retention as meta_retention
 from apps.pack import retention as pack_retention
 from apps.notifications import retention as email_records
@@ -107,7 +108,9 @@ def _checked_ref(request_ref):
     return value
 
 
-def dispose_account(account, *, now, rule, actor=None, request_ref="", dry_run=False):
+def dispose_account(
+    account, *, now, rule, actor=None, request_ref="", dry_run=False, keep_pack_files=False
+):
     """Blank the account's personal fields, remove its sign-in identities and sessions, and keep
     the row. Its mobile number and verification challenges are deleted, its sites are blanked
     and closed, and its email send records deleted with it, those of the addresses it used
@@ -120,14 +123,18 @@ def dispose_account(account, *, now, rule, actor=None, request_ref="", dry_run=F
     The account's subscriptions are cancelled first. While a paid term is still running a real
     run keeps that cancellation, blanks nothing and raises NotDisposable; a dry run adds
     `refused_for_now` to the counts instead.
+
+    `keep_pack_files` leaves the Membership Pack proof files in the private store (the site
+    erasure, plan D14: they stay until the Subscriber's export carries the images); the default
+    deletes them, as a person's own request always has.
     """
-    result = _dispose(account, now, rule, actor, request_ref, dry_run)
+    result = _dispose(account, now, rule, actor, request_ref, dry_run, keep_pack_files)
     if isinstance(result, NotDisposable):
         raise result  # raised outside the transaction, so the cancellation is kept
     return result
 
 
-def _dispose(account, now, rule, actor, request_ref, dry_run):
+def _dispose(account, now, rule, actor, request_ref, dry_run, keep_pack_files=False):
     request_ref = _checked_ref(request_ref)
     if not dry_run and not retention.enabled():
         raise SwitchedOff()
@@ -169,9 +176,10 @@ def _dispose(account, now, rule, actor, request_ref, dry_run):
             **sante_retention.blank_settings_of(account, dry_run),
             **payment_retention.blank_payments_of(account, now, dry_run),
             **member_retention.blank_members_of(account, dry_run),
-            **pack_retention.blank_packs_of(account, dry_run),
+            **pack_retention.blank_packs_of(account, dry_run, keep_files=keep_pack_files),
             **shop_retention.blank_shop_of(account, dry_run),
             **meta_retention.blank_meta_of(account, dry_run),
+            **inquiries_retention.blank_inquiries_of(account, dry_run),
             "email_send_records": email_records.delete_records_for(address, dry_run),
             "earlier_address_send_records": email_records.delete_earlier_records_for(
                 earlier, dry_run
@@ -203,7 +211,7 @@ def _dispose(account, now, rule, actor, request_ref, dry_run):
                 "blanked": {
                     **BLANKED, **sante_retention.blanked(), **payment_retention.blanked(),
                     **member_retention.blanked(), **pack_retention.blanked(), **shop_retention.blanked(),
-                    **meta_retention.blanked(),
+                    **meta_retention.blanked(), **inquiries_retention.blanked(),
                 },
             },
         )

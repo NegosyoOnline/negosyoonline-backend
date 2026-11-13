@@ -54,6 +54,10 @@ Repeat for each column above. Files with no row are listed the other way round (
 
 Each item below was re-read in the code on 2026-11-13 (main `f406bfb`). Run the queries in `manage.py shell` on the restored database. "Restore point" means the backup's time.
 
+### Erased sites
+
+Data erased by the site deletion executor after the restore point comes back with the restore. List the `site_data_erased` and `account_disposed` records kept outside the database (support mailbox, the PR and ClickUp record of each batch) and erase those sites again (`docs/runbooks/retention.md`, "An ended site's data"). Nothing re-applies them automatically.
+
 ### Billing emails
 
 `apps/billing/notices.py` sends each email once per `BillingNotice.idempotency_key`, and looks only at events from the last 48 hours (`WINDOW`). The notice rows written after the restore point are gone, so for any event in the restored data whose email went out after the restore point, the next scan sends it again. Trial and renewal reminders can repeat the same way.

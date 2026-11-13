@@ -12,7 +12,7 @@ from django.core.cache import cache
 from django.db import connection, transaction
 from django.http import JsonResponse
 from django.utils import timezone
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_safe
 
 from apps.common import throttle
 from apps.common.errors import ApiError
@@ -96,7 +96,7 @@ def check_sms_queue():
         return False
 
 
-@require_GET
+@require_safe
 def readyz(request):
     limit, window = READYZ_LIMIT
     try:

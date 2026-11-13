@@ -43,9 +43,11 @@ def blank_shop_of(account, dry_run=False):
     return blank_shop(Site.objects.filter(account=account), dry_run)
 
 
-def blank_shop(sites, dry_run=False, *, ignore_switch=False):
+def blank_shop(sites, dry_run=False, *, ignore_switch=False, last4=False):
     """The same for the sites in `sites`. `ignore_switch` reads the tables whatever SHOP_ENABLED
-    says (the site erasure, plan D13); the default is unchanged."""
+    says (the site erasure, plan D13). `last4` also blanks each proof's copy of the last four
+    digits of the receiving account number (the site erasure, plan C10: the G4b email promises the
+    account number goes). Defaults unchanged."""
     if not ignore_switch and not enabled():
         return {}
     orders = ShopOrder.objects.filter(site__in=sites)
@@ -56,7 +58,10 @@ def blank_shop(sites, dry_run=False, *, ignore_switch=False):
         for key in keys:
             private_files.delete(key)
         orders.update(receiver_name="", receiver_mobile="", contact_email="", delivery_address={})
-        proofs.update(reference_number="", account_name="", ip_advisory="", file_key="")
+        proofs.update(
+            reference_number="", account_name="", ip_advisory="", file_key="",
+            **({"account_number_last4": ""} if last4 else {}),
+        )
     return counts
 
 

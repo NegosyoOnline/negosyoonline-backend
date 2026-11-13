@@ -188,7 +188,7 @@ While `MEMBERS_ENABLED` is off, disposal and export do not read the member table
 - Shipment records (ClickUp z8uq9mek5x): the courier, tracking number, shipped and delivered dates and the Subscriber's actor email label on an order are kept by a disposal, like the order's status and events. A tracking number is not personal data on its own; the buyer name and delivery address are still blanked.
 - Rule `expired_checkout_tokens`: a token is deleted 30 days after it expired.
 - Rule `pack_registration_details` (as TWCinc's sweep; its own switch is `DOB_ERASE_ENABLED`, not `RETENTION_ENABLED`, and it needs `PACK_ENABLED`): the date of birth and the two Santé usernames of a registration are erased 90 days after its last status change, whatever its status. A registration still in progress takes edge T24 to needs_buyer_action; one waiting on the customer loses its confirmation, so the buyer enters the details again. The registration row stays. A disposal blanks the same three fields (count `sante_registrations`), and the export lists registrations.
-- The export gains `pack_orders` and `pack_proof_submissions` as plain values, with no file key, no token and no row number.
+- The export gains `pack_orders` and `pack_proof_submissions` as plain values, with no file key, no token and no row number. The proof images and their checksums are not in `export_account`: they are in the Pack archive of `export_pack_files` ("The Pack files of an ended site", below).
 - Same shape as TWCinc and as billing's transfer proofs (files deleted, rows and money kept). While `PACK_ENABLED` is off, disposal and export read no pack table, because the code is released before migration `pack.0001` is applied.
 
 SMS send records are not touched by a disposal: they hold the number a text went to and follow the SMS build's own 1-year rule.
@@ -208,6 +208,26 @@ railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e <env> -s api -- uv run py
 The file is personal data on your computer. Send it to the requester from the DPO mailbox, only after confirming who is asking, then delete it. Sending is done by hand; nothing here sends it.
 
 How a request arrives, its reference number and the support periods: `docs/runbooks/support-and-exit.md`.
+
+## The Pack files of an ended site
+
+For a Subscriber who sold Membership Packs, the store data includes the buyers' payment-proof images. `export_account` carries no image. `manage.py export_pack_files` builds one ZIP per site: `manifest.json` (every file with its size and sha256, the window, counts, warnings), `pack.json` (orders, proofs with sender and paid-to details, decisions, order events, agreement and enrollment records, registrations) and `proofs/<order number>-<seq>.<jpg|png|webp>`. It never holds a file key, a checkout token, a hash other than sha256, a visitor address, a row number, a staff reference or a full account number, and nothing of another site or account.
+
+It runs only inside the 30 days after the service ended, and never at or after the deletion point (a site that never paid has its deletion point exactly at the end of the 30 days). Outside that it refuses and writes nothing; so does a served, trial, exempt or reactivated site. It also needs `PACK_ENABLED`, an active staff `--actor`, a request reference number (never an address), and a site that belongs to the account. It reads the private store once per image; if any image cannot be read it fails with no output and no audit entry, so run it again. An archive over 200 MiB is refused (no parts option is built; tell the Supervisor).
+
+Run it after `export_account`, for each site that sold Packs. The disk is lost on restart, so print it as base64 and decode on your own computer:
+
+```bash
+railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e <env> -s api -- uv run python manage.py export_pack_files ACCOUNT --site SITE --actor USERNAME --request-ref REF --stdout-base64 > pack-export.txt
+tr -d '\r' < pack-export.txt | base64 -d > pack-export.zip
+shasum -a 256 pack-export.zip
+```
+
+The command prints a line to the error output with the counts and the archive sha256; the last command must show the same value. `--out-dir DIR` writes `pack-export-<site>-<REF>.zip` (0600, never replaces a file; a repeat of the same site and reference refuses and writes no second audit entry). Each successful hand-over writes one audit entry, `pack_files_exported`, with counts, bytes, the archive sha256 and the basis.
+
+**A person's own request on a site still served** (`--basis request`): an access request, or a deletion request on a live site. It skips the window check and nothing else. Run it, send the archive, and only then run `dispose_account` for any account that sold Packs: `dispose_account` deletes the proof files of the account's sites without an export. The site must have Pack orders, and the audit entry records `"basis": "request"`.
+
+Send the archive to the registered email only, from the DPO mailbox, then delete your copy. Same staging and production rule as every command here: Coach Ed's word each time.
 
 ## Billing statements and the invoice register
 
@@ -238,13 +258,13 @@ At `billing.deletion_point(site)`, for every site whose subscription has ended a
 | `MemberSession`, `MemberContactAudit` | the visitor address |
 | `PackProofSubmission` | sender name, sender account number, sender bank, visitor address, reference number, the account snapshot (public id, name, last four), and the transfer time (set to the submission time). Amount, seq, kind and bank name stay |
 
-**Proof files.** A file is deleted only while the constant `PROOF_EXPORT_READY_FROM` (`apps/pack/purge.py`) is a date not later than the day the site's service ended, so the export held images for its whole 30-day window. It is `None` today, so **no proof file is deleted**: the files stay in the private store, no route shows them, and the personal columns above still clear. The store-data export extension (z8uq9mbu0p) sets the constant in the change that adds images to the export. A store that is down on a deletion leaves the key and the next hourly pass retries it.
+**Proof files.** A file is deleted only while the constant `PROOF_EXPORT_READY_FROM` (`apps/pack/purge.py`) is a date not later than the day the site's service ended, so the export held images for its whole 30-day window. It is `None` today, so **no proof file is deleted**: the files stay in the private store, no route shows them, and the personal columns above still clear. The Pack archive (`export_pack_files`, z8uq9mbu0p) is built; the constant stays `None` until a separate one-line change sets it to the Manila day after the staging deploy of that archive was verified, so every site whose service ends on or after that day had the export for its whole window. A site whose service ended before that day keeps its images (Finance-only, no route, no automatic deletion; L72). Setting it deletes nothing by itself: deletion also needs `PACK_PURGE_ENABLED` or an approved executor batch. A store that is down on a deletion leaves the key and the next hourly pass retries it.
 
-**Not covered.** The Subscriber's receiving accounts: `apps.payments.retention.blank_payments_of` works per account, not per site, so no per-site helper exists to reuse. Holds and run tables, the Finance resolver, admin gates and anything Xendit are deferred (decision B2). The date-of-birth erase `pack_registration_details` (D3, its own switch `DOB_ERASE_ENABLED`) is unchanged and runs on its own age clock.
+**Not covered by the purge.** The Subscriber's receiving accounts: the site erasure below covers them (it calls the per-site `blank_payments`). The purge honours an open `ErasureHold` (a held site is left alone) only while `SITE_ERASURE_ENABLED` is on. The Finance resolver, admin gates and anything Xendit are deferred (decision B2). The date-of-birth erase `pack_registration_details` (D3, its own switch `DOB_ERASE_ENABLED`) is unchanged and runs on its own age clock.
 
 **Behaviour.** Idempotent: a second pass changes nothing, and rows made after a restore are cleared by the next pass. A reactivated site has no deletion date, so nothing runs for it. A payment in flight does not delay it. A site that fails is logged as `Pack purge failed for site <pk> (<exception class>)` and the loop goes on. From the instant of the point every registration action (details, delivery, the T8 move) is refused, whether or not the pass has run.
 
-**Hold.** There is no holds table. To hold the deletion of buyer data for a legal or fraud reason, turn `PACK_PURGE_ENABLED` off: that holds every site. Turn it on again when the hold ends; the next hourly pass clears what is due.
+**Hold.** To hold one site for a legal or fraud reason, set an erasure hold on it (`manage.py erasure_hold SITE --actor USER --reason-code CODE`, or the HQ route `lifecycle/erasure/hold/`); the purge then skips it while `SITE_ERASURE_ENABLED` is on. To hold every site, turn `PACK_PURGE_ENABLED` off. Turn it on again when the hold ends; the next hourly pass clears what is due.
 
 ### The notice
 
@@ -254,6 +274,24 @@ At `billing.deletion_point(site)`, for every site whose subscription has ended a
 - Before each send the subscription is read again; the email goes only while the service has ended and the point is still the recorded one. A reactivated site sends nothing.
 - A window missed (an outage past the point) sends nothing. A notice given up (point passed, retries used up, or a disposed address) is logged once: `Pack buyer notice given up (<reason>): site <pk>, member <pk>.` There is no alert table; watch the worker log for that line.
 - No text message.
+
+## An ended site's data (the deletion executor)
+
+Plan: `docs/superpowers/plans/2026-11-13-site-deletion-executor-z8uq9mb22v.md` (ClickUp z8uq9mb22v). Code: `apps/lifecycle`. It anonymises in place the store data of a site whose `deletion_due_at` has passed, only after a person approved a frozen list. It ships dark: `SITE_ERASURE_ENABLED` is unset everywhere, and turning it on in an environment needs Coach Ed's word naming that environment. Production is never covered by an earlier approval. No rehearsal runs on staging data with real members; rehearse on a throwaway local database, and make the first run on staging a batch of one site that Coach Ed names after reading its dry run.
+
+**What it erases, per site** (rows stay, personal fields blank; the feature switches `PAYMENT_METHODS_ENABLED`, `MEMBERS_ENABLED`, `SHOP_ENABLED`, `SANTE_SETTINGS_ENABLED` do not matter): the site's contact fields and business profile (seal file deleted), Santé sponsor id, receiving accounts (name, number, QR file deleted), members with their sessions and sign-in codes, Pack buyers (fields only; **pack proof files stay** until `PROOF_EXPORT_READY_FROM` is set by z8uq9mbu0p), Santé registrations, shop orders and proofs (files deleted, `account_number_last4` blank), Meta settings and order contexts, and the site-owned SMS inbox (conversations, messages, contacts, groups; the do-not-text list stays). When no other live site remains the account is disposed of too (rule `site_erasure`; needs `RETENTION_ENABLED`; its pack proof files stay while the export gate is closed). Kept: every billing, statement, invoice, ledger and audit row.
+
+**Procedure** (all need `SITE_ERASURE_ENABLED`; `erasure_dry_run` works without it and writes nothing):
+
+1. `manage.py erasure_dry_run` (or HQ `lifecycle/erasure/list/`): eligible, near and refused sites with counts. Check the support mailbox for an open export or deletion request about any listed site; hold or exclude it.
+2. `manage.py erasure_propose SITE [SITE ...] --actor USER` (1 to 25 sites; expires after 7 days). Deletes nothing.
+3. `manage.py erasure_approve BATCH --actor USER --reason TEXT --confirm "erase batch BATCH N sites" [--exclude SITE]`. `--cancel` cancels instead. The reason is a note: no name, email or number.
+4. `manage.py erasure_run BATCH`, or wait for the Celery task `lifecycle.run_approved` (every 5 minutes, approved batches only). Each item runs in its own transaction and re-checks eligibility under the locks; an item that no longer qualifies is `skipped` and nothing is erased. A failed item (for example `store_unavailable`) is retried up to 5 times, then the batch shows `needs_attention`.
+5. Read the audit entries `site_data_erased` and `site_erasure_skipped` (counts and field names only).
+
+**Holds.** `manage.py erasure_hold SITE --actor USER --reason-code CODE --reference REF`, `--release` to lift it. A held site is skipped by the executor and by the Pack purge.
+
+**Restore.** Erasure cannot be undone from the application. Backups keep erased data for up to about 89 days. After a restore, erase again the sites listed in the `site_data_erased` and `account_disposed` records kept outside the database (support mailbox, PR and ClickUp record of each batch).
 
 ## Turning it off
 

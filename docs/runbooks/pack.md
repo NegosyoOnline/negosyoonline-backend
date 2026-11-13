@@ -61,3 +61,5 @@ A paid Membership Pack buyer of a Santé site that is suspended, or cancelled pa
 ## Local check
 
 With the switches on, the local private store and a published agreement, `curl` `checkout/contact/` (JSON) then `checkout/place/` (`-F proof=@file.png;type=image/png`): the file lands under `sante/proofs/site-<pk>/` in the local private folder, the order row exists, and both emails print in the service log.
+
+- **Export of the Pack files** (ClickUp z8uq9mbu0p): support runs `export_pack_files` for an ended site; see `docs/runbooks/retention.md`, "The Pack files of an ended site", and `docs/runbooks/support-and-exit.md`, section 4.
