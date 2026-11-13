@@ -7,6 +7,8 @@ This turns the promises in the published Privacy notice (section 10, "Personal D
 
 The Terms (data-processing section) repeat the 24-hour promise to Subscribers.
 
+The incident runbook (`docs/runbooks/incident.md`) covers containment, secret rotation and putting a site on hold. This runbook covers the Privacy notice's breach notices.
+
 Real Santé members are on staging (Coach Ed's ruling of 2026-11-13). So this runbook applies to staging data now. Production is not built yet.
 
 Where a step says "not built", no tool, command or alert exists. Do it by hand and write down what you did.
@@ -43,11 +45,11 @@ Do the steps that fit. Changing Railway variables on staging or production needs
 | --- | --- | --- |
 | The SMS phone or its token may be exposed | Rotate the token. The old token fails at once. | `docs/runbooks/sms-gateway.md`, "Rotating a token" (`manage.py sms_device rotate`) |
 | The SMS phone is lost or stolen | Stop that phone. | `docs/runbooks/sms-gateway.md`, "Stopping one phone" (`sms_device disable`) |
-| Texts are going to the wrong people, or you cannot tell | Stop all sending. | `docs/runbooks/sms-gateway.md`, "Stopping all sending" ("Sending stopped" on the SMS policy: today in the HQ admin list; on the HQ Settings page once it is live) |
+| Texts are going to the wrong people, or you cannot tell | Stop all sending. | `docs/runbooks/sms-gateway.md`, "Stopping all sending" ("Sending stopped" on the HQ Settings page, SMS settings) |
 | Incoming texts or the SMS inbox are involved | Turn the incoming switches off; withdraw inbox access. | `docs/runbooks/sms-gateway.md`, "Incoming texts: the three switches" (`sms_device incoming off`, `sms_inbox_access revoke`) |
 | A staff identity may be misused | Disable it. This ends that person's sessions and keeps the row. Use `reset` to end sessions and clear a pause. | `docs/runbooks/admin-two-step.md` (`manage.py admin_identity disable`, `reset`) |
 | The staff app's calls are in doubt | Delete `HQ_STAFF_ORIGIN` and redeploy; the HQ pages keep working. | `docs/runbooks/admin-two-step.md`, "The staff routes" |
-| A secret or key may be exposed (an environment variable) | Replace the value in Railway and redeploy. Name the variable to Coach Ed; never write the value. | `CLAUDE.md` (Railway variables). `docs/runbooks/admin-two-step.md` and `docs/runbooks/members.md` name the variables. No rotation runbook per variable is built. |
+| A secret or key may be exposed (an environment variable) | Replace the value in Railway and redeploy. Name the variable to Coach Ed; never write the value. | `docs/runbooks/incident.md`, "Rotating each secret". |
 | A feature is the source | Switch off its flag (for example `MEMBERS_ENABLED`). Read the feature's runbook first: some flags are not turned off again without Coach Ed's ruling because disposal and export depend on them. | `docs/runbooks/retention.md`, `docs/runbooks/members.md` |
 | A bad release is the source | Redeploy the previous build. | `docs/runbooks/admin-two-step.md`, "Release order"; `docs/runbooks/migrations.md` |
 | One Subscriber account or one Santé member session is the source | An operator command to end all sessions of a Subscriber or a member: not built. A member's contact change or recovery revokes that member's sessions (`docs/runbooks/members.md`). | not built |
@@ -142,6 +144,6 @@ There is no breach register in the system. Not built. The DPO keeps one record p
 - Coach Ed's decisions;
 - what was changed afterwards so it does not happen again, as a ClickUp task.
 
-The actions taken through `admin_identity`, `sms_device` and the SMS policy ("Sending stopped", today in the HQ admin list; on the HQ Settings page once it is live) are already written to the operator audit log (`docs/runbooks/sms-gateway.md`, `docs/runbooks/admin-two-step.md`). Point to those entries in the record.
+The actions taken through `admin_identity`, `sms_device` and the SMS policy ("Sending stopped" on the HQ Settings page, SMS settings) are already written to the operator audit log (`docs/runbooks/sms-gateway.md`, `docs/runbooks/admin-two-step.md`). Point to those entries in the record.
 
 If the incident shows that the Privacy notice or the Terms say something that is not true, tell the DPO. Wording changes are the DPO's and Coach Ed's call.
