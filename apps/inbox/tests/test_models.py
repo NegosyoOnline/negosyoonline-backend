@@ -1,5 +1,4 @@
 from django.apps import apps
-from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -21,9 +20,8 @@ class SwitchTests(SimpleTestCase):
     def test_2_the_app_is_installed(self):
         self.assertTrue(apps.is_installed("apps.inbox"))
 
-    def test_3_no_inbox_record_has_a_django_admin_screen(self):
-        registered = [m._meta.label for m in admin.site._registry if m._meta.app_label == "inbox"]
-        self.assertEqual(registered, [])
+    def test_3_the_django_admin_is_not_installed(self):
+        self.assertFalse(apps.is_installed("django.contrib.admin"))
 
 
 class RecordTests(TestCase):

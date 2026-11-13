@@ -565,9 +565,8 @@ class HqHomeTests(HqTestCase):
         self.assertContains(page, f"Signed in as {EMAIL}.")
         self.assertContains(page, "Recent sign-in activity")
         self.assertContains(page, '<p class="hint">Your last 10 sign-in events.</p>', html=True)
-        self.assertContains(page, "<h2>Admin lists</h2>", html=True)
-        self.assertContains(page, "<p>Subscribers, sites and sent emails.</p>", html=True)
-        self.assertContains(page, '<a class="lnk" href="/admin/">Open admin lists</a>', html=True)
+        self.assertNotContains(page, "Open admin lists")
+        self.assertNotContains(page, "Admin lists")
         self.assertContains(page, "Verified")
         session = AdminSession.objects.get()
         local = timezone.localtime
@@ -589,7 +588,7 @@ class HqHomeTests(HqTestCase):
         self.assertEqual(page.content.decode().count('<li class="row">'), 4)  # not the other admin's
         self.assertContains(page, '<form method="post" action="/sign-out/">')
         self.assertContains(page, "Sign out")
-        self.assertEqual(page.content.decode().count("<a "), 1)  # the admin lists, and no other link
+        self.assertEqual(page.content.decode().count("<a "), 0)  # no link on this page
         self.assertNotContains(page, "127.0.0.1")
 
     def manila(self, moment):
@@ -688,7 +687,7 @@ class HqHostTests(HqTestCase):
     HQ_PATHS = ("/sign-in/", "/code/", "/verify/", "/sign-out/")
 
     def test_the_hq_host_serves_only_hq(self):
-        for path in ("/static/admin/css/base.css", "/static/", "/healthz/",
+        for path in ("/admin/", "/static/admin/css/base.css", "/static/", "/healthz/",
                      "/v1/openapi.json", "/v1/account", "/sign-in"):
             response = self.get(path)
             self.assertEqual(response.status_code, 404, path)

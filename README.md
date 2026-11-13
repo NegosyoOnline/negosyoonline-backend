@@ -14,10 +14,10 @@ Railway staging owns PostgreSQL and Redis. Its credentials must be configured la
 
 - `config/api.py`: the single API, served under `/v1/`. Its OpenAPI description is at `/v1/openapi.json` and is the contract the frontend builds against.
 - `apps/common`: shared code with no business meaning (public ids, the error shape, the origin allowlist).
-- `apps/operators`: the staff user model, admin two-step sign-in, hq, the admin lists and the operator audit record (`audit.record()` is the only way to write it). Subscribers are not Django users. See `docs/runbooks/admin-two-step.md`.
+- `apps/operators`: the staff user model, admin two-step sign-in, hq and the operator audit record (`audit.record()` is the only way to write it). Subscribers are not Django users. See `docs/runbooks/admin-two-step.md`.
 - `API_ALLOWED_ORIGINS`: the site and dashboard origins allowed to call the API from a browser. Never list a storefront origin.
 - `apps/accounts`: subscribers (`Account`), their sessions, email-code, Google and Facebook sign-in, and account settings. Other apps call `apps/accounts/services.py`, never the tables.
-- hq, the admin's console: Django pages in `apps/operators` (`hq_urls.py`, `hq_views.py`, `templates/hq/`), served only on the host named by `HQ_HOST` and nowhere when it is empty. That host serves nothing else except the admin lists (the Django admin) at `/admin/`, which open only for an hq session that passed both steps. No other host serves `/admin/`, and there is no username-and-password sign-in.
+- hq, the admin's console: Django pages in `apps/operators` (`hq_urls.py`, `hq_views.py`, `templates/hq/`), served only on the host named by `HQ_HOST` and nowhere when it is empty. The Django admin is switched off (`/admin/` answers 404 on every host), and there is no username-and-password sign-in.
 - `apps/notifications`: `send_email()` is the only way to send email. With no `EMAIL_HOST` set, email is printed to the service log.
 
 ## Railway staging
@@ -33,7 +33,7 @@ Before a staging deploy, configure these Railway variables through the service U
 - `DATABASE_URL` and `REDIS_URL`: references to the staging Postgres and Redis services.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: the Google OAuth client for this environment. Without them the Google sign-in endpoints answer 404.
 - `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET`: the Meta app for this environment. Without them the Facebook sign-in endpoints and the data deletion callback answer 404.
-- `ADMIN_SECRETS_KEY` and `HQ_HOST`: admin two-step sign-in, hq and the admin lists. Leave both unset until `docs/runbooks/admin-two-step.md` is followed.
+- `ADMIN_SECRETS_KEY` and `HQ_HOST`: admin two-step sign-in, and hq. Leave both unset until `docs/runbooks/admin-two-step.md` is followed.
 - `SMS_GATEWAY_ENABLED`: `1` turns on the SMS gateway (`send_sms` in `apps/notifications`, and the admin's SMS lists). Leave it unset until the `apps/notifications` SMS migration has been applied and `REDIS_URL` is set; unset, no text is queued and the SMS tables are not read or written.
 - `RETENTION_ENABLED`: `1` lets the account-side retention rules delete and blank (`manage.py run_retention`, and `manage.py dispose_account` for one account on request). Leave it unset until Coach Ed approves it for the environment, following `docs/runbooks/retention.md`; unset, a run of those rules changes nothing and only the dry run counts.
 - `BILLING_ENABLED`: `1` turns on billing (`apps/billing`: the subscription lifecycle, the billing endpoints, and `manage.py billing_sweep`, `billing_backfill_subscriptions` and `billing_exempt`). Leave it unset until the `apps/billing` migration has been applied and Coach Ed approves it for the environment, following `docs/runbooks/billing.md`; unset, nothing reads or writes the billing tables and the sweep does nothing.

@@ -1,6 +1,6 @@
 """The second step of admin sign-in: an authenticator code or a recovery code.
 
-hq is the only place that asks for it. The admin lists open from the hq session it makes.
+hq is the only place that asks for it.
 """
 import hmac
 import logging

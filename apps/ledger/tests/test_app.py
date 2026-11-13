@@ -3,7 +3,6 @@ import pathlib
 from unittest import skipUnless
 
 from django.apps import apps
-from django.contrib import admin
 from django.db import connection
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -25,9 +24,8 @@ class AppTests(TestCase):
         self.assertEqual(config.name, "apps.ledger")
         self.assertEqual(len(list(config.get_models())), 8)
 
-    def test_2_no_ledger_model_has_a_django_admin_screen(self):
-        registered = {m._meta.app_label for m in admin.site._registry}
-        self.assertNotIn("ledger", registered)
+    def test_2_the_django_admin_is_not_installed(self):
+        self.assertFalse(apps.is_installed("django.contrib.admin"))
 
     def test_3_the_database_has_exactly_the_eight_tables(self):
         names = {n for n in connection.introspection.table_names() if n.startswith("ledger_")}

@@ -2,7 +2,7 @@
 
 Everything here is behind SANTE_CATALOG_ENABLED, which counts as on only while
 SANTE_SETTINGS_ENABLED is on too, because the catalog reads the catalog owner row. While it
-is off the routes answer 404, the admin lists are closed and the three tables are not read
+is off the routes answer 404, the three tables are not read
 or written: the code is released before its tables are created.
 
 Only the catalog owner site writes. A saved change is the publication: every Santé site reads

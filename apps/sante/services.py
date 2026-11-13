@@ -1,7 +1,7 @@
 """Santé site settings and the catalog owner. Other apps call these functions, never the tables.
 
-Everything here is behind SANTE_SETTINGS_ENABLED. While it is off the routes answer 404, the
-admin lists are closed and the two tables are not read or written: the code is released
+Everything here is behind SANTE_SETTINGS_ENABLED. While it is off the routes answer 404 and the
+two tables are not read or written: the code is released
 before its tables are created.
 
 Lock order, after the Account and Onboarding rows the caller may hold: the catalog owner row,

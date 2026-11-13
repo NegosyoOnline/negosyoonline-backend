@@ -33,7 +33,7 @@ Migration `accounts.0003` (the mobile number tables) must be applied in an envir
 | `expired_subscriber_sessions` | Subscriber sessions | 30 days after they expired or were revoked |
 | `expired_admin_sign_in_codes` | Emailed hq sign-in codes | 30 days after they expired |
 | `expired_admin_sessions` | hq sessions | 30 days after they expired or were revoked |
-| `expired_django_sessions` | Django's session rows (admin list notices; never a sign-in) | 30 days after they expired |
+| `expired_django_sessions` | Django's session rows (never a sign-in) | 30 days after they expired |
 | `email_messages` | Email send records | 2 years after they were written |
 | `admin_audit_personal_values` | Deletes nothing: it blanks the personal values of admin sign-in audit entries (signed in, failed, locked, signed out) and of the SMS inbox's `sms_inbox_open`, `sms_inbox_reply` and `sms_inbox_compose` entries (the masked number of the conversation that was opened, or that the text was sent to), and stamps each row with the time. The row and everything else on it stay (ruling D4) | 1 year after the entry was written |
 | `never_verified_accounts` | Nothing: it disposes of accounts whose email was never verified, as in "What disposal does" below | 30 days after sign-up |
@@ -147,7 +147,7 @@ What the billing step does not know yet, so check by hand before disposing: noth
 
 **Santé settings.** Where `SANTE_SETTINGS_ENABLED` is on (ClickUp z8uq9m92ez, port slice 1):
 
-- An account that owns the Santé catalog owner site is **not** disposed of. This is checked before the subscriptions, so nothing is cancelled and nothing is blanked. The command names the site (`catalog_owner`) and exits with an error; the dry run prints "A real run would be refused for now". An operator first names another catalog owner site, or clears it, on the HQ Settings page (coming in the next frontend PR; until then the admin list "Santé catalog owner" still works); then run the command again.
+- An account that owns the Santé catalog owner site is **not** disposed of. This is checked before the subscriptions, so nothing is cancelled and nothing is blanked. The command names the site (`catalog_owner`) and exits with an error; the dry run prints "A real run would be refused for now". An operator first names another catalog owner site, or clears it, on the HQ Settings page; then run the command again.
 - Otherwise the sponsor ID of each of the account's sites is blanked and the row is kept. The counts gain `sante_site_settings`, and the audit entry names the field, never the value.
 - The export gains `sante_site_settings`: per Santé site its public id, the sponsor ID, when it was last changed and whether it is the catalog owner.
 

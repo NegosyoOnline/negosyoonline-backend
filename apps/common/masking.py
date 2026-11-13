@@ -1,4 +1,4 @@
-"""Masked forms of contact details, for screens that list people (the Django admin lists)."""
+"""Masked forms of contact details, for screens that list people."""
 
 HIDDEN = "***"
 

@@ -1,6 +1,6 @@
 # Admin Two-Step Sign-In Runbook
 
-hq is the only admin door. Signing in to hq takes two steps: a code emailed to the admin address, then an authenticator code or one recovery code. The admin lists (the Django admin) are served only on the hq host, at `/admin/`, and open only for an hq session that passed both steps. There is no username-and-password sign-in, and no other host serves `/admin/`.
+hq is the only admin door. Signing in to hq takes two steps: a code emailed to the admin address, then an authenticator code or one recovery code. The Django admin is switched off: `/admin/` answers 404 on every host. There is no username-and-password sign-in.
 
 An admin identity holds the second step: an authenticator secret and ten recovery codes. Identities are managed only with `manage.py admin_identity`, from a terminal. No browser page can add, enrol, reset or disable one.
 
@@ -11,7 +11,7 @@ Every step below that touches staging or production needs Coach Ed's approval fo
 | Name | Meaning |
 |---|---|
 | `ADMIN_SECRETS_KEY` | Fernet key that encrypts authenticator secrets. Empty: nobody can be enrolled and no second step can succeed. Changing it makes every stored secret unreadable, so every identity must be reset and enrolled again. |
-| `HQ_HOST` | The one host that serves hq and the admin lists. Empty: hq is off and the lists are served nowhere. |
+| `HQ_HOST` | The one host that serves hq. Empty: hq is off. |
 | `HQ_STAFF_ORIGIN` | The one browser origin that may call the staff routes on the hq host (`/staff/v1/`): the staff app's address, written as `https://` and a host name with nothing after it. Empty: the routes do not exist and hq answers as it did before them. It must be a name directly beside `HQ_HOST` under the same parent, and must not be the dashboard, the public site, an API origin or a preview address. |
 
 `ADMIN_TWO_STEP_REQUIRED` is no longer read by the code. See "Release order" for when it may be deleted.
@@ -27,9 +27,9 @@ uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_
 For a new environment:
 
 1. Deploy and migrate.
-2. Set `ADMIN_SECRETS_KEY`. Add and enrol every staff user who needs the admin lists (below). `admin_identity list` names the staff users who are not covered yet.
+2. Set `ADMIN_SECRETS_KEY`. Add and enrol every staff user who needs hq (below). `admin_identity list` names the staff users who are not covered yet.
 3. Set `HQ_HOST`.
-4. Check: hq signs in with both steps, "Open admin lists" opens the lists, and `/admin/` on the API host answers 404.
+4. Check: hq signs in with both steps, and `/admin/` answers 404 on every host.
 
 For an environment that ran the earlier build, where the Django admin had its own sign-in behind `ADMIN_TWO_STEP_REQUIRED=1`:
 
@@ -53,6 +53,8 @@ The audit record does not say which way a sign-in came in. A sign-in through the
 
 ## Commands
 
+A staff user is made with `manage.py createsuperuser`, then `admin_identity add` and `admin_identity enrol`. To lock a staff user out, run `admin_identity disable`: hq will not sign in without an enrolled, active identity.
+
 `--actor` is the username of the active staff user running the command. It is written to the audit record. `--user` is the active staff user the identity belongs to. A user has one active identity.
 
 ```bash
@@ -67,7 +69,7 @@ uv run python manage.py admin_identity list
 - In the authenticator app choose "enter a setup key", type the key, and keep the defaults (time-based, 6 digits).
 - `reset` removes the secret and the recovery codes and ends that admin's sessions. Run `enrol` again afterwards.
 - `disable` ends that admin's sessions and keeps the row. The same address cannot be added again.
-- `list` changes nothing and writes no audit record. It names the staff users with no enrolled identity: they cannot open the admin lists.
+- `list` changes nothing and writes no audit record. It names the staff users with no enrolled identity: they cannot sign in to hq.
 
 Every action except `list` writes an `OperatorAuditEntry` and one error-level log line starting `admin-identity-change:`.
 
@@ -102,9 +104,9 @@ There is no password to fall back on. The ways in are:
 
 - `admin-secrets-key-empty:` the key is empty, invalid, or not the key the secrets were stored with. Logged at most once an hour. No second step can succeed until it is fixed.
 - `admin-identity-change:` an identity was added, enrolled, reset or disabled.
-- `hq-host-refused:` `HQ_HOST` is malformed or clashes with another host. hq and the admin lists stay off until it is fixed.
+- `hq-host-refused:` `HQ_HOST` is malformed or clashes with another host. hq stays off until it is fixed.
 - `hq-staff-origin-refused:` `HQ_STAFF_ORIGIN` is malformed, clashes with another address, or is not beside `HQ_HOST`. The staff routes stay off until it is fixed; the hq pages are not affected.
 
-Five wrong codes pause that admin's sign-in for 15 minutes, end their live sessions (the admin lists close with them) and send them an email. The pause ends by itself; `reset` also clears it.
+Five wrong codes pause that admin's sign-in for 15 minutes, end their live sessions and send them an email. The pause ends by itself; `reset` also clears it.
 
-Sign-ins, wrong codes, pauses and sign-outs are written to `OperatorAuditEntry`. "Sign out" on an admin list is the hq sign-out and is recorded the same way.
+Sign-ins, wrong codes, pauses and sign-outs are written to `OperatorAuditEntry`. "Sign out" on the hq pages is the hq sign-out and is recorded the same way.

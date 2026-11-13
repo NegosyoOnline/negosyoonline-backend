@@ -117,7 +117,7 @@ The phone is refused from its next call. There is no command to enable it again:
 
 ## Stopping all sending
 
-On the HQ Settings page, SMS settings: tick "Sending stopped", save. The page is coming in the next frontend PR; until then the admin list "SMS settings" on hq still works the same way. It takes effect on the next request and needs no deploy. While it is on:
+On the HQ Settings page, SMS settings: tick "Sending stopped", save. It takes effect on the next request and needs no deploy. While it is on:
 
 - nothing new is queued: a code request answers "Please try again shortly.", and a text that has an email fallback is emailed instead;
 - the phone is handed nothing and is told to ask every 30 seconds instead of every 5;

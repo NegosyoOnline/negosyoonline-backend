@@ -85,8 +85,8 @@ SITE_URL = os.environ.get("SITE_URL", "http://localhost:3000").rstrip("/")
 # Admin two-step sign-in. The key encrypts authenticator secrets; with no key nobody can be
 # enrolled.
 ADMIN_SECRETS_KEY = os.environ.get("ADMIN_SECRETS_KEY", "").strip()
-# The one host that serves hq, the admin's console, and the admin lists behind its sign-in.
-# Empty means hq is off and the lists are served nowhere.
+# The one host that serves hq, the admin's console.
+# Empty means hq is off.
 HQ_HOST = os.environ.get("HQ_HOST", "").strip().lower()
 if HQ_HOST and HQ_HOST not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(HQ_HOST)
@@ -147,10 +147,10 @@ BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").stri
 # The one address told when a bank transfer proof waits for review (a shared mailbox). Empty
 # sends no alert.
 BILLING_STAFF_ALERT_EMAIL = os.environ.get("BILLING_STAFF_ALERT_EMAIL", "").strip()
-# Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints and admin
-# lists. Off, the endpoints answer 404 and the Santé tables are not read or written.
+# Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints.
+# Off, the endpoints answer 404 and the Santé tables are not read or written.
 SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() == "1"
-# The shared Santé catalog. "1" turns on its endpoints and admin lists, and only while
+# The shared Santé catalog. "1" turns on its endpoints, and only while
 # SANTE_SETTINGS_ENABLED is on too: the catalog reads the catalog owner row. Off, the
 # endpoints answer 404 and the catalog tables are not read or written.
 SANTE_CATALOG_ENABLED = os.environ.get("SANTE_CATALOG_ENABLED", "").strip() == "1"
@@ -159,7 +159,7 @@ SANTE_CATALOG_ENABLED = os.environ.get("SANTE_CATALOG_ENABLED", "").strip() == "
 # publish command refuses; the tables are not read or written.
 SANTE_AGREEMENT_ENABLED = os.environ.get("SANTE_AGREEMENT_ENABLED", "").strip() == "1"
 # A site's payment methods (its bank and e-wallet accounts for direct transfer). "1" turns
-# on their endpoints and admin lists. Off, the endpoints answer 404 and the payment tables
+# on their endpoints. Off, the endpoints answer 404 and the payment tables
 # are not read or written.
 PAYMENT_METHODS_ENABLED = os.environ.get("PAYMENT_METHODS_ENABLED", "").strip() == "1"
 # Private files (apps/common/private_files.py): a payment QR code today. The read-write token
@@ -221,8 +221,7 @@ LEDGER_LIVE_BOOKS = os.environ.get("LEDGER_LIVE_BOOKS", "").strip() == "1"
 # Application definition
 
 INSTALLED_APPS = [
-    'apps.operators',  # before the admin, so its admin/base_site.html is the one used
-    'apps.operators.admin_config.HqAdminConfig',  # django.contrib.admin, opened only by hq
+    'apps.operators',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',

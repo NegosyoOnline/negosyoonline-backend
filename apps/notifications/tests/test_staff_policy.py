@@ -1,6 +1,6 @@
 """The SMS settings routes under /staff/v1/sms/policy/: reached through the staff routes'
 own origin and session checks, closed while SMS_GATEWAY_ENABLED is off, and always written
-through services.change_policy, which the admin list shares for its audit."""
+through services.change_policy, which writes the audit entry."""
 from unittest import mock
 
 from django.test import override_settings
