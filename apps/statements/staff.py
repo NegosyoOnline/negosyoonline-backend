@@ -14,6 +14,7 @@ from apps.common.pagination import page
 from apps.invoices.models import InvoiceBook
 from apps.operators import audit
 from apps.statements import adjust as adjustments, documents, services, switch
+from apps.statements.managers import acting_operator
 from apps.statements.models import Statement
 from apps.statements.services import ISSUER_FIELDS, ISSUER_OPTIONAL
 
@@ -39,7 +40,8 @@ def _route(view, enabled):
         try:
             if not enabled():
                 raise ApiError("not_found", "Not found.", status=404)
-            return view(_body(request), operator)
+            with acting_operator(operator):
+                return view(_body(request), operator)
         except ApiError as refusal:
             return JsonResponse(
                 error_body(refusal.code, refusal.message, refusal.fields), status=refusal.status

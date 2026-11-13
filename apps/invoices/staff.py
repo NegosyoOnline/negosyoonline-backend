@@ -16,6 +16,7 @@ from django.utils import timezone
 from apps.common.errors import ApiError, error_body
 from apps.invoices import scans, services
 from apps.statements import switch
+from apps.statements.managers import acting_operator
 
 MAX_BODY = 4096
 FORM_SLACK = 64 * 1024  # the form's own fields and boundaries, beyond the file
@@ -40,7 +41,8 @@ def _route(view):
         try:
             if not switch.register_enabled():
                 raise ApiError("not_found", "Not found.", status=404)
-            return view(_body(request), operator)
+            with acting_operator(operator):
+                return view(_body(request), operator)
         except ApiError as refusal:
             return JsonResponse(
                 error_body(refusal.code, refusal.message, refusal.fields), status=refusal.status
@@ -54,7 +56,8 @@ def _form_route(view):
         try:
             if not switch.register_enabled():
                 raise ApiError("not_found", "Not found.", status=404)
-            return view(request, operator)
+            with acting_operator(operator):
+                return view(request, operator)
         except ApiError as refusal:
             return JsonResponse(
                 error_body(refusal.code, refusal.message, refusal.fields), status=refusal.status

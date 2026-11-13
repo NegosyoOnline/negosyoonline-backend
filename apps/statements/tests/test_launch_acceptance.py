@@ -613,16 +613,14 @@ class StatementJourneyTests(Fixture, TestCase):
                         cursor.execute(sql, params)
         self.assertEqual(Statement.objects.get(pk=statement.pk).total_centavos, plan.PRICE_CENTAVOS)
 
-    # Expected to fail until subtask z8uq9mevfx: a refused edit writes no audit row on main (finding
-    # F3 in the plan). When that subtask ships, the runner reports an unexpected success and this
-    # decorator is removed. No application code is added for it here.
-    @unittest.expectedFailure
-    def test_a_refused_edit_leaves_audit_evidence_pending_z8uq9mevfx(self):
+    def test_a_refused_edit_leaves_audit_evidence(self):
         before = OperatorAuditEntry.objects.count()
         with self.assertRaises(Immutable):
             self.statement.total_centavos = 1
             self.statement.save()
-        self.assertGreater(OperatorAuditEntry.objects.count(), before)
+        self.assertEqual(OperatorAuditEntry.objects.count(), before + 1)
+        entry = OperatorAuditEntry.objects.get(action="billing_record_edit_refused")
+        self.assertEqual(entry.target_id, self.statement.public_id)
 
     def test_the_handwritten_invoice_scan_is_evidence_and_leaves_the_statement_untouched(self):
         frozen = snapshot_of(self.statement)
