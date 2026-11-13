@@ -29,6 +29,10 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | HSTS max-age only (z8uq9mekbe) | FE #51 | Pass | GATES |
 | Staging runs the merged build | Staging check 2026-11-13: `/healthz/` 200 on commit `dc17431a27ad` (re-read read-only while drafting, same result) | Pass | GATES |
 | `manage.py check --deploy` | BE #148 description: 2 warnings only, HSTS preload and includeSubDomains, deferred on purpose | Pass | GATES |
+| Email failures reach a person | `/readyz/` field `email` goes false when 3 of the newest emails in 30 minutes failed and none sent, so the uptime check alerts. Built in z8uq9mewgn; staging check after merge | Pending | GATES |
+| Storage usage and backup success | Weekly check by the Manager (`docs/runbooks/backups-and-restore.md`, Weekly check): newest backup within the schedule, Postgres volume under 80%. Pending until the first reading is recorded | Pending | GATES |
+| Checkout and background-job errors | Sentry error monitoring (Gate 5, Sentry row). Pending on `SENTRY_DSN` | Pending | GATES |
+| Webhooks | None at launch: Xendit deferred, PayMongo pending | Not applicable at launch | GATES |
 
 ## Gate 2: Membership Package flow
 

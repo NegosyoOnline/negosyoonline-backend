@@ -120,7 +120,7 @@ SmsMessage.objects.filter(status__in=("queued", "dispatched")).values("public_id
 
 ## 4. Readiness and the heartbeat
 
-`GET /readyz/` (`apps/health/views.py`), unauthenticated, beside `/healthz/`, which is unchanged (liveness only). It answers 200 or 503 with booleans only, for example `{"ok": true, "db": true, "cache": true, "beat": true, "sms_queue": true}`: no versions, counts, hosts or errors.
+`GET /readyz/` (`apps/health/views.py`), unauthenticated, beside `/healthz/`, which is unchanged (liveness only). It answers 200 or 503 with booleans only, for example `{"ok": true, "db": true, "cache": true, "beat": true, "sms_queue": true, "email": true}`: no versions, counts, hosts or errors.
 
 | Field | True when |
 |---|---|
@@ -128,6 +128,7 @@ SmsMessage.objects.filter(status__in=("queued", "dispatched")).values("public_id
 | `cache` | one Redis set and get succeeds within 2 seconds. |
 | `beat` | the heartbeat is under 3 minutes old. The Celery task `health.heartbeat` (`apps/health/tasks.py`) runs every 60 seconds from the `health-heartbeat` beat entry and writes the time to the cache, so a fresh value proves beat, the broker and the worker. With no `REDIS_URL` (tasks run in-process) this is always true. |
 | `sms_queue` | no SMS row has been `queued` for more than 15 minutes. Counted only while `SMS_GATEWAY_ENABLED` is on; otherwise true. |
+| `email` | not (at least `READYZ_EMAIL_FAILURES` of the newest emails sent in the last `READYZ_EMAIL_WINDOW_MINUTES` failed and none sent). Defaults 3 failures and 30 minutes, both environment variables read in `config/settings.py`; change them in Railway without a code change. It reads the newest 20 `EmailMessage` rows by primary key (one query), ignores `pending`, and is true when there are no recent rows. The body says only `true` or `false`, never an address. |
 
 It is limited to 30 calls a minute per client address (answers 429 `{"ok": false}`), using the last `X-Forwarded-For` entry. No migration, no variable, no new service.
 
@@ -164,6 +165,10 @@ Before SENTRY_DSN is set anywhere, staging included: Sentry is a new sub-process
 ### Silencing during a planned restore or maintenance
 
 Pause the uptime monitors (or put them in the service's maintenance window) before step 2 of section 2, and resume them at the end. The Sentry alert needs no silencing. Never delete a monitor to silence it.
+
+### Weekly check
+
+Once a week the Manager checks, read-only, in the Railway dashboard: the Postgres Backups tab shows a backup no older than the schedule (24 hours for a daily schedule), and Postgres volume usage (the service Metrics or Volume view) is below 80%. Record the date and both readings (backup age, usage percent) in the ClickUp rulings or gates record. At 80% or more, or a late backup, raise it with Coach Ed.
 
 ## 6. Restore test (staging only, run 2026-11-13)
 
