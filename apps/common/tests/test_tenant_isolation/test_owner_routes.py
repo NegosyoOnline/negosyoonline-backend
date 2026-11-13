@@ -12,10 +12,10 @@ from apps.common.tests.test_tenant_isolation.owner_base import (
 )
 
 NOT_FOUND = {"error": {"code": "not_found", "message": "Not found."}}
-# What the guard expects from the URLconf today (7 + 9 + 2 + 6 + 5 + 5 + 4 = 38).
+# What the guard expects from the URLconf today (7 + 9 + 2 + 6 + 5 + 5 + 7 + 4 = 45).
 EXPECTED_COUNTS = {
     "sites": 7, "billing": 9, "sante": 2, "catalog": 6, "payments": 5, "pack_owner": 5,
-    "meta_ads": 4,
+    "shop_owner": 7, "meta_ads": 4,
 }
 
 
@@ -38,7 +38,7 @@ class RegistryGuardTests(TwoOwnersTestCase):
         for _, template in routes:
             counts[app_of(template)] = counts.get(app_of(template), 0) + 1
         self.assertEqual(counts, EXPECTED_COUNTS)
-        self.assertEqual(len(OWNER_ROUTES), 38)
+        self.assertEqual(len(OWNER_ROUTES), 45)
 
 
 class ForeignSiteTests(TwoOwnersTestCase):
@@ -46,8 +46,8 @@ class ForeignSiteTests(TwoOwnersTestCase):
         before = self.state()
         for method, template in OWNER_ROUTES:
             with self.subTest(method=method, template=template):
-                foreign = self.call(method, template, self.ben_site_id, self.ben_ids)
-                missing = self.call(method, template, MISSING_SITE, self.ben_ids)
+                foreign = self.call(method, template, self.ben_site_id, self.foreign_ids(template))
+                missing = self.call(method, template, MISSING_SITE, self.foreign_ids(template))
                 self.assertEqual(foreign.status_code, 404, foreign.content)
                 self.assertEqual(foreign.json(), NOT_FOUND)
                 self.assertEqual(
@@ -83,15 +83,21 @@ class ForeignChildTests(TwoOwnersTestCase):
             ("GET", "/sites/{site_id}/billing/payments/{payment_id}/proof/"),
             ("GET", "/sites/{site_id}/pack/orders/{order_id}/"),
             ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"),
+            ("GET", "/sites/{site_id}/shop/orders/{order_id}/"),
+            ("GET", "/sites/{site_id}/shop/orders/{order_id}/proofs/{proof_id}/"),
             ("POST", "/sites/{site_id}/pack/orders/{order_id}/approve/"),
             ("POST", "/sites/{site_id}/pack/orders/{order_id}/reject/"),
             ("POST", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
+            ("POST", "/sites/{site_id}/shop/orders/{order_id}/cancel/"),
+            ("POST", "/sites/{site_id}/shop/orders/{order_id}/confirm-receipt/"),
+            ("POST", "/sites/{site_id}/shop/orders/{order_id}/deliver/"),
+            ("POST", "/sites/{site_id}/shop/orders/{order_id}/ship/"),
         ])
 
     def test_a_foreign_child_under_my_own_site_is_the_same_404_as_a_missing_child(self):
         for method, template in self.child_routes():
             own = self.own_ids(template)
-            for variant in child_variants(template, own, self.ben_ids):
+            for variant in child_variants(template, own, self.foreign_ids(template)):
                 with self.subTest(method=method, template=template, ids=variant):
                     before = self.state()
                     response = self.call(method, template, self.site_id, variant)
@@ -102,7 +108,7 @@ class ForeignChildTests(TwoOwnersTestCase):
     def test_the_answer_is_the_same_bytes_as_for_an_id_that_does_not_exist(self):
         for method, template in self.child_routes():
             own = self.own_ids(template)
-            for variant in child_variants(template, own, self.ben_ids):
+            for variant in child_variants(template, own, self.foreign_ids(template)):
                 swapped = {
                     name: (MISSING_CHILD[name] if variant[name] != own[name] else variant[name])
                     for name in variant
@@ -125,13 +131,14 @@ class OwnerControlTests(TwoOwnersTestCase):
 
     def test_ben_reaches_his_own_routes_too_and_never_anas_data_in_them(self):
         ana_ids = self.make_children(self.site)
+        ana_shop = self.make_children(self.site, shop=True)
         self.call("POST", "/sites/{site_id}/business-profile/seal/", self.ben_site_id, self.ben_ids,
                   client=self.ben)  # so Ben's seal read has a badge to answer
         for method, template in OWNER_ROUTES:
             if method != "GET" or app_of(template) == "catalog":  # Ben's site is not the catalog owner
                 continue
             with self.subTest(method=method, template=template):
-                response = self.call(method, template, self.ben_site_id, self.ben_ids, client=self.ben)
+                response = self.call(method, template, self.ben_site_id, self.foreign_ids(template), client=self.ben)
                 self.assertEqual(response.status_code, 200, response.content)
-                for value in (self.site_id, ana_ids["order_id"], ana_ids["account_id"]):
+                for value in (self.site_id, ana_ids["order_id"], ana_ids["account_id"], ana_shop["order_id"]):
                     self.assertNotIn(value.encode(), response.content)

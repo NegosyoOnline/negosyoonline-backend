@@ -18,6 +18,8 @@ from apps.catalog.tests.base import FakeMedia, designate, image_file, make_produ
 from apps.meta_ads.tests.base import CODE, KEY, PIXEL, TOKEN, FakeMeta, configure
 from apps.pack.tests.owner_base import make_order
 from apps.payments.models import SitePaymentAccount
+from apps.shop import constants as SHOP
+from apps.shop.tests.owner_base import make_order as make_shop_order
 from apps.payments.tests.base import BANK, make_payment_account, qr_file, stored_files, use_local_private_store
 from apps.sites.models import Site
 from apps.sites.tests.api_base import SitesApiTestCase
@@ -77,6 +79,14 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"): 200,
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/approve/"): 200,
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/reject/"): 200,
+    # shop owner (the Subscriber's product orders; each call gets a fresh order in the state it needs)
+    ("GET", "/sites/{site_id}/shop/orders/"): 200,
+    ("GET", "/sites/{site_id}/shop/orders/{order_id}/"): 200,
+    ("GET", "/sites/{site_id}/shop/orders/{order_id}/proofs/{proof_id}/"): 200,
+    ("POST", "/sites/{site_id}/shop/orders/{order_id}/confirm-receipt/"): 200,
+    ("POST", "/sites/{site_id}/shop/orders/{order_id}/cancel/"): 200,
+    ("POST", "/sites/{site_id}/shop/orders/{order_id}/ship/"): 200,
+    ("POST", "/sites/{site_id}/shop/orders/{order_id}/deliver/"): 200,
     # meta_ads
     ("GET", "/sites/{site_id}/meta/"): 200,
     ("PUT", "/sites/{site_id}/meta/"): 200,
@@ -89,6 +99,7 @@ APP_PREFIXES = [
     ("/sites/{site_id}/billing/", "billing"), ("/sites/{site_id}/sante/", "sante"),
     ("/sites/{site_id}/catalog/", "catalog"), ("/sites/{site_id}/payment-methods/", "payments"),
     ("/sites/{site_id}/pack/", "pack_owner"), ("/sites/{site_id}/meta/", "meta_ads"),
+    ("/sites/{site_id}/shop/", "shop_owner"),
 ]
 
 
@@ -132,7 +143,7 @@ def child_variants(template, own, foreign):
 @override_settings(
     BILLING_ENABLED=True, SANTE_SETTINGS_ENABLED=True, SANTE_CATALOG_ENABLED=True,
     PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True, META_EVENTS_ENABLED=True,
-    BILLING_USAGE_ENABLED=True,
+    BILLING_USAGE_ENABLED=True, SHOP_ENABLED=True,
     META_CREDENTIALS_KEY=KEY,
 )
 class TwoOwnersTestCase(SitesApiTestCase):
@@ -161,13 +172,19 @@ class TwoOwnersTestCase(SitesApiTestCase):
         self.product = make_product()
         self.creates = 0
         self.ben_ids = self.make_children(self.ben_site, payment=True)
+        self.ben_shop_ids = self.make_children(self.ben_site, shop=True)
         configure(self.ben_site)
         mail.outbox.clear()
         self.meta.requests.clear()
 
     # children ---------------------------------------------------------------
-    def make_children(self, site, payment=False):
-        order, proof = make_order(site)
+    def make_children(self, site, payment=False, shop=False, shop_status=SHOP.PENDING_REVIEW,
+                      shop_shipped=False):
+        """A shop order has its own ids: with shop=True order_id and proof_id name it, not the pack's."""
+        if shop:
+            order, proof = make_shop_order(site, status=shop_status, shipped=shop_shipped)
+        else:
+            order, proof = make_order(site)
         ids = {
             **MISSING_CHILD,
             "order_id": order.public_id,
@@ -185,7 +202,13 @@ class TwoOwnersTestCase(SitesApiTestCase):
         """Children of Ana's site for the placeholders this route has. An order is made anew each
         time because approve and reject use it up; a payment is whatever Ana last sent."""
         ids = {**MISSING_CHILD, "product_id": self.product.public_id}
-        if "{order_id}" in template:
+        if "/shop/orders/{order_id}" in template:
+            ids.update(self.make_children(
+                self.site, shop=True,
+                shop_status=SHOP.VERIFIED if template.endswith(("/ship/", "/deliver/")) else SHOP.PENDING_REVIEW,
+                shop_shipped=template.endswith("/deliver/"),
+            ))
+        elif "{order_id}" in template:
             ids.update(self.make_children(self.site))
         elif "{account_id}" in template:
             ids["account_id"] = make_payment_account(self.site).public_id
@@ -196,6 +219,10 @@ class TwoOwnersTestCase(SitesApiTestCase):
             if payment:
                 ids["payment_id"] = payment.public_id
         return ids
+
+    def foreign_ids(self, template):
+        """Ben's children for the placeholders this route has (a shop route gets his shop order)."""
+        return self.ben_shop_ids if "/shop/" in template else self.ben_ids
 
     # calling a route --------------------------------------------------------
     def call(self, method, template, site_id, ids, client=None):
@@ -251,6 +278,13 @@ class TwoOwnersTestCase(SitesApiTestCase):
                     "earnings_rate": "0.3500"}
         if template.endswith("/payment-methods/"):
             return {"direct_enabled": True}
+        if "/shop/" in template:
+            body = {"state_version": 1}
+            if template.endswith("/cancel/"):
+                body["note"] = "Out of stock"
+            if template.endswith("/ship/"):
+                body["courier"] = "J&T"
+            return body
         if "/pack/" in template:
             body = {"state_version": 1}
             if template.endswith("/reject/"):
