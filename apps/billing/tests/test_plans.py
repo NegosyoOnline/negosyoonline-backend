@@ -40,9 +40,18 @@ class CatalogueTests(SimpleTestCase):
         self.assertEqual((plan.PLAN_NAME, plan.PRICE_CENTAVOS), ("NegosyoOnline Monthly", 249_900))
 
     @override_settings(BILLING_ANNUAL_ENABLED=True)
-    def test_annual_is_not_offered_in_this_build(self):
+    def test_annual_is_offered_after_monthly_only_where_a_payment_can_be_taken(self):
         subscription = mock.Mock(cycles=mock.Mock(filter=lambda **k: mock.Mock(exists=lambda: False)))
-        self.assertEqual([p.code for p in plan.offers(subscription, T0)], ["monthly"])
+        with mock.patch.object(plan, "collection_live", return_value=True):
+            self.assertEqual([p.code for p in plan.offers(subscription, T0)], ["monthly", "annual"])
+        with mock.patch.object(plan, "collection_live", return_value=False):
+            self.assertEqual([p.code for p in plan.offers(subscription, T0)], ["monthly"])
+
+    @override_settings(BILLING_ANNUAL_ENABLED=False)
+    def test_annual_is_not_offered_while_its_switch_is_off(self):
+        subscription = mock.Mock(cycles=mock.Mock(filter=lambda **k: mock.Mock(exists=lambda: False)))
+        with mock.patch.object(plan, "collection_live", return_value=True):
+            self.assertEqual([p.code for p in plan.offers(subscription, T0)], ["monthly"])
 
 
 @override_settings(BILLING_ENABLED=True)
