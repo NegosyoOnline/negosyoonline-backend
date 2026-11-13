@@ -99,7 +99,7 @@ def _subscription_for(request, site_id):
     site = site_for(request.account, site_id)
     subscription = services.subscription_of(site)
     if subscription is None:
-        raise ApiError("not_found", "Not found.", status=404)
+        raise ApiError("not_found", "Not found.", status=404, event="object_not_found", reason="missing")
     return site, subscription
 
 

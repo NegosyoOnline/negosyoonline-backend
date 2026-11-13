@@ -18,6 +18,7 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.urls import include, path, re_path
 
+from apps.health.views import readyz
 from apps.notifications import gateway
 from apps.storefront import api as storefront
 from config.api import api, api_not_found
@@ -29,6 +30,7 @@ def healthz(_request):
 urlpatterns = [
     # No admin here: the admin lists are served only on the hq host (apps/operators/hq_urls.py).
     path("healthz/", healthz, name="healthz"),
+    path("readyz/", readyz, name="readyz"),
     # The SMS phone's calls. Outside /v1/, so they are not in the published API.
     path("gateway/v1/poll", gateway.poll),
     path("gateway/v1/report", gateway.report),

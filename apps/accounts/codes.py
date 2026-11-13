@@ -53,15 +53,20 @@ def issue_code(email, ip, purpose="signin"):
     return code
 
 
-def check_code(email, code, purpose="signin"):
-    """True when the code is right. Does not consume it; call clear_code() once it is used."""
+def verify_code(email, code, purpose="signin"):
+    """"ok", "refused" (wrong, expired or unknown) or "locked" (too many guesses; the code is dead)."""
     stored = cache.get(_key("code", purpose, email))
     if stored is None:
-        return False
+        return "refused"
     if _count(_key("attempts", purpose, email), CODE_TTL) > MAX_ATTEMPTS:
         clear_code(email, purpose)
-        return False
-    return hmac.compare_digest(stored, _code_hash(code))
+        return "locked"
+    return "ok" if hmac.compare_digest(stored, _code_hash(code)) else "refused"
+
+
+def check_code(email, code, purpose="signin"):
+    """True when the code is right. Does not consume it; call clear_code() once it is used."""
+    return verify_code(email, code, purpose) == "ok"
 
 
 def clear_code(email, purpose="signin"):

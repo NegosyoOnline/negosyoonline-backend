@@ -68,6 +68,8 @@ jobs:
         if: steps.scope.outputs.full == 'true'
         env:
           DJANGO_DEBUG: "false"
+          # Placeholder: common.E001 only reads that it is set; the check never connects.
+          REDIS_URL: redis://127.0.0.1:6379/0
         run: uv run python manage.py check --deploy
 
   postgres-and-redis:

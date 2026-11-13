@@ -39,7 +39,7 @@ class ProductListPublic(Schema):
 def _site(host):
     site = storefront.served_sante_site(host) if services.enabled() else None
     if site is None:
-        raise ApiError("not_found", "Not found.", status=404)
+        raise ApiError("not_found", "Not found.", status=404, event="site_not_found", reason="missing")
     return site
 
 

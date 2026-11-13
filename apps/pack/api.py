@@ -41,7 +41,7 @@ router = Router()
 def _site(host):
     site = served_sante_site(host) if settings.PACK_ENABLED else None
     if site is None:
-        raise ApiError("not_found", "Not found.", status=404)
+        raise ApiError("not_found", "Not found.", status=404, event="site_not_found", reason="missing")
     return site
 
 
