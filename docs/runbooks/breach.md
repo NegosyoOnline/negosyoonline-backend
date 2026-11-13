@@ -43,7 +43,7 @@ Do the steps that fit. Changing Railway variables on staging or production needs
 | --- | --- | --- |
 | The SMS phone or its token may be exposed | Rotate the token. The old token fails at once. | `docs/runbooks/sms-gateway.md`, "Rotating a token" (`manage.py sms_device rotate`) |
 | The SMS phone is lost or stolen | Stop that phone. | `docs/runbooks/sms-gateway.md`, "Stopping one phone" (`sms_device disable`) |
-| Texts are going to the wrong people, or you cannot tell | Stop all sending. | `docs/runbooks/sms-gateway.md`, "Stopping all sending" ("Sending stopped" in HQ SMS settings) |
+| Texts are going to the wrong people, or you cannot tell | Stop all sending. | `docs/runbooks/sms-gateway.md`, "Stopping all sending" ("Sending stopped" on the SMS policy: today in the HQ admin list; on the HQ Settings page once it is live) |
 | Incoming texts or the SMS inbox are involved | Turn the incoming switches off; withdraw inbox access. | `docs/runbooks/sms-gateway.md`, "Incoming texts: the three switches" (`sms_device incoming off`, `sms_inbox_access revoke`) |
 | A staff identity may be misused | Disable it. This ends that person's sessions and keeps the row. Use `reset` to end sessions and clear a pause. | `docs/runbooks/admin-two-step.md` (`manage.py admin_identity disable`, `reset`) |
 | The staff app's calls are in doubt | Delete `HQ_STAFF_ORIGIN` and redeploy; the HQ pages keep working. | `docs/runbooks/admin-two-step.md`, "The staff routes" |
@@ -127,7 +127,7 @@ Where the data belongs to a Subscriber's customers, the Subscriber notifies them
 >
 > What we have done: [steps taken].
 >
-> What you can do: [for example change a password where one is used, watch for unexpected messages, or contact us]. You can write to dpo@negosyoonline.com or support@negosyoonline.com. You may also raise a concern with the National Privacy Commission (privacy.gov.ph).
+> What you can do: [for example watch for unexpected messages or sign-in codes you did not ask for, or contact us]. You can write to dpo@negosyoonline.com or support@negosyoonline.com. You may also raise a concern with the National Privacy Commission (privacy.gov.ph).
 >
 > NegosyoOnline IT Solutions
 
@@ -142,6 +142,6 @@ There is no breach register in the system. Not built. The DPO keeps one record p
 - Coach Ed's decisions;
 - what was changed afterwards so it does not happen again, as a ClickUp task.
 
-The actions taken through `admin_identity`, `sms_device` and the HQ SMS settings are already written to the operator audit log (`docs/runbooks/sms-gateway.md`, `docs/runbooks/admin-two-step.md`). Point to those entries in the record.
+The actions taken through `admin_identity`, `sms_device` and the SMS policy ("Sending stopped", today in the HQ admin list; on the HQ Settings page once it is live) are already written to the operator audit log (`docs/runbooks/sms-gateway.md`, `docs/runbooks/admin-two-step.md`). Point to those entries in the record.
 
 If the incident shows that the Privacy notice or the Terms say something that is not true, tell the DPO. Wording changes are the DPO's and Coach Ed's call.
