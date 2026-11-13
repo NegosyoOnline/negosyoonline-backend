@@ -80,7 +80,7 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Account disposal and deletion request steps | BE #52; `apps/accounts/tests/test_disposal.py`; `docs/runbooks/retention.md` | Pass | GATES |
 | Help Center, five articles (z8uq9mekvc) | FE #60; task ACCEPTED | Pass | GATES |
 | Help Center, second subtask (z8uq9memmp), including article 5 | FE #64 (merged 5144a12); task ACCEPTED; Coach Ed approved the article 5 staging visual test on 2026-11-13 | Pass | GATES |
-| Mobile and accessibility audit (z8uq9m7ydk), summary | ClickUp z8uq9m7ydk comments 1100430000510246 (pass 1, signed-out pages) and 1100430000510420 (pass 2, signed-in pages and keyboard), 2026-11-13. Two passes on local TEST builds, headless Chrome at 390 and 1400 px, manual (no axe or Lighthouse). No High findings. Rows below are the findings and the gaps; the audit passes when each is fixed or accepted by Coach Ed | Pending | HQ Supervisor |
+| Mobile and accessibility audit (z8uq9m7ydk), summary | ClickUp z8uq9m7ydk comments 1100430000510246 (pass 1, signed-out pages), 1100430000510420 (pass 2, signed-in pages and keyboard) and 1100430000510829 (pass 3, member signed-in pages and form error states), 2026-11-13. Three passes on local TEST builds and previews, headless Chrome at 390 and 1400 px, manual (no axe or Lighthouse). No High findings. Rows below are the findings and the gaps; the audit passes when each is fixed or accepted by Coach Ed | Pending | HQ Supervisor |
 | Audit: site eyebrow, compare and timeline gold text contrast (2.26 to 3.96, target 4.5), and the `#switch-mode` button 23 px high at 390. Medium | Proposal branch `fix/z8uq9m7ydk-site-contrast@cf028b4` awaits Coach Ed's OK | Pending | GATES |
 | Audit: dash Help Center h3 subheadings invisible in dark theme (contrast 1.05). Medium | Fixed on main by FE #64 (5144a12). Regression test on `fix/z8uq9memqv-dash-dark-h3-seal-label@4c82946`, queued for frontend round 2 | Pass | GATES |
 | Audit: dash Business Settings seal file input `#bs-seal-file` has no label. Low | Same branch `fix/z8uq9memqv-dash-dark-h3-seal-label@4c82946`, not merged | Pending | GATES |
@@ -91,7 +91,14 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Audit: storefront has no skip link and only the browser's default 1 px focus ring. Low | Pass 2 comment 1100430000510420; no fix yet | Open | SANTE |
 | Audit: HQ Finance "Replaced" tab sits off-screen at 390 with no scroll cue. Low | Pass 2 comment 1100430000510420; no fix yet | Open | HQ Supervisor |
 | Audit: public site home page overflowed sideways at 390 (comment 1100430000509383) | Pass 1 confirmed fixed: page is 390 wide, the comparison table scrolls in its own box | Pass | GATES |
-| Audit: not covered yet: member signed-in pages (My Orders, account) and form error states | Not covered by passes 1 and 2; SANTE is giving HQ a test member | Pending | HQ Supervisor |
+| Audit: Dashboard Membership Pack card says the order has not shipped while My Orders shows it Shipped and Delivered. Medium | Pass 3 comment 1100430000510829; no fix yet | Open | SANTE |
+| Audit: My Orders small text below 4.5:1 ("Placed" date 4.02, "Total" line 4.02, "Delivered" badge 4.36). Low | Pass 3 comment 1100430000510829; no fix yet | Open | SANTE |
+| Audit: sign-in contact-step error is linked to the field but not announced, and focus drops to the page body. Low | Pass 3 comment 1100430000510829; no fix yet | Open | SANTE |
+| Audit: change-email step 1 (confirm code) error not announced, focus drops to the body, empty submit gives no feedback; change mobile likely shares it. Low | Pass 3 comment 1100430000510829; no fix yet | Open | SANTE |
+| Audit: My Orders "View Details" toggle has aria-expanded but no aria-controls. Low | Pass 3 comment 1100430000510829; no fix yet | Open | SANTE |
+| Audit: My Orders 4-step tracker wraps 3 + 1 at 390 (cosmetic; only if the approved design shows one row). Low | Pass 3 comment 1100430000510829; no fix yet | Open | SANTE |
+| Audit: membership landing page weighs about 0.9 to 1.2 MB, mostly images. Low | Pass 1 comment 1100430000510246; no fix yet | Open | SANTE |
+| Audit: not audited: change-email steps 2 and 3, change-mobile beyond step 1, dash and HQ form error states | Pass 3 stopped when SANTE's preview restarted (comment 1100430000510829); pass 2 did not exercise error states | Pending | HQ Supervisor |
 
 ## Gate 6: Runbooks
 
@@ -115,7 +122,7 @@ This is the "runbooks for each" line of the working statement.
 - Uptime check account and its email alert not created (Coach Ed); this is also what turns the SMS offline log line into an alert.
 - Sentry account and `SENTRY_DSN` not created; waits 30 days after the Privacy line is live (Coach Ed).
 - Export dry run on a test account named as a test (Coach Ed's word).
-- Mobile and accessibility audit z8uq9m7ydk: findings above still Pending or Open (GATES, SANTE, HQ Supervisor); member signed-in pages and form error states not covered by passes 1 and 2.
+- Mobile and accessibility audit z8uq9m7ydk: findings above still Pending or Open (GATES, SANTE, HQ Supervisor); change-email steps 2 and 3, change-mobile beyond step 1 and dash and HQ form error states not audited.
 - Facebook replay window tests are on a ready branch and not yet merged (GATES).
 - Dated staging walkthroughs for gates 2 and 3 (Not run); ended-site 404 not checked on staging.
 - Production does not exist yet. Every staging item must be repeated for production once it does.
