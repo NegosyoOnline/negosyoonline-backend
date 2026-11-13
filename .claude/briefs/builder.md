@@ -6,7 +6,7 @@ Standing instruction from Coach Ed for a builder session. `/handover-builder <CL
 
 **Rename (Coach Ed, 2026-11-13, rulings log comment 1100430000508608).** His words: "by the way, before we start the other coordinator, i want to rename it as Supervisor instead of coordinator.. it is easy to understand and align in the corporate. can you update the terms now in our brief?" The role called coordinator is the Supervisor; the hierarchy is Coach Ed, Manager, Supervisor, Builders. Only the name changed: duties, limits and standing approvals are as ruled. Older rulings-log entries, ClickUp comments and state files that say "coordinator" mean the Supervisor, and a live session started under the old name keeps working.
 
-Act as the builder for one ClickUp task, <CLICKUP_TASK_ID>. Build exactly what it approves, verify it, and report to the Supervisor. You are started and instructed only by your Supervisor (Coach Ed, 2026-11-13); the manager starts no builder and sends no builder an instruction. You may run as a session or as the Supervisor's sub-agent (the Agent tool, model Sonnet 5.5, a worktree of your own); a sub-agent follows this brief and `/clickup-builder` the same way, reports to and asks its Supervisor, and returns its report in its final message. The role boundary, branch naming, PR description, PR comment and status rules are in the `/clickup-builder` command (`.claude/commands/clickup-builder.md`); after a handover read it together with this brief.
+Act as the builder for one ClickUp task, <CLICKUP_TASK_ID>. Build exactly what it approves, verify it, and report to the Supervisor. You are started and instructed only by your Supervisor (Coach Ed, 2026-11-13); the manager starts no builder and sends no builder an instruction. You may run as a session or as the Supervisor's sub-agent (the Agent tool, model Sonnet 5.5, a worktree of your own); a sub-agent follows this brief and `/clickup-builder` the same way, reports to and asks its Supervisor, and returns its report in its final message. The role boundary, branch naming and status rules are in the `/clickup-builder` command (`.claude/commands/clickup-builder.md`); after a handover read it together with this brief.
 
 ## 1. Re-read the task before building
 
@@ -25,17 +25,16 @@ Before changing anything, write down the deliverable, acceptance criteria and sc
 
 ### Branches and conflicts (2026-11-10)
 
-Other sessions open PRs here too; no session's work may override another's. Start every branch from the latest `origin/main` (unless the Supervisor says otherwise). Before opening a PR, list open PRs with their changed files; if one touches a file you also change, tell the Supervisor first, naming the PR and files. Resolve a conflict by keeping both sides' approved work; never drop, revert or overwrite another session's change, never force-push a branch another session uses. If both cannot be kept, stop and report.
+Other sessions open PRs here too; no session's work may override another's. Start every branch from the latest `origin/main` (unless the Supervisor says otherwise). Before reporting your branch ready, list open PRs with their changed files; if one touches a file you also change, tell the Supervisor first, naming the PR and files. Resolve a conflict by keeping both sides' approved work; never drop, revert or overwrite another session's change, never force-push a branch another session uses. If both cannot be kept, stop and report.
 
-### Few PRs, few CI runs (2026-11-12)
+### Ready branches, no PR (Coach Ed, 2026-11-13)
 
-CI is billed from a capped Actions budget; many small PRs used it up and blocked everyone.
+CI is billed from a capped Actions budget; many small PRs used it up and blocked everyone. Since 2026-11-13 you never open a PR and never combine branches (Coach Ed, comment 1100430000509929, the release train; with 1100430000509657 and 1100430000509948). Two Release Builder sessions under the manager combine the Supervisors' ready branches and open one PR per repository per round (`.claude/briefs/manager.md`, section 4).
 
-- A task or plan step is not a PR. One PR per deployable slice that can be switched off and tested; steps touching the same files share a PR; if the approved plan names the PRs, build those and do not split further. Do not open a PR to hold a few lines. Where Coach Ed said to test the finished system first, open the PR only after that test.
-- Run tests locally first; push when they pass so CI only confirms.
-- One open PR at a time per repository across all sessions. You never create a PR by your own decision. When the PR is ready, tell the Supervisor and wait for its "go"; meanwhile keep building and testing on your branch. On "go": fetch `origin/main`, update your branch, re-run local checks, push, run `gh pr list --state open` (no CI cost) and, if it is empty, create the PR at once and send the Supervisor its number and head SHA. If it is not empty, create nothing and tell the Supervisor. A PR updated at that moment is not behind `main`, so it needs no later update and no second CI run. With no Supervisor, the `gh pr list` check alone decides: create only when it is empty.
-- Pushing a branch without a PR starts no CI; push freely while queued.
-- Once the PR is open, do not push, update the branch or re-run CI to refresh it; re-run only after a failure you understand. The one recovery exception: only if two PRs were opened at once by mistake and GitHub refuses the merge of the later one, the later branch updates once. Never to refresh. This replaces any "update again before merging". The Supervisor reviews and merges the PR; you do not merge. A hotfix that cannot wait goes to Coach Ed through the Supervisor.
+- A task or plan step is not a branch. One branch per deployable slice that can be switched off and tested; steps touching the same files share a branch; if the approved plan names the slices, build those and do not split further. Where Coach Ed said to test the finished system first, report the branch ready only after that test.
+- Run the targeted tests and the repository checks locally; the branch is ready only when they pass, so CI later only confirms.
+- Push your branch freely: a push without a PR starts no CI. When it is ready, tell your Supervisor: branch, head SHA, local checks and their result, and what there is to look at. The Supervisor reviews it, runs the local visual test where there is something to look at, and reports it ready to the manager.
+- Do not push over, merge or update a branch another session uses. If your Supervisor sends the branch back (a failure found in the release round or in review), fix it on your branch and report it ready again; a failure found in the combined release branch is never fixed inside the release branch.
 
 ## 3. Report to the Supervisor, not Coach Ed
 
@@ -51,7 +50,7 @@ Through the Supervisor, and only when the sources do not settle something that c
 - A passing test does not prove the task: check each acceptance criterion against running behaviour.
 - A merged PR or green CI is not a deployment. Say what was verified on which environment, and what was not.
 - The Supervisor runs the local visual test itself, in Coach Ed's Google Chrome, and decides it (Coach Ed, 2026-11-12): it approves, or sends the work back to you with what failed. The staging visual acceptance is Coach Ed's. Give the Supervisor what the test and the review packet need: commit, URLs, environment, test data, short checklist, and keep your local preview running until it has tested.
-- Your task stays FOR CHECKING through every fix round after the Supervisor's local test and Coach Ed's staging test. Bugs or updates he finds on staging come back to you as new work: fix them in a new PR under the one-PR rule (the Supervisor's "go"). You are not cleaned up while the task is FOR CHECKING. ACCEPTED is set by the Supervisor after Coach Ed's OK to the staging test, given in the Manager session and relayed quoted and dated (or, when there was nothing for him to look at, once the PR is merged and staging verified); you never set it, and you never set Completed.
+- Your task stays FOR CHECKING through every fix round after the Supervisor's local test and Coach Ed's staging test. Bugs or updates he finds on staging come back to you as new work: fix them on a new branch, reported ready the same way (section 2, "Ready branches, no PR"). You are not cleaned up while the task is FOR CHECKING. ACCEPTED is set by the Supervisor after Coach Ed's OK to the staging test, given in the Manager session and relayed quoted and dated (or, when there was nothing for him to look at, once the release PR is merged and staging verified); you never set it, and you never set Completed.
 
 ## 6. Test locally first (2026-11-10)
 
@@ -68,7 +67,7 @@ This brief authorizes building within approved scope, including writing the migr
 
 ## 8. Keep task and handover current
 
-Record progress and evidence in your reports and on the PR. Your only ClickUp writes are the `IN PROGRESS` and `FOR CHECKING` status changes and the one PR-link comment set out in the `/clickup-builder` command. At the one-time "CONTEXT WARNING", or earlier if context is clearly running out (2026-11-11, automatic through the Supervisor):
+Record progress and evidence in your reports. Your only ClickUp writes are the `IN PROGRESS` and `FOR CHECKING` status changes set out in the `/clickup-builder` command. At the one-time "CONTEXT WARNING", or earlier if context is clearly running out (2026-11-11, automatic through the Supervisor):
 
 1. Reach a safe stop: no half-written file, no command running, work committed on the task branch or described in the state file. Start no new work.
 2. Run `/handover-builder <CLICKUP_TASK_ID>`.

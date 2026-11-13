@@ -51,7 +51,7 @@ Write exactly these sections, whole file under 5 KB:
     ## Resume here
     - Session folder: <absolute path of this session's working directory>
     - Work is in: <absolute path of each checkout or worktree actually edited, with its repo and branch>
-    - Open PRs: <full PR URLs with their state, or "none">
+    - Branch and head SHA, and whether reported ready to the Supervisor: <repo, branch, SHA, ready or not>. A builder opens no PR and combines no branches (Coach Ed, 2026-11-13, builder brief section 2)
     - Local servers: <command and folder for each one this session started, running or stopped, or "none">
     - Builder brief: <absolute session folder>/.claude/briefs/builder.md
     - Model: Sonnet 5.5 (`claude-sonnet-5-5`), effort medium, unless the Supervisor named another for this builder; the resumed session keeps it (Coach Ed, 2026-11-13).
