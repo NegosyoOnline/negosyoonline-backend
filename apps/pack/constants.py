@@ -29,7 +29,35 @@ MSG_CHOOSE_REASON = "Choose a reason."
 MSG_NOT_REJECTED = "A new proof can be sent only after the store asks for one."
 
 EVENT_PLACED = "placed"
-ORDER_EVENT_KINDS = [(EVENT_PLACED, "Placed")]
+EVENT_SHIPMENT_RECORDED, EVENT_SHIPMENT_CORRECTED, EVENT_DELIVERED = (
+    "shipment_recorded", "shipment_corrected", "delivered",
+)
+ORDER_EVENT_KINDS = [
+    (EVENT_PLACED, "Placed"), (EVENT_SHIPMENT_RECORDED, "Shipment recorded"),
+    (EVENT_SHIPMENT_CORRECTED, "Shipment corrected"), (EVENT_DELIVERED, "Delivered"),
+]
+
+# Shipment by hand (PK-SHIP). The courier list is TWCinc's (negosyoonline_orders/models.py), a draft
+# until Coach Ed confirms it; the words are TWCinc's fulfillment.py.
+COURIER_OTHER = "other"
+COURIERS = [
+    ("lbc", "LBC"), ("jnt", "J&T Express"), ("flash", "Flash Express"), ("ninjavan", "Ninja Van"),
+    ("2go", "2GO"), ("grab", "Grab"), ("lalamove", "Lalamove"), (COURIER_OTHER, "Other"),
+]
+COURIER_LABELS = dict(COURIERS)
+NOT_SHIPPED, SHIPPED, DELIVERED = "not_shipped", "shipped", "delivered"
+MSG_NOT_SHIPPABLE = "Shipping opens after the payment is verified."
+MSG_ALREADY_SHIPPED = "The shipment is already recorded."
+MSG_NOT_SHIPPED = "Record the shipment first."
+MSG_DELIVERED_FINAL = "Delivery is confirmed; the shipment can no longer change."
+MSG_ALREADY_DELIVERED = "Delivery is already confirmed."
+MSG_CHECK_SHIPMENT = "Check the highlighted fields."
+MSG_SHIP = {
+    "courier": "Choose the courier.", "courier_other_name": "Enter the courier name.",
+    "tracking_number": "Enter the tracking number.",
+    "shipped_on": "Enter a shipped date that is not in the future.",
+    "delivered_on": "Enter a delivery date on or after the shipped date and not in the future.",
+}
 ACTOR_TYPES = [
     ("member", "Member"), ("subscriber", "Subscriber"), ("operator", "Operator"), ("system", "System"),
 ]

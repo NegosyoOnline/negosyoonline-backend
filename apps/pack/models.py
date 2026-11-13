@@ -65,12 +65,32 @@ class PackOrder(models.Model):
     idempotency_key = models.CharField(max_length=64)
     policy_version = models.CharField(max_length=16, blank=True)  # blank when no policy page is live
     state_version = models.PositiveIntegerField(default=1)  # every write that changes the order bumps it
+    # Shipment, entered by hand by the Subscriber (PK-SHIP). Derived status: not shipped, shipped, delivered.
+    courier = models.CharField(max_length=10, blank=True, choices=C.COURIERS)
+    courier_other_name = models.CharField(max_length=60, blank=True)
+    tracking_number = models.CharField(max_length=64, blank=True)
+    shipped_on = models.DateField(null=True, blank=True)
+    shipment_recorded_at = models.DateTimeField(null=True, blank=True)
+    shipment_actor_ref = models.PositiveBigIntegerField(null=True, blank=True)
+    shipment_actor_label = models.CharField(max_length=254, blank=True)
+    delivered_on = models.DateField(null=True, blank=True)
+    delivery_confirmed_at = models.DateTimeField(null=True, blank=True)
+    delivery_actor_ref = models.PositiveBigIntegerField(null=True, blank=True)
+    delivery_actor_label = models.CharField(max_length=254, blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-created_at", "-pk"]
         constraints = [
+            models.CheckConstraint(
+                condition=Q(shipment_recorded_at__isnull=True) | Q(payment_status=C.VERIFIED),
+                name="pack_order_ship_needs_verified",
+            ),
+            models.CheckConstraint(
+                condition=Q(delivery_confirmed_at__isnull=True) | Q(shipment_recorded_at__isnull=False),
+                name="pack_order_deliver_needs_ship",
+            ),
             models.UniqueConstraint(fields=["site", "order_number"], name="pack_order_number_uniq"),
             models.UniqueConstraint(fields=["site", "idempotency_key"], name="pack_order_idem_uniq"),
             models.UniqueConstraint(
@@ -90,6 +110,18 @@ class PackOrder(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ImmutableRecordError("Pack orders are never deleted.")
+
+    @property
+    def shipment_status(self):
+        if self.delivery_confirmed_at is not None:
+            return C.DELIVERED
+        return C.SHIPPED if self.shipment_recorded_at is not None else C.NOT_SHIPPED
+
+    @property
+    def courier_name(self):
+        if self.courier == C.COURIER_OTHER:
+            return self.courier_other_name
+        return C.COURIER_LABELS.get(self.courier, "")
 
     def add_event(self, kind, *, old=None, new=None, actor_type="system", actor_ref=None, actor_label=""):
         return PackOrderEvent.objects.create(

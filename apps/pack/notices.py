@@ -11,6 +11,7 @@ from django.db import transaction
 
 from apps.members import messaging
 from apps.notifications.services import send_email
+from apps.notifications.store_email import send_store_email
 from apps.pack import access
 from apps.pack.models import PackOrder, PackProofDecision, PackProofSubmission
 
@@ -34,6 +35,16 @@ REJECTED = (
 VERIFIED = (
     "Your payment for order {no} is verified",
     _HI + "The store verified your payment for order {no}. We will let you know when your pack ships." + _SIGN,
+)
+SHIPPED = (
+    "Your order {no} has shipped",
+    _HI + "Your Membership Pack is on its way.\nCourier: {courier}\nTracking number: {tracking}\n"
+    "Shipped on: {shipped_on}" + _SIGN,
+)
+DELIVERED = (
+    "Your order {no} was delivered",
+    _HI + "The store marked your order {no} as delivered on {delivered_on}. If you have not received it, "
+    "reply to this email." + _SIGN,
 )
 ACCESS_EMAIL = (
     "Your secure link to continue your order",
@@ -94,10 +105,9 @@ def access_link(member, *, limited=True):
     link = access.link_for(member, host)
     subject, body = ACCESS_EMAIL
     values = {"name": messaging.store_name(site), "first": _first_name(member), "url": link}
-    from_name, reply_to = messaging.sender(site)
-    return send_email(
-        to=member.email, category="pack_access_link", subject=subject.format(**values),
-        body=body.format(**values), sender_name=from_name, reply_to=reply_to,
+    return send_store_email(
+        site, to=member.email, category="pack_access_link", subject=subject.format(**values),
+        body=body.format(**values),
     )
 
 
@@ -115,10 +125,9 @@ def order_received(order_pk):
         host = host_for(site)
         if host:
             values["url"] = access.link_for(member, host) + ACCESS_LINK_NOTE
-    from_name, reply_to = messaging.sender(site)
-    return send_email(
-        to=member.email, category="pack_order_received", subject=subject.format(**values),
-        body=body.format(**values), sender_name=from_name, reply_to=reply_to,
+    return send_store_email(
+        site, to=member.email, category="pack_order_received", subject=subject.format(**values),
+        body=body.format(**values),
     )
 
 
@@ -153,10 +162,8 @@ def _decision_email(decision_pk, texts, category):
         "name": messaging.store_name(site), "first": _first_name(member), "no": order.order_number,
         "url": dashboard_url(site),
     }
-    from_name, reply_to = messaging.sender(site)
-    return send_email(
-        to=member.email, category=category, subject=subject.format(**values), body=body.format(**values),
-        sender_name=from_name, reply_to=reply_to,
+    return send_store_email(
+        site, to=member.email, category=category, subject=subject.format(**values), body=body.format(**values),
     )
 
 
@@ -166,3 +173,36 @@ def proof_rejected(decision_pk):
 
 def payment_verified(decision_pk):
     return _decision_email(decision_pk, VERIFIED, "pack_verified")
+
+
+def _shipment_email(order_pk, texts, category, extra):
+    """The buyer's shipment email, to the address typed at checkout, only while PACK_SHIPPING_ENABLED
+    is on. Sent once, after commit; a correction sends nothing."""
+    if not settings.PACK_SHIPPING_ENABLED:
+        return None
+    order = PackOrder.objects.select_related("site", "member").get(pk=order_pk)
+    member = order.member
+    if not member.email:
+        return None
+    subject, body = texts
+    values = {
+        "name": messaging.store_name(order.site), "first": _first_name(member), "no": order.order_number,
+        **extra(order),
+    }
+    from_name, reply_to = messaging.sender(order.site)
+    return send_email(
+        to=member.email, category=category, subject=subject.format(**values), body=body.format(**values),
+        sender_name=from_name, reply_to=reply_to,
+    )
+
+
+def order_shipped(order_pk):
+    return _shipment_email(order_pk, SHIPPED, "pack_shipped", lambda o: {
+        "courier": o.courier_name, "tracking": o.tracking_number, "shipped_on": o.shipped_on.isoformat(),
+    })
+
+
+def order_delivered(order_pk):
+    return _shipment_email(order_pk, DELIVERED, "pack_delivered", lambda o: {
+        "delivered_on": o.delivered_on.isoformat(),
+    })

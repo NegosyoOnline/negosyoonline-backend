@@ -1,0 +1,5 @@
+{% extends "notifications/email/base.html" %}
+{% block body %}
+{% for paragraph in paragraphs %}<p style="margin:0 0 16px 0;font-size:16px;line-height:24px;">{{ paragraph }}</p>
+{% endfor %}
+{% endblock %}
