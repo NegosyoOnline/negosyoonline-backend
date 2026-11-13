@@ -175,4 +175,4 @@ Steps (a `pg_dump` restore):
 6. With the same `DATABASE_URL` and `DJANGO_DEBUG=false`, no Redis and the worker and beat not running, start the API locally and call `/readyz/`, or run the four checks by hand (`db` and `sms_queue`; `cache` and `beat` need Redis and are expected to pass only where Redis is set).
 7. Record the evidence in the ClickUp task: backup time, restore duration, row counts side by side, the `migrate --plan` output, the `/readyz/` result. Then delete the scratch service.
 
-Never put the scratch connection string or the dump in the repository or in chat. Delete `staging.dump` after the test: it holds real data.
+Never put the scratch connection string or the dump in the repository or in chat. Delete `staging.dump` after the test: it holds real data. Staging holds live member data since the Santé ads test, so deleting the local `staging.dump` right after the check is a required privacy step; never copy it elsewhere.

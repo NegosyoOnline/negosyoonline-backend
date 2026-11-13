@@ -4,6 +4,8 @@ For a suspected leak, a stolen secret, a compromised account or a site that must
 
 Every step that changes staging or production needs Coach Ed's approval for that step. This document approves nothing.
 
+Staging is a live site since the Santé ads test (real members and real payments), so an incident on staging is a real incident and is handled the same way as one on production.
+
 ## 1. Who is told, in what order
 
 1. **Coach Ed first**, as soon as an incident is suspected, with what was seen and when. Do not wait to be sure.

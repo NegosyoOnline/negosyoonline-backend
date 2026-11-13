@@ -38,7 +38,7 @@ The published pages say: the customer emails support from the account email, and
 2. Give the request its reference number (section 2).
 3. Run `export_account` as set out in "An export request" in `docs/runbooks/retention.md`, with the reference number as `--request-ref`. Do not copy the command here; that page is the one that stays current.
 4. Send the file to the registered email only, from the DPO mailbox, then delete your copy of the file (retention.md, same section: "Sending is done by hand; nothing here sends it").
-5. Running it against staging or production needs Coach Ed's word each time, including a dry run (`docs/runbooks/retention.md`, "What needs Coach Ed's approval, each time and per environment"). The environment's migrations must be applied first ("Before any command here").
+5. Running it against staging or production needs Coach Ed's word each time, including a dry run, which runs only on a test account named as a test (`docs/runbooks/retention.md`, "What needs Coach Ed's approval, each time and per environment"). The environment's migrations must be applied first ("Before any command here").
 
 The export changes nothing and writes one audit entry, `account_exported`, with counts only.
 
