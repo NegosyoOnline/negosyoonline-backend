@@ -108,3 +108,40 @@ class SignInApiTests(ApiTestCase):
         self.assertEqual(request_code.json()["error"]["code"], "origin_required")
         self.assertEqual(logout.status_code, 403)
         self.assertEqual(self.get("/v1/me/").status_code, 200)
+
+
+def email_of_length(length):
+    domain = ".".join(["d" * 60] * 3) + ".test"
+    local = "a" * (length - len(domain) - 1)
+    return f"{local}@{domain}"
+
+
+class EmailLengthTests(ApiTestCase):
+    def test_254_is_accepted_and_255_rejected_on_code_request(self):
+        ok = self.post("/v1/auth/email-code/request/", {"email": email_of_length(254)})
+        self.assertEqual(ok.status_code, 204)
+        self.assertEqual(len(mail.outbox), 1)
+
+        too_long = self.post("/v1/auth/email-code/request/", {"email": email_of_length(255)})
+        self.assertEqual(too_long.status_code, 400)
+        self.assertIn("email", too_long.json()["error"]["fields"])
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_254_is_accepted_and_255_rejected_on_verify(self):
+        long_email = email_of_length(254)
+        self.post("/v1/auth/email-code/request/", {"email": long_email})
+        code = self.last_code()
+
+        too_long = self.post(
+            "/v1/auth/email-code/verify/",
+            {"email": email_of_length(255), "code": code, "accept_policies": True},
+        )
+        self.assertEqual(too_long.status_code, 400)
+        self.assertIn("email", too_long.json()["error"]["fields"])
+        self.assertFalse(Account.objects.exists())
+
+        ok = self.post(
+            "/v1/auth/email-code/verify/", {"email": long_email, "code": code, "accept_policies": True}
+        )
+        self.assertEqual(ok.status_code, 200)
+        self.assertEqual(ok.json()["account"]["email"], long_email)

@@ -31,7 +31,10 @@ from apps.payments.tests.base import BANK, make_payment_account, qr_file, stored
 from apps.sites.models import Site
 from apps.sites.tests.api_base import SitesApiTestCase
 from apps.sites.tests.test_isolation import PROFILE_BODY, SITE_BODY
+from apps.statements.models import BillingProfile
 from apps.statements.tests.base import make_book, make_item, make_staff
+from apps.statements.tests.test_owner_api import PDF_BYTES, PROFILE, issue_for
+from apps.common import private_files
 
 MISSING_SITE = "site_00000000000000000000"
 MISSING_CHILD = {
@@ -42,6 +45,7 @@ MISSING_CHILD = {
     "product_id": "prod_00000000000000000000",
     "member_id": "mem_00000000000000000000",
     "invoice_id": "mbi_00000000000000000000000000",
+    "number": "NOBS-2026-000000",
 }
 PLACEHOLDERS = tuple("{%s}" % name for name in MISSING_CHILD)
 
@@ -68,6 +72,11 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/billing/"): 200,
     ("GET", "/sites/{site_id}/billing/payment/"): 200,
     ("GET", "/sites/{site_id}/billing/usage/"): 200,  # the usage-on world; UsageSwitchTests covers off
+    ("GET", "/sites/{site_id}/billing/profile/"): 200,
+    ("PUT", "/sites/{site_id}/billing/profile/"): 200,
+    ("GET", "/sites/{site_id}/billing/statements/"): 200,
+    ("GET", "/sites/{site_id}/billing/statements/{number}/"): 200,
+    ("GET", "/sites/{site_id}/billing/statements/{number}/pdf/"): 200,
     ("GET", "/sites/{site_id}/billing/invoices/"): 200,
     ("GET", "/sites/{site_id}/billing/invoices/{invoice_id}/copy/"): 200,
     ("POST", "/sites/{site_id}/billing/payments/"): 201,
@@ -165,7 +174,7 @@ def child_variants(template, own, foreign):
     BILLING_ENABLED=True, SANTE_SETTINGS_ENABLED=True, SANTE_CATALOG_ENABLED=True,
     PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True, META_EVENTS_ENABLED=True,
     BILLING_USAGE_ENABLED=True, SHOP_ENABLED=True, BILLING_INVOICE_REGISTER_ENABLED=True,
-    MEMBERS_ENABLED=True, PACK_SHIPPING_ENABLED=True,
+    MEMBERS_ENABLED=True, PACK_SHIPPING_ENABLED=True, BILLING_STATEMENTS_ENABLED=True,
     META_CREDENTIALS_KEY=KEY,
 )
 class TwoOwnersTestCase(SitesApiTestCase):
@@ -191,6 +200,13 @@ class TwoOwnersTestCase(SitesApiTestCase):
             patcher = mock.patch(f"apps.invoices.scans.{name}", side_effect=getattr(self.scan_store, name))
             patcher.start()
             self.addCleanup(patcher.stop)
+        real_read = private_files.read
+        stored_pdf = mock.patch.object(
+            private_files, "read",  # every statement here holds these bytes; any other key is read as before
+            side_effect=lambda key: PDF_BYTES if key.startswith("statements/pdf/") else real_read(key),
+        )
+        stored_pdf.start()
+        self.addCleanup(stored_pdf.stop)
         self.site_id = self.create_site()["id"]
         self.site = Site.objects.get(public_id=self.site_id)
         self.ben = self.other_client()
@@ -202,6 +218,11 @@ class TwoOwnersTestCase(SitesApiTestCase):
         self.invoice_ids = {
             site.pk: self.make_invoice_copy(site) for site in (self.site, self.ben_site)
         }
+        # one issued statement per site (and Ben's profile, so a leaked profile would show)
+        self.statement_numbers = {
+            site.pk: issue_for(site, n).number for n, site in enumerate((self.site, self.ben_site), start=1)
+        }
+        BillingProfile.objects.create(site=self.ben_site, **PROFILE)
         self.product = make_product()
         self.creates = 0
         self.ben_ids = self.make_children(self.ben_site, payment=True)
@@ -243,6 +264,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
             "product_id": self.product.public_id,
             "member_id": order.member.public_id if not shop else MISSING_CHILD["member_id"],
             "invoice_id": self.invoice_ids[site.pk],
+            "number": self.statement_numbers[site.pk],
         }
         if payment:
             ids["payment_id"] = submit(
@@ -272,6 +294,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             ids["account_id"] = make_payment_account(self.site).public_id
         if "{invoice_id}" in template:
             ids["invoice_id"] = self.invoice_ids[self.site.pk]
+        if "{number}" in template:
+            ids["number"] = self.statement_numbers[self.site.pk]
         if "{payment_id}" in template:
             payment = BankTransferPayment.objects.filter(
                 subscription__site=self.site
@@ -350,6 +374,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             self.creates += 1
             return {"code": f"FX-NEW-{self.creates}", "name": "Fixture New", "srp_centavos": 9999,
                     "earnings_rate": "0.3500"}
+        if template.endswith("/billing/profile/"):
+            return {**PROFILE, "company_name": "Fixture Co"}
         if template.endswith("/payment-methods/"):
             return {"direct_enabled": True}
         if "/shop/" in template:

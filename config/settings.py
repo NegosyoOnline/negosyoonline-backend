@@ -318,6 +318,9 @@ DATABASES = {
     )
 }
 
+# `manage.py test --parallel` gives each worker its own Redis database (config/test_runner.py).
+TEST_RUNNER = "config.test_runner.RedisIsolatedDiscoverRunner"
+
 REDIS_URL = os.environ.get("REDIS_URL")
 if REDIS_URL:
     CACHES = {

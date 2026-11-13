@@ -9,7 +9,7 @@ Staging is a live site since the Santé ads test (real members and real payments
 ## 1. Who is told, in what order
 
 1. **Coach Ed first**, as soon as an incident is suspected, with what was seen and when. Do not wait to be sure.
-2. If personal data may have been exposed, the breach steps are HQ's NPC breach procedure. Follow it from there; this document does not repeat it.
+2. If personal data may have been exposed, the breach steps are in `docs/runbooks/breach.md`. Follow it from there; this document does not repeat it.
 3. Then the Supervisor of the affected area, through the manager.
 
 Keep a dated note of what was seen, what was done and by whom. Do not copy personal data or secrets into the note.

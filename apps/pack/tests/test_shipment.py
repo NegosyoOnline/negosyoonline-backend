@@ -227,6 +227,16 @@ class ListAndDetailTests(ShipCase):
         self.assertTrue(all(r["shipping_enabled"] for r in rows.values()))
         self.assertEqual(rows[shipped.public_id]["courier"], "LBC")
 
+    def test_list_row_carries_tracking_number_empty_before_and_set_after_shipping(self):
+        order, _ = make_order(self.site, status=C.VERIFIED)
+
+        def row():
+            return {o["id"]: o for o in self.get(self.url()).json()["orders"]}[order.public_id]
+
+        self.assertEqual(row()["tracking_number"], "")
+        self.ship(order)
+        self.assertEqual(row()["tracking_number"], "LBC123456")
+
     def test_detail_has_no_shipment_before_shipping_and_no_buyer_contact(self):
         order, _ = make_order(self.site, status=C.VERIFIED)
         body = self.get(self.url(f"{order.public_id}/")).json()

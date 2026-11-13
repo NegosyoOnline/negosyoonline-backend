@@ -17,10 +17,10 @@ from apps.common.tests.test_tenant_isolation.owner_base import (
 )
 
 NOT_FOUND = {"error": {"code": "not_found", "message": "Not found."}}
-# What the guard expects from the URLconf today (12 + 11 + 2 + 6 + 5 + 8 + 7 + 4 = 55). The
+# What the guard expects from the URLconf today (12 + 16 + 2 + 6 + 5 + 8 + 7 + 4 = 60). The
 # "sites" count includes the 5 member-recovery routes under /sites/{site_id}/members/.
 EXPECTED_COUNTS = {
-    "sites": 12, "billing": 11, "sante": 2, "catalog": 6, "payments": 5, "pack_owner": 8,
+    "sites": 12, "billing": 16, "sante": 2, "catalog": 6, "payments": 5, "pack_owner": 8,
     "shop_owner": 7, "meta_ads": 4,
 }
 
@@ -44,7 +44,7 @@ class RegistryGuardTests(TwoOwnersTestCase):
         for _, template in routes:
             counts[app_of(template)] = counts.get(app_of(template), 0) + 1
         self.assertEqual(counts, EXPECTED_COUNTS)
-        self.assertEqual(len(OWNER_ROUTES), 55)
+        self.assertEqual(len(OWNER_ROUTES), 60)
 
 
 class ForeignSiteTests(TwoOwnersTestCase):
@@ -88,6 +88,8 @@ class ForeignChildTests(TwoOwnersTestCase):
             ("GET", "/sites/{site_id}/billing/invoices/{invoice_id}/copy/"),
             ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"),
             ("GET", "/sites/{site_id}/billing/payments/{payment_id}/proof/"),
+            ("GET", "/sites/{site_id}/billing/statements/{number}/"),
+            ("GET", "/sites/{site_id}/billing/statements/{number}/pdf/"),
             ("GET", "/sites/{site_id}/members/{member_id}/recovery/"),
             ("GET", "/sites/{site_id}/pack/orders/{order_id}/"),
             ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"),
@@ -154,7 +156,7 @@ class OwnerControlTests(TwoOwnersTestCase):
                 response = self.call(method, template, self.ben_site_id, self.foreign_ids(template), client=self.ben)
                 self.assertEqual(response.status_code, 200, response.content)
                 for value in (self.site_id, ana_ids["order_id"], ana_ids["account_id"], ana_shop["order_id"],
-                              ana_ids["member_id"], ana_ids["invoice_id"]):
+                              ana_ids["member_id"], ana_ids["invoice_id"], ana_ids["number"]):
                     self.assertNotIn(value.encode(), response.content)
 
 
