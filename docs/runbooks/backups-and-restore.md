@@ -33,7 +33,7 @@ Rows hold keys only; a file has a key and no row link in the other direction. Af
 - A row may point at a file that was deleted after the restore point.
 - A file may exist with no row (uploaded after the restore point).
 
-Keys are stored in these columns: `catalog` category and product `image_key`, `billing` `BankTransferPayment.proof_key`, `invoices` `store_key`, `statements` `pdf_key`, `pack` `file_key`, `shop` `ShopProofSubmission.file_key`, `sante` `MembershipAgreementVersion.storage_key`, `sites` `SiteBusinessProfile.seal_key`, and the payment account's QR key (`apps/payments/models.py`). To find rows pointing at a missing file, list the store's keys (Vercel dashboard, or the store's list API with the read-write token on your own machine) and compare with `uv run python manage.py shell`:
+Keys are stored in these columns: `catalog` `CatalogProduct.image_key` and `CatalogProductRevision.image_key`, `billing` `BankTransferPayment.proof_key`, `invoices` `store_key`, `statements` `pdf_key`, `pack` `file_key`, `shop` `ShopProofSubmission.file_key`, `sante` `MembershipAgreementVersion.storage_key`, `sites` `SiteBusinessProfile.seal_key`, and the payment account's QR key (`apps/payments/models.py`). To find rows pointing at a missing file, list the store's keys (Vercel dashboard, or the store's list API with the read-write token on your own machine) and compare with `uv run python manage.py shell`:
 
 ```python
 from apps.billing.models import BankTransferPayment
