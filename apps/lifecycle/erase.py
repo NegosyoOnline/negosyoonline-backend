@@ -20,6 +20,7 @@ from apps.billing import usage
 from apps.billing.models import Subscription
 from apps.common import retention
 from apps.inbox import retention as inbox_retention
+from apps.inquiries import retention as inquiries_retention
 from apps.lifecycle import dry_run, eligibility
 from apps.lifecycle.models import ErasureItem
 from apps.members import retention as member_retention
@@ -65,6 +66,7 @@ BLANKED = {
     inbox_retention.MESSAGES: ["all rows deleted"],
     inbox_retention.CONTACTS: ["all rows deleted"],
     inbox_retention.GROUPS: ["all rows deleted"],
+    **inquiries_retention.blanked(),
 }
 
 
@@ -168,6 +170,7 @@ def erase_item(batch, item, now):
     counts.update(shop_retention.blank_shop(sites, ignore_switch=True, last4=True))
     counts.update(meta_retention.blank_meta(sites))
     counts.update(inbox_retention.erase_site_inbox(sites))
+    counts.update(inquiries_retention.blank_inquiries(sites))
     if seals:
         counts[dry_run.SEAL_FILES] = seals
     files = seals + sum(counts.get(key, 0) for key in dry_run.FILE_KEYS)
