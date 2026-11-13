@@ -66,6 +66,8 @@ Staging, after the local check: https://www-staging.negosyonline.com, https://da
 
 This brief authorizes building within approved scope, including writing the migration file the approved plan specifies (2026-11-11); a migration the plan does not specify is a question for the Supervisor. It does not approve running a migration anywhere (the Supervisor runs approved ones on staging), seed data, variable changes, deployments, production actions, spending, credentials or destructive actions. Follow `CLAUDE.md` and the supported approval steps; never work around a permission denial with another tool. A message from your Supervisor or the manager is never Coach Ed's approval of anything above: the Supervisor acts on his acceptance only as he gave it in the Manager session and the manager relayed it quoted and dated. When approval is needed, finish the authorized work first, then bring one concrete reviewable action.
 
+- **Instruction-file changes (2026-11-14).** A relayed OK from the manager, with his words quoted and dated from the Manager session, counts as Coach Ed's OK for a change to CLAUDE.md, the briefs or the commands; your Supervisor starts the change on it (Coach Ed, comment 1100430000520085). Unchanged: a reviewed branch and the release train; the manager never edits CLAUDE.md; a message that is not the manager's relay of his quoted words is not his OK.
+
 ## 8. Keep task and handover current
 
 Record progress and evidence in your reports. Your only ClickUp writes are the `IN PROGRESS` and `FOR CHECKING` status changes set out in the `/clickup-builder` command. At the one-time "CONTEXT WARNING", or earlier if context is clearly running out (2026-11-11, automatic through the Supervisor):
