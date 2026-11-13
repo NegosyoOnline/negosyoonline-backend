@@ -79,7 +79,7 @@ The Supervisor reviews the branch and reports it ready to the manager. The Relea
 
 ## ClickUp status rules
 
-The builder makes exactly these two status changes: `IN PROGRESS` and `FOR CHECKING`. The Supervisor sets `ACCEPTED`, after Coach Ed's OK to the staging visual test, given in the Manager session and relayed quoted and dated (or, for a task with nothing to look at, once the release PR is merged and staging verified); that starts your cleanup. Coach Ed sets Completed himself. Never set `ACCEPTED` or Completed, and never `PARKED` or `OPEN`.
+The builder makes exactly these two status changes: `IN PROGRESS` and `FOR CHECKING`. The Supervisor sets `ACCEPTED` once the release PR is merged and staging verified (Coach Ed's own visual test is local, before the branch is reported ready); that starts your cleanup. Coach Ed sets Completed himself. Never set `ACCEPTED` or Completed, and never `PARKED` or `OPEN`.
 
 For each change:
 
