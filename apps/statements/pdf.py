@@ -131,6 +131,10 @@ def render(document):
     page.text(f"Period: {_day(document['period_start'])} to {_day(document['period_end'])}")
     if document.get("payment_reference"):
         page.text(f"Payment reference: {document['payment_reference']}")
+    if document.get("original_number"):  # an adjustment names what it reduces and why
+        page.text(f"Adjusts statement: {document['original_number']}")
+        if document.get("reason_text"):
+            page.text(f"Reason: {document['reason_text']}")
     page.y -= 8
     _party(page, "Issued by", _issuer_rows(document["issuer"]))
     _party(page, "Billed to", _bill_to_rows(document["bill_to"]))
