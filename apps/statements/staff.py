@@ -13,7 +13,7 @@ from apps.common.ids import is_public_id
 from apps.common.pagination import page
 from apps.invoices.models import InvoiceBook
 from apps.operators import audit
-from apps.statements import adjust as adjustments, documents, services, switch
+from apps.statements import adjust as adjustments, delivery, documents, services, switch
 from apps.statements.managers import acting_operator
 from apps.statements.models import Statement
 from apps.statements.services import ISSUER_FIELDS, ISSUER_OPTIONAL
@@ -105,10 +105,27 @@ def books_active(body, operator):
     return JsonResponse(_book(book))
 
 
+def _delivery(row):
+    return {
+        "attempt": row.attempt, "status": row.status, "error_code": row.error_code,
+        "at": _iso(row.sent_at or row.created_at),
+    }
+
+
+def _delivery_state(statement):
+    """The last delivery attempt, so Finance sees a failed one; None before any attempt."""
+    rows = sorted(statement.deliveries.all(), key=lambda r: r.attempt)
+    return _delivery(rows[-1]) if rows else None
+
+
 def _statement(statement):
     """A statement as Finance sees it. Never where the file is kept or its hash."""
     site = statement.subscription.site
     return {
+        "delivery": (
+            _delivery_state(statement)
+            if statement.document_type == Statement.DocumentType.STATEMENT else None
+        ),
         "statement": statement.public_id, "number": statement.number,
         "document_type": statement.document_type, "kind": statement.kind,
         "site": {"id": site.public_id, "name": site.display_name},
@@ -154,7 +171,13 @@ def statements_list(body, operator):
     cursor = body.get("cursor") or ""
     if not isinstance(cursor, str):
         raise ApiError("invalid_cursor", "That page marker is not valid.")
-    rows = Statement.objects.select_related("subscription__site", "original")
+    rows = Statement.objects.select_related("subscription__site", "original").prefetch_related(
+        "deliveries"
+    )
+    if body.get("delivery_failed") is True:  # statements whose latest attempt failed
+        rows = [r for r in rows.filter(deliveries__status="failed").distinct()
+                if (_delivery_state(r) or {}).get("status") == "failed"]
+        return JsonResponse({"items": [_statement(s) for s in rows[:200]], "next_cursor": None})
     site = body.get("site")
     if site is not None:
         if not isinstance(site, str):
@@ -197,6 +220,7 @@ def statements_detail(body, operator):
             adjustments.remaining(statement) if statement.document_type == "statement" else None
         ),
         "reasons": list(adjustments.REASONS),
+        "deliveries": [_delivery(d) for d in statement.deliveries.order_by("attempt")],
     })
 
 
@@ -220,6 +244,25 @@ def statements_pdf(body, operator):
     return response
 
 
+def statements_resend(body, operator):
+    """Send the statement email once more. Audited with ids and the outcome, never the
+    address. Only a statement can be sent, and only while the statements switch is on."""
+    statement = _statement_of(body)
+    if statement.document_type != Statement.DocumentType.STATEMENT:
+        raise ApiError(
+            "invalid_request", "Some values are missing or invalid.",
+            fields={"statement": ["Only a statement can be sent."]},
+        )
+    row = delivery.deliver(statement, manual=True)
+    audit.record(
+        operator, "billing_statement_resent", target_type="statement",
+        target_id=statement.public_id,
+        detail={"number": statement.number, "attempt": row.attempt, "status": row.status,
+                "error_code": row.error_code},
+    )
+    return JsonResponse(_delivery(row))
+
+
 def statements_adjust(body, operator):
     made = adjustments.adjust(
         operator, body.get("statement"), body.get("reason"), body.get("lines")
@@ -239,4 +282,5 @@ ROUTES = {
     "finance/statements/detail/": _route(statements_detail, switch.statements_enabled),
     "finance/statements/pdf/": _route(statements_pdf, switch.statements_enabled),
     "finance/statements/adjust/": _route(statements_adjust, switch.statements_enabled),
+    "finance/statements/resend/": _route(statements_resend, switch.statements_enabled),
 }
