@@ -6,6 +6,8 @@ Production does not exist yet. Everything below names staging; production gets t
 
 ## 1. What is backed up, and what is not
 
+**Scope: the restore covers the database only.** The files in the private Vercel Blob store (payment proofs and uploaded seals, among others, listed below) have no backup and are not part of any restore test. The business continuity note (NPC P5, outside this repository) says files are covered by the yearly restore test and that one private file is restored. That is not true today; the note must be corrected by its owner before it is signed.
+
 | Data | Backed up? | Where it lives |
 |---|---|---|
 | PostgreSQL | Railway's scheduled volume backups (below). | Railway Postgres service. |
@@ -163,6 +165,8 @@ Before SENTRY_DSN is set anywhere, staging included: Sentry is a new sub-process
 Pause the uptime monitors (or put them in the service's maintenance window) before step 2 of section 2, and resume them at the end. The Sentry alert needs no silencing. Never delete a monitor to silence it.
 
 ## 6. Restore test (staging only, run 2026-11-13)
+
+**Scope: this test and any restore test cover the database only.** Private files in the Vercel Blob private store (payment proofs, uploaded seals, payment QR codes, billing proofs, statement PDFs, invoice scans, agreement and pack files; `apps/common/private_files.py`) have no backup and were not tested. The NPC P5 note (outside this repository) saying files are covered by the yearly restore test, with one private file restored, is not true today and must be corrected by its owner before it is signed.
 
 Run on 2026-11-13. Evidence: the "Restore test" row in `docs/runbooks/launch-gates.md` (Gate 5). No production data, no change to staging itself.
 
