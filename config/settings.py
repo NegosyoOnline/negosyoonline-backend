@@ -210,6 +210,11 @@ PACK_SHIPPING_ENABLED = os.environ.get("PACK_SHIPPING_ENABLED", "").strip() == "
 # clear a buyer's personal details once the site's deletion point has passed. Off, the task reads
 # nothing and changes nothing. Needs PACK_ENABLED. Needs Coach Ed's word, per environment.
 PACK_PURGE_ENABLED = os.environ.get("PACK_PURGE_ENABLED", "").strip() == "1"
+# The site deletion executor (apps/lifecycle, ClickUp z8uq9mb22v). "1" opens its staff routes (the
+# list of ended sites due for erasure) and, later, its propose, approve, hold and run steps. Off, every
+# route answers 404 and no lifecycle table is read. Nothing is erased by this switch alone: each batch is
+# approved by hand. Needs Coach Ed's word, per environment.
+SITE_ERASURE_ENABLED = os.environ.get("SITE_ERASURE_ENABLED", "").strip() == "1"
 # The day-76 email to a paid buyer, 14 days before the portal closes. "1" lets the hourly task
 # send it. It is never sent unless PACK_PURGE_ENABLED is on as well. Off, nothing is read or sent.
 PACK_BUYER_NOTICE_ENABLED = os.environ.get("PACK_BUYER_NOTICE_ENABLED", "").strip() == "1"
@@ -275,6 +280,7 @@ INSTALLED_APPS = [
     'apps.shop',
     'apps.meta_ads',
     'apps.ledger',
+    'apps.lifecycle',
 ]
 
 AUTH_USER_MODEL = "operators.User"

@@ -30,12 +30,16 @@ def _iso(moment):
 def blank_sites_of(account, now, dry_run=False):
     """Blank the personal fields of every site of the account, close each site and retire its
     web address. Returns the counts; a dry run only counts. Call it inside a transaction."""
-    sites = Site.objects.filter(account=account)
+    return blank_sites(Site.objects.filter(account=account), now, dry_run)
+
+
+def blank_sites(sites, now, dry_run=False):
+    """The same for the sites in `sites` (a Site queryset), whatever their accounts."""
     profiles = SiteBusinessProfile.objects.filter(site__in=sites)
     active_names = Subdomain.objects.filter(site__in=sites, state=Subdomain.State.ACTIVE)
     if not dry_run:
         # The lock every site write of this account takes. No row is made for it here.
-        Onboarding.objects.select_for_update().filter(account=account).first()
+        list(Onboarding.objects.select_for_update().filter(account__in=sites.values("account")))
     counts = {
         "sites": sites.count(),
         "business_profiles": profiles.count(),

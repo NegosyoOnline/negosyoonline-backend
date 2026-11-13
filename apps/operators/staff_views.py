@@ -24,6 +24,7 @@ from apps.inbox import staff as inbox_staff
 from apps.common.errors import error_body
 from apps.operators import audit, background, hq_auth, hq_views, two_step
 from apps.invoices import staff as invoices_staff
+from apps.lifecycle import staff as lifecycle_staff
 from apps.notifications import staff as notifications_staff
 from apps.sante import staff as sante_staff
 from apps.statements import staff as statements_staff
@@ -222,6 +223,9 @@ ROUTES.update(
 )
 ROUTES.update(
     {path: ("POST", _for_staff(view)) for path, view in notifications_staff.ROUTES.items()}
+)
+ROUTES.update(
+    {path: ("POST", _for_staff(view)) for path, view in lifecycle_staff.ROUTES.items()}
 )
 
 

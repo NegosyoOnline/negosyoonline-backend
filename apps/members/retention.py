@@ -40,11 +40,17 @@ def blank_members_of(account, dry_run=False):
     blank each member's name, mobile, email and delivery address. The rows stay: an order will
     point at its member, and the contact audit, recovery checks and holds keep only masked values.
     Returns the counts; a dry run only counts. Call it inside a transaction."""
-    if not services.enabled():
+    return blank_members(Site.objects.filter(account=account), dry_run)
+
+
+def blank_members(sites, dry_run=False, *, ignore_switch=False):
+    """The same for the members of the sites in `sites`. `ignore_switch` reads the tables
+    whatever MEMBERS_ENABLED says (the site erasure, plan D13); the default is unchanged."""
+    if not ignore_switch and not services.enabled():
         return {}
-    members = Member.objects.filter(site__account=account)
-    sessions = MemberSession.objects.filter(member__site__account=account)
-    challenges = MemberOtpChallenge.objects.filter(site__account=account)
+    members = Member.objects.filter(site__in=sites)
+    sessions = MemberSession.objects.filter(member__site__in=sites)
+    challenges = MemberOtpChallenge.objects.filter(site__in=sites)
     counts = {MEMBERS: members.count(), SESSIONS: sessions.count(), CHALLENGES: challenges.count()}
     if not dry_run:
         sessions.delete()

@@ -33,9 +33,15 @@ def blank_payments_of(account, now, dry_run=False):
     A file that cannot be deleted raises private_files.StoreError, so the disposal is undone
     and can be run again: no file is left behind with no row that names it. Deleting a file
     that is already gone succeeds."""
-    if not services.enabled():
+    return blank_payments(Site.objects.filter(account=account), now, dry_run)
+
+
+def blank_payments(sites, now, dry_run=False, *, ignore_switch=False):
+    """The same for the sites in `sites`. `ignore_switch` reads the table whatever
+    PAYMENT_METHODS_ENABLED says (the site erasure, plan D13); the default is unchanged."""
+    if not ignore_switch and not services.enabled():
         return {}
-    accounts = SitePaymentAccount.objects.filter(site__account=account)
+    accounts = SitePaymentAccount.objects.filter(site__in=sites)
     keys = list(accounts.exclude(qr_file_key="").values_list("qr_file_key", flat=True))
     counts = {ACCOUNTS: accounts.count(), QR_FILES: len(keys)}
     if not dry_run:
