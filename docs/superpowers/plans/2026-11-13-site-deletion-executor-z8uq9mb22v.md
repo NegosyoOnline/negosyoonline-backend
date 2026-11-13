@@ -51,7 +51,7 @@ The unit is one **ended site**. "Erase" below means the account disposal's own o
 | `members.MemberSession`, `MemberOtpChallenge` | deleted | | same |
 | `members.MemberRecoveryCheck`, `MemberContactAudit`, `MemberSecurityHold` | nothing (masked values only) | all | same |
 | `pack.PackOrder` | buyer name, delivery address | row, number, status, frozen price | `blank_packs_of` |
-| `pack.PackProofSubmission` | sender name, account number, reference, visitor address; **every proof file deleted** from the private store | row, amount, dates | same |
+| `pack.PackProofSubmission` | sender name, account number, reference, visitor address blanked; **the proof files are kept in the private store** until task z8uq9mbu0p ships (L67: the store-data export must carry proof images first; Manager decision 2026-11-13) | row, amount, dates, **proof file** | same, with the file-delete step skipped for pack proofs |
 | `pack.CheckoutToken` | all deleted | | same |
 | `pack.SanteRegistration` | date of birth, two Santé usernames | row, status, events | same |
 | `pack.PackProofDecision`, `PackOrderEvent`, `PackAgreementAcceptance`, `PackEnrollmentAuthorization`, `SanteRegistrationEvent` | nothing | all (append-only evidence) | |
@@ -253,6 +253,8 @@ Each has one recommendation, the risk and the exact words that approve it. The M
 | D10 | Site-owned SMS inbox rows are erased with the site (new function), the do-not-text list kept | Yes. Neither disposal nor a rule touches site-owned inbox rows today, and a Subscriber's customer texts are personal data of the site | The do-not-text list keeps a number the person asked us not to text; that is the existing NPC position | "Erase site inbox rows, keep the do-not-text list." |
 | D11 | Store emails already written (members, contact address) | Leave them to the existing 2-year `email_messages` rule. Alternative: delete by site at erasure (needs the member's address before it is blanked, more code) | Up to 2 years of send records with a buyer's address after the site is erased | "Leave email records to the 2-year rule." |
 
+**Manager decisions, 2026-11-13:** D1, D5 and D10 are decided as recommended. The build is **parked until after launch** (nothing is due before about February 2027). D2 to D4, D6 to D9 and D11 remain for Coach Ed.
+
 One sentence for the whole plan: **"Approved: the site deletion executor plan z8uq9mb22v as written (docs/superpowers/plans/2026-11-13-site-deletion-executor-z8uq9mb22v.md), decisions D1 to D11 as recommended, including migration lifecycle.0001_initial."** This approves the build and the staging migration. It approves no switch, no run in any environment, and nothing in production.
 
 Each **batch** is approved at run time in HQ: the typed confirmation `erase batch <id> <n> sites` after reading the listed counts. That is the only approval that erases data.
@@ -274,3 +276,4 @@ Order: PR 1, the staging migration (Supervisor, after approval), the local rehea
 - The buyer portal purge and 30-day export (G4 O1, Coach Ed's, z8uq9mbk0m).
 - Backups: only the disclosed 89-day limit (section 10).
 - A person's individual erasure request for data of a site still in service: that is `dispose_account` and `sms_inbox_delete`, unchanged.
+- The Pack buyers' proof files: deleted only after z8uq9mbu0p (store-data export with proof images) ships (L67; Manager decision 2026-11-13). Until then the executor blanks the proof fields and keeps the files; the file-delete step for pack proofs is switched in by that task. Section 6.4 step 2 and the files tests apply to the other files meanwhile.
