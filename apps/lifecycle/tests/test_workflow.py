@@ -239,6 +239,12 @@ class HoldWorkflowTests(RunTestCase):
 
 
 class CommandTests(RunTestCase):
+    def setUp(self):
+        super().setUp()
+        clock = mock.patch("django.utils.timezone.now", return_value=NOW)
+        clock.start()
+        self.addCleanup(clock.stop)
+
     def call(self, name, *args, **options):
         out = io.StringIO()
         call_command(name, *args, stdout=out, **options)

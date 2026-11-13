@@ -240,11 +240,11 @@ At `billing.deletion_point(site)`, for every site whose subscription has ended a
 
 **Proof files.** A file is deleted only while the constant `PROOF_EXPORT_READY_FROM` (`apps/pack/purge.py`) is a date not later than the day the site's service ended, so the export held images for its whole 30-day window. It is `None` today, so **no proof file is deleted**: the files stay in the private store, no route shows them, and the personal columns above still clear. The store-data export extension (z8uq9mbu0p) sets the constant in the change that adds images to the export. A store that is down on a deletion leaves the key and the next hourly pass retries it.
 
-**Not covered.** The Subscriber's receiving accounts: `apps.payments.retention.blank_payments_of` works per account, not per site, so no per-site helper exists to reuse. Holds and run tables, the Finance resolver, admin gates and anything Xendit are deferred (decision B2). The date-of-birth erase `pack_registration_details` (D3, its own switch `DOB_ERASE_ENABLED`) is unchanged and runs on its own age clock.
+**Not covered by the purge.** The Subscriber's receiving accounts: the site erasure below covers them (it calls the per-site `blank_payments`). The purge honours an open `ErasureHold` (a held site is left alone) only while `SITE_ERASURE_ENABLED` is on. The Finance resolver, admin gates and anything Xendit are deferred (decision B2). The date-of-birth erase `pack_registration_details` (D3, its own switch `DOB_ERASE_ENABLED`) is unchanged and runs on its own age clock.
 
 **Behaviour.** Idempotent: a second pass changes nothing, and rows made after a restore are cleared by the next pass. A reactivated site has no deletion date, so nothing runs for it. A payment in flight does not delay it. A site that fails is logged as `Pack purge failed for site <pk> (<exception class>)` and the loop goes on. From the instant of the point every registration action (details, delivery, the T8 move) is refused, whether or not the pass has run.
 
-**Hold.** There is no holds table. To hold the deletion of buyer data for a legal or fraud reason, turn `PACK_PURGE_ENABLED` off: that holds every site. Turn it on again when the hold ends; the next hourly pass clears what is due.
+**Hold.** To hold one site for a legal or fraud reason, set an erasure hold on it (`manage.py erasure_hold SITE --actor USER --reason-code CODE`, or the HQ route `lifecycle/erasure/hold/`); the purge then skips it while `SITE_ERASURE_ENABLED` is on. To hold every site, turn `PACK_PURGE_ENABLED` off. Turn it on again when the hold ends; the next hourly pass clears what is due.
 
 ### The notice
 
@@ -254,6 +254,24 @@ At `billing.deletion_point(site)`, for every site whose subscription has ended a
 - Before each send the subscription is read again; the email goes only while the service has ended and the point is still the recorded one. A reactivated site sends nothing.
 - A window missed (an outage past the point) sends nothing. A notice given up (point passed, retries used up, or a disposed address) is logged once: `Pack buyer notice given up (<reason>): site <pk>, member <pk>.` There is no alert table; watch the worker log for that line.
 - No text message.
+
+## An ended site's data (the deletion executor)
+
+Plan: `docs/superpowers/plans/2026-11-13-site-deletion-executor-z8uq9mb22v.md` (ClickUp z8uq9mb22v). Code: `apps/lifecycle`. It anonymises in place the store data of a site whose `deletion_due_at` has passed, only after a person approved a frozen list. It ships dark: `SITE_ERASURE_ENABLED` is unset everywhere, and turning it on in an environment needs Coach Ed's word naming that environment. Production is never covered by an earlier approval. No rehearsal runs on staging data with real members; rehearse on a throwaway local database, and make the first run on staging a batch of one site that Coach Ed names after reading its dry run.
+
+**What it erases, per site** (rows stay, personal fields blank; the feature switches `PAYMENT_METHODS_ENABLED`, `MEMBERS_ENABLED`, `SHOP_ENABLED`, `SANTE_SETTINGS_ENABLED` do not matter): the site's contact fields and business profile (seal file deleted), Santé sponsor id, receiving accounts (name, number, QR file deleted), members with their sessions and sign-in codes, Pack buyers (fields only; **pack proof files stay** until `PROOF_EXPORT_READY_FROM` is set by z8uq9mbu0p), Santé registrations, shop orders and proofs (files deleted, `account_number_last4` blank), Meta settings and order contexts, and the site-owned SMS inbox (conversations, messages, contacts, groups; the do-not-text list stays). When no other live site remains the account is disposed of too (rule `site_erasure`; needs `RETENTION_ENABLED`; its pack proof files stay while the export gate is closed). Kept: every billing, statement, invoice, ledger and audit row.
+
+**Procedure** (all need `SITE_ERASURE_ENABLED`; `erasure_dry_run` works without it and writes nothing):
+
+1. `manage.py erasure_dry_run` (or HQ `lifecycle/erasure/list/`): eligible, near and refused sites with counts. Check the support mailbox for an open export or deletion request about any listed site; hold or exclude it.
+2. `manage.py erasure_propose SITE [SITE ...] --actor USER` (1 to 25 sites; expires after 7 days). Deletes nothing.
+3. `manage.py erasure_approve BATCH --actor USER --reason TEXT --confirm "erase batch BATCH N sites" [--exclude SITE]`. `--cancel` cancels instead. The reason is a note: no name, email or number.
+4. `manage.py erasure_run BATCH`, or wait for the Celery task `lifecycle.run_approved` (every 5 minutes, approved batches only). Each item runs in its own transaction and re-checks eligibility under the locks; an item that no longer qualifies is `skipped` and nothing is erased. A failed item (for example `store_unavailable`) is retried up to 5 times, then the batch shows `needs_attention`.
+5. Read the audit entries `site_data_erased` and `site_erasure_skipped` (counts and field names only).
+
+**Holds.** `manage.py erasure_hold SITE --actor USER --reason-code CODE --reference REF`, `--release` to lift it. A held site is skipped by the executor and by the Pack purge.
+
+**Restore.** Erasure cannot be undone from the application. Backups keep erased data for up to about 89 days. After a restore, erase again the sites listed in the `site_data_erased` and `account_disposed` records kept outside the database (support mailbox, PR and ClickUp record of each batch).
 
 ## Turning it off
 
