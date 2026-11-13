@@ -1,14 +1,17 @@
+import json
 from datetime import timedelta
 from unittest import mock
 
 from django.core import mail
 from django.core.cache import cache
-from django.test import Client, RequestFactory
+from django.test import Client, RequestFactory, override_settings
 from django.utils import timezone
 
+from apps.accounts import codes
 from apps.accounts.models import Account, AccountAuditEvent, ExternalIdentity, Session
 from apps.accounts.sessions import start_session
 from apps.accounts.tests.base import EMAIL, ApiTestCase
+from apps.notifications.services import EmailNotSent
 
 
 class AccountApiTests(ApiTestCase):
@@ -135,6 +138,7 @@ class AccountSettingsReadTests(ApiTestCase):
 
         self.assertEqual(body["email"], EMAIL)
         self.assertIs(body["writes_open"], True)
+        self.assertIs(body["email_change_step_up"], False)
         self.assertIsNone(body["email_changed_at"])
         self.assertIsNone(body["email_change_available_at"])
         self.assertEqual(body["mobile"], {"verified": False, "mobile_masked": ""})
@@ -195,6 +199,7 @@ class AccountSettingsReadTests(ApiTestCase):
             ("patch", "/v1/account/"),
             ("post", "/v1/account/email/start/"),
             ("post", "/v1/account/email/confirm/"),
+            ("post", "/v1/account/email/step-up/"),
             ("post", "/v1/account/sessions/sign-out-others/"),
         ):
             response = self.send(method, path, {}, HTTP_ORIGIN="https://evil.example.test")
@@ -323,3 +328,187 @@ class EmailChangeTests(ApiTestCase):
         self.assertEqual(response.status_code, 200)
         self.account.refresh_from_db()
         self.assertEqual(self.account.email, self.NEW)
+
+
+def codes_cooldown_key(email, account):
+    return codes._key("cooldown", f"change:{account.pk}", email)
+
+
+@override_settings(ACCOUNT_EMAIL_CHANGE_HARDENED=True)
+class HardenedEmailChangeTests(ApiTestCase):
+    NEW = "new@example.test"
+
+    def setUp(self):
+        super().setUp()
+        self.sign_in()
+        self.account = Account.objects.get(email=EMAIL)
+        cache.clear()
+
+    def step_up(self):
+        response = self.post("/v1/account/email/step-up/")
+        self.assertEqual(response.status_code, 204)
+        return self.last_code()
+
+    def events(self, name):
+        return AccountAuditEvent.objects.filter(account=self.account, event=name)
+
+    def test_the_settings_read_shows_the_switch(self):
+        self.assertIs(self.get("/v1/account/").json()["email_change_step_up"], True)
+
+    def test_the_step_up_code_goes_to_the_current_address_only(self):
+        self.step_up()
+
+        self.assertEqual(mail.outbox[-1].to, [EMAIL])
+        self.assertNotIn(self.NEW, mail.outbox[-1].body)
+
+    def test_start_without_the_step_up_code_is_refused_and_sends_nothing(self):
+        before = len(mail.outbox)
+
+        response = self.post("/v1/account/email/start/", {"email": self.NEW})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "step_up_required")
+        self.assertEqual(len(mail.outbox), before)
+
+    def test_a_wrong_step_up_code_is_refused_and_counted(self):
+        code = self.step_up()
+        wrong = "000000" if code != "000000" else "111111"
+        before = len(mail.outbox)
+
+        for _ in range(5):
+            response = self.post(
+                "/v1/account/email/start/", {"email": self.NEW, "step_up_code": wrong}
+            )
+            self.assertEqual(response.json()["error"]["code"], "step_up_required")
+        # five guesses used up: even the right code no longer works
+        response = self.post("/v1/account/email/start/", {"email": self.NEW, "step_up_code": code})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(len(mail.outbox), before)
+
+    def test_full_change_with_step_up(self):
+        code = self.step_up()
+
+        started = self.post("/v1/account/email/start/", {"email": self.NEW, "step_up_code": code})
+        self.assertEqual(started.status_code, 204)
+        self.assertEqual(mail.outbox[-1].to, [self.NEW])
+        confirmed = self.post(
+            "/v1/account/email/confirm/", {"email": self.NEW, "code": self.last_code()}
+        )
+        self.assertEqual(confirmed.json()["email"], self.NEW)
+
+
+    def test_the_step_up_code_also_serves_a_resend_but_not_a_second_change(self):
+        code = self.step_up()
+        body = {"email": self.NEW, "step_up_code": code}
+
+        self.assertEqual(self.post("/v1/account/email/start/", body).status_code, 204)
+        cache.delete(codes_cooldown_key(self.NEW, self.account))  # the 60 s wait between mails
+        self.assertEqual(self.post("/v1/account/email/start/", body).status_code, 204)
+        self.post("/v1/account/email/confirm/", {"email": self.NEW, "code": self.last_code()})
+
+        # the code was cleared by the change; the pause refuses a new one anyway
+        self.assertFalse(codes.check_code(EMAIL, code, f"change-old:{self.account.pk}"))
+
+    def test_a_step_up_code_for_one_account_does_not_work_for_another(self):
+        code = self.step_up()
+        other_client = Client()
+        self.sign_in("bo@example.test", client=other_client)
+        cache.clear()
+        before = len(mail.outbox)
+
+        response = self.send(
+            "post",
+            "/v1/account/email/start/",
+            {"email": self.NEW, "step_up_code": code},
+            client=other_client,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(len(mail.outbox), before)
+
+    def test_a_taken_address_is_answered_like_a_free_one_and_nothing_is_sent(self):
+        Account.objects.create(email="taken@example.test")
+        code = self.step_up()
+        before = len(mail.outbox)
+
+        response = self.post(
+            "/v1/account/email/start/", {"email": "taken@example.test", "step_up_code": code}
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(len(mail.outbox), before)
+
+    def test_the_old_address_never_receives_the_new_one(self):
+        code = self.step_up()
+        self.post("/v1/account/email/start/", {"email": self.NEW, "step_up_code": code})
+        self.post("/v1/account/email/confirm/", {"email": self.NEW, "code": self.last_code()})
+
+        notice = mail.outbox[-1]
+        self.assertEqual(notice.to, [EMAIL])
+        self.assertNotIn(self.NEW, notice.body)
+
+    def test_other_sessions_are_signed_out_on_confirm(self):
+        other = Client()
+        self.sign_in(client=other)
+        self.sign_in()
+        code = self.step_up()
+        self.post("/v1/account/email/start/", {"email": self.NEW, "step_up_code": code})
+        self.post("/v1/account/email/confirm/", {"email": self.NEW, "code": self.last_code()})
+
+        self.assertEqual(self.get("/v1/me/").status_code, 200)
+        self.assertEqual(self.get("/v1/me/", client=other).status_code, 401)
+
+    def test_audit_events_hold_no_address_and_no_code(self):
+        code = self.step_up()
+        self.post("/v1/account/email/start/", {"email": self.NEW, "step_up_code": code})
+
+        for name in ("email_change_step_up", "email_change_started"):
+            events = list(self.events(name))
+            self.assertEqual(len(events), 1, name)
+            blob = json.dumps(events[0].detail)
+            self.assertNotIn(self.NEW, blob)
+            self.assertNotIn(code, blob)
+
+    def test_step_up_is_refused_during_the_24_hour_pause(self):
+        code = self.step_up()
+        self.post("/v1/account/email/start/", {"email": self.NEW, "step_up_code": code})
+        self.post("/v1/account/email/confirm/", {"email": self.NEW, "code": self.last_code()})
+
+        response = self.post("/v1/account/email/step-up/")
+
+        self.assertEqual(response.status_code, 409)
+
+    def test_the_step_up_needs_a_session(self):
+        self.client.cookies.clear()
+        self.assertEqual(self.post("/v1/account/email/step-up/").status_code, 401)
+
+    def test_a_failed_send_lets_the_person_ask_again_at_once(self):
+        with mock.patch("apps.accounts.services.send_email", side_effect=EmailNotSent()):
+            self.assertEqual(self.post("/v1/account/email/step-up/").status_code, 503)
+
+        self.assertEqual(self.post("/v1/account/email/step-up/").status_code, 204)
+
+
+class EmailChangeThrottleTests(ApiTestCase):
+    """The per-account limit is on whether or not the switch is."""
+
+    def setUp(self):
+        super().setUp()
+        self.sign_in()
+        cache.clear()
+
+    def test_too_many_starts_in_an_hour_are_429(self):
+        from apps.accounts import services
+
+        statuses = []
+        for n in range(services.EMAIL_CHANGE_STARTS_PER_HOUR + 1):
+            statuses.append(
+                self.post("/v1/account/email/start/", {"email": f"n{n}@example.test"}).status_code
+            )
+
+        self.assertEqual(statuses[-1], 429)
+        self.assertNotIn(429, statuses[:-1])
+
+    def test_the_step_up_is_not_available_while_the_switch_is_off(self):
+        self.assertEqual(self.post("/v1/account/email/step-up/").status_code, 404)

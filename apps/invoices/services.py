@@ -5,6 +5,7 @@ the record. It never issues an official invoice, never assigns or advances a pri
 and never backdates: every serial and the issue date are typed from the paper. Each change
 takes the item's row lock, writes an InvoiceEvent under its idempotency key and an audit entry.
 """
+import hashlib
 import logging
 from datetime import date, timedelta
 
@@ -15,7 +16,11 @@ from django.utils import timezone
 from apps.billing import clock
 from apps.billing.models import BankTransferPayment, ChargeLine
 from apps.common.errors import ApiError
-from apps.invoices.models import InvoiceBook, InvoiceEvent, ManualInvoice, ManualInvoiceItem
+from apps.common.private_files import StoreError
+from apps.invoices import scans
+from apps.invoices.models import (
+    InvoiceBook, InvoiceEvent, InvoiceScan, ManualInvoice, ManualInvoiceItem,
+)
 from apps.operators import audit
 from apps.statements import services as issuer_services
 from apps.statements.managers import Immutable
@@ -415,6 +420,203 @@ def void_invoice(operator, public_id, reason):
             reason=reason, detail={"item": item.public_id, "invoice": invoice.public_id},
         )
     return invoice
+
+
+# ---------------------------------------------------------------- scans
+
+
+def _scan_store_unavailable():
+    return ApiError(
+        "scan_store_unavailable", "The scan could not be stored. Try again in a moment.", status=503
+    )
+
+
+def _locked_scan(public_id):
+    """(item locked, invoice, scan) for a scan id, or 404. The item row lock comes first, then
+    the invoice and the scan are read again under it."""
+    if not isinstance(public_id, str) or not public_id:
+        raise _invalid("scan", "Name the scan.")
+    try:
+        scan = InvoiceScan.objects.select_related("invoice__item").get(public_id=public_id)
+    except InvoiceScan.DoesNotExist:
+        raise _not_found() from None
+    item = _item_for_update(scan.invoice.item.public_id)
+    scan = InvoiceScan.objects.select_related("invoice__book").get(pk=scan.pk)
+    return item, scan.invoice, scan
+
+
+def upload_scan(operator, invoice_public_id, content):
+    """Store the scan of a recorded invoice: `recorded -> uploaded`. JPEG, PNG or PDF by its
+    first bytes, at most 8 MB, never a URL. A file already held by another live scan is refused."""
+    if not isinstance(invoice_public_id, str) or not invoice_public_id:
+        raise _invalid("invoice", "Name the invoice.")
+    content = bytes(content or b"")
+    if not content:
+        raise _invalid("scan", "A scan is needed.")
+    if len(content) > scans.MAX_BYTES:
+        raise _invalid("scan", "The file is too large.")
+    content_type = scans.sniff(content)
+    if content_type is None:
+        raise _invalid("scan", "The file must be a JPEG, a PNG or a PDF.")
+    sha256 = hashlib.sha256(content).hexdigest()
+    saved = []
+    try:
+        with transaction.atomic():
+            try:
+                invoice = ManualInvoice.objects.select_related("item").get(public_id=invoice_public_id)
+            except ManualInvoice.DoesNotExist:
+                raise _not_found() from None
+            item = _item_for_update(invoice.item.public_id)
+            invoice = ManualInvoice.objects.select_related("book").get(pk=invoice.pk)
+            if invoice.status != ManualInvoice.Status.RECORDED:
+                raise _conflict("not_recorded", "This invoice is not waiting for a scan.")
+            held = InvoiceScan.objects.exclude(status=InvoiceScan.Status.REJECTED)
+            if held.filter(sha256=sha256).exists():
+                raise _conflict("duplicate_scan", "This file is already attached to an invoice.")
+            try:
+                key = scans.save(content, content_type)
+            except StoreError:
+                raise _scan_store_unavailable() from None
+            saved.append(key)
+            scan = InvoiceScan.objects.create(
+                invoice=invoice, store_key=key, content_type=content_type, size=len(content),
+                sha256=sha256, uploaded_by=operator,
+            )
+            invoice.status = ManualInvoice.Status.UPLOADED
+            invoice.save()
+            item.status = Item.Status.UPLOADED
+            item.save()
+            _event(item, Code.SCAN_UPLOADED, operator, f"scan_uploaded:{scan.public_id}", invoice,
+                   {"scan": scan.public_id, "size": scan.size})
+            audit.record(
+                operator, "billing_invoice_scan_uploaded", target_type="site",
+                target_id=item.site_public_id,
+                detail={"item": item.public_id, "invoice": invoice.public_id, "scan": scan.public_id,
+                        "size": scan.size, "amount_due_centavos": invoice.amount_due_centavos},
+            )
+    except BaseException:
+        # The row did not commit, so a file saved inside the transaction has no row.
+        for key in saved:
+            scans.discard(key)
+        raise
+    return scan
+
+
+def verify_scan(operator, scan_public_id):
+    """The operator confirms the scan is legible and matches serial, date and amount:
+    `uploaded -> verified` on the scan, the invoice and the item. A repeat returns the scan."""
+    with transaction.atomic():
+        item, invoice, scan = _locked_scan(scan_public_id)
+        if scan.status == InvoiceScan.Status.VERIFIED:
+            return scan
+        if scan.status != InvoiceScan.Status.UPLOADED or invoice.status != ManualInvoice.Status.UPLOADED:
+            raise _conflict("not_uploaded", "This scan is not waiting for a decision.")
+        now = timezone.now()
+        scan.status, scan.decided_at, scan.decided_by = InvoiceScan.Status.VERIFIED, now, operator
+        scan.save()
+        invoice.status, invoice.verified_at, invoice.verified_by = (
+            ManualInvoice.Status.VERIFIED, now, operator
+        )
+        invoice.save()
+        item.status = Item.Status.VERIFIED
+        item.save()
+        _event(item, Code.VERIFIED, operator, f"verified:{scan.public_id}", invoice,
+               {"scan": scan.public_id})
+        audit.record(
+            operator, "billing_invoice_verified", target_type="site", target_id=item.site_public_id,
+            detail={"item": item.public_id, "invoice": invoice.public_id, "scan": scan.public_id,
+                    "amount_due_centavos": invoice.amount_due_centavos},
+        )
+    return scan
+
+
+def reject_scan(operator, scan_public_id, reason):
+    """The operator refuses the scan with a reason: it stays, and the invoice and the item
+    return to `recorded` for a new upload. A repeat with the same reason returns the scan."""
+    if reason not in InvoiceScan.RejectReason.values:
+        raise _invalid("reason", "Choose one of the listed reasons.")
+    with transaction.atomic():
+        item, invoice, scan = _locked_scan(scan_public_id)
+        if scan.status == InvoiceScan.Status.REJECTED and scan.reject_reason == reason:
+            return scan
+        if scan.status != InvoiceScan.Status.UPLOADED or invoice.status != ManualInvoice.Status.UPLOADED:
+            raise _conflict("not_uploaded", "This scan is not waiting for a decision.")
+        scan.status, scan.reject_reason = InvoiceScan.Status.REJECTED, reason
+        scan.decided_at, scan.decided_by = timezone.now(), operator
+        scan.save()
+        invoice.status = ManualInvoice.Status.RECORDED
+        invoice.save()
+        item.status = Item.Status.RECORDED
+        item.save()
+        _event(item, Code.SCAN_REJECTED, operator, f"scan_rejected:{scan.public_id}", invoice,
+               {"scan": scan.public_id, "reason": reason})
+        audit.record(
+            operator, "billing_invoice_scan_rejected", target_type="site",
+            target_id=item.site_public_id,
+            detail={"item": item.public_id, "invoice": invoice.public_id, "scan": scan.public_id,
+                    "reason": reason},
+        )
+    return scan
+
+
+def _read_scan(key):
+    try:
+        return scans.read(key)
+    except StoreError:
+        raise _scan_store_unavailable() from None
+    except ValueError:
+        raise _not_found() from None
+
+
+def scan_for_operator(operator, scan_public_id):
+    """The scan file as (content, content type), for staff. Each read is audited."""
+    if not isinstance(scan_public_id, str) or not scan_public_id:
+        raise _invalid("scan", "Name the scan.")
+    try:
+        scan = InvoiceScan.objects.select_related("invoice__item").get(public_id=scan_public_id)
+    except InvoiceScan.DoesNotExist:
+        raise _not_found() from None
+    content = _read_scan(scan.store_key)
+    item = scan.invoice.item
+    audit.record(
+        operator, "billing_invoice_scan_viewed", target_type="site", target_id=item.site_public_id,
+        detail={"item": item.public_id, "invoice": scan.invoice.public_id, "scan": scan.public_id},
+    )
+    return content, scan.content_type
+
+
+# What a Subscriber sees (plan 6.5 and 9.1).
+PENDING_TEXT = "Payment received; official invoice copy pending upload"
+COPY_LABEL = "Copy of manually issued BIR-registered Non-VAT Invoice"
+
+
+def invoices_of(subscription, *, limit, cursor_item=None):
+    """One row per paid sale of the subscription, newest first. A row is named by the item's
+    id: it names the sale, never an invoice or a scan, so it says nothing before verification.
+    Returns (items, more)."""
+    rows = Item.objects.filter(subscription=subscription).order_by("-pk")
+    if cursor_item is not None:
+        rows = rows.filter(pk__lt=cursor_item.pk)
+    rows = list(rows[: limit + 1])
+    return rows[:limit], len(rows) > limit
+
+
+def item_of(subscription, item_public_id):
+    """The subscription's own item, or None for a missing or foreign id."""
+    return Item.objects.filter(subscription=subscription, public_id=item_public_id).first()
+
+
+def copy_for_owner(subscription, item_public_id):
+    """The verified scan of the subscription's sale as (content, content type). The same 404
+    for every other case: unknown or foreign id, no invoice, a voided one, a scan not verified."""
+    item = item_of(subscription, item_public_id)
+    if item is None or item.status != Item.Status.VERIFIED:
+        raise _not_found()
+    invoice = item.invoices.filter(status=ManualInvoice.Status.VERIFIED).first()
+    scan = invoice.scans.filter(status=InvoiceScan.Status.VERIFIED).first() if invoice else None
+    if scan is None:
+        raise _not_found()
+    return _read_scan(scan.store_key), scan.content_type
 
 
 # ---------------------------------------------------------------- the queue and reconcile

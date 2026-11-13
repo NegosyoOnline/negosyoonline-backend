@@ -6,7 +6,9 @@ from django.core import mail
 from django.test import override_settings
 from django.utils import timezone
 
+from apps.billing.models import Subscription
 from apps.common import private_files
+from apps.pack import placement
 from apps.members.models import Member
 from apps.pack import constants as C
 from apps.pack.models import (
@@ -99,6 +101,63 @@ class PlaceTests(PackTestCase):
         with override_settings(PACK_ENABLED=False):
             response = self.place(raw)
             self.assertEqual((response.status_code, response.json()), (404, NOT_FOUND))
+
+
+class LapseDuringPlacementTests(PackTestCase):
+    """A request that passed the storefront check and then lost service before the lock commits."""
+
+    def lapse_after_the_first_check(self, how):
+        real = placement._store
+
+        def store_then_lapse(site, proof):
+            key = real(site, proof)  # the stored file is what a refused order must discard
+            how()
+            return key
+
+        return mock.patch.object(placement, "_store", side_effect=store_then_lapse)
+
+    def assert_nothing_created(self, response):
+        self.assertEqual((response.status_code, response.json()), (404, NOT_FOUND))
+        self.assertEqual(PackOrder.objects.count(), 0)
+        self.assertEqual(PackProofSubmission.objects.count(), 0)
+        self.assertEqual(Member.objects.count(), 0)
+        self.assertEqual(self.proof_files(), [])
+        self.assertEqual(CheckoutToken.objects.get().order_ref, None)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_a_suspension_after_the_first_check_creates_no_order(self):
+        raw = self.start()
+        with self.lapse_after_the_first_check(
+            lambda: Subscription.objects.filter(site=self.site).update(state=Subscription.State.SUSPENDED)
+        ), self.captureOnCommitCallbacks(execute=True):
+            response = self.place(raw)
+        self.assert_nothing_created(response)
+
+    def test_a_cancellation_that_has_ended_after_the_first_check_creates_no_order(self):
+        raw = self.start()
+        ended = self.clock.now() - timedelta(seconds=1)  # the billing clock the storefront reads
+        with self.lapse_after_the_first_check(
+            lambda: Subscription.objects.filter(site=self.site).update(
+                state=Subscription.State.CANCELLED, service_ended_at=ended
+            )
+        ), self.captureOnCommitCallbacks(execute=True):
+            response = self.place(raw)
+        self.assert_nothing_created(response)
+
+    def test_an_operator_hold_after_the_first_check_creates_no_order(self):
+        raw = self.start()
+        with self.lapse_after_the_first_check(
+            lambda: type(self.site).objects.filter(pk=self.site.pk).update(operator_hold=True)
+        ), self.captureOnCommitCallbacks(execute=True):
+            response = self.place(raw)
+        self.assert_nothing_created(response)
+
+    def test_the_same_request_without_a_lapse_is_placed(self):
+        raw = self.start()
+        with self.lapse_after_the_first_check(lambda: None), self.captureOnCommitCallbacks(execute=True):
+            response = self.place(raw)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(PackOrder.objects.count(), 1)
 
 
 class TransferRuleTests(PackTestCase):
@@ -228,12 +287,22 @@ class MailTests(PackTestCase):
         self.assertIn("New payment proof to review: SMP00001", subjects[self.site.account.email])
         self.assertIn("Maria S.", [m for m in mail.outbox if m.to[0] == self.site.account.email][0].body)
 
+    def test_branded_switch_on_mails_the_buyer_html_and_leaves_the_owner_notice_plain(self):
+        with override_settings(STORE_EMAILS_BRANDED=True):
+            with self.captureOnCommitCallbacks(execute=True):
+                self.placed()
+        buyer = [m for m in mail.outbox if m.to[0] == EMAIL][0]
+        owner = [m for m in mail.outbox if m.to[0] == self.site.account.email][0]
+        self.assertEqual(buyer.alternatives[0][1], "text/html")
+        self.assertEqual(getattr(owner, "alternatives", []), [])
+        self.assertEqual(owner.from_email, "NegosyoOnline <no-reply@negosyoonline.com>")
+
     def test_an_unverified_owner_is_not_mailed(self):
         type(self.site.account).objects.filter(pk=self.site.account_id).update(email_verified_at=None)
         self.placed()
         self.assertEqual([m.to[0] for m in mail.outbox], [EMAIL])
 
     def test_a_failed_email_does_not_undo_the_order(self):
-        with mock.patch("apps.pack.notices.send_email", side_effect=RuntimeError("smtp")):
+        with mock.patch("apps.pack.notices.send_store_email", side_effect=RuntimeError("smtp")):
             self.placed()
         self.assertEqual(PackOrder.objects.count(), 1)

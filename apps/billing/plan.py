@@ -171,5 +171,13 @@ STORAGE_METERED = False
 USAGE_ONLY = "usage_only"  # a payment of overage alone: no cycle, no base fee
 
 
-def usage_enabled():
+def usage_switch_on():
+    """The operator's switch alone: BILLING_ENABLED and BILLING_USAGE_ENABLED."""
     return bool(settings.BILLING_ENABLED and settings.BILLING_USAGE_ENABLED)
+
+
+def usage_enabled():
+    """Usage is billed or shown only while its switch is on AND storage is metered, so the
+    switch alone can never put a usage amount in front of a Subscriber (Coach Ed, 2026-11-13:
+    no extra charge at launch; usage is turned on later)."""
+    return usage_switch_on() and bool(STORAGE_METERED)

@@ -10,9 +10,10 @@ from django.test import TransactionTestCase, override_settings
 from apps.billing.tests.base import make_subscription
 from apps.common.errors import ApiError
 from apps.members.tests.test_concurrency import run_together
-from apps.pack import checkout, placement, records
+from apps.pack import checkout, constants as C, fulfillment, placement, records, review
 from apps.pack.models import PackOrder
 from apps.pack.tests.base import PNG, VISITOR
+from apps.pack.tests.owner_base import make_order
 from apps.payments.tests.base import make_payment_account, use_local_private_store
 from apps.sante.tests.agreement_helpers import make_master, make_operator, published
 from apps.sites.models import Site
@@ -82,3 +83,31 @@ class PackConcurrencyTests(TransactionTestCase):
         self.assertEqual(sum(isinstance(r, placement.Placed) for r in results), 1, results)
         self.assertTrue(all(isinstance(r, (placement.Placed, ApiError)) for r in results), results)
         self.assertEqual(PackOrder.objects.count(), 1)
+
+    def test_shipping_races_approval_and_never_ships_an_unverified_order(self):
+        """Ship and approve at the same state_version: the row lock settles it. Ship never wins on an
+        order that was not verified when it ran, and the order ends verified and not shipped."""
+        site = Site.objects.get(pk=self.site.pk)
+        account = site.account
+        order, _ = make_order(site, status=C.PENDING_REVIEW)
+        version = order.state_version
+        results = run_together(
+            lambda: review.approve(account, site, order.pk, state_version=version),
+            lambda: fulfillment.record_shipment(
+                account, site, order.pk, state_version=version, courier="lbc", tracking_number="T1"),
+        )
+        self.assertIsInstance(results[1], ApiError, results)
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, C.VERIFIED)
+        self.assertIsNone(order.shipment_recorded_at)
+
+    def test_two_shipments_at_once_make_one(self):
+        site = Site.objects.get(pk=self.site.pk)
+        account = site.account
+        order, _ = make_order(site, status=C.VERIFIED)
+        version = order.state_version
+        ship = lambda: fulfillment.record_shipment(  # noqa: E731
+            account, site, order.pk, state_version=version, courier="lbc", tracking_number="T1")
+        results = run_together(ship, ship)
+        self.assertEqual(sum(isinstance(r, ApiError) for r in results), 1, results)
+        self.assertEqual(order.events.filter(kind=C.EVENT_SHIPMENT_RECORDED).count(), 1)

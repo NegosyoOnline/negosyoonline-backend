@@ -1,0 +1,6 @@
+{% extends "notifications/email/base.html" %}
+{% block body %}
+<p style="margin:0 0 20px 0;font-size:16px;line-height:24px;">{{ message }}</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="background-color:#eef3fc;border:1px solid #c9d6ee;border-radius:6px;padding:18px 8px;font-family:'Courier New',Courier,monospace;font-size:34px;line-height:40px;font-weight:bold;letter-spacing:6px;color:#0b3d91;">{{ code }}</td></tr></table>
+<p style="margin:20px 0 0 0;font-size:14px;line-height:22px;color:#4b5563;">{{ expiry_note }}</p>
+{% endblock %}

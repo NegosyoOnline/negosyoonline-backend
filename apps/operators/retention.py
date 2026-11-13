@@ -29,8 +29,7 @@ def expired_admin_sessions(now, dry_run):
 
 @retention.behind_switch
 def expired_django_sessions(now, dry_run):
-    """Django's own session rows, 30 days after they expired. They carry the notices shown on
-    the admin lists, never a sign-in."""
+    """Django's own session rows, 30 days after they expired. Never a sign-in."""
     rows = DjangoSession.objects.filter(expire_date__lte=now - retention.CREDENTIAL_GRACE)
     return retention.remove(rows, dry_run)
 

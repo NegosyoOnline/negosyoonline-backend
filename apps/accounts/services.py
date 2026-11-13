@@ -10,11 +10,14 @@ from django.utils import timezone
 from apps.accounts import codes
 from apps.accounts.models import Account, AccountAuditEvent, ExternalIdentity, PolicyAcceptance
 from apps.accounts.sessions import client_ip, revoke_sessions, start_session
+from apps.common import throttle
 from apps.common.errors import ApiError
+from apps.notifications.email_render import account_mail
 from apps.notifications.services import EmailNotSent, send_email
 
 SIGNIN = "signin"
 EMAIL_CHANGE_PAUSE = timedelta(hours=24)
+EMAIL_CHANGE_STARTS_PER_HOUR = 8  # step-up and start mails together, per account
 SUPPORT_EMAIL = "support@negosyoonline.com"  # the address Account Settings shows
 GOOGLE = ExternalIdentity.Provider.GOOGLE
 FACEBOOK = ExternalIdentity.Provider.FACEBOOK
@@ -88,15 +91,21 @@ def request_signin_code(email, ip):
     """Email a sign-in code. Behaves the same whether or not the email has an account."""
     email = normalise_email(email)
     code = codes.issue_code(email, ip, SIGNIN)
-    send_email(
-        to=email,
-        category="signin_code",
-        subject="Your NegosyoOnline sign-in code",
-        body=(
-            f"Your sign-in code is {code}. It expires in 10 minutes.\n\n"
-            "If you did not ask for this code, you can ignore this email."
-        ),
-    )
+    try:
+        send_email(
+            to=email,
+            category="signin_code",
+            subject="Your NegosyoOnline sign-in code",
+            **account_mail(
+                "signin",
+                f"Your sign-in code is {code}. It expires in 10 minutes.\n\n"
+                "If you did not ask for this code, you can ignore this email.",
+                code=code,
+            ),
+        )
+    except EmailNotSent:
+        codes.release_cooldown(email, ip, SIGNIN)  # the person can ask again at once
+        raise
 
 
 @transaction.atomic
@@ -198,17 +207,24 @@ def sign_in_with_facebook(profile, request):
 def send_facebook_email_code(user_id, email, ip):
     """Email the code that confirms `email` for this Facebook user. Returns the address used."""
     email = normalise_email(email)
-    code = codes.issue_code(email, ip, _facebook_purpose(user_id))
-    send_email(
-        to=email,
-        category="facebook_email_code",
-        subject="Confirm your email for NegosyoOnline",
-        body=(
-            f"Your confirmation code is {code}. It expires in 10 minutes.\n\n"
-            "You are seeing this because someone is signing in to NegosyoOnline with Facebook "
-            "using this email. If that was not you, you can ignore this email."
-        ),
-    )
+    purpose = _facebook_purpose(user_id)
+    code = codes.issue_code(email, ip, purpose)
+    try:
+        send_email(
+            to=email,
+            category="facebook_email_code",
+            subject="Confirm your email for NegosyoOnline",
+            **account_mail(
+                "facebook_confirm",
+                f"Your confirmation code is {code}. It expires in 10 minutes.\n\n"
+                "You are seeing this because someone is signing in to NegosyoOnline with Facebook "
+                "using this email. If that was not you, you can ignore this email.",
+                code=code,
+            ),
+        )
+    except EmailNotSent:
+        codes.release_cooldown(email, ip, purpose)
+        raise
     return email
 
 
@@ -299,24 +315,85 @@ def _refuse_paused(account):
         )
 
 
-def start_email_change(account, new_email, ip):
-    """Email a code to the new address. The email changes only when that code is confirmed."""
+def _step_up_purpose(account):
+    return f"change-old:{account.pk}"
+
+
+def _throttle_email_change(account):
+    """At most 5 email-change mails an hour per account, so a session cannot be used to mail
+    codes to arbitrary addresses."""
+    throttle.hit("email-change", account.pk, limit=EMAIL_CHANGE_STARTS_PER_HOUR, window=codes.HOUR)
+
+
+def send_email_change_step_up(account, ip):
+    """Email a code to the CURRENT address: proof that the person holds the mailbox, asked for
+    before an email change can start. Only while ACCOUNT_EMAIL_CHANGE_HARDENED is on."""
+    if not settings.ACCOUNT_EMAIL_CHANGE_HARDENED:
+        raise ApiError("not_found", "Not found.", status=404)
+    _refuse_paused(account)
+    _throttle_email_change(account)
+    purpose = _step_up_purpose(account)
+    code = codes.issue_code(account.email, ip, purpose)
+    try:
+        send_email(
+            to=account.email,
+            category="email_change_step_up",
+            subject="Confirm it is you on NegosyoOnline",
+            **account_mail(
+                "email_change_current",
+                f"Your confirmation code is {code}. It expires in 10 minutes.\n\n"
+                "If you did not ask to change your email, you can ignore this email.",
+                code=code,
+            ),
+        )
+    except EmailNotSent:
+        codes.release_cooldown(account.email, ip, purpose)
+        raise
+    record_event(account, "email_change_step_up")
+
+
+def start_email_change(account, new_email, ip, step_up_code=""):
+    """Email a code to the new address. The email changes only when that code is confirmed.
+
+    With ACCOUNT_EMAIL_CHANGE_HARDENED on, the code sent to the current address must come
+    first, and an address that already has an account is answered like a free one (nothing is
+    sent), so a signed-in person cannot learn which addresses are in use."""
+    hardened = settings.ACCOUNT_EMAIL_CHANGE_HARDENED
     _refuse_paused(account)
     new_email = normalise_email(new_email)
     if new_email == account.email:
         raise ApiError("email_unchanged", "That is already your email.")
+    _throttle_email_change(account)
+    if hardened:
+        step_purpose = _step_up_purpose(account)
+        if not step_up_code or not codes.check_code(account.email, step_up_code, step_purpose):
+            raise ApiError(
+                "step_up_required",
+                "Enter the code we sent to your current email first.",
+            )
     if Account.objects.filter(email=new_email).exists():
+        if hardened:
+            record_event(account, "email_change_started")
+            return
         raise _email_taken()
-    code = codes.issue_code(new_email, ip, _change_purpose(account))
-    send_email(
-        to=new_email,
-        category="email_change_code",
-        subject="Confirm your new NegosyoOnline email",
-        body=(
-            f"Your confirmation code is {code}. It expires in 10 minutes.\n\n"
-            "If you did not ask to use this email for NegosyoOnline, you can ignore this email."
-        ),
-    )
+    purpose = _change_purpose(account)
+    code = codes.issue_code(new_email, ip, purpose)
+    try:
+        send_email(
+            to=new_email,
+            category="email_change_code",
+            subject="Confirm your new NegosyoOnline email",
+            **account_mail(
+                "email_change",
+                f"Your confirmation code is {code}. It expires in 10 minutes.\n\n"
+                "If you did not ask to use this email for NegosyoOnline, you can ignore this email.",
+                code=code,
+            ),
+        )
+    except EmailNotSent:
+        codes.release_cooldown(new_email, ip, purpose)
+        raise
+    record_event(account, "email_change_started")
 
 
 def confirm_email_change(account, new_email, code, current_session):
@@ -328,10 +405,11 @@ def confirm_email_change(account, new_email, code, current_session):
             to=old_email,
             category="email_changed_notice",
             subject="Your NegosyoOnline email was changed",
-            body=(
+            **account_mail(
+                "email_changed_notice",
                 "The email address of your NegosyoOnline account was just changed, so this "
                 "address can no longer be used to sign in. Every other device was signed out.\n\n"
-                f"If you did not make this change, contact {SUPPORT_EMAIL} right away."
+                f"If you did not make this change, contact {SUPPORT_EMAIL} right away.",
             ),
         )
     except EmailNotSent:
@@ -348,6 +426,7 @@ def _apply_email_change(account, new_email, code, current_session):
     if Account.objects.filter(email=new_email).exclude(pk=account.pk).exists():
         raise _email_taken()
     codes.clear_code(new_email, purpose)
+    codes.clear_code(account.email, _step_up_purpose(account))
     old_email = account.email
     account.email = new_email
     account.email_verified_at = timezone.now()
@@ -408,7 +487,15 @@ def _notify_connection_change(account, provider, *, connected):
             to=account.email,
             category="connection_changed_notice",
             subject=subject,
-            body=f"{change}\n\nIf you did not make this change, contact {SUPPORT_EMAIL} right away.",
+            **account_mail(
+                "connection_notice",
+                f"{change}\n\nIf you did not make this change, contact {SUPPORT_EMAIL} right away.",
+                subject=subject,
+                heading=subject.replace(" to your NegosyoOnline account", "").replace(
+                    " from your NegosyoOnline account", ""
+                ),
+                change=change,
+            ),
         )
     except EmailNotSent:
         pass  # already logged and recorded as failed; the change itself stands

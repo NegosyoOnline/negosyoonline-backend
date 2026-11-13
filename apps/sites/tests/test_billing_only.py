@@ -13,6 +13,8 @@ from apps.billing.api import router as billing_router
 from apps.billing.models import Subscription
 from apps.billing.tests.base import days, method_on_file
 from apps.catalog.api import router as catalog_router
+from apps.meta_ads.api_owner import router as meta_router
+from apps.meta_ads.tests.base import KEY as META_KEY, PIXEL as META_PIXEL
 from apps.catalog.tests.base import catalog_call
 from apps.pack.api_owner import router as pack_router
 from apps.pack.tests.owner_base import pack_call
@@ -55,6 +57,9 @@ TURNED_OFF = [
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"),
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/approve/"),
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/reject/"),
+    ("POST", "/sites/{site_id}/pack/orders/{order_id}/shipment/"),
+    ("POST", "/sites/{site_id}/pack/orders/{order_id}/shipment/correct/"),
+    ("POST", "/sites/{site_id}/pack/orders/{order_id}/delivery/"),
     ("GET", "/sites/{site_id}/shop/orders/"),
     ("GET", "/sites/{site_id}/shop/orders/{order_id}/"),
     ("GET", "/sites/{site_id}/shop/orders/{order_id}/proofs/{proof_id}/"),
@@ -62,12 +67,19 @@ TURNED_OFF = [
     ("POST", "/sites/{site_id}/shop/orders/{order_id}/cancel/"),
     ("POST", "/sites/{site_id}/shop/orders/{order_id}/ship/"),
     ("POST", "/sites/{site_id}/shop/orders/{order_id}/deliver/"),
+    ("GET", "/sites/{site_id}/meta/"),
+    ("PUT", "/sites/{site_id}/meta/"),
+    ("DELETE", "/sites/{site_id}/meta/token/"),
+    ("POST", "/sites/{site_id}/meta/test/"),
 ]
 # These answer 201 when they work.
 CREATED = [
     ("POST", "/sites/{site_id}/catalog/products/"),
     ("POST", "/sites/{site_id}/payment-methods/accounts/"),
 ]
+# A route that is let through but answers something else than 200 or 201 with the empty settings
+# used here: sending the test event needs a saved Pixel, token and code first.
+OTHER_WHEN_WORKING = {("POST", "/sites/{site_id}/meta/test/"): 409}
 STAYS_ON = [
     ("GET", "/sites/{site_id}/"),
     ("GET", "/sites/{site_id}/billing/"),
@@ -80,6 +92,9 @@ STAYS_ON = [
     ("POST", "/sites/{site_id}/billing/payments/"),
     ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"),
     ("GET", "/sites/{site_id}/billing/payments/{payment_id}/proof/"),
+    # The invoice copies (B5): billing records, like the payments, stay readable.
+    ("GET", "/sites/{site_id}/billing/invoices/"),
+    ("GET", "/sites/{site_id}/billing/invoices/{invoice_id}/copy/"),
 ]
 MESSAGE = "This site is limited to Billing until its subscription continues."
 SANTE_BODY = {"sponsor_id": "TAKEN-1"}
@@ -87,7 +102,8 @@ SANTE_BODY = {"sponsor_id": "TAKEN-1"}
 
 @override_settings(
     BILLING_ENABLED=True, SANTE_SETTINGS_ENABLED=True, SANTE_CATALOG_ENABLED=True,
-    PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True, SHOP_ENABLED=True,
+    PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True, PACK_SHIPPING_ENABLED=True,
+    SHOP_ENABLED=True, META_EVENTS_ENABLED=True, META_CREDENTIALS_KEY=META_KEY,
 )
 class BillingOnlyTestCase(SitesApiTestCase):
     def setUp(self):
@@ -128,6 +144,8 @@ class BillingOnlyTestCase(SitesApiTestCase):
                     seal_key=private_files.save("sites/seal/site-1", PNG, "image/png"))
         if method == "GET":
             return self.get(path, client=client)
+        if "/meta/" in path:
+            return self.send(method.lower(), path, {"pixel_id": META_PIXEL} if method == "PUT" else None, client=client)
         body = PROFILE_BODY if "business-profile" in path else SITE_BODY
         if "/sante/" in path:
             body = SANTE_BODY
@@ -136,7 +154,7 @@ class BillingOnlyTestCase(SitesApiTestCase):
         return self.send(method.lower(), path, body, client=client)
 
     def assert_worked(self, method, template, response):
-        expected = 201 if (method, template) in CREATED else 200
+        expected = OTHER_WHEN_WORKING.get((method, template), 201 if (method, template) in CREATED else 200)
         self.assertEqual(response.status_code, expected, response.content)
 
     def pay_first_cycle(self):
@@ -290,6 +308,7 @@ class RouteInventoryTests(BillingOnlyTestCase):
             + routes_under_a_site(payments_router)
             + routes_under_a_site(pack_router)
             + routes_under_a_site(shop_router)
+            + routes_under_a_site(meta_router)
         )
 
     def test_every_route_under_a_site_is_turned_off_or_allowed_by_name(self):

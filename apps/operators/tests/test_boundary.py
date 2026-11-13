@@ -2,28 +2,19 @@
 import ast
 from pathlib import Path
 
-from django.contrib import admin
+from django.apps import apps
 from django.test import SimpleTestCase
 
-from apps.operators import models
 
 APP = Path(__file__).resolve().parent.parent
-GUARDED = (
-    models.AdminIdentity,
-    models.AdminRecoveryCode,
-    models.AdminSignInChallenge,
-    models.AdminSession,
-    models.OperatorAuditEntry,
-)
 # The only modules that may write an identity's secret or recovery codes.
 ENROLMENT_WRITERS = {"two_step.py", "admin_identity.py"}
 ENROLMENT_NAMES = {"store_enrolment", "clear_enrolment", "AdminRecoveryCode"}
 
 
 class BoundaryTests(SimpleTestCase):
-    def test_none_of_the_two_step_tables_is_in_the_django_admin(self):
-        for model in GUARDED:
-            self.assertNotIn(model, admin.site._registry)
+    def test_the_django_admin_is_not_installed(self):
+        self.assertFalse(apps.is_installed("django.contrib.admin"))
 
     def test_only_the_command_and_the_shared_check_touch_enrolment(self):
         for path in APP.rglob("*.py"):

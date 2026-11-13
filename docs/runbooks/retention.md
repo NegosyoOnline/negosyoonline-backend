@@ -33,7 +33,7 @@ Migration `accounts.0003` (the mobile number tables) must be applied in an envir
 | `expired_subscriber_sessions` | Subscriber sessions | 30 days after they expired or were revoked |
 | `expired_admin_sign_in_codes` | Emailed hq sign-in codes | 30 days after they expired |
 | `expired_admin_sessions` | hq sessions | 30 days after they expired or were revoked |
-| `expired_django_sessions` | Django's session rows (admin list notices; never a sign-in) | 30 days after they expired |
+| `expired_django_sessions` | Django's session rows (never a sign-in) | 30 days after they expired |
 | `email_messages` | Email send records | 2 years after they were written |
 | `admin_audit_personal_values` | Deletes nothing: it blanks the personal values of admin sign-in audit entries (signed in, failed, locked, signed out) and of the SMS inbox's `sms_inbox_open`, `sms_inbox_reply` and `sms_inbox_compose` entries (the masked number of the conversation that was opened, or that the text was sent to), and stamps each row with the time. The row and everything else on it stay (ruling D4) | 1 year after the entry was written |
 | `never_verified_accounts` | Nothing: it disposes of accounts whose email was never verified, as in "What disposal does" below | 30 days after sign-up |
@@ -147,7 +147,7 @@ What the billing step does not know yet, so check by hand before disposing: noth
 
 **Santé settings.** Where `SANTE_SETTINGS_ENABLED` is on (ClickUp z8uq9m92ez, port slice 1):
 
-- An account that owns the Santé catalog owner site is **not** disposed of. This is checked before the subscriptions, so nothing is cancelled and nothing is blanked. The command names the site (`catalog_owner`) and exits with an error; the dry run prints "A real run would be refused for now". An operator first names another catalog owner site, or clears it, in the admin list "Santé catalog owner"; then run the command again.
+- An account that owns the Santé catalog owner site is **not** disposed of. This is checked before the subscriptions, so nothing is cancelled and nothing is blanked. The command names the site (`catalog_owner`) and exits with an error; the dry run prints "A real run would be refused for now". An operator first names another catalog owner site, or clears it, on the HQ Settings page; then run the command again.
 - Otherwise the sponsor ID of each of the account's sites is blanked and the row is kept. The counts gain `sante_site_settings`, and the audit entry names the field, never the value.
 - The export gains `sante_site_settings`: per Santé site its public id, the sponsor ID, when it was last changed and whether it is the catalog owner.
 
@@ -184,6 +184,7 @@ While `MEMBERS_ENABLED` is off, disposal and export do not read the member table
 **Membership Pack orders.** Where `PACK_ENABLED` is on (ClickUp z8uq9me9mr, Membership Package slice PK4):
 
 - An order is never deleted and the Subscriber's books must still add up, so a disposal keeps the order rows, their numbers, status, frozen price, events and the agreement and enrollment records. What identifies a person goes: the buyer name and delivery address on each order, the sender name, sender account number, reference number and visitor address on each proof, every proof file in the private store, and every checkout token with its typed contact. Counts gain `pack_orders`, `pack_proof_submissions`, `pack_proof_files` and `pack_checkout_tokens`; the audit entry names fields, never values. A file that cannot be deleted undoes the disposal so it can be run again.
+- Shipment records (ClickUp z8uq9mek5x): the courier, tracking number, shipped and delivered dates and the Subscriber's actor email label on an order are kept by a disposal, like the order's status and events. A tracking number is not personal data on its own; the buyer name and delivery address are still blanked.
 - Rule `expired_checkout_tokens`: a token is deleted 30 days after it expired.
 - Rule `pack_registration_details` (as TWCinc's sweep; its own switch is `DOB_ERASE_ENABLED`, not `RETENTION_ENABLED`, and it needs `PACK_ENABLED`): the date of birth and the two Santé usernames of a registration are erased 90 days after its last status change, whatever its status. A registration still in progress takes edge T24 to needs_buyer_action; one waiting on the customer loses its confirmation, so the buyer enters the details again. The registration row stays. A disposal blanks the same three fields (count `sante_registrations`), and the export lists registrations.
 - The export gains `pack_orders` and `pack_proof_submissions` as plain values, with no file key, no token and no row number.

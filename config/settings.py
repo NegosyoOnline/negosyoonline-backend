@@ -82,11 +82,26 @@ FACEBOOK_APP_SECRET = os.environ.get("FACEBOOK_APP_SECRET", "")
 # site's sign-in popup when it did not. No trailing slashes.
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3001").rstrip("/")
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:3000").rstrip("/")
+# The six account emails (sign-in code, Facebook confirmation, email change code, and the three
+# security notices) as branded HTML with a plain-text part. "1" turns it on; off, they are the
+# plain text they always were. Turn on only once the Resend domain is verified.
+ACCOUNT_EMAILS_BRANDED = os.environ.get("ACCOUNT_EMAILS_BRANDED", "").strip() == "1"
+# Account Settings email change: "1" asks for a code sent to the current address before the
+# change can start, and answers a taken address like a free one. Off: the change works as it did.
+ACCOUNT_EMAIL_CHANGE_HARDENED = os.environ.get("ACCOUNT_EMAIL_CHANGE_HARDENED", "").strip() == "1"
+# What a store's members and buyers are emailed (member codes and notices, Pack buyer emails): a
+# branded HTML layout, a plain-text part, and, where the store has one, the store's own From
+# address from STORE_SENDERS. "1" turns it on; off, they are the plain text they always were.
+STORE_EMAILS_BRANDED = os.environ.get("STORE_EMAILS_BRANDED", "").strip() == "1"
+# `key=address` pairs, comma separated, where key is a store's web-address name or site id, e.g.
+# `live4more=orders@liveformore.com`. Set by the operator only; the domain must be verified in
+# Resend first. A store with no pair sends from DEFAULT_FROM_EMAIL under its own name.
+STORE_SENDERS = os.environ.get("STORE_SENDERS", "").strip()
 # Admin two-step sign-in. The key encrypts authenticator secrets; with no key nobody can be
 # enrolled.
 ADMIN_SECRETS_KEY = os.environ.get("ADMIN_SECRETS_KEY", "").strip()
-# The one host that serves hq, the admin's console, and the admin lists behind its sign-in.
-# Empty means hq is off and the lists are served nowhere.
+# The one host that serves hq, the admin's console.
+# Empty means hq is off.
 HQ_HOST = os.environ.get("HQ_HOST", "").strip().lower()
 if HQ_HOST and HQ_HOST not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(HQ_HOST)
@@ -147,10 +162,10 @@ BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").stri
 # The one address told when a bank transfer proof waits for review (a shared mailbox). Empty
 # sends no alert.
 BILLING_STAFF_ALERT_EMAIL = os.environ.get("BILLING_STAFF_ALERT_EMAIL", "").strip()
-# Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints and admin
-# lists. Off, the endpoints answer 404 and the Santé tables are not read or written.
+# Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints.
+# Off, the endpoints answer 404 and the Santé tables are not read or written.
 SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() == "1"
-# The shared Santé catalog. "1" turns on its endpoints and admin lists, and only while
+# The shared Santé catalog. "1" turns on its endpoints, and only while
 # SANTE_SETTINGS_ENABLED is on too: the catalog reads the catalog owner row. Off, the
 # endpoints answer 404 and the catalog tables are not read or written.
 SANTE_CATALOG_ENABLED = os.environ.get("SANTE_CATALOG_ENABLED", "").strip() == "1"
@@ -159,7 +174,7 @@ SANTE_CATALOG_ENABLED = os.environ.get("SANTE_CATALOG_ENABLED", "").strip() == "
 # publish command refuses; the tables are not read or written.
 SANTE_AGREEMENT_ENABLED = os.environ.get("SANTE_AGREEMENT_ENABLED", "").strip() == "1"
 # A site's payment methods (its bank and e-wallet accounts for direct transfer). "1" turns
-# on their endpoints and admin lists. Off, the endpoints answer 404 and the payment tables
+# on their endpoints. Off, the endpoints answer 404 and the payment tables
 # are not read or written.
 PAYMENT_METHODS_ENABLED = os.environ.get("PAYMENT_METHODS_ENABLED", "").strip() == "1"
 # Private files (apps/common/private_files.py): a payment QR code today. The read-write token
@@ -183,6 +198,11 @@ MEMBERS_ENABLED = os.environ.get("MEMBERS_ENABLED", "").strip() == "1"
 # they answer the 404 of an unknown site and no pack table is read or written. Needs
 # MEMBERS_ENABLED, SANTE_AGREEMENT_ENABLED and a private file store (see apps/pack/checks.py).
 PACK_ENABLED = os.environ.get("PACK_ENABLED", "").strip() == "1"
+# Shipment by hand on a Membership Pack order (PK-SHIP): the Subscriber records courier and tracking,
+# corrects them and marks delivery; the buyer is emailed on shipped and delivered. "1" turns it on.
+# Off, its three owner routes answer 404, no shipment email is sent and the dash shows no shipment
+# control. Needs PACK_ENABLED and migration pack.0004 (see apps/pack/checks.py).
+PACK_SHIPPING_ENABLED = os.environ.get("PACK_SHIPPING_ENABLED", "").strip() == "1"
 # The Santé shop (apps/shop): cart quote, checkout with bank-transfer proof, product orders and the
 # Subscriber's order review. "1" turns on its storefront and owner routes. Off, every one of them
 # answers the 404 of an unknown site and no shop table is read or written. Needs
@@ -221,8 +241,7 @@ LEDGER_LIVE_BOOKS = os.environ.get("LEDGER_LIVE_BOOKS", "").strip() == "1"
 # Application definition
 
 INSTALLED_APPS = [
-    'apps.operators',  # before the admin, so its admin/base_site.html is the one used
-    'apps.operators.admin_config.HqAdminConfig',  # django.contrib.admin, opened only by hq
+    'apps.operators',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',

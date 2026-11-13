@@ -7,8 +7,11 @@ ClickUp z8uq9me9mr (Membership Package slice PK4). The guest checkout of the San
 | Where | Name | Meaning |
 |---|---|---|
 | Railway `api` | `PACK_ENABLED` | `1` turns the three routes on. Unset: they answer the 404 of an unknown site and no pack table is read or written. |
+| Railway `api` | `PACK_SHIPPING_ENABLED` | `1` turns on the Subscriber's shipment routes (record, correct, mark delivered) and the shipped and delivered buyer emails (ClickUp z8uq9mek5x). Unset: the three routes answer `404 not_found`, no shipping email is sent, and the owner reads say `shipping_enabled: false` so the dash shows no shipment buttons. Needs `PACK_ENABLED`; `check --deploy` reports `pack.E003` otherwise. Staging only until Coach Ed says otherwise. |
 
 Needs `STOREFRONT_ENABLED=1` with the storefront secret, `MEMBERS_ENABLED=1`, `SANTE_AGREEMENT_ENABLED=1` (a published Membership Agreement version), `PAYMENT_METHODS_ENABLED=1` with at least one saved account, and the private file store (`PRIVATE_BLOB_READ_WRITE_TOKEN`). `manage.py check --deploy` reports `pack.E001`/`pack.E002` for the first two, `pack.W001` for no file store and `pack.W002` for no `REDIS_URL` (the throttles then count per Gunicorn worker).
+
+Migration `pack.0004_shipment` (shipment and delivery columns on the order, two CHECK constraints, new event kinds) is written, not run; it is additive and safe while the old code runs. The Supervisor runs it on staging after merge, before `PACK_SHIPPING_ENABLED` is turned on there. Never on production without Coach Ed.
 
 Migration `pack.0001` (six tables) is written, not run. The coordinator runs it on staging after merge; the switch is turned on in an environment only after it is applied there. Never run on production without Coach Ed. Once on, the switch is not turned off again without his ruling: a disposal run while it is off would leave buyers' names and proof files in place.
 
