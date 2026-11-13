@@ -22,6 +22,8 @@ from apps.operators import staff_views
 from apps.operators.models import OperatorAuditEntry
 from apps.operators.tests.test_staff_routes import STAFF, StaffTestCase, on_staff
 from apps.sites.tests.base import make_account, make_site
+from apps.notifications import staff as notifications_staff
+from apps.sante import staff as sante_staff
 from apps.statements import staff as statements_staff
 
 BASE = "/staff/v1/"
@@ -85,7 +87,8 @@ class InboxGateTests(InboxRouteCase):
         self.assertEqual(
             len(staff_views.ROUTES),
             len(sign_in) + len(billing_staff.ROUTES) + len(staff.ROUTES) + len(contacts_staff.ROUTES)
-            + len(bulk_staff.ROUTES) + len(statements_staff.ROUTES) + len(invoices_staff.ROUTES),
+            + len(bulk_staff.ROUTES) + len(statements_staff.ROUTES) + len(invoices_staff.ROUTES)
+            + len(sante_staff.ROUTES) + len(notifications_staff.ROUTES),
         )
 
     def test_2_the_module_imports_nothing_from_the_staff_routes(self):
