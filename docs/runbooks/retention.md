@@ -19,6 +19,7 @@ The manual commands below stay as they are: `manage.py run_retention` for a coun
 ## What needs Coach Ed's approval, each time and per environment
 
 - Setting `DOB_ERASE_ENABLED=1` (the date-of-birth erase, ruling D3), on `worker` and on `api`.
+- Setting `PACK_PURGE_ENABLED=1` (the day-90 buyer purge) or `PACK_BUYER_NOTICE_ENABLED=1` (the day-76 buyer email), each on `worker` and `api`. See "The Membership Pack buyer purge and the day-76 notice" below.
 - Setting `RETENTION_ENABLED=1`. From then on the daily `retention.run` deletes with it wherever `worker` has the switch; run the dry run first.
 - Running any command below against staging or production data. This includes the dry run and the export.
 
@@ -211,6 +212,48 @@ How a request arrives, its reference number and the support periods: `docs/runbo
 ## Billing statements and the invoice register
 
 No rule touches the `statements_*` or `invoices_*` tables (Billing Build B5). They are billing and tax records kept intact for at least five years (L76), and disposal of an account keeps the statement snapshots.
+
+## The Membership Pack buyer purge and the day-76 notice
+
+ClickUp z8uq9mep8p (buyer portal z8uq9mbk0m, plan PR 3). Coach Ed approved the scope and the email text as written on 2026-11-13 ("Approved b c d and d as recommended", blocks B and C). Both jobs are Celery tasks in `apps/pack/tasks.py`, queued hourly by their own beat entries (`pack-purge`, `pack-buyer-notice`), and both are **off in every environment** until Coach Ed says otherwise, per environment.
+
+| Switch | Default | Does |
+|---|---|---|
+| `PACK_PURGE_ENABLED` | off | The day-90 purge (task `pack.purge`). Needs `PACK_ENABLED`; `check --deploy` reports `pack.E004` otherwise. Off: the task reads nothing and answers `{"skipped": "off"}`. Also adds the deletion sentence to the portal banner. |
+| `PACK_BUYER_NOTICE_ENABLED` | off | The day-76 email (task `pack.buyer_notice`). It is never sent unless `PACK_PURGE_ENABLED` is on too (`pack.E005`). Off: nothing is read or sent. |
+
+Set them on `worker` (the process that runs the tasks) and on `api` (the banner). They are read by name only; see `docs/runbooks/billing.md`, "Worker and beat".
+
+### The purge
+
+At `billing.deletion_point(site)`, for every site whose subscription has ended and whose stored deletion date has passed, **whether the site is served or not and a removed site included**, one transaction per site under the site's row lock clears:
+
+| Table | Cleared |
+|---|---|
+| `SanteRegistration` | date of birth, both usernames; `details_purged_at` set. Status and row stay |
+| `SanteRegistrationEvent` | the note, and the actor label of a member's event (append-only table: the one sanctioned bypass, as account disposal) |
+| `PackOrder` | `buyer_name` becomes `Deleted buyer`, `delivery_address` becomes `{}`. Money, number, status and shipment stay |
+| `Member` | `delivery_address`. Name, mobile and email stay until the store-data deletion executor exists |
+| `CheckoutToken` | every row of the site |
+| `MemberSession`, `MemberContactAudit` | the visitor address |
+| `PackProofSubmission` | sender name, sender account number, sender bank, visitor address, reference number, the account snapshot (public id, name, last four), and the transfer time (set to the submission time). Amount, seq, kind and bank name stay |
+
+**Proof files.** A file is deleted only while the constant `PROOF_EXPORT_READY_FROM` (`apps/pack/purge.py`) is a date not later than the day the site's service ended, so the export held images for its whole 30-day window. It is `None` today, so **no proof file is deleted**: the files stay in the private store, no route shows them, and the personal columns above still clear. The store-data export extension (z8uq9mbu0p) sets the constant in the change that adds images to the export. A store that is down on a deletion leaves the key and the next hourly pass retries it.
+
+**Not covered.** The Subscriber's receiving accounts: `apps.payments.retention.blank_payments_of` works per account, not per site, so no per-site helper exists to reuse. Holds and run tables, the Finance resolver, admin gates and anything Xendit are deferred (decision B2). The date-of-birth erase `pack_registration_details` (D3, its own switch `DOB_ERASE_ENABLED`) is unchanged and runs on its own age clock.
+
+**Behaviour.** Idempotent: a second pass changes nothing, and rows made after a restore are cleared by the next pass. A reactivated site has no deletion date, so nothing runs for it. A payment in flight does not delay it. A site that fails is logged as `Pack purge failed for site <pk> (<exception class>)` and the loop goes on. From the instant of the point every registration action (details, delivery, the T8 move) is refused, whether or not the pass has run.
+
+**Hold.** There is no holds table. To hold the deletion of buyer data for a legal or fraud reason, turn `PACK_PURGE_ENABLED` off: that holds every site. Turn it on again when the hold ends; the next hourly pass clears what is due.
+
+### The notice
+
+14 x 24 hours before the deletion point, each member with a verified order on the site gets one email (category `pack_buyer_notice`): subject "Your {store name} order view closes on {date} at {time}.", and the body of Coach Ed's block C, word for word. The date and time are Manila time and equal the deletion point. Once per (site, member, deletion date): table `PackBuyerNotice` (migration `pack.0005_buyer_notice`). It also holds the number of tries, the last try, and when it was given up, never an address or the text.
+
+- A failed send is tried again every 6 hours, at most 6 retries (7 tries in all), and only while the point has not been reached.
+- Before each send the subscription is read again; the email goes only while the service has ended and the point is still the recorded one. A reactivated site sends nothing.
+- A window missed (an outage past the point) sends nothing. A notice given up (point passed, retries used up, or a disposed address) is logged once: `Pack buyer notice given up (<reason>): site <pk>, member <pk>.` There is no alert table; watch the worker log for that line.
+- No text message.
 
 ## Turning it off
 

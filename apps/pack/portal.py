@@ -31,6 +31,12 @@ BUYER_PORTAL_READY = True
 
 NOTICE_DAYS = 14
 NEUTRAL_BANNER = "This store is not taking orders."
+# Block C (Coach Ed, 2026-11-13): the deletion sentence of the day-76 email, added to the banner
+# only while PACK_PURGE_ENABLED is on.
+DELETION_LINE = (
+    "On or shortly after that time, the personal registration and delivery details held for your "
+    "order (such as your date of birth, usernames and delivery address) are deleted or anonymised."
+)
 
 
 def not_found():
@@ -95,6 +101,9 @@ def _time(stamp):
     return f"{local.hour % 12 or 12}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'}"
 
 
+manila, day_text, time_text = _manila, _day, _time  # the same Manila wording, for the purge and the day-76 email
+
+
 def banner(found):
     """The neutral line, and, in the last 14 days, when the page closes. It says nothing about
     deletion or about why the store is off."""
@@ -102,11 +111,14 @@ def banner(found):
         return NEUTRAL_BANNER
     if found.now < found.closes_at - timedelta(days=NOTICE_DAYS):
         return NEUTRAL_BANNER
-    return (
+    text = (
         f"This store stopped taking orders on {_day(found.service_end)}. You can view your order "
         f"here until {_time(found.closes_at)} Philippine time on {_day(found.closes_at)}. "
         "After that this page closes."
     )
+    if settings.PACK_PURGE_ENABLED:  # the deletion line is true only while the purge runs (block C)
+        text += " " + DELETION_LINE
+    return text
 
 
 def closes_at_text(found):

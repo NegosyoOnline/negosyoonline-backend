@@ -14,6 +14,18 @@ def check_pack_dependencies(app_configs, **kwargs):
             hint="Shipment is recorded on Membership Pack orders; turn PACK_ENABLED on first.",
             id="pack.E003",
         ))
+    if settings.PACK_PURGE_ENABLED and not settings.PACK_ENABLED:
+        found.append(Error(
+            "PACK_PURGE_ENABLED is on but PACK_ENABLED is not.",
+            hint="The purge clears Membership Pack buyer data; turn PACK_ENABLED on first.",
+            id="pack.E004",
+        ))
+    if settings.PACK_BUYER_NOTICE_ENABLED and not settings.PACK_PURGE_ENABLED:
+        found.append(Error(
+            "PACK_BUYER_NOTICE_ENABLED is on but PACK_PURGE_ENABLED is not.",
+            hint="The day-76 email promises the purge; turn PACK_PURGE_ENABLED on first.",
+            id="pack.E005",
+        ))
     if not settings.PACK_ENABLED:
         return found
     if not settings.MEMBERS_ENABLED:

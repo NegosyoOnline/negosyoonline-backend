@@ -56,7 +56,7 @@ A paid Membership Pack buyer of a Santé site that is suspended, or cancelled pa
 - **Shows** only the buyer's own verified order: number, amount, payment label, shipment, own proofs, registration label and line. Never the address, receiver, date of birth, usernames, contacts, billing facts or other buyers.
 - **Banner.** "This store is not taking orders." and, from 14 days before the closing instant, when the page closes. It says nothing about deletion or why the store is off.
 - **Sale gate (L45).** `BUYER_PORTAL_READY` in `apps/pack/portal.py` is a code constant, `True`. While it is `False`, `checkout/contact/` and `place_pack_order` answer the unserved-site 404; product orders are not touched. No variable, no migration.
-- Not built here: the personal-data purge at the deletion point and the day-76 email.
+- **Purge and day-76 email** (ClickUp z8uq9mep8p): behind `PACK_PURGE_ENABLED` and `PACK_BUYER_NOTICE_ENABLED`, both off by default; see `docs/runbooks/retention.md`. With the purge on, the banner's last-14-days text also carries the deletion sentence of the email. Migration `pack.0005_buyer_notice` (one new table) is written, not run; the Supervisor runs it on staging after merge, before `PACK_BUYER_NOTICE_ENABLED` is turned on there. Never on production without Coach Ed.
 
 ## Local check
 
