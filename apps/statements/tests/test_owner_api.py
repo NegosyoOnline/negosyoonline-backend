@@ -80,7 +80,7 @@ class SwitchTests(OwnerStatementsCase):
             with override_settings(**settings):
                 for path in paths:
                     with CaptureQueriesContext(connection) as queries:
-                        response = self.client.get(self.base + path)
+                        response = self.get(self.base + path)
                     self.assertEqual(response.status_code, 404, path)
                     self.only_the_session_read(queries)
                 with CaptureQueriesContext(connection) as queries:
@@ -103,7 +103,7 @@ class SwitchTests(OwnerStatementsCase):
 
 class ProfileTests(OwnerStatementsCase):
     def test_get_with_none_saved_answers_the_empty_profile(self):
-        body = self.client.get(self.base + "profile/").json()
+        body = self.get(self.base + "profile/").json()
         self.assertEqual(body, {
             "company_name": "", "billing_email": "", "address": "", "tin": "",
             "updated_at": None,
@@ -115,7 +115,7 @@ class ProfileTests(OwnerStatementsCase):
         body = response.json()
         self.assertEqual({k: body[k] for k in PROFILE}, PROFILE)
         self.assertIsNotNone(body["updated_at"])
-        self.assertEqual(self.client.get(self.base + "profile/").json(), body)
+        self.assertEqual(self.get(self.base + "profile/").json(), body)
         changed = {**PROFILE, "tin": "", "address": ""}
         self.assertEqual(self.put_profile(changed).status_code, 200)
         self.assertEqual(BillingProfile.objects.filter(site=self.site).count(), 1)
@@ -154,17 +154,17 @@ class ProfileTests(OwnerStatementsCase):
         self.assertEqual(response.status_code, 429)
 
     def test_another_subscribers_profile_is_a_404_for_get_and_put(self):
-        self.assertEqual(self.client.get(f"/v1/sites/{self.ben_site_id}/billing/profile/").status_code, 404)
+        self.assertEqual(self.get(f"/v1/sites/{self.ben_site_id}/billing/profile/").status_code, 404)
         self.assertEqual(self.put_profile(PROFILE, site_id=self.ben_site_id).status_code, 404)
         self.assertEqual(BillingProfile.objects.get(site=self.ben_site).company_name, "Ben Co")
         self.assertEqual(
-            self.client.get("/v1/sites/site_unknown/billing/profile/").status_code, 404
+            self.get("/v1/sites/site_unknown/billing/profile/").status_code, 404
         )
 
     def test_a_removed_site_is_a_404(self):
         from django.utils import timezone
         Site.objects.filter(pk=self.site.pk).update(deleted_at=timezone.now())
-        self.assertEqual(self.client.get(self.base + "profile/").status_code, 404)
+        self.assertEqual(self.get(self.base + "profile/").status_code, 404)
 
     def test_a_profile_leaves_issued_statements_alone(self):
         statement = issue_for(self.site, 2)
@@ -176,22 +176,22 @@ class ProfileTests(OwnerStatementsCase):
 class StatementListTests(OwnerStatementsCase):
     def test_empty(self):
         self.assertEqual(
-            self.client.get(self.base + "statements/").json(), {"items": [], "next_cursor": None}
+            self.get(self.base + "statements/").json(), {"items": [], "next_cursor": None}
         )
 
     def test_newest_first_with_a_cursor_and_only_my_own(self):
         made = [issue_for(self.site, n) for n in (1, 2, 3)]
-        first = self.client.get(self.base + "statements/?limit=2").json()
+        first = self.get(self.base + "statements/?limit=2").json()
         self.assertEqual([i["number"] for i in first["items"]], [made[2].number, made[1].number])
         self.assertEqual(first["next_cursor"], made[1].public_id)
-        second = self.client.get(self.base + f"statements/?limit=2&cursor={first['next_cursor']}").json()
+        second = self.get(self.base + f"statements/?limit=2&cursor={first['next_cursor']}").json()
         self.assertEqual([i["number"] for i in second["items"]], [made[0].number])
         self.assertIsNone(second["next_cursor"])
         self.assertNotIn(self.ben_statement.number, str(first) + str(second))
 
     def test_a_row_carries_only_the_listed_keys(self):
         issue_for(self.site, 1)
-        row = self.client.get(self.base + "statements/").json()["items"][0]
+        row = self.get(self.base + "statements/").json()["items"][0]
         self.assertEqual(set(row), {
             "number", "kind", "document_type", "issued_at", "period_start", "period_end",
             "total_centavos", "currency", "is_test", "delivery_state",
@@ -206,17 +206,17 @@ class StatementListTests(OwnerStatementsCase):
                 statement=statement, to_email="a@example.test", status=status, attempt=attempt,
                 idempotency_key=f"deliver:{statement.pk}:{attempt}",
             )
-        row = self.client.get(self.base + "statements/").json()["items"][0]
+        row = self.get(self.base + "statements/").json()["items"][0]
         self.assertEqual(row["delivery_state"], "sent")
 
     def test_bad_cursors_are_refused(self):
         for cursor in ("junk", self.ben_statement.public_id):
-            response = self.client.get(self.base + f"statements/?cursor={cursor}")
+            response = self.get(self.base + f"statements/?cursor={cursor}")
             self.assertEqual(response.status_code, 400, cursor)
             self.assertEqual(response.json()["error"]["code"], "invalid_cursor")
 
     def test_another_subscribers_site_is_a_404(self):
-        response = self.client.get(f"/v1/sites/{self.ben_site_id}/billing/statements/")
+        response = self.get(f"/v1/sites/{self.ben_site_id}/billing/statements/")
         self.assertEqual(response.status_code, 404)
 
 
@@ -228,13 +228,13 @@ class StatementDetailTests(OwnerStatementsCase):
             original=original, total_centavos=-1000, source_key="adjustment:x:1",
             adjustment_reason="goodwill",
         )
-        body = self.client.get(self.base + f"statements/{adjustment.number}/").json()
+        body = self.get(self.base + f"statements/{adjustment.number}/").json()
         self.assertEqual(body["original_number"], original.number)
         self.assertEqual(body["total_centavos"], -1000)
         self.assertEqual(body["label"], adjustment.label)
         self.assertEqual(body["bill_to"], {"name": "Ana"})
         self.assertEqual(body["lines"][0]["amount_centavos"], 39900)
-        plain = self.client.get(self.base + f"statements/{original.number}/").json()
+        plain = self.get(self.base + f"statements/{original.number}/").json()
         self.assertIsNone(plain["original_number"])
         for hidden in ("pdf_key", "pdf_sha256", "pdf_size", "source_key", "id", "public_id"):
             self.assertNotIn(hidden, plain)
@@ -242,18 +242,18 @@ class StatementDetailTests(OwnerStatementsCase):
     def test_unknown_and_malformed_numbers_are_a_404(self):
         for number in ("NOBS-2026-000777", "junk", "NOBS-2026-1"):
             self.assertEqual(
-                self.client.get(self.base + f"statements/{number}/").status_code, 404, number
+                self.get(self.base + f"statements/{number}/").status_code, 404, number
             )
 
     def test_another_subscribers_statement_is_a_404_on_my_site_and_on_his(self):
         number = self.ben_statement.number
         for path in (self.base, f"/v1/sites/{self.ben_site_id}/billing/"):
             for suffix in ("", "pdf/"):
-                response = self.client.get(path + f"statements/{number}/{suffix}")
+                response = self.get(path + f"statements/{number}/{suffix}")
                 self.assertEqual(response.status_code, 404, path + suffix)
         self.read.assert_not_called()
         # The owner himself can read it.
-        ok = self.ben.get(f"/v1/sites/{self.ben_site_id}/billing/statements/{number}/")
+        ok = self.get(f"/v1/sites/{self.ben_site_id}/billing/statements/{number}/", client=self.ben)
         self.assertEqual(ok.status_code, 200)
 
     def test_no_route_edits_a_statement(self):
@@ -268,7 +268,7 @@ class StatementDetailTests(OwnerStatementsCase):
 class StatementPdfTests(OwnerStatementsCase):
     def test_the_stored_file_is_served_with_private_headers(self):
         statement = issue_for(self.site, 1)
-        response = self.client.get(self.base + f"statements/{statement.number}/pdf/")
+        response = self.get(self.base + f"statements/{statement.number}/pdf/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, PDF_BYTES)
         self.assertEqual(response["Content-Type"], "application/pdf")
@@ -280,7 +280,7 @@ class StatementPdfTests(OwnerStatementsCase):
     def test_a_store_failure_answers_503_and_leaks_nothing(self):
         statement = issue_for(self.site, 1)
         self.read.side_effect = private_files.StoreError("vercel token secret")
-        response = self.client.get(self.base + f"statements/{statement.number}/pdf/")
+        response = self.get(self.base + f"statements/{statement.number}/pdf/")
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["error"]["code"], "statement_store_unavailable")
         self.assertNotIn(b"secret", response.content)
@@ -289,6 +289,6 @@ class StatementPdfTests(OwnerStatementsCase):
     def test_a_file_that_does_not_match_its_hash_answers_503(self):
         statement = issue_for(self.site, 1)
         self.read.return_value = b"another file"
-        response = self.client.get(self.base + f"statements/{statement.number}/pdf/")
+        response = self.get(self.base + f"statements/{statement.number}/pdf/")
         self.assertEqual(response.status_code, 503)
         self.assertNotIn(b"another file", response.content)
