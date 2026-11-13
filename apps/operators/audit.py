@@ -45,6 +45,7 @@ ACTIONS = {
     "account_disposed": KEPT,
     "account_exported": KEPT,
     "pack_files_exported": KEPT,
+    "pack_test_member_removed": KEPT,
     "billing_exempt_set": KEPT,
     "billing_payment_confirmed": KEPT,
     "billing_payment_rejected": KEPT,

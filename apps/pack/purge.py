@@ -75,8 +75,15 @@ def due_site_ids(now):
     )
 
 
-def _clear_details(site_id, now):
-    registrations = SanteRegistration.objects.filter(site_id=site_id)
+def _clear_details(site_id, now, member_id=None):
+    """Clear the personal values of a site's Pack buyers, or of one member only (`member_id`, the
+    test-member removal, ClickUp z8uq9mewx1). Returns the number of rows each step matched."""
+    def scoped(queryset, member_field="member_id"):
+        queryset = queryset.filter(site_id=site_id)
+        return queryset.filter(**{member_field: member_id}) if member_id else queryset
+
+    counts = {}
+    registrations = scoped(SanteRegistration.objects)
     registrations.filter(
         Q(date_of_birth__isnull=False) | ~Q(desired_username="") | ~Q(alternate_username="")
         | Q(details_purged_at__isnull=True)
@@ -84,24 +91,44 @@ def _clear_details(site_id, now):
         date_of_birth=None, desired_username="", alternate_username="",
         details_purged_at=now,
     )
+    counts["sante_registrations"] = registrations.count()
     # Append-only tables refuse queryset writes; the purge is the sanctioned exception, through
     # the plain base manager, as an account disposal does.
-    events = SanteRegistrationEvent._base_manager.filter(site_id=site_id)
+    events = scoped(SanteRegistrationEvent._base_manager, "registration__member_id")
     events.exclude(note="").update(note="")
     events.filter(actor_type="member").exclude(actor_label="").update(actor_label="")
-    orders = PackOrder.objects.filter(site_id=site_id)
+    counts["sante_registration_events"] = events.count()
+    orders = scoped(PackOrder.objects)
     orders.exclude(buyer_name=BUYER_PLACEHOLDER).update(buyer_name=BUYER_PLACEHOLDER)
     orders.exclude(delivery_address={}).update(delivery_address={})
-    Member.objects.filter(site_id=site_id).exclude(delivery_address={}).update(delivery_address={})
-    CheckoutToken.objects.filter(site_id=site_id).delete()
-    MemberSession.objects.filter(site_id=site_id).exclude(ip_advisory="").update(ip_advisory="")
-    MemberContactAudit.objects.filter(site_id=site_id).exclude(ip_advisory="").update(ip_advisory="")
+    counts["pack_orders"] = orders.count()
+    members = Member.objects.filter(site_id=site_id)
+    members = members.filter(pk=member_id) if member_id else members
+    members.exclude(delivery_address={}).update(delivery_address={})
+    if member_id:
+        # A guest-checkout token holds the contact typed at checkout and points at its order.
+        tokens = CheckoutToken.objects.filter(
+            site_id=site_id, order_ref__in=list(orders.values_list("pk", flat=True))
+        )
+    else:
+        tokens = CheckoutToken.objects.filter(site_id=site_id)
+    counts["checkout_tokens"] = tokens.count()
+    tokens.delete()
+    sessions = scoped(MemberSession.objects)
+    sessions.exclude(ip_advisory="").update(ip_advisory="")
+    counts["member_sessions"] = sessions.count()
+    audits = scoped(MemberContactAudit.objects)
+    audits.exclude(ip_advisory="").update(ip_advisory="")
+    counts["member_contact_audits"] = audits.count()
     # The member's address-edit history (old and new address, advisory IP): append-only, so the
     # base manager again; rows stay, only the personal values go.
-    address_events = MemberAddressEvent._base_manager.filter(site_id=site_id)
+    address_events = scoped(MemberAddressEvent._base_manager)
     address_events.exclude(old={}, new={}, ip_advisory="").update(old={}, new={}, ip_advisory="")
-    proofs = PackProofSubmission._base_manager.filter(site_id=site_id)
+    counts["member_address_events"] = address_events.count()
+    proofs = scoped(PackProofSubmission._base_manager, "order__member_id")
     proofs.update(**{name: "" for name in PROOF_TEXT_FIELDS}, transferred_at=F("submitted_at"))
+    counts["pack_proof_submissions"] = proofs.count()
+    return counts
 
 
 def _delete_files(site_id):
