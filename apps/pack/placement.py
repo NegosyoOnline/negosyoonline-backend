@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from django.db import transaction
 from django.utils import timezone
 
+from apps.billing import services as billing
 from apps.common import private_files
 from apps.common.errors import ApiError
 from apps.members import contacts, services as members
@@ -100,6 +101,10 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
             if again is not None:
                 transaction.on_commit(lambda: private_files.discard(file_key))
                 return Placed(again, True)
+            if locked.deleted_at or locked.operator_hold or not billing.position(locked).storefront_served:
+                # The storefront's own refusal, asked again under the lock: a request that passed it
+                # and then lost service (sweep, cancellation, due date, operator hold) creates nothing.
+                raise ApiError("not_found", "Not found.", status=404)
             if not payments.any_method(locked) or not payments.active_accounts(locked).filter(
                 pk=proof.account.pk
             ).exists():

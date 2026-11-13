@@ -110,7 +110,7 @@ def record_storage_snapshot(
     outcome, so a producer has nothing to retry. The producer passes merchant-uploaded
     business media only: billing cannot tell a receipt from a banner.
     """
-    if not plan.usage_enabled():
+    if not plan.usage_switch_on():
         return UsageResult("disabled")
     if not plan.STORAGE_METERED:
         return UsageResult("not_metered")  # L13: not metered until the media task decides
