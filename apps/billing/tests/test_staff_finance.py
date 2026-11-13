@@ -3,9 +3,12 @@ transfer proofs. They are reached only through the staff routes' own origin and 
 checks, and they are closed while bank transfer is off."""
 import ast
 import json
+import re
 from datetime import date, datetime
 from unittest import mock, skipUnless
 
+from django.core import mail
+from django.core.cache import cache
 from django.db import connection
 from django.test import Client, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -123,6 +126,45 @@ class FinanceGateTests(FinanceTestCase):
                 self.finance(path, {"payment": payment.public_id}), 401, "second_step_required"
             )
         self.assertEqual(fresh(payment.subscription).state, Subscription.State.TRIAL_ACTIVE)
+        self.assertEqual(BankTransferPayment.objects.get().status, Status.SUBMITTED)
+        self.assertEqual(self.entries("billing_proof_viewed"), [])
+
+    def test_a_caller_with_no_session_is_refused_on_every_finance_route_and_nothing_changes(self):
+        payment = submit(make_subscription(), SENT)
+        before = list(BankTransferPayment.objects.values())
+        for path in staff.ROUTES:
+            response = self.call("POST", "/staff/v1/" + path, {"payment": payment.public_id}, client=Client())
+            self.assertError(response, 401, "unauthenticated")
+        self.assertEqual(list(BankTransferPayment.objects.values()), before)
+        self.assertEqual(self.entries("billing_proof_viewed"), [])
+
+    def test_a_subscribers_signed_in_session_is_refused_on_every_finance_route(self):
+        # A Subscriber signs in through the owner API; the test client then carries that session
+        # cookie to the hq host, as a browser holding both could. Staff routes read only the
+        # operator session, so the answer is the same 401 as for no session at all.
+        subscriber = Client()
+        cache.clear()
+        api = {"secure": True, "HTTP_ORIGIN": "https://dash.example.test"}
+        with override_settings(API_ALLOWED_ORIGINS=["https://dash.example.test"]):
+            subscriber.post(
+                "/v1/auth/email-code/request/", data=json.dumps({"email": "zoe@subscriber.test"}),
+                content_type="application/json", **api,
+            )
+            code = re.search(r"\b(\d{6})\b", mail.outbox[-1].body).group(1)
+            signed = subscriber.post(
+                "/v1/auth/email-code/verify/",
+                data=json.dumps({"email": "zoe@subscriber.test", "code": code, "accept_policies": True}),
+                content_type="application/json", **api,
+            )
+            self.assertIn(signed.status_code, (200, 201), signed.content)
+            self.assertEqual(subscriber.get("/v1/account/", secure=True).status_code, 200)
+        payment = submit(make_subscription(), SENT)
+        for path in staff.ROUTES:
+            response = self.call(
+                "POST", "/staff/v1/" + path, {"payment": payment.public_id}, client=subscriber
+            )
+            self.assertError(response, 401, "unauthenticated")
+            self.assertNotIn(payment.public_id, response.content.decode())
         self.assertEqual(BankTransferPayment.objects.get().status, Status.SUBMITTED)
         self.assertEqual(self.entries("billing_proof_viewed"), [])
 

@@ -127,6 +127,38 @@ class ExportAccountDataTests(DisposalTestCase):
         self.assertFalse(exported().exists())
 
 
+@override_settings(PACK_ENABLED=True)
+class ExportScopeTests(DisposalTestCase):
+    """Both accounts hold Pack data; the export of one carries none of the other's rows."""
+
+    def test_an_export_holds_this_accounts_pack_rows_and_none_of_the_other_accounts(self):
+        from apps.payments.tests.base import use_local_private_store
+        use_local_private_store(self)
+        from apps.pack import constants as C
+        from apps.pack.tests.owner_base import make_order
+        from apps.sites.models import Site
+
+        mine, mine_proof = make_order(Site.objects.get(account=self.account), status=C.VERIFIED)
+        theirs, their_proof = make_order(Site.objects.get(account=self.other), status=C.VERIFIED)
+
+        data = rules.export_account_data(
+            self.account, actor=self.operator, request_ref="DPO-2026-003"
+        )
+        text = json.dumps(data)
+
+        self.assertIn(mine.public_id, text)
+        self.assertIn(mine.order_number, text)
+        for foreign in (
+            theirs.public_id, theirs.order_number, theirs.member.public_id, theirs.buyer_name,
+            theirs.member.email, theirs.member.mobile, their_proof.public_id,
+            their_proof.file_key, mine_proof.file_key, self.other.public_id,
+            Site.objects.get(account=self.other).public_id,
+        ):
+            self.assertNotIn(foreign, text)
+        self.assertEqual({row["site"] for row in data["pack_orders"]},
+                         {Site.objects.get(account=self.account).public_id})
+
+
 class ExportAccountCommandTests(DisposalTestCase):
     def setUp(self):
         super().setUp()
