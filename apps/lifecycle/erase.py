@@ -12,7 +12,7 @@ ledger, audit) apart from the new audit entries and, for a suspended site's open
 write-off that the billing sweep makes at this same date (`usage.write_off_unreturned`, R-4c).
 
 Pack proof files are never deleted here (L67): the Pack purge's own gate `files_deletable` decides,
-and it is closed until z8uq9mbu0p sets `PROOF_EXPORT_READY_FROM`.
+and it is open only for a site whose service ended on or after `PROOF_EXPORT_READY_FROM`.
 """
 from apps.accounts import retention as account_retention
 from apps.accounts.models import Account
@@ -20,6 +20,7 @@ from apps.billing import usage
 from apps.billing.models import Subscription
 from apps.common import retention
 from apps.inbox import retention as inbox_retention
+from apps.inquiries import retention as inquiries_retention
 from apps.lifecycle import dry_run, eligibility
 from apps.lifecycle.models import ErasureItem
 from apps.members import retention as member_retention
@@ -65,6 +66,7 @@ BLANKED = {
     inbox_retention.MESSAGES: ["all rows deleted"],
     inbox_retention.CONTACTS: ["all rows deleted"],
     inbox_retention.GROUPS: ["all rows deleted"],
+    **inquiries_retention.blanked(),
 }
 
 
@@ -168,6 +170,7 @@ def erase_item(batch, item, now):
     counts.update(shop_retention.blank_shop(sites, ignore_switch=True, last4=True))
     counts.update(meta_retention.blank_meta(sites))
     counts.update(inbox_retention.erase_site_inbox(sites))
+    counts.update(inquiries_retention.blank_inquiries(sites))
     if seals:
         counts[dry_run.SEAL_FILES] = seals
     files = seals + sum(counts.get(key, 0) for key in dry_run.FILE_KEYS)

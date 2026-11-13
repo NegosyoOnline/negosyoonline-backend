@@ -8,7 +8,7 @@ import shutil
 import stat
 import tempfile
 import zipfile
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -319,9 +319,9 @@ class SafetyTests(ExportBase):
         )
         self.assertEqual(entry.personal, {})
 
-    def test_t10_the_gate_is_unchanged(self):
-        self.assertIsNone(purge.PROOF_EXPORT_READY_FROM)
-        self.assertFalse(purge.files_deletable(SUSPENDED_AT))
+    def test_t10_the_gate_is_open_from_the_ready_day(self):
+        self.assertEqual(purge.PROOF_EXPORT_READY_FROM, date(2026, 11, 14))
+        self.assertTrue(purge.files_deletable(SUSPENDED_AT))
 
     def test_t11_it_writes_no_pack_row(self):
         def state():

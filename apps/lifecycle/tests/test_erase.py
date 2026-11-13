@@ -21,6 +21,8 @@ from apps.meta_ads.models import MetaOrderContext, MetaSettings
 from apps.operators.audit import ACTIONS, KEPT
 from apps.operators.models import OperatorAuditEntry
 from apps.inbox.models import Contact, ContactGroup, Conversation, ConversationMessage, DoNotText
+from apps.inquiries import retention as inquiries_retention
+from apps.inquiries.models import InquiryConnection, InquiryConversation
 from apps.pack import purge
 from apps.pack.models import CheckoutToken, PackOrder, PackProofSubmission, SanteRegistration
 from apps.payments.models import SitePaymentAccount
@@ -41,7 +43,8 @@ class PerTableTests(RunTestCase):
             "shop_proofs": ShopProofSubmission._base_manager.count(),
             "subdomains": Subdomain.objects.count(), "sites": Site.objects.count(),
         }
-        self.result = self.run_batch(self.approved())
+        with mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None):  # gate closed
+            self.result = self.run_batch(self.approved())
 
     def test_the_run_erases_the_site(self):
         self.assertEqual(self.result["erased"], 1)
@@ -125,6 +128,82 @@ class PerTableTests(RunTestCase):
         self.assertEqual(item.counts["sites"], 1)
 
 
+def plant_inquiries(site, token="PANCAKE-CIPHER", name="Zuleika Customer"):
+    connection = InquiryConnection.objects.create(
+        site=site, status=InquiryConnection.ACTIVE, token_encrypted=token, external_page_id="page-1",
+    )
+    conversation = InquiryConversation.objects.create(
+        site=site, connection=connection, provider="pancake", external_id="conv-1", display_name=name,
+    )
+    return connection, conversation
+
+
+class InquiriesErasureTests(RunTestCase):
+    """The Pancake token and the customer names go with an erased site (z8uq9md3n6)."""
+
+    def setUp(self):
+        super().setUp()
+        self.connection, self.conversation = plant_inquiries(self.site)
+        # A site of the same account that is not due keeps the account, so the account step
+        # does not blank these rows itself.
+        self.other = second_site(self.sub)
+        self.other_connection, self.other_conversation = plant_inquiries(self.other, "OTHER-CIPHER", "Other Customer")
+        # A site of another account, not in the batch.
+        self.stranger = ended_site(email="bo@example.test", name="bos-store").site
+        self.stranger_connection, self.stranger_conversation = plant_inquiries(
+            self.stranger, "STRANGER-CIPHER", "Stranger Customer",
+        )
+
+    def test_the_token_status_and_customer_name_are_blank_and_counted(self):
+        batch = self.approved()
+        self.run_batch(batch)
+        connection = InquiryConnection.objects.get(pk=self.connection.pk)
+        self.assertEqual((connection.token_encrypted, connection.status), ("", InquiryConnection.UNSET))
+        self.assertEqual(InquiryConversation.objects.get(pk=self.conversation.pk).display_name, "")
+        item = self.item(batch)
+        self.assertFalse(item.account_disposed)
+        self.assertEqual(item.counts["inquiry_connections"], 1)
+        self.assertEqual(item.counts["inquiry_conversations"], 1)
+
+    def test_other_sites_are_untouched(self):
+        self.run_batch(self.approved())
+        for connection, conversation, token, name in (
+            (self.other_connection, self.other_conversation, "OTHER-CIPHER", "Other Customer"),
+            (self.stranger_connection, self.stranger_conversation, "STRANGER-CIPHER", "Stranger Customer"),
+        ):
+            row = InquiryConnection.objects.get(pk=connection.pk)
+            self.assertEqual((row.token_encrypted, row.status), (token, InquiryConnection.ACTIVE))
+            self.assertEqual(InquiryConversation.objects.get(pk=conversation.pk).display_name, name)
+
+    def test_the_audit_entry_names_the_inquiry_fields_and_holds_no_value(self):
+        self.run_batch(self.approved())
+        entry = OperatorAuditEntry.objects.get(action="site_data_erased")
+        for table, fields in inquiries_retention.blanked().items():
+            self.assertEqual(entry.detail["blanked"][table], fields)
+        text = json.dumps(entry.detail)
+        for value in ("PANCAKE-CIPHER", "Zuleika Customer"):
+            self.assertNotIn(value, text)
+
+    def test_it_blanks_whatever_the_inquiries_switch_says(self):
+        with override_settings(INQUIRIES_ENABLED=False):
+            self.run_batch(self.approved())
+        self.assertEqual(InquiryConnection.objects.get(pk=self.connection.pk).token_encrypted, "")
+
+    def test_the_dry_run_reports_the_same_counts_and_changes_nothing(self):
+        from apps.lifecycle.dry_run import erasure_dry_run
+
+        before = every_row()
+        entry = erasure_dry_run(NOW)["eligible"][0]
+        self.assertEqual(every_row(), before)
+        self.assertEqual(entry["site"], self.site.public_id)
+        self.assertEqual((entry["counts"]["inquiry_connections"], entry["counts"]["inquiry_conversations"]), (1, 1))
+        batch = self.approved()
+        self.run_batch(batch)
+        item = self.item(batch)
+        for key in ("inquiry_connections", "inquiry_conversations"):
+            self.assertEqual(item.counts[key], entry["counts"][key])
+
+
 class KeptListTests(RunTestCase):
     def test_no_billing_statement_invoice_ledger_or_audit_row_is_changed(self):
         BankTransferPayment.objects.create(
@@ -145,6 +224,7 @@ class KeptListTests(RunTestCase):
         subscription = Subscription.objects.get(pk=self.sub.pk)
         self.assertEqual(subscription.deletion_due_at, DUE)
 
+    @mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None)  # gate closed
     def test_no_billing_proof_key_is_deleted(self):
         key = private_files.save("billing/proofs", b"\x89PNG\r\n\x1a\n" + b"1" * 32, "image/png")
         BankTransferPayment.objects.create(
@@ -278,6 +358,7 @@ class IdempotenceTests(RunTestCase):
 
 
 class PackProofTests(RunTestCase):
+    @mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None)  # gate closed
     def test_a_pack_proof_file_is_never_deleted_while_the_export_gate_is_closed(self):
         deleted = []
         real = private_files.delete
@@ -292,6 +373,7 @@ class PackProofTests(RunTestCase):
         )
         self.assertIsNone(purge.PROOF_EXPORT_READY_FROM)
 
+    @mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None)  # gate closed
     def test_the_account_step_keeps_them_too_and_the_file_count_excludes_them(self):
         self.run_batch(self.approved())
         self.assertTrue(account_retention.is_disposed(Account.objects.get(pk=self.site.account_id)))
@@ -351,6 +433,7 @@ class FailureTests(RunTestCase):
         self.assertFalse(account_retention.is_disposed(Account.objects.get(pk=self.site.account_id)))
         self.assertEqual(self.fresh_batch(batch).status, "running")
 
+    @mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None)  # gate closed
     def test_a_later_run_with_the_store_fixed_erases_it_and_a_file_already_gone_counts(self):
         batch = self.approved()
         with self.fail_on_third():
@@ -620,6 +703,7 @@ class PackPurgeOverlapTests(RunTestCase):
             "members": list(Member.objects.order_by("pk").values_list("delivery_address", flat=True)),
         }
 
+    @mock.patch.object(purge, "PROOF_EXPORT_READY_FROM", None)  # gate closed
     def test_purge_first_then_executor_equals_executor_alone(self):
         CheckoutToken.objects.create(
             site=self.site, token_hash="t" * 64, expires_at=NOW, pending_contact={"email": "m@x.test"},
