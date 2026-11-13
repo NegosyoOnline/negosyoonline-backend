@@ -19,7 +19,7 @@ Production does not exist yet. Everything below names staging; production gets t
 ### Railway database backups (read from Railway's documentation on 2026-11-13)
 
 - Schedules a volume can use: daily (every 24 hours, kept 6 days), weekly (every 7 days, kept 27 days), monthly (every 30 days, kept 89 days). Several can be selected; manual backups are possible. Set under the service's Backups tab.
-- What staging has set, seen by Coach Ed in staging Postgres > Backups on 2026-11-13: at first there was no schedule and no backups at all, with PITR off. This was a gap. He then set a schedule (the screen showed "Next backup in 12 hours") and took an on-demand volume backup, 2026-11-13 19:33, 1.11 GB. Schedule boxes: to confirm. Retention: 6 days for a daily backup per Railway's documentation, not confirmed in the console.
+- What staging has set, seen by Coach Ed in staging Postgres > Backups on 2026-11-13: at first there was no schedule and no backups at all, with PITR off. This was a gap. He then set a schedule (the screen showed "Next backup in 12 hours") and took an on-demand volume backup, 2026-11-13 19:33, 1.11 GB. Schedule boxes: not yet confirmed. A screenshot of 2026-11-14 shows volume backups Scheduled with the next backup in 6 hours and one kept backup (2026-11-13 19:33, 1.11 GB, locked), but the daily, weekly and monthly boxes are behind Edit schedule and not shown. Retention: 6 days for a daily backup per Railway's documentation, not confirmed in the console.
 - History: on 2026-11-09 a screenshot of Coach Ed's (NPC Build 4, z8uq9md33y, comment 1100430000451493) showed the staging backup schedule as Daily, with weekly and monthly not set. The 2026-11-13 read found no schedule. Why the two differ is not known: the schedule may have been removed between those dates, or the earlier view may have shown something else. The 2026-11-13 read above is the current state.
 - PITR is left off on purpose: it costs more and redeploys the database. Revisit before production.
 - **A volume backup can only be restored in place**, into the same project and environment. It cannot go to a separate service. Restoring mounts a new volume (named with the backup's date stamp) at the original path; the previous volume stays unmounted in the project; the change takes effect when you click Deploy, which redeploys the service. Newer backups stay with the previous volume.
@@ -33,7 +33,7 @@ Rows hold keys only; a file has a key and no row link in the other direction. Af
 - A row may point at a file that was deleted after the restore point.
 - A file may exist with no row (uploaded after the restore point).
 
-Keys are stored in these columns: `catalog` category and product `image_key`, `billing` `BankTransferPayment.proof_key`, `invoices` `store_key`, `statements` `pdf_key`, `pack` `file_key`, `shop` `ShopProofSubmission.file_key`, `sante` `MembershipAgreementVersion.storage_key`, `sites` `SiteBusinessProfile.seal_key`, and the payment account's QR key (`apps/payments/models.py`). To find rows pointing at a missing file, list the store's keys (Vercel dashboard, or the store's list API with the read-write token on your own machine) and compare with `uv run python manage.py shell`:
+Keys are stored in these columns: `catalog` `CatalogProduct.image_key` and `CatalogProductRevision.image_key`, `billing` `BankTransferPayment.proof_key`, `invoices` `store_key`, `statements` `pdf_key`, `pack` `file_key`, `shop` `ShopProofSubmission.file_key`, `sante` `MembershipAgreementVersion.storage_key`, `sites` `SiteBusinessProfile.seal_key`, and the payment account's QR key (`apps/payments/models.py`). To find rows pointing at a missing file, list the store's keys (Vercel dashboard, or the store's list API with the read-write token on your own machine) and compare with `uv run python manage.py shell`:
 
 ```python
 from apps.billing.models import BankTransferPayment
@@ -120,7 +120,7 @@ SmsMessage.objects.filter(status__in=("queued", "dispatched")).values("public_id
 
 ## 4. Readiness and the heartbeat
 
-`GET /readyz/` (`apps/health/views.py`), unauthenticated, beside `/healthz/`, which is unchanged (liveness only). It answers 200 or 503 with booleans only, for example `{"ok": true, "db": true, "cache": true, "beat": true, "sms_queue": true}`: no versions, counts, hosts or errors.
+`GET /readyz/` (`apps/health/views.py`), unauthenticated, beside `/healthz/`, which is unchanged (liveness only). It answers 200 or 503 with booleans only, for example `{"ok": true, "db": true, "cache": true, "beat": true, "sms_queue": true, "email": true}`: no versions, counts, hosts or errors.
 
 | Field | True when |
 |---|---|
@@ -128,6 +128,7 @@ SmsMessage.objects.filter(status__in=("queued", "dispatched")).values("public_id
 | `cache` | one Redis set and get succeeds within 2 seconds. |
 | `beat` | the heartbeat is under 3 minutes old. The Celery task `health.heartbeat` (`apps/health/tasks.py`) runs every 60 seconds from the `health-heartbeat` beat entry and writes the time to the cache, so a fresh value proves beat, the broker and the worker. With no `REDIS_URL` (tasks run in-process) this is always true. |
 | `sms_queue` | no SMS row has been `queued` for more than 15 minutes. Counted only while `SMS_GATEWAY_ENABLED` is on; otherwise true. |
+| `email` | not (at least `READYZ_EMAIL_FAILURES` of the newest emails sent in the last `READYZ_EMAIL_WINDOW_MINUTES` failed and none sent). Defaults 3 failures and 30 minutes, both environment variables read in `config/settings.py`; change them in Railway without a code change. It reads the newest 20 `EmailMessage` rows by primary key (one query), ignores `pending`, and is true when there are no recent rows. The body says only `true` or `false`, never an address. |
 
 It is limited to 30 calls a minute per client address (answers 429 `{"ok": false}`), using the last `X-Forwarded-For` entry. No migration, no variable, no new service.
 
@@ -164,6 +165,10 @@ Before SENTRY_DSN is set anywhere, staging included: Sentry is a new sub-process
 ### Silencing during a planned restore or maintenance
 
 Pause the uptime monitors (or put them in the service's maintenance window) before step 2 of section 2, and resume them at the end. The Sentry alert needs no silencing. Never delete a monitor to silence it.
+
+### Weekly check
+
+Once a week the Manager checks, read-only, in the Railway dashboard: the Postgres Backups tab shows a backup no older than the schedule (24 hours for a daily schedule), and Postgres volume usage (the service Metrics or Volume view) is below 80%. Record the date and both readings (backup age, usage percent) in the ClickUp rulings or gates record. At 80% or more, or a late backup, raise it with Coach Ed.
 
 ## 6. Restore test (staging only, run 2026-11-13)
 

@@ -200,6 +200,22 @@ class BillingOnlyTests(BillingOnlyTestCase):
 
         self.assert_turned_off()
 
+    def test_the_billing_only_403_writes_one_security_line_without_email_ip_or_ids(self):
+        self.suspend()
+
+        with self.assertLogs("security", level="WARNING") as logs:
+            response = self.call("GET", "/sites/{site_id}/business-profile/")
+
+        self.assertEqual(self.error(response, 403, "billing_only")["message"], MESSAGE)
+        self.assertEqual(len(logs.output), 1, logs.output)
+        line = logs.output[0]
+        self.assertIn("event=billing_only ", line)
+        self.assertIn("reason=billing_only ", line)
+        self.assertIn("authenticated=yes", line)
+        self.assertIn("route=v1/sites/<site_id>/business-profile/", line)
+        for text in ("example.test", "@", "203.0.113", self.site_id, str(self.account.public_id)):
+            self.assertNotIn(text, line)
+
     def test_a_site_past_the_due_date_plus_7_days_even_if_the_sweep_never_ran(self):
         cycle = self.pay_first_cycle()
         self.at(cycle.end_at + days(7))

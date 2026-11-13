@@ -150,7 +150,7 @@ def _owner_site(request, site_id):
     if billing.position(site).billing_only:
         raise ApiError(
             "billing_only", "This site is limited to Billing until its subscription continues.",
-            status=403,
+            status=403, event="billing_only", reason="billing_only",
         )
     return site
 

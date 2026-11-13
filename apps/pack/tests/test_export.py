@@ -179,6 +179,32 @@ class ContentTests(ExportBase):
             self.assertNotIn(gone, blob)
         self.assertEqual(self.audits().count(), 1)
 
+    def test_the_archive_of_one_account_holds_none_of_another_accounts_rows_keys_or_files(self):
+        marker = b"OTHER-TENANT-PROOF-MARKER" * 4
+        foreign, foreign_proof = make_order(
+            self.other_site, status=C.VERIFIED, content=PNG + marker, content_type="image/png"
+        )
+        self.run_export()
+        with zip_of(self.archive_path()) as archive:
+            manifest, pack, root = parts(archive, self.site)
+            names = archive.namelist()
+            raw = b"".join(archive.read(n) for n in names)
+        blob = raw.decode("latin-1")
+
+        mine = {proof.public_id for _, proof in self.orders}
+        self.assertEqual({item["proof"] for item in manifest["files"]}, mine)
+        self.assertEqual(
+            {row["id"] for row in pack["orders"]}, {o.public_id for o, _ in self.orders}
+        )
+        self.assertNotIn(marker, raw)
+        for key in (foreign_proof.file_key, self.foreign_proof.file_key,
+                    self.second_proof.file_key):
+            self.assertNotIn(key, blob)
+        for gone in (foreign.public_id, foreign.order_number, foreign.member.public_id,
+                     foreign.member.email, foreign.member.mobile, foreign_proof.public_id,
+                     self.other_site.public_id, self.other_site.account.public_id):
+            self.assertNotIn(gone, blob)
+
     def test_t3_another_accounts_site_is_refused(self):
         self.assert_refused("No such site for this account", site=self.other_site)
         self.assert_refused("No such site for this account", site=mock.Mock(public_id="site_nope"))
