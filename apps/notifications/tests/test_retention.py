@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest import mock
 
 from django.core.cache import cache
@@ -58,6 +58,77 @@ class EmailMessagesRetentionTests(TestCase):
         self.build()
         retention.run_all(now=self.now, only=[RULE])
         self.assertEqual(EmailMessage.objects.count(), 4)
+
+
+@override_settings(RETENTION_ENABLED=True)
+class BillingEmailRecordsRetentionTests(TestCase):
+    """Records of billing emails follow the Privacy billing period, not the 2-year rule."""
+
+    def record(self, category, created_at):
+        message = EmailMessage.objects.create(recipient="ana@example.test", category=category)
+        EmailMessage.objects.filter(pk=message.pk).update(created_at=created_at)
+
+    def at(self, year, month, day):
+        return datetime(year, month, day, 12, tzinfo=notifications_retention.MANILA)
+
+    def left(self):
+        return sorted(EmailMessage.objects.values_list("category", flat=True))
+
+    def test_a_billing_record_older_than_2_years_is_kept(self):
+        now = self.at(2031, 6, 1)
+        self.record("billing_payment_approved", self.at(2028, 1, 10))
+        self.record("signin_code", self.at(2028, 1, 10))
+        retention.run_all(now=now, only=[RULE])
+        self.assertEqual(self.left(), ["billing_payment_approved"])
+
+    def test_every_named_billing_category_is_kept_at_2_years(self):
+        now = self.at(2031, 6, 1)
+        for category in notifications_retention.BILLING_DOCUMENT_CATEGORIES:
+            self.record(category, self.at(2028, 1, 10))
+        retention.run_all(now=now, only=[RULE])
+        self.assertEqual(
+            self.left(), sorted(notifications_retention.BILLING_DOCUMENT_CATEGORIES)
+        )
+
+    def test_a_billing_notice_that_is_not_a_payment_email_is_deleted_at_2_years(self):
+        now = self.at(2031, 6, 1)
+        for code in ("trial_reminder_1d", "renewal_reminder_7d", "trial_ended",
+                     "service_paused", "export_notice"):
+            self.record(f"billing_{code}", self.at(2028, 1, 10))
+        retention.run_all(now=now, only=[RULE])
+        self.assertEqual(self.left(), [])
+
+    def test_a_non_billing_record_is_still_deleted_at_2_years(self):
+        now = self.at(2031, 6, 1)
+        self.record("signin_code", now - timedelta(days=731))
+        self.record("billing_staff_proof_waiting", now - timedelta(days=731))
+        self.record("signin_code", now - timedelta(days=729))
+        retention.run_all(now=now, only=[RULE])
+        self.assertEqual(len(self.left()), 1)
+
+    def test_a_billing_record_past_its_period_is_deleted(self):
+        # Made in 2025: the 2025 return is due in April 2026; 5 years run to 1 May 2031.
+        self.record("billing_payment_approved", self.at(2025, 12, 31))
+        self.record("billing_payment_approved", self.at(2026, 1, 1))
+        before = self.at(2031, 4, 30)
+        retention.run_all(now=before, only=[RULE])
+        self.assertEqual(EmailMessage.objects.count(), 2)  # the 2025 record is still inside
+        retention.run_all(now=self.at(2031, 5, 1), only=[RULE])
+        self.assertEqual(EmailMessage.objects.count(), 1)  # the 2025 record went, 2026 stays
+        retention.run_all(now=self.at(2032, 5, 1), only=[RULE])
+        self.assertEqual(EmailMessage.objects.count(), 0)
+
+    def test_the_dry_run_counts_the_same_as_a_real_run(self):
+        now = self.at(2031, 6, 1)
+        self.record("signin_code", self.at(2028, 1, 10))
+        self.record("billing_payment_approved", self.at(2028, 1, 10))
+        self.record("billing_payment_approved", self.at(2025, 3, 1))
+        dry = retention.run_all(now=now, dry_run=True, only=[RULE])
+        self.assertEqual(EmailMessage.objects.count(), 3)
+        real = retention.run_all(now=now, only=[RULE])
+        self.assertEqual(dry.counts, {RULE: 2})
+        self.assertEqual(real.counts, dry.counts)
+        self.assertEqual(self.left(), ["billing_payment_approved"])
 
 
 class EarlierAddressRecordsTests(TestCase):
