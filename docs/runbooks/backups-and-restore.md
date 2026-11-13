@@ -11,7 +11,7 @@ Production does not exist yet. Everything below names staging; production gets t
 | Data | Backed up? | Where it lives |
 |---|---|---|
 | PostgreSQL | Railway's scheduled volume backups (below). | Railway Postgres service. |
-| Private Blob files (billing proofs, statement and invoice PDFs, payment QR, pack files) | No. Vercel Blob keeps no versions; a deleted file is gone. | Private Vercel Blob store, `PRIVATE_BLOB_READ_WRITE_TOKEN`. |
+| Private Blob files (billing proofs, shop payment proofs, statement and invoice PDFs, payment QR, pack files, membership agreement files, business seals) | No. Vercel Blob keeps no versions; a deleted file is gone. | Private Vercel Blob store, `PRIVATE_BLOB_READ_WRITE_TOKEN`. |
 | Public Blob files (catalog images) | No. Same as above. | Public Vercel Blob store, `PUBLIC_BLOB_READ_WRITE_TOKEN`. |
 | Redis | No, by design. | Railway Redis. Holds sign-in and verification codes, throttle counters, the encrypted text of queued SMS, the Celery queue and the beat heartbeat. Losing it expires codes and drops queued SMS texts. |
 | Variables | By name only, here and in `docs/runbooks/billing.md`. Values are in Railway (api, worker, beat) and Vercel and nowhere in the repository. | Railway service variables; Vercel project variables. |
@@ -33,7 +33,7 @@ Rows hold keys only; a file has a key and no row link in the other direction. Af
 - A row may point at a file that was deleted after the restore point.
 - A file may exist with no row (uploaded after the restore point).
 
-Keys are stored in these columns: `catalog` category and product `image_key`, `billing` `BankTransferPayment.proof_key`, `invoices` `store_key`, `statements` `pdf_key`, `pack` `file_key`, and the payment account's QR key (`apps/payments/models.py`). To find rows pointing at a missing file, list the store's keys (Vercel dashboard, or the store's list API with the read-write token on your own machine) and compare with `uv run python manage.py shell`:
+Keys are stored in these columns: `catalog` category and product `image_key`, `billing` `BankTransferPayment.proof_key`, `invoices` `store_key`, `statements` `pdf_key`, `pack` `file_key`, `shop` `ShopProofSubmission.file_key`, `sante` `MembershipAgreementVersion.storage_key`, `sites` `SiteBusinessProfile.seal_key`, and the payment account's QR key (`apps/payments/models.py`). To find rows pointing at a missing file, list the store's keys (Vercel dashboard, or the store's list API with the read-write token on your own machine) and compare with `uv run python manage.py shell`:
 
 ```python
 from apps.billing.models import BankTransferPayment
