@@ -64,13 +64,20 @@ def blank_packs_of(account, dry_run=False):
 
     A file that cannot be deleted raises private_files.StoreError, so the disposal is undone and
     can be run again; deleting a file that is already gone succeeds."""
-    if not enabled():
+    return blank_packs(Site.objects.filter(account=account), dry_run)
+
+
+def blank_packs(sites, dry_run=False, *, ignore_switch=False, keep_files=False):
+    """The same for the sites in `sites`. `ignore_switch` reads the tables whatever PACK_ENABLED
+    says (plan D13). `keep_files` leaves every proof file and its key where they are and counts
+    no file (plan D14: the proof images stay until the export carries them). Defaults unchanged."""
+    if not ignore_switch and not enabled():
         return {}
-    orders = PackOrder.objects.filter(site__account=account)
-    proofs = PackProofSubmission._base_manager.filter(site__account=account)
-    tokens = CheckoutToken.objects.filter(site__account=account)
-    keys = list(proofs.exclude(file_key="").values_list("file_key", flat=True))
-    registrations = SanteRegistration.objects.filter(site__account=account).filter(HOLDS_DETAILS)
+    orders = PackOrder.objects.filter(site__in=sites)
+    proofs = PackProofSubmission._base_manager.filter(site__in=sites)
+    tokens = CheckoutToken.objects.filter(site__in=sites)
+    keys = [] if keep_files else list(proofs.exclude(file_key="").values_list("file_key", flat=True))
+    registrations = SanteRegistration.objects.filter(site__in=sites).filter(HOLDS_DETAILS)
     counts = {
         ORDERS: orders.count(), PROOFS: proofs.count(), PROOF_FILES: len(keys), TOKENS: tokens.count(),
         REGISTRATIONS: registrations.count(),
@@ -80,7 +87,8 @@ def blank_packs_of(account, dry_run=False):
             private_files.delete(key)
         tokens.delete()
         orders.update(buyer_name="", delivery_address={})
-        proofs.update(sender_name="", sender_account_number="", reference_number="", ip_advisory="", file_key="")
+        wiped = {"sender_name": "", "sender_account_number": "", "reference_number": "", "ip_advisory": ""}
+        proofs.update(**wiped, **({} if keep_files else {"file_key": ""}))
         registrations.update(date_of_birth=None, desired_username="", alternate_username="")
     return counts
 

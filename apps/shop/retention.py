@@ -40,10 +40,16 @@ def blank_shop_of(account, dry_run=False):
     and proofs. The rows stay. Returns the counts; a dry run only counts. Call it inside a
     transaction. A file that cannot be deleted raises private_files.StoreError, so the disposal
     is undone and can be run again; deleting a file that is already gone succeeds."""
-    if not enabled():
+    return blank_shop(Site.objects.filter(account=account), dry_run)
+
+
+def blank_shop(sites, dry_run=False, *, ignore_switch=False):
+    """The same for the sites in `sites`. `ignore_switch` reads the tables whatever SHOP_ENABLED
+    says (the site erasure, plan D13); the default is unchanged."""
+    if not ignore_switch and not enabled():
         return {}
-    orders = ShopOrder.objects.filter(site__account=account)
-    proofs = ShopProofSubmission._base_manager.filter(order__site__account=account)
+    orders = ShopOrder.objects.filter(site__in=sites)
+    proofs = ShopProofSubmission._base_manager.filter(order__site__in=sites)
     keys = list(proofs.exclude(file_key="").values_list("file_key", flat=True))
     counts = {ORDERS: orders.count(), PROOFS: proofs.count(), PROOF_FILES: len(keys)}
     if not dry_run:

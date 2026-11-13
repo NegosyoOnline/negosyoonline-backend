@@ -7,6 +7,7 @@ from django.conf import settings
 
 from apps.common import retention
 from apps.meta_ads.models import MetaOrderContext, MetaSettings
+from apps.sites.models import Site
 
 CONTEXT_RETENTION = timedelta(days=30)
 
@@ -36,8 +37,13 @@ def blank_meta_of(account, dry_run=False):
     """Blank the token and test event code of the account's sites and delete their saved browser
     identifiers. Runs whatever the switch says, because the rows may predate it being turned off.
     Answers empty when the account has none. Call it inside a transaction."""
-    settings_rows = MetaSettings.objects.filter(site__account=account)
-    contexts = MetaOrderContext.objects.filter(site__account=account)
+    return blank_meta(Site.objects.filter(account=account), dry_run)
+
+
+def blank_meta(sites, dry_run=False):
+    """The same for the sites in `sites` (a Site queryset)."""
+    settings_rows = MetaSettings.objects.filter(site__in=sites)
+    contexts = MetaOrderContext.objects.filter(site__in=sites)
     counts = {SETTINGS: settings_rows.count(), CONTEXTS: contexts.count()}
     if not any(counts.values()):
         return {}
