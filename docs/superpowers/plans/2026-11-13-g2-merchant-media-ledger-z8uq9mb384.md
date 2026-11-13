@@ -197,7 +197,7 @@ Contract: "a scheduled listing compares G2's own prefix against the ledger. It a
 ## 8. Retention and deletion
 
 - A merchant deleting an asset: section 3.4.
-- Site erasure: the executor (`apps/lifecycle/erase.py:147-190`, `SITE_ERASURE_ENABLED`, plan z8uq9mb22v) deletes the site's private files at its deletion point. Merchant media is a new file store of the site's own data, so it needs the same rule: `media_library.services.purge_site(site, now)` deletes every live object of the site and sets `removed_at`, rows kept, idempotent, an absent key counts as gone, a store failure raises `StoreError` like the other private-file steps. It ships in branch B **as a function with tests, not hooked into `erase_item`**, because that file belongs to the executor task; the one-line call and its count key (`media_files`) are added by the executor's owner or by this branch after the Supervisor confirms there is no overlapping open branch. `SITE_ERASURE_ENABLED` is not touched either way.
+- Site erasure: the executor (`apps/lifecycle/erase.py:147-190`, `SITE_ERASURE_ENABLED`, plan z8uq9mb22v) deletes the site's private files at its deletion point. Merchant media is a new file store of the site's own data, so it needs the same rule: `media_library.services.purge_site(site, now)` deletes every live object of the site and sets `removed_at`, rows kept, idempotent, an absent key counts as gone, a store failure raises `StoreError` like the other private-file steps. **Branch B adds `purge_site` and hooks it into `erase_item`** (one call beside the other `blank_*` steps, count key `media_files`, added to the item's `files_deleted` total). The hook runs only where erasure already runs; `SITE_ERASURE_ENABLED` is not touched. z8uq9mb22v has the same Supervisor and no open branch touches `erase.py`.
 - Account disposal and the 30-day export: media is public data the merchant uploaded; the export (`export_account`) carries no files, and G2 does not change it. A line is added to `docs/runbooks/retention.md` stating this.
 - A Billing-only (suspended or ended) site cannot upload or delete (`_owner_site`); its objects stay until the deletion point.
 
@@ -235,7 +235,7 @@ Three branches, no PR opened by the builder; the release train combines them (CL
 | Branch | Repo | Contents | Switchable alone? |
 |---|---|---|---|
 | A `feat/z8uq9mb384-media-ledger-upload` | backend | `apps/media_library` (models, `0001_initial`, `ledger`, `services` upload/remove, `api`, `constants`, `checks`), `folder` argument added to the public store client (a backward-compatible parameter on `apps/catalog/media.py`, default unchanged), `MEDIA_LIBRARY_ENABLED`, router mount in `config/api.py`, harness updates, storage and billing runbook rows | yes: off by default |
-| B `feat/z8uq9mb384-media-audit-erase` | backend | list-by-prefix store call, `media_library.audit` task and beat entry, `purge_site`, retention runbook line, tests. Depends on A | yes: same switch, audit does nothing while off |
+| B `feat/z8uq9mb384-media-audit-erase` | backend | list-by-prefix store call, `media_library.audit` task and beat entry, `purge_site` and its hook in `apps/lifecycle/erase.py` (`media_files`), retention runbook line, tests. Depends on A | yes: same switch, audit does nothing while off |
 | C `feat/z8uq9mb384-dash-media-library` | frontend | the `/media-library/` page against the three routes, behind the existing hidden-nav state | yes: hidden until the switch is on |
 
 More than 3 to 4 was avoided: the audit and the erasure share a branch because both need the store's list/remove calls and both are about objects not covered by a request; A is the smallest slice that stores, bills nothing and can be tested end to end.
@@ -258,7 +258,7 @@ More than 3 to 4 was avoided: the audit and the erasure share a branch because b
 **B**
 1. Audit: an orphan and a ghost are each counted and alerted; no row changes; a ledger row with no object still counts in `bytes_at`; a prefix-only listing ignores keys outside `merchant-media/`.
 2. Switch off: the task returns at once and calls the store zero times.
-3. `purge_site`: removes every live object of the site and sets `removed_at`; another site's objects untouched; run twice, second counts zero; an absent key counts as gone; a store failure raises and leaves `removed_at` null for the objects not yet removed.
+3. `purge_site`: removes every live object of the site and sets `removed_at`; another site's objects untouched; run twice, second counts zero; an absent key counts as gone; a store failure raises and leaves `removed_at` null for the objects not yet removed. The hook: an erased site's live media objects are removed and `removed_at` set, its `erase_item` counts include `media_files`, another site's objects are untouched, and `SITE_ERASURE_ENABLED` is not read or changed by the new code.
 4. The beat entry is registered and expires like its neighbours.
 
 **C** (frontend repo's own checks: install frozen, lint, tests, build for the dash; the page renders the list and usage, uploads and deletes against a stub, shows the 409 and 400 messages and the "uploads are public" notice, and stays hidden from the nav.)
@@ -281,7 +281,6 @@ Each: the recommendation, the reason, the risk. None is decided here. Nothing is
    - Risk: one more token for Coach Ed to create and set (a credential action, his), and one more Vercel Blob bill line. Choosing the existing public store instead saves the token but mixes catalog and merchant objects under one credential. R2 would need a new S3-style client dependency and Cloudflare setup, more code and review; the contract's "R2 listing" wording is legacy (TWCinc).
 4. **Image library for renditions.** Recommendation: **do not add one now**; version 1 is originals only. Reason: Pillow is a new dependency that decodes untrusted uploads (a security surface) and nothing in the Santé MVP storefront yet needs a stored rendition. Risk: pages show full-size originals until a later task (a 5 MB cap bounds the worst case).
 5. **The switch and the migration.** Recommendation: approve the name `MEDIA_LIBRARY_ENABLED` (default off) and the single migration `media_library.0001_initial`, on the standing migration approval path (written by the builder, run on staging by the Supervisor, production never). Risk: low; two new empty tables, reversible.
-6. **Erasure hook.** Recommendation: `purge_site` ships tested but unhooked, and the executor's owner adds the one call. Risk: until it is hooked, an erased site's merchant media objects remain in the store (public, random names). This is only a risk once `MEDIA_LIBRARY_ENABLED` is on, so the hook is a precondition of turning it on.
 
 ## 15. Choices made without asking (what, why, source)
 
@@ -290,7 +289,7 @@ Each: the recommendation, the reason, the risk. None is decided here. Nothing is
 - Delete removes the object, then sets `removed_at`: the contract's orphan rule (row with an object counts until confirmed gone), contract section 5.
 - Label optional and the file name not stored: less client data kept; nothing in the task needs it.
 - No rename and no attach routes in version 1: not in the task's scope.
-- Audit and erasure in a second branch, unhooked: the executor file belongs to z8uq9mb22v (builder brief section 2, other sessions' files).
+- Erasure hook in branch B; z8uq9mb22v has the same Supervisor, routine decision.
 - Idempotency via `source_reference`, not the contract's `usage:<cycle pk>:storage:storage-ledger-v1`: the implemented intake takes `source_reference` (`apps/billing/usage.py:104-116`); the contract allows P6.2d to reconcile.
 - The task's "`negosyoonline_platform/isolation.py`" and "`test_isolation.py:46`" and "`store_bytes`" and "R2" do not match this repo; the plan uses the real equivalents (section 2) and treats them as legacy wording.
 
