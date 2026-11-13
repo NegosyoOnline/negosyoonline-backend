@@ -167,6 +167,8 @@ This is the "runbooks for each" line of the working statement.
 
 Source: Coach Ed, 2026-11-14, Manager session, relayed by the Manager: "ok... let's focus first on our FB ads launching on Nov 21. let's make sure everything is working".
 
+Test data (Coach Ed, 2026-11-14, Manager session, relayed by the Manager): "before we run fb ads we will remove all test date" (test data).
+
 Scope. The launch runs on Railway staging with real members (ruling 509745). Out of scope until after the launch: G3 inbox, custom domains, production (setup from about 2026-11-23), the PITR decision and the Sentry DSN.
 
 Before the go/no-go.
@@ -176,9 +178,10 @@ Before the go/no-go.
 | Round 11 merged; api-staging `/readyz/` all true, including email | Manager, GATES | 2026-11-15 | Pending |
 | Backup schedule frequency read (Edit schedule) | Coach Ed | 2026-11-17 | Pending |
 | Private file backup z8uq9mewtf: plan approved, build, staging selftest restore | GATES | 2026-11-18 | Pending |
-| Gate 2 Membership Package walkthrough on staging with a test account, dated | SANTE | 2026-11-18 | Not run |
+| Gate 2 Membership Package walkthrough on staging on Site 2, with a dummy order Coach Ed approves; the test member is removed afterwards, dated | SANTE | 2026-11-18 | Not run |
 | Gate 3 billing walkthrough on staging, plus the ended-site 404 | BILLING | 2026-11-18 | Not run |
 | Meta events: `META_EVENTS_ENABLED` on staging api and worker; Santé's Pixel ID, token and test event code saved in dash; dash test answers ok; Meta Events Manager Test Events shows PageView, ViewContent, InitiateCheckout, AddPaymentInfo and Purchase from one test-account run (`docs/runbooks/meta-pixel.md`) | SANTE, Coach Ed in Meta | 2026-11-19 | Not run |
+| All test data removed from Site 2 (Santé Barley, site_1tqtmvvpn6ksqv3b8b16); SANTE runs the cleanup and its read-only check | SANTE | 2026-11-20 | Pending |
 | Go/no-go run: every gate row re-read and dated | GATES | 2026-11-19 | Not run |
 | Freeze: no release round after the 2026-11-20 go/no-go except an approved hotfix | Manager | 2026-11-20 | Pending |
 | Final go/no-go | Manager, on Coach Ed's word | 2026-11-20 | Pending |
