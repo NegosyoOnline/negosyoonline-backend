@@ -25,6 +25,7 @@ from django.utils import timezone
 
 from apps.billing import services as billing
 from apps.common import private_files
+from apps.lifecycle.models import ErasureHold
 from apps.members.models import Member, MemberContactAudit, MemberSession
 from apps.pack import portal
 from apps.pack.models import (
@@ -108,10 +109,18 @@ def _delete_files(site_id):
 def purge_site(site_id, now=None):
     """Purge one site if its deletion point has been reached, under the site's row lock. Returns
     True when the site was due (even if there was nothing left to clear). It re-reads the point
-    itself, so a site reactivated since the list was made is left alone."""
+    itself, so a site reactivated since the list was made is left alone.
+
+    A site with an open erasure hold (a legal, fraud or dispute reason a person set, plan D15) is
+    left alone too and the answer is False. Holds are read only while SITE_ERASURE_ENABLED is on,
+    so no lifecycle table is read, or needed, while it is off."""
     now = now or timezone.now()
     with transaction.atomic():
         Site.objects.select_for_update().get(pk=site_id)
+        if settings.SITE_ERASURE_ENABLED and ErasureHold.objects.filter(
+            site_id=site_id, released_at__isnull=True
+        ).exists():
+            return False
         ended = billing.end_dates(site_id, now)
         if ended is None or ended[1] is None or now < ended[1]:
             return False

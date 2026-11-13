@@ -7,8 +7,8 @@ exist, because the code is released before they are created."""
 from datetime import timedelta
 
 from apps.common import retention
-from apps.inbox.models import BulkBatch, Conversation, ConversationMessage
-from apps.inbox.switch import SMS, bulk_tables_exist, tables_exist
+from apps.inbox.models import BulkBatch, Contact, ContactGroup, Conversation, ConversationMessage
+from apps.inbox.switch import SMS, bulk_tables_exist, contacts_tables_exist, tables_exist
 
 MESSAGE_LIFETIME = timedelta(days=365)
 
@@ -38,3 +38,33 @@ def bulk_batches(now, dry_run):
 
 
 retention.register("bulk_batches", bulk_batches)
+
+
+# -- site erasure (called by apps.lifecycle; plan z8uq9mb22v, D10) --------------------------------
+
+CONVERSATIONS, MESSAGES = "inbox_conversations", "inbox_messages"
+CONTACTS, GROUPS = "inbox_contacts", "inbox_groups"
+
+
+def erase_site_inbox(sites, dry_run=False):
+    """Delete the conversations (and their messages), contacts and contact groups owned by the
+    sites in `sites` (a Site queryset). Rows owned by HQ or an account are never touched. The
+    do-not-text list is kept: it holds a number and no name, and keeps it until the person asks
+    (a message it points at may go; the link is then empty). Runs whatever the inbox switches say,
+    because the rows may predate a switch being turned off; a table that does not exist yet counts
+    zero. Returns the counts; a dry run only counts. Call it inside a transaction."""
+    counts = {CONVERSATIONS: 0, MESSAGES: 0, CONTACTS: 0, GROUPS: 0}
+    if tables_exist():
+        conversations = Conversation.objects.filter(owner_kind="site", site__in=sites)
+        counts[CONVERSATIONS] = conversations.count()
+        counts[MESSAGES] = ConversationMessage.objects.filter(conversation__in=conversations).count()
+        if not dry_run:
+            conversations.delete()  # their messages go with them
+    if contacts_tables_exist():
+        contacts = Contact.objects.filter(owner_kind="site", site__in=sites)
+        groups = ContactGroup.objects.filter(owner_kind="site", site__in=sites)
+        counts[CONTACTS], counts[GROUPS] = contacts.count(), groups.count()
+        if not dry_run:
+            contacts.delete()
+            groups.delete()
+    return counts

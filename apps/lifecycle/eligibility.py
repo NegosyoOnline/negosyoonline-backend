@@ -20,6 +20,7 @@ State = Subscription.State
 
 # Refusal codes.
 ALREADY_ERASED, HELD = "already_erased", "held"
+NO_LONGER_DUE, DATE_CHANGED = "no_longer_due", "date_changed"
 PAYMENT_UNDER_REVIEW, UNPAID_USAGE = "payment_under_review", "unpaid_usage"
 # The service-end notice, as the dry run shows it (plan D12: shown, never a block).
 NOTICE_SENT, NOTICE_NOT_SENT, NO_NOTICE_FOR_STATE = "sent", "not_sent", "no_notice_for_state"
@@ -130,3 +131,40 @@ def classify(now):
                 Candidate(row, _notice(row, sent_keys), usage_to_write_off=row.pk in open_charge)
             )
     return result
+
+
+def has_open_charge(subscription):
+    return ChargeLine.objects.filter(
+        subscription_id=subscription.pk, status=ChargeLine.Status.OPEN
+    ).exists()
+
+
+def stop_reason(subscription, now, *, planned_due=None):
+    """The code that stops this one subscription's site from being erased at `now`, or None.
+
+    The same rules as `classify`, for one row, to be called by the run under the subscription's
+    and the site's locks (plan section 6.4 step 1). Lifecycle tables are read, so call it only
+    while SITE_ERASURE_ENABLED is on. An open charge line on a suspended site is not a stop here:
+    the run writes it off and asks again (`usage.write_off_unreturned`). `planned_due` is the
+    deletion date the approver saw; a different date stops the item.
+    """
+    if (
+        subscription.billing_exempt or subscription.state not in ENDED_STATES
+        or subscription.service_ended_at is None or subscription.service_ended_at > now
+        or subscription.deletion_due_at is None or subscription.deletion_due_at > now
+    ):
+        return NO_LONGER_DUE
+    if planned_due is not None and subscription.deletion_due_at != planned_due:
+        return DATE_CHANGED
+    site_id = subscription.site_id
+    if ErasureItem.objects.filter(site_id=site_id, status=ErasureItem.Status.ERASED).exists():
+        return ALREADY_ERASED
+    if ErasureHold.objects.filter(site_id=site_id, released_at__isnull=True).exists():
+        return HELD
+    if BankTransferPayment.objects.filter(
+        subscription_id=subscription.pk, status=BankTransferPayment.Status.SUBMITTED
+    ).exists():
+        return PAYMENT_UNDER_REVIEW
+    if subscription.state != State.SUSPENDED and has_open_charge(subscription):
+        return UNPAID_USAGE
+    return None
