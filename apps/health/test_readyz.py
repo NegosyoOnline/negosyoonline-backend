@@ -115,6 +115,17 @@ class ReadyzTests(TestCase):
             self.assertEqual(self.get(HTTP_X_FORWARDED_FOR="9.9.9.9").status_code, 429)
             self.assertEqual(self.get(HTTP_X_FORWARDED_FOR="8.8.8.8").status_code, 200)
 
+    def test_head_matches_get_status(self):
+        self.assertEqual(self.client.head("/readyz/", secure=True).status_code, 200)
+        with mock.patch.object(views.connection, "cursor", side_effect=Exception("secret host")):
+            self.assertEqual(self.client.head("/readyz/", secure=True).status_code, 503)
+
+    def test_head_counts_against_the_same_throttle(self):
+        with mock.patch.object(views, "READYZ_LIMIT", (2, 60)):
+            self.assertEqual(self.get(HTTP_X_FORWARDED_FOR="9.9.9.9").status_code, 200)
+            self.assertEqual(self.client.head("/readyz/", secure=True, HTTP_X_FORWARDED_FOR="9.9.9.9").status_code, 200)
+            self.assertEqual(self.client.head("/readyz/", secure=True, HTTP_X_FORWARDED_FOR="9.9.9.9").status_code, 429)
+
     def test_post_not_allowed_and_healthz_unchanged(self):
         self.assertEqual(self.client.post("/readyz/", secure=True).status_code, 405)
         response = self.client.get("/healthz/", secure=True)
