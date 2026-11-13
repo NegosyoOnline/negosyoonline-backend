@@ -48,15 +48,21 @@ def blank_members_of(account, dry_run=False):
     return blank_members(Site.objects.filter(account=account), dry_run)
 
 
-def blank_members(sites, dry_run=False, *, ignore_switch=False):
+def blank_members(sites, dry_run=False, *, ignore_switch=False, only_member=None):
     """The same for the members of the sites in `sites`. `ignore_switch` reads the tables
-    whatever MEMBERS_ENABLED says (the site erasure, plan D13); the default is unchanged."""
+    whatever MEMBERS_ENABLED says (the site erasure, plan D13); the default is unchanged.
+    `only_member` limits it to that one Member (the test-member removal, ClickUp z8uq9mewx1)."""
     if not ignore_switch and not services.enabled():
         return {}
     members = Member.objects.filter(site__in=sites)
     sessions = MemberSession.objects.filter(member__site__in=sites)
     challenges = MemberOtpChallenge.objects.filter(site__in=sites)
     events = MemberAddressEvent.objects.filter(site__in=sites)
+    if only_member is not None:
+        members = members.filter(pk=only_member.pk)
+        sessions = sessions.filter(member=only_member)
+        challenges = challenges.filter(member=only_member)
+        events = events.filter(member=only_member)
     counts = {MEMBERS: members.count(), SESSIONS: sessions.count(), CHALLENGES: challenges.count(),
               ADDRESS_EVENTS: events.count()}
     if not dry_run:
