@@ -6,15 +6,21 @@ B. A foreign site id answers the very same 404 as a missing one, and nothing cha
 C. A foreign child id (an object of site B) under the caller's own site is the same 404.
 Control. The owner reaches every route, so the 404s above are not a broken fixture.
 """
+from unittest import mock
+
+from django.test import override_settings
+
+from apps.billing import plan
 from apps.common.tests.test_tenant_isolation.owner_base import (
     MISSING_CHILD, MISSING_SITE, OWNER_ROUTES, TwoOwnersTestCase, app_of, child_variants,
     urlconf_routes,
 )
 
 NOT_FOUND = {"error": {"code": "not_found", "message": "Not found."}}
-# What the guard expects from the URLconf today (7 + 9 + 2 + 6 + 5 + 5 + 7 + 4 = 45).
+# What the guard expects from the URLconf today (12 + 11 + 2 + 6 + 5 + 8 + 7 + 4 = 55). The
+# "sites" count includes the 5 member-recovery routes under /sites/{site_id}/members/.
 EXPECTED_COUNTS = {
-    "sites": 7, "billing": 9, "sante": 2, "catalog": 6, "payments": 5, "pack_owner": 5,
+    "sites": 12, "billing": 11, "sante": 2, "catalog": 6, "payments": 5, "pack_owner": 8,
     "shop_owner": 7, "meta_ads": 4,
 }
 
@@ -38,7 +44,7 @@ class RegistryGuardTests(TwoOwnersTestCase):
         for _, template in routes:
             counts[app_of(template)] = counts.get(app_of(template), 0) + 1
         self.assertEqual(counts, EXPECTED_COUNTS)
-        self.assertEqual(len(OWNER_ROUTES), 45)
+        self.assertEqual(len(OWNER_ROUTES), 55)
 
 
 class ForeignSiteTests(TwoOwnersTestCase):
@@ -79,14 +85,21 @@ class ForeignChildTests(TwoOwnersTestCase):
     def test_the_routes_with_a_child_id_are_the_ones_expected(self):
         self.assertEqual(sorted(self.child_routes()), [
             ("DELETE", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
+            ("GET", "/sites/{site_id}/billing/invoices/{invoice_id}/copy/"),
             ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"),
             ("GET", "/sites/{site_id}/billing/payments/{payment_id}/proof/"),
+            ("GET", "/sites/{site_id}/members/{member_id}/recovery/"),
             ("GET", "/sites/{site_id}/pack/orders/{order_id}/"),
             ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"),
             ("GET", "/sites/{site_id}/shop/orders/{order_id}/"),
             ("GET", "/sites/{site_id}/shop/orders/{order_id}/proofs/{proof_id}/"),
+            ("POST", "/sites/{site_id}/members/{member_id}/recovery/"),
+            ("POST", "/sites/{site_id}/members/{member_id}/recovery/check/"),
             ("POST", "/sites/{site_id}/pack/orders/{order_id}/approve/"),
+            ("POST", "/sites/{site_id}/pack/orders/{order_id}/delivery/"),
             ("POST", "/sites/{site_id}/pack/orders/{order_id}/reject/"),
+            ("POST", "/sites/{site_id}/pack/orders/{order_id}/shipment/"),
+            ("POST", "/sites/{site_id}/pack/orders/{order_id}/shipment/correct/"),
             ("POST", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
             ("POST", "/sites/{site_id}/shop/orders/{order_id}/cancel/"),
             ("POST", "/sites/{site_id}/shop/orders/{order_id}/confirm-receipt/"),
@@ -140,5 +153,46 @@ class OwnerControlTests(TwoOwnersTestCase):
             with self.subTest(method=method, template=template):
                 response = self.call(method, template, self.ben_site_id, self.foreign_ids(template), client=self.ben)
                 self.assertEqual(response.status_code, 200, response.content)
-                for value in (self.site_id, ana_ids["order_id"], ana_ids["account_id"], ana_shop["order_id"]):
+                for value in (self.site_id, ana_ids["order_id"], ana_ids["account_id"], ana_shop["order_id"],
+                              ana_ids["member_id"], ana_ids["invoice_id"]):
                     self.assertNotIn(value.encode(), response.content)
+
+
+class UsageSwitchTests(TwoOwnersTestCase):
+    """GET .../billing/usage/ is open only while BILLING_USAGE_ENABLED is on AND storage is
+    metered (plan.STORAGE_METERED, False at launch). The table above runs in the usage-on world;
+    here the route is tried with the switch on and off."""
+    PATH = "/sites/{site_id}/billing/usage/"
+
+    def usage(self, site_id, client=None):
+        return self.call("GET", self.PATH, site_id, {}, client=client)
+
+    def test_on_the_owner_gets_200_and_every_other_tenant_the_same_404_as_a_missing_site(self):
+        self.assertEqual(self.usage(self.site_id).status_code, 200)
+        self.assertEqual(self.usage(self.ben_site_id, client=self.ben).status_code, 200)
+        before = self.state()
+        foreign = self.usage(self.ben_site_id)
+        missing = self.usage(MISSING_SITE)
+        other_way = self.usage(self.site_id, client=self.ben)
+        for response in (foreign, other_way):
+            self.assertEqual(response.status_code, 404, response.content)
+            self.assertEqual(response.json(), NOT_FOUND)
+        self.assertEqual((foreign.status_code, foreign.content), (missing.status_code, missing.content))
+        self.assertUnchanged(before, "usage")
+
+    def test_off_every_tenant_gets_404_and_nothing_changes(self):
+        cases = {
+            "the switch off": ({"BILLING_USAGE_ENABLED": False}, True),
+            "billing off": ({"BILLING_ENABLED": False}, True),
+            "storage not metered (launch)": ({}, False),
+        }
+        for name, (settings_off, metered) in cases.items():
+            with self.subTest(case=name), override_settings(**settings_off), \
+                    mock.patch.object(plan, "STORAGE_METERED", metered):
+                before = self.state()
+                for site_id, client in ((self.site_id, None), (self.ben_site_id, self.ben),
+                                        (self.ben_site_id, None), (MISSING_SITE, None)):
+                    response = self.usage(site_id, client=client)
+                    self.assertEqual(response.status_code, 404, response.content)
+                    self.assertEqual(response.json(), NOT_FOUND)
+                self.assertUnchanged(before, "usage")
