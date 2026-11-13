@@ -132,7 +132,7 @@ It is limited to 30 calls a minute per client address (answers 429 `{"ok": false
 
 Tools approved by Coach Ed on 2026-11-13: one external uptime check with an email alert, and Sentry's free tier with personal data scrubbed. Accounts, the `SENTRY_DSN` value and any cost are not approved yet and are his to create. Alerts go to Coach Ed's email.
 
-Set up 2026-11-13: UptimeRobot free plan, Coach Ed's own account, 4 monitors at 5-minute intervals (the four URLs below), all green. The free plan sends HEAD and cannot pick the method or a keyword; `/readyz/` answers HEAD since BE #155 (8664aa5). The alert proof (stop the worker and beat, receive the Down and Up emails) is not run yet.
+Set up 2026-11-13: UptimeRobot free plan, Coach Ed's own account, 4 monitors at 5-minute intervals (the four URLs below), all green. The free plan sends HEAD and cannot pick the method or a keyword; `/readyz/` answers HEAD since BE #155 (8664aa5). The alert proof (stop the worker and beat, receive the Down and Up emails) was proved on 2026-11-13; see the ops B row in `docs/runbooks/launch-gates.md`.
 
 ### Uptime checks (one external service, email alert)
 
