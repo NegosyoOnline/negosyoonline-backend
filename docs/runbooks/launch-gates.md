@@ -93,7 +93,7 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Account disposal and deletion request steps | BE #52; `apps/accounts/tests/test_disposal.py`; `docs/runbooks/retention.md` | Pass | GATES |
 | Help Center, five articles (z8uq9mekvc) | FE #60; task ACCEPTED | Pass | GATES |
 | Help Center, second subtask (z8uq9memmp), including article 5 | FE #64 (merged 5144a12); task ACCEPTED; Coach Ed approved the article 5 staging visual test on 2026-11-13 | Pass | GATES |
-| Mobile and accessibility audit (z8uq9m7ydk), summary | ClickUp z8uq9m7ydk comments 1100430000510246 (pass 1, signed-out pages), 1100430000510420 (pass 2, signed-in pages and keyboard) and 1100430000510829 (pass 3, member signed-in pages and form error states) and 1100430000511422 (pass 4, dash and HQ form error states) and 1100430000512390 and 1100430000512690 (pass 5, parts 1 and 2, GATES Supervisor, local preview backend 02dde96 and frontend 1fe7d6d), 2026-11-13. Five passes on local TEST builds and previews, headless Chrome at 390 and 1400 px, manual (no axe or Lighthouse). No High findings. Rows below are the findings and the gaps; the audit passes when each is fixed or accepted by Coach Ed. Coach Ed, 2026-11-14 (Manager session, "Yes, as recommended"): the 7 Medium findings are fixed before launch by their owners (SANTE 5, BILLING 1, HQ 1); the Low findings are accepted as a post-launch list. Status after the merged fixes (FE #65 to #72, checked in the frontend code at origin/main 7fa2ff4, 2026-11-14): Medium findings fixed 7 of 7; Low finding rows fixed 15 of 17; Low findings accepted post-launch 2 (My Orders 4-step tracker wrap, membership landing page weight) | Pending | HQ Supervisor |
+| Mobile and accessibility audit (z8uq9m7ydk), summary | ClickUp z8uq9m7ydk comments 1100430000510246 (pass 1, signed-out pages), 1100430000510420 (pass 2, signed-in pages and keyboard) and 1100430000510829 (pass 3, member signed-in pages and form error states) and 1100430000511422 (pass 4, dash and HQ form error states) and 1100430000512390 and 1100430000512690 (pass 5, parts 1 and 2, GATES Supervisor, local preview backend 02dde96 and frontend 1fe7d6d), 2026-11-13. Five passes on local TEST builds and previews, headless Chrome at 390 and 1400 px, manual (no axe or Lighthouse). No High findings. Rows below are the findings and the gaps; the audit passes when each is fixed or accepted by Coach Ed. Coach Ed, 2026-11-14 (Manager session, "Yes, as recommended"): the 7 Medium findings are fixed before launch by their owners (SANTE 5, BILLING 1, HQ 1); the Low findings are accepted as a post-launch list. Status after the merged fixes (FE #65 to #72, checked in the frontend code at origin/main 7fa2ff4, 2026-11-14): Medium findings fixed 7 of 7; Low finding rows fixed 14 of 17; Low findings accepted post-launch 3 (My Orders Delivered badge contrast, My Orders 4-step tracker wrap, membership landing page weight) | Pending | HQ Supervisor |
 | Audit: site eyebrow, compare and timeline gold text contrast (2.26 to 3.96, target 4.5), and the `#switch-mode` button 23 px high at 390. Medium | FE #66 (merged at 1fe7d6d, 2026-11-13), branch `fix/z8uq9m7ydk-site-contrast@cf028b4`: `--gold-text: #8A6513` on the eyebrow, compare eyebrow and timeline years; `.switch-mode .link-inline { min-height: 24px }`. Approved by Coach Ed as "Site gold text: #8A6513 on light backgrounds" (rulings log comment 1100430000512065). Verified by fetch of `https://www-staging.negosyonline.com/assets/css/site.css` on 2026-11-13 | Pass | GATES |
 | Audit: dash Help Center h3 subheadings invisible in dark theme (contrast 1.05). Medium | Fixed on main by FE #64 (5144a12). Readable in dark theme through FE #65 (a037c94, z8uq9memqv ACCEPTED 2026-11-13), which carries the regression test | Pass | GATES |
 | Audit: dash Business Settings seal file input `#bs-seal-file` has no label. Low | FE #65 a037c94, label on `#bs-seal-file` live on dash-staging; z8uq9memqv ACCEPTED 2026-11-13 | Pass | GATES |
@@ -105,7 +105,7 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Audit: HQ Finance "Replaced" tab sits off-screen at 390 with no scroll cue. Low | Fixed in FE #65 (a037c94), task z8uq9memqw ACCEPTED; `apps/hq/public/assets/css/hq.css:389` `.fin-tabs` wraps (`flex-wrap: wrap`) so no tab is off-screen | Pass | HQ Supervisor |
 | Audit: public site home page overflowed sideways at 390 (comment 1100430000509383) | Pass 1 confirmed fixed: page is 390 wide, the comparison table scrolls in its own box | Pass | GATES |
 | Audit: Dashboard Membership Pack card says the order has not shipped while My Orders shows it Shipped and Delivered. Medium | Fixed in FE #67 (a9fb401), task z8uq9memuj ACCEPTED; `apps/storefronts/src/views/sante/pack-member.ts:176` `shipmentLine` reads the same order card as My Orders and shows Shipped or Delivered | Pass | SANTE |
-| Audit: My Orders small text below 4.5:1 ("Placed" date 4.02, "Total" line 4.02, "Delivered" badge 4.36). Low | Fixed in FE #67 (a9fb401), tasks z8uq9memuj and z8uq9memq8 (Part B) ACCEPTED; `apps/storefronts/public/assets/sante/css/pack-focus.css:23` `.oc-date, .oc-total span` `#657389`, and `:24` default chip `#966800` | Pass | SANTE |
+| Audit: My Orders small text below 4.5:1 ("Placed" date 4.02, "Total" line 4.02, "Delivered" badge 4.36). Low | Placed date and Total line fixed in FE #67 (`pack-focus.css:23-24`); Delivered badge not confirmed fixed. Accepted by Coach Ed 2026-11-14 as a post-launch item | Accepted (post-launch) | SANTE |
 | Audit: sign-in contact-step error is linked to the field but not announced, and focus drops to the page body. Low | Fixed in FE #67 (a9fb401), task z8uq9memuj ACCEPTED; `apps/storefronts/src/views/sante/member.ts:285` the contact error is `role="alert"`, and the field is `autofocus` | Pass | SANTE |
 | Audit: change-email step 1 (confirm code) error not announced, focus drops to the body, empty submit gives no feedback; change mobile likely shares it. Low | Fixed in FE #67 (a9fb401), task z8uq9memuj ACCEPTED; `apps/storefronts/src/lib/account-flow.ts:104` an empty code is answered in words, and `pack-account.ts:33` the code error is `role="alert"` with focus back on the field | Pass | SANTE |
 | Audit: My Orders "View Details" toggle has aria-expanded but no aria-controls. Low | Fixed in FE #67 (a9fb401), task z8uq9memuj ACCEPTED; `apps/storefronts/src/views/sante/pack-orders.ts:106` and `:164` "View Details" has `aria-controls` | Pass | SANTE |
@@ -150,9 +150,42 @@ This is the "runbooks for each" line of the working statement.
 - No backup of private files (Vercel Blob private store); the restore test covers the database only. Coach Ed approved a backup of the private files on 2026-11-14 ("Yes, as recommended"); planned in ClickUp z8uq9mewtf (GATES).
 - NPC P5 section 3 and section 5 wording about files in the restore test, to be corrected by its owner (HQ/NPC kit).
 - Sentry `SENTRY_DSN`: waits 30 days after the Privacy line is live (Coach Ed).
-- Mobile and accessibility audit z8uq9m7ydk: Medium findings fixed 7 of 7, Low finding rows fixed 15 of 17, and 2 Lows accepted post-launch by Coach Ed on 2026-11-14 (My Orders tracker wrap, membership landing page weight), all as shown in the rows above; Usage Admit and Dismiss to be re-checked in a browser once usage is turned on after launch (GATES).
+- Mobile and accessibility audit z8uq9m7ydk: Medium findings fixed 7 of 7, Low finding rows fixed 14 of 17, and 3 Lows accepted post-launch by Coach Ed on 2026-11-14 (My Orders Delivered badge, My Orders tracker wrap, membership landing page weight), all as shown in the rows above; Usage Admit and Dismiss to be re-checked in a browser once usage is turned on after launch (GATES).
 - Dated staging walkthroughs for gates 2 and 3 (Not run); ended-site 404 not checked on staging.
 - Production does not exist yet; setup starts about 2026-11-23 when the MVP is done (Coach Ed, 2026-11-14). Every staging item must be repeated for production once it does.
+
+## Staging launch 2026-11-21 (Santé FB ads)
+
+Source: Coach Ed, 2026-11-14, Manager session, relayed by the Manager: "ok... let's focus first on our FB ads launching on Nov 21. let's make sure everything is working".
+
+Scope. The launch runs on Railway staging with real members (ruling 509745). Out of scope until after the launch: G3 inbox, custom domains, production (setup from about 2026-11-23), the PITR decision and the Sentry DSN.
+
+Before the go/no-go.
+
+| Item | Owner | Due | Status |
+|---|---|---|---|
+| Round 11 merged; api-staging `/readyz/` all true, including email | Manager, GATES | 2026-11-15 | Pending |
+| Backup schedule frequency read (Edit schedule) | Coach Ed | 2026-11-17 | Pending |
+| Private file backup z8uq9mewtf: plan approved, build, staging selftest restore | GATES | 2026-11-18 | Pending |
+| Gate 2 Membership Package walkthrough on staging with a test account, dated | SANTE | 2026-11-18 | Not run |
+| Gate 3 billing walkthrough on staging, plus the ended-site 404 | BILLING | 2026-11-18 | Not run |
+| Meta events: `META_EVENTS_ENABLED` on staging api and worker; Santé's Pixel ID, token and test event code saved in dash; dash test answers ok; Meta Events Manager Test Events shows PageView, ViewContent, InitiateCheckout, AddPaymentInfo and Purchase from one test-account run (`docs/runbooks/meta-pixel.md`) | SANTE, Coach Ed in Meta | 2026-11-19 | Not run |
+| Go/no-go run: every gate row re-read and dated | GATES | 2026-11-19 | Not run |
+| Freeze: no release round after the 2026-11-20 go/no-go except an approved hotfix | Manager | 2026-11-20 | Pending |
+| Final go/no-go | Manager, on Coach Ed's word | 2026-11-20 | Pending |
+| Live | Coach Ed | 2026-11-21 | Pending |
+
+Launch-day checklist (2026-11-21).
+
+1. api-staging `/healthz/` answers 200 on the frozen commit, and `/readyz/` answers 200 with db, cache, beat, sms_queue and email all true. Before the ads start, then hourly on the first day (GATES).
+2. UptimeRobot: all 4 monitors green; alert emails reach Coach Ed (Coach Ed).
+3. Meta: before the start, one test-account visit shows PageView and ViewContent in Events Manager. After the start, real Purchase events arrive. No MetaDelivery stays queued or retrying for more than 5 minutes (`backups-and-restore.md`, "Meta Conversions events"). Coach Ed watches Meta; GATES checks the queue at noon and in the evening.
+4. Shop flow: home, product, basket and checkout pages open. No test order is placed on the Santé site, because staging is live (ruling 509745) (SANTE, read-only).
+5. Membership Package: the landing and buy pages open; the first real order reaches HQ Finance; Coach Ed confirms payments in HQ Finance (SANTE, Coach Ed).
+6. Backups: the last Railway volume backup is under 24 hours old, and the last private file backup run is ok (GATES, morning).
+7. Incident: `docs/runbooks/incident.md`. The Manager is first contact and reaches Coach Ed. A stopped worker or beat shows as `/readyz/` 503 plus the UptimeRobot email.
+
+Who watches what. Coach Ed watches Meta Events Manager, the UptimeRobot emails and the HQ Finance confirmations. The Manager watches overall health and incidents. SANTE watches the storefront and member orders. BILLING watches Subscriber billing. GATES watches `/readyz/`, backups and the Meta delivery queue.
 
 ## Deferred after launch (not gated)
 
