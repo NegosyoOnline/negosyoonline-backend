@@ -32,18 +32,21 @@ from apps.common.middleware import require_allowed_origin
 router = Router(tags=["accounts"])
 signed_in = SessionCookieAuth()
 
+# Matches Account.email (EmailField max_length=254).
+EMAIL_MAX = 254
+
 
 class EmailIn(Schema):
-    email: str
+    email: str = Field(max_length=EMAIL_MAX)
 
 
 class EmailChangeIn(Schema):
-    email: str
+    email: str = Field(max_length=EMAIL_MAX)
     step_up_code: str = ""
 
 
 class VerifyIn(Schema):
-    email: str
+    email: str = Field(max_length=EMAIL_MAX)
     code: str
     accept_policies: bool = False
 
@@ -115,7 +118,7 @@ class QueuedOut(Schema):
 
 
 class EmailConfirmIn(Schema):
-    email: str
+    email: str = Field(max_length=EMAIL_MAX)
     code: str
 
 

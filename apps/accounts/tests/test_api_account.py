@@ -11,6 +11,7 @@ from apps.accounts import codes
 from apps.accounts.models import Account, AccountAuditEvent, ExternalIdentity, Session
 from apps.accounts.sessions import start_session
 from apps.accounts.tests.base import EMAIL, ApiTestCase
+from apps.accounts.tests.test_api_auth import email_of_length
 from apps.notifications.services import EmailNotSent
 
 
@@ -512,3 +513,35 @@ class EmailChangeThrottleTests(ApiTestCase):
 
     def test_the_step_up_is_not_available_while_the_switch_is_off(self):
         self.assertEqual(self.post("/v1/account/email/step-up/").status_code, 404)
+
+
+class AccountEmailLengthTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.sign_in()
+        cache.clear()
+        self.sent = len(mail.outbox)
+
+    def test_change_start_accepts_254_and_rejects_255(self):
+        too_long = self.post("/v1/account/email/start/", {"email": email_of_length(255)})
+        self.assertEqual(too_long.status_code, 400)
+        self.assertIn("email", too_long.json()["error"]["fields"])
+        self.assertEqual(len(mail.outbox), self.sent)
+
+        ok = self.post("/v1/account/email/start/", {"email": email_of_length(254)})
+        self.assertEqual(ok.status_code, 204)
+        self.assertEqual(len(mail.outbox), self.sent + 1)
+
+    def test_change_confirm_accepts_254_and_rejects_255(self):
+        long_email = email_of_length(254)
+        self.post("/v1/account/email/start/", {"email": long_email})
+        code = self.last_code()
+
+        too_long = self.post("/v1/account/email/confirm/", {"email": email_of_length(255), "code": code})
+        self.assertEqual(too_long.status_code, 400)
+        self.assertIn("email", too_long.json()["error"]["fields"])
+        self.assertEqual(Account.objects.get(email=EMAIL).email, EMAIL)
+
+        ok = self.post("/v1/account/email/confirm/", {"email": long_email, "code": code})
+        self.assertEqual(ok.status_code, 200)
+        self.assertEqual(ok.json()["email"], long_email)
