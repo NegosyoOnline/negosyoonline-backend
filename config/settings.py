@@ -162,6 +162,9 @@ BILLING_TRANSFER_ACCOUNTS = os.environ.get("BILLING_TRANSFER_ACCOUNTS", "").stri
 # The one address told when a bank transfer proof waits for review (a shared mailbox). Empty
 # sends no alert.
 BILLING_STAFF_ALERT_EMAIL = os.environ.get("BILLING_STAFF_ALERT_EMAIL", "").strip()
+# The service-end export notice to the owner of a cancelled site. "1" sends it (still only
+# while BILLING_ENABLED and payment collection are live). Off, nothing is read or sent.
+OWNER_NOTICES_ENABLED = os.environ.get("OWNER_NOTICES_ENABLED", "").strip() == "1"
 # Santé site settings (sponsor ID, catalog owner). "1" turns on their endpoints.
 # Off, the endpoints answer 404 and the Santé tables are not read or written.
 SANTE_SETTINGS_ENABLED = os.environ.get("SANTE_SETTINGS_ENABLED", "").strip() == "1"

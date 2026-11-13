@@ -190,6 +190,39 @@ def _paused(subscription, hi, first):
     )
 
 
+def _export_notice(subscription, hi):
+    """The service-end export notice (G4b, wording B approved in the plan, section 9)."""
+    site = subscription.site.display_name
+    if subscription.state == State.CANCELLED_NO_PAYMENT_METHOD:
+        reason = (
+            f"The free trial for {site} ended on {_day_time(subscription.service_ended_at)}, "
+            f"and no payment was approved."
+        )
+    else:
+        reason = f"Your subscription for {site} ended on {_day_time(subscription.service_ended_at)}."
+    until = _day_time(subscription.download_until)
+    deleted = _day_time(subscription.deletion_due_at)
+    return "Your NegosyoOnline store data: how to ask for your export", (
+        f"{hi}\n\n{reason}\n\n"
+        f"Your store data\n"
+        f"You can ask for an export of your store data for 30 days after your service ended. "
+        f"To ask, email {SUPPORT_EMAIL} from the email address on your account. We will send "
+        f"the export to that address. Please ask by {until}.\n\n"
+        f"What happens after\n"
+        f"After {deleted}, as our Terms say, we delete or anonymise the store data of {site}. "
+        f"This includes the receiving-account details you saved for your store (account name, "
+        f"account number and QR code). We do not delete what the law requires us to keep, or "
+        f"what we must hold for a dispute or a fraud check. Billing records are kept as "
+        f"required.\n\n"
+        f"Bringing your site back\n"
+        f"Until {deleted} you can still bring your site back: pay by bank transfer and send "
+        f"the proof on your Billing page: {_billing_link()}. You can still sign in and open "
+        f"your Billing page.\n\n"
+        f"Questions: {SUPPORT_EMAIL}.\n\n"
+        f"All dates are Manila time.\n\n{SIGN_OFF}"
+    )
+
+
 def _staff_alert(payment):
     where = (
         f"Open the Finance page in HQ: {settings.HQ_STAFF_ORIGIN}"
@@ -339,13 +372,57 @@ def _transition_emails(now):
     return sent
 
 
+def _announceable_at(subscription):
+    """When the service end became known to the owner, or None while the dates are not set."""
+    if subscription.download_until is None or subscription.deletion_due_at is None:
+        return None
+    at = subscription.download_until - plan.DOWNLOAD_WINDOW  # the service end, or the clocks start
+    ended = subscription.transitions.filter(
+        code__in=("cancelled", "trial_ended_no_method")
+    ).order_by("-effective_at").first()
+    if ended is not None and ended.effective_at > at:
+        at = ended.effective_at  # a cancel while suspended counts from the cancellation
+    return at
+
+
+def _export_notice_emails(now):
+    """The service-end export notice for each ended subscription, once per service end.
+
+    Off with OWNER_NOTICES_ENABLED: nothing is read. Only a service end announceable in the
+    last 48 hours is sent, so switching on mails no backlog.
+    """
+    sent = Counter()
+    if not settings.OWNER_NOTICES_ENABLED:
+        return sent
+    subscriptions = Subscription.objects.select_related("site__account").filter(
+        billing_exempt=False,
+        state__in=(State.CANCELLED, State.CANCELLED_NO_PAYMENT_METHOD),
+        service_ended_at__isnull=False,
+        service_ended_at__lte=now,
+        download_until__isnull=False,
+        deletion_due_at__isnull=False,
+    ).order_by("pk")
+    for sub in subscriptions:
+        announceable = _announceable_at(sub)
+        if announceable is None or not (announceable <= now < announceable + WINDOW):
+            continue
+        to = _reachable(sub)
+        if not to:
+            continue
+        subject, body = _export_notice(sub, _greeting(sub.site.account))
+        key = f"export_notice:{sub.pk}:{int(sub.service_ended_at.timestamp())}"
+        if _send_once(sub, key, "export_notice", to, subject, body, now):
+            sent["export_notice"] += 1
+    return sent
+
+
 def run(now=None):
     """Send every billing email that is due. Returns a count per code. Safe to run twice."""
     if not (settings.BILLING_ENABLED and plan.collection_live()):
         return {}
     now = now or timezone.now()
     sent = Counter()
-    for scan in (_payment_emails, _reminder_emails, _transition_emails):
+    for scan in (_payment_emails, _reminder_emails, _transition_emails, _export_notice_emails):
         try:
             sent.update(scan(now))
         except Exception:
