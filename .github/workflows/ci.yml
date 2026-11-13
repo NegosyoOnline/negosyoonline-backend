@@ -101,5 +101,4 @@ jobs:
         run: uv run python manage.py check --deploy
       - name: Run tests against PostgreSQL and Redis
         if: steps.scope.outputs.full == 'true'
-        # tblib is not a project dependency; it lets parallel workers print full tracebacks.
-        run: uv run --with tblib python manage.py test --parallel
+        run: uv run python manage.py test
