@@ -86,6 +86,9 @@ SITE_URL = os.environ.get("SITE_URL", "http://localhost:3000").rstrip("/")
 # security notices) as branded HTML with a plain-text part. "1" turns it on; off, they are the
 # plain text they always were. Turn on only once the Resend domain is verified.
 ACCOUNT_EMAILS_BRANDED = os.environ.get("ACCOUNT_EMAILS_BRANDED", "").strip() == "1"
+# Account Settings email change: "1" asks for a code sent to the current address before the
+# change can start, and answers a taken address like a free one. Off: the change works as it did.
+ACCOUNT_EMAIL_CHANGE_HARDENED = os.environ.get("ACCOUNT_EMAIL_CHANGE_HARDENED", "").strip() == "1"
 # Admin two-step sign-in. The key encrypts authenticator secrets; with no key nobody can be
 # enrolled.
 ADMIN_SECRETS_KEY = os.environ.get("ADMIN_SECRETS_KEY", "").strip()

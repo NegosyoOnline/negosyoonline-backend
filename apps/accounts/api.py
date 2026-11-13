@@ -37,6 +37,11 @@ class EmailIn(Schema):
     email: str
 
 
+class EmailChangeIn(Schema):
+    email: str
+    step_up_code: str = ""
+
+
 class VerifyIn(Schema):
     email: str
     code: str
@@ -75,6 +80,7 @@ class AccountSettingsOut(AccountOut):
     """What the Account Settings page reads. Every write on that page answers with it."""
 
     writes_open: bool
+    email_change_step_up: bool
     email_changed_at: datetime | None
     email_change_available_at: datetime | None
     providers: list[ProviderOut]
@@ -166,6 +172,7 @@ def settings_out(request):
     return {
         **account_out(account),
         "writes_open": True,  # there is no launch gate in this backend
+        "email_change_step_up": settings.ACCOUNT_EMAIL_CHANGE_HARDENED,
         "email_changed_at": changed_at,
         "email_change_available_at": available_at,
         "providers": [
@@ -219,8 +226,16 @@ def account_update(request, payload: AccountPatch):
 
 
 @router.post("/account/email/start/", response={204: None}, auth=signed_in)
-def email_change_start(request, payload: EmailIn):
-    services.start_email_change(request.account, payload.email, client_ip(request))
+def email_change_start(request, payload: EmailChangeIn):
+    services.start_email_change(
+        request.account, payload.email, client_ip(request), payload.step_up_code
+    )
+    return 204, None
+
+
+@router.post("/account/email/step-up/", response={204: None}, auth=signed_in)
+def email_change_step_up(request):
+    services.send_email_change_step_up(request.account, client_ip(request))
     return 204, None
 
 
