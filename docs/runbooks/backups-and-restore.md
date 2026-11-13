@@ -17,7 +17,8 @@ Production does not exist yet. Everything below names staging; production gets t
 ### Railway database backups (read from Railway's documentation on 2026-11-13)
 
 - Schedules a volume can use: daily (every 24 hours, kept 6 days), weekly (every 7 days, kept 27 days), monthly (every 30 days, kept 89 days). Several can be selected; manual backups are possible. Set under the service's Backups tab.
-- What staging actually has set is read from the dashboard, not from this page. Record it here with the date it was read: `TODO(Coach Ed or the Supervisor): schedule and retention seen on staging, date` (screenshots belong to NPC Build 4, z8uq9md33y).
+- What staging has set, seen by Coach Ed in staging Postgres > Backups on 2026-11-13: at first there was no schedule and no backups at all, with PITR off. This was a gap. He then set a schedule (the screen showed "Next backup in 12 hours") and took an on-demand volume backup, 2026-11-13 19:33, 1.11 GB. Schedule boxes: to confirm.
+- PITR is left off on purpose: it costs more and redeploys the database. Revisit before production.
 - **A volume backup can only be restored in place**, into the same project and environment. It cannot go to a separate service. Restoring mounts a new volume (named with the backup's date stamp) at the original path; the previous volume stays unmounted in the project; the change takes effect when you click Deploy, which redeploys the service. Newer backups stay with the previous volume.
 - Point-in-time recovery (PITR) is different: it creates a sibling Postgres service at a chosen time and leaves the source untouched. It must be enabled first and only covers the time after it was enabled (a window of about four weeks). It is not enabled on staging as far as this runbook knows.
 - Only a `pg_dump` taken to somewhere else survives the loss of the project or the volume. Wiping a volume deletes its backups too.
@@ -131,6 +132,8 @@ It is limited to 30 calls a minute per client address (answers 429 `{"ok": false
 
 Tools approved by Coach Ed on 2026-11-13: one external uptime check with an email alert, and Sentry's free tier with personal data scrubbed. Accounts, the `SENTRY_DSN` value and any cost are not approved yet and are his to create. Alerts go to Coach Ed's email.
 
+Set up 2026-11-13: UptimeRobot free plan, Coach Ed's own account, 4 monitors at 5-minute intervals (the four URLs below), all green. The free plan sends HEAD and cannot pick the method or a keyword; `/readyz/` answers HEAD since BE #155 (8664aa5). The alert proof (stop the worker and beat, receive the Down and Up emails) is not run yet.
+
 ### Uptime checks (one external service, email alert)
 
 | URL | Expect |
@@ -159,26 +162,25 @@ Before SENTRY_DSN is set anywhere, staging included: Sentry is a new sub-process
 
 Pause the uptime monitors (or put them in the service's maintenance window) before step 2 of section 2, and resume them at the end. The Sentry alert needs no silencing. Never delete a monitor to silence it.
 
-## 6. Restore test (staging only, written, not run)
+## 6. Restore test (staging only, run 2026-11-13)
 
-Not run. The exact command goes to Coach Ed for his word after this runbook is merged. No production data, no change to staging itself.
+Run on 2026-11-13. Evidence: the "Restore test" row in `docs/runbooks/launch-gates.md` (Gate 5). No production data, no change to staging itself.
 
-**Finding from Railway's documentation (2026-11-13):** a volume backup restores only in place, into the same project and environment, over staging's own volume. It cannot be restored into a scratch service. So the test cannot restore Railway's backup into scratch. Unless point-in-time recovery has been enabled on staging (it then forks to a sibling service and leaves staging untouched), the test uses a `pg_dump` of staging restored into a scratch Railway Postgres service. **This tests the dump and the restore procedure, not Railway's backup.** Say so in the evidence.
+**Limit:** a volume backup restores only in place, into the same project and environment, over staging's own volume. It cannot go into a scratch service, and PITR is off. So the test uses a `pg_dump` of staging restored into a scratch Railway Postgres service. **This tests the dump and the restore procedure, not Railway's backup.** Say so in the evidence.
 
-Steps (a `pg_dump` restore):
+**Privacy rule (Coach Ed's ruling 509745):** no data leaves Railway. The dump and the restore both run inside Railway, over the private network. Never dump to your own machine. Never put a connection string or a dump in the repository or in chat.
 
-1. In the staging project, create a scratch Postgres service (for example `postgres-restore-test`). Coach Ed's word covers this service and its cost; delete it at the end.
-2. Dump staging, from your own machine through Railway's tunnel (the guide prefers this to the public proxy, which is billed as egress). In a directory linked with `railway link` to staging:
-   `railway connect postgres --tunnel-only` (leave it running; it prints host, port, user, password and database).
-   `pg_dump "postgresql://<user>:<password>@localhost:<port>/<database>" --format=custom --no-owner --file=staging.dump`
-   Note the time the dump started: it is the "backup time".
-3. Restore into the scratch service's database (create the database first if needed):
-   `pg_restore --dbname="<scratch connection string>" --no-owner --exit-on-error staging.dump`
-4. Compare table row counts on both sides:
-   `SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY relname;`
-   (counts may differ slightly if staging changed after the dump; use `SELECT count(*)` on the tables that matter: accounts, sites, billing payments and notices, SMS messages.)
-5. Run `uv run python manage.py migrate --plan` with `DATABASE_URL` set to the scratch database, on your machine, never against staging. It must list nothing to apply.
-6. With the same `DATABASE_URL` and `DJANGO_DEBUG=false`, no Redis and the worker and beat not running, start the API locally and call `/readyz/`, or run the four checks by hand (`db` and `sms_queue`; `cache` and `beat` need Redis and are expected to pass only where Redis is set).
-7. Record the evidence in the ClickUp task: backup time, restore duration, row counts side by side, the `migrate --plan` output, the `/readyz/` result. Then delete the scratch service.
+Steps:
 
-Never put the scratch connection string or the dump in the repository or in chat. Delete `staging.dump` after the test: it holds real data. Staging holds live member data since the Santé ads test, so deleting the local `staging.dump` right after the check is a required privacy step; never copy it elsewhere.
+1. In the staging project, create a scratch Postgres service (for example `postgres-restore-test`).
+2. On the scratch service only, add a reference variable `SOURCE_DATABASE_URL` = `${{Postgres.DATABASE_URL}}`.
+3. Check the versions inside the scratch container through `railway ssh` (single-quote the whole remote command): `pg_dump --version` and the server version. They must match.
+4. Inside the container, run:
+   `pg_dump "$SOURCE_DATABASE_URL" --format=custom --no-owner --no-acl | pg_restore --dbname="$DATABASE_URL" --no-owner --no-acl --exit-on-error`
+   Note the start time and the finish time.
+5. Compare row counts in psql on both URLs, table by table (`SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY relname;`, and `SELECT count(*)` on the tables that matter).
+6. Compare `django_migrations` on both sides (row count and max id). This replaces running `migrate --plan` locally.
+7. Run the db check (`select 1`) and the sms_queue check (rows queued for 15 minutes or more) in psql. cache and beat need Redis and a worker, and are not tested on the copy.
+8. Delete the scratch service and its volume, and confirm in the dashboard that both are gone.
+
+Record in the ClickUp task: versions, start and finish times, row counts side by side, the `django_migrations` comparison, the db and sms_queue results, the deletion time.

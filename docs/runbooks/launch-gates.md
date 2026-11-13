@@ -64,7 +64,7 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Code delivery through the gateway phone | BE #46, BE #47; `apps/notifications/tests/test_sms_gateway.py`, `apps/notifications/tests/test_sms_send.py`; first real phone recorded in BE #82 and `docs/runbooks/sms-gateway.md` | Pass | HQ Supervisor |
 | Daily limits (platform and site, start at 2,000) | BE #60; `apps/notifications/tests/test_sms_send.py` (platform limit and site limit tests) | Pass | HQ Supervisor |
 | Offline behaviour: code refused with a plain message, email fallback, `sms_gateway_offline` log line at most hourly | `apps/notifications/tests/test_sms_send.py`; `docs/runbooks/sms-gateway.md` (When the phone is offline) | Pass | HQ Supervisor |
-| Offline alert that reaches a person | The server only writes a log line today. An email alert needs the uptime account (Gate 5) | Pending | HQ Supervisor |
+| Offline alert that reaches a person | The server only writes a log line today. The alert is the uptime monitor on `/readyz/` (Gate 5, UptimeRobot, set up 2026-11-13). Pending until the alert proof (ops B) shows a Down and an Up email | Pending | HQ Supervisor |
 | Readiness reports a stuck SMS queue | BE #148; `apps/health/test_readyz.py` | Pass | GATES |
 | Retention: send records deleted after 1 year, challenges 24 hours after expiry | BE #53; `apps/notifications/tests/test_retention.py`; `docs/runbooks/retention.md`; daily scheduled run BE #145 | Pass | HQ Supervisor |
 | SMS gateway runbook | `docs/runbooks/sms-gateway.md` | Pass | HQ Supervisor |
@@ -78,12 +78,16 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Django admin removed on staging (BE #149) | Supervisor check 2026-11-13: `https://api-staging.negosyonline.com/admin/` answers 404 | Pass | GATES |
 | HQ API host health (BE #149) | Supervisor check 2026-11-13: `https://hq-api-staging.negosyonline.com/healthz/` answers 404 by design. The HQ host serves only HQ paths (`apps/operators/tests/test_hq.py`, `HqHostTests.test_the_hq_host_serves_only_hq`; Manager ruling 2026-11-13). Staging health is checked on api-staging only | Pass (by design) | GATES |
 | Backups, restore and monitoring runbook | `docs/runbooks/backups-and-restore.md`; BE #148 | Pass | GATES |
-| Railway backups exist on staging | Not seen yet | Pending | HQ Supervisor |
-| Restore test (staging dump into a scratch service; deleting the dump is a required privacy step) | Written, not run (`docs/runbooks/backups-and-restore.md` section 6); waits for Coach Ed's word | Not run | GATES |
-| External uptime check with email alert | Account not created (Coach Ed) | Pending | GATES |
-| Sentry with personal data scrubbed | Code merged in BE #148, off until `SENTRY_DSN` is set. Account and DSN not created; Sentry waits 30 days after the Privacy line is live (Coach Ed) | Pending | GATES |
+| Railway backups exist on staging | Coach Ed, staging Postgres > Backups, 2026-11-13: at first no schedule and no backups, PITR off (a gap). He set a schedule (\"Next backup in 12 hours\") and took an on-demand volume backup, 2026-11-13 19:33, 1.11 GB (`docs/runbooks/backups-and-restore.md` section 1) | Pass | HQ Supervisor |
+| Backup schedule boxes confirmed in the Backups tab | Which schedule boxes are ticked is not yet confirmed | Pending | GATES |
+| Point-in-time recovery decision before production | PITR is off on purpose: it costs more and redeploys the database. Revisit before production | Pending | GATES |
+| Restore test (staging dump into a scratch service, inside Railway) | Run 2026-11-13, method in `docs/runbooks/backups-and-restore.md` section 6: `pg_dump` piped into `pg_restore` in a scratch Railway Postgres container over the private network; no data left Railway (ruling 509745). Scratch service created 11:43 UTC; Postgres 18.6 on both sides. Dump started 11:44:52 UTC, restore finished 11:44:55 UTC (3 s), exit 0; database 18 MB. 104 tables and 854 rows on each side, per-table counts identical. `django_migrations`: 62 rows, max id 80, on both sides. On the copy, db `select 1` returned 1 and sms_queue returned 0 rows queued 15 minutes or more; cache and beat not tested (no Redis or worker). Scratch service deleted 11:46 UTC; staging Postgres and variables unchanged. Railway's own backup not tested: a volume backup restores only in place and PITR is off | Pass | GATES |
+| Scratch volume deletion confirmed | The scratch service was deleted 11:46 UTC; deletion of its volume is still to confirm in the dashboard | Pending | GATES |
+| External uptime check: account and monitors | UptimeRobot free plan, Coach Ed's own account, 2026-11-13: 4 monitors at 5-minute intervals (api-staging `/readyz/`, www-staging, dash-staging, the Santé staging storefront), all green. The free plan sends HEAD and cannot pick the method or a keyword; `/readyz/` was fixed to answer HEAD in z8uq9mev7t (BE #155, 8664aa5) | Pass | GATES |
+| Uptime alert proof (ops B): stop the worker and beat, receive the Down and Up emails | Not run | Not run | GATES |
+| Sentry with personal data scrubbed | Code merged in BE #148, off until `SENTRY_DSN` is set. Account created 2026-11-13: org "NS", project python-django, 14-day trial then the free Developer plan, no card. Error monitoring only; logs, tracing, profiling, metrics and the repo link are off. No DSN is set anywhere. At go-live a fresh client key is created in the project settings and used. The DSN waits 30 days after the Privacy line is live (Coach Ed) | Pending | GATES |
 | Support and exit runbook | `docs/runbooks/support-and-exit.md`; BE #148 | Pass | GATES |
-| Export dry run on a test account named as a test (never a real member) | Not run (Coach Ed's word). Code: BE #52; `apps/accounts/tests/test_export.py` | Not run | GATES |
+| Export dry run on a test account named as a test (never a real member) | Run 2026-11-13 11:41 UTC on staging api, actor the staff user, ref EXPORT-DRYRUN-1, test account `acc_95tg3whptrx3vgxwmr63`, site `site_zaqj1svyvdfaean2nn0w` (business "Test Explore": the test sign-up, a test address). Keys: account (7 fields), policy_acceptances 1, sign_in_providers 0, sessions 1, audit_events 5, mobile null, mobile_challenges 0, email_send_records 1, onboarding 2, sites 1, sante_site_settings 1; payment, member, Santé registration, pack and bank transfer lists 0. Only that account's email and ids appear: no token, password, code, provider user id or secret. Exactly one `account_exported` operator audit entry, 11:41:24 UTC, counts only, matching the file. The file was deleted. Code: BE #52; `apps/accounts/tests/test_export.py` | Pass | GATES |
 | Account disposal and deletion request steps | BE #52; `apps/accounts/tests/test_disposal.py`; `docs/runbooks/retention.md` | Pass | GATES |
 | Help Center, five articles (z8uq9mekvc) | FE #60; task ACCEPTED | Pass | GATES |
 | Help Center, second subtask (z8uq9memmp), including article 5 | FE #64 (merged 5144a12); task ACCEPTED; Coach Ed approved the article 5 staging visual test on 2026-11-13 | Pass | GATES |
@@ -138,11 +142,12 @@ This is the "runbooks for each" line of the working statement.
 
 ## Still open
 
-- Railway backups on staging not yet seen (HQ Supervisor).
-- Restore test not run; needs Coach Ed's word (GATES).
-- Uptime check account and its email alert not created (Coach Ed); this is also what turns the SMS offline log line into an alert.
-- Sentry account and `SENTRY_DSN` not created; waits 30 days after the Privacy line is live (Coach Ed).
-- Export dry run on a test account named as a test (Coach Ed's word).
+- Uptime alert proof (ops B): stop the worker and beat, receive the Down and Up emails (GATES). This is also what turns the SMS offline log line into an alert.
+- Scratch restore volume: deletion to confirm in the dashboard (GATES).
+- Backup schedule boxes to confirm in the Backups tab (GATES).
+- Point-in-time recovery decision before production (GATES).
+- Sentry `SENTRY_DSN`: waits 30 days after the Privacy line is live (Coach Ed).
+- Public claim row on referral credits (Open).
 - Mobile and accessibility audit z8uq9m7ydk: findings above still Pending or Open (GATES, SANTE, BILLING, HQ Supervisor); Usage Admit and Dismiss to be re-checked in a browser once usage is turned on after launch (GATES).
 - Dated staging walkthroughs for gates 2 and 3 (Not run); ended-site 404 not checked on staging.
 - Production does not exist yet. Every staging item must be repeated for production once it does.
