@@ -308,6 +308,39 @@ def overview(site, at=None):
     }
 
 
+def end_dates(site, at=None):
+    """(service end, deletion due) of a site whose service has ended at `at`, as `overview`
+    reads them (the stored dates, or the ones a due transition would write). None when the
+    site is still served, exempt or has no subscription. Writes nothing. Deletion due is None
+    while no clock has started (R-4a)."""
+    subscription = subscription_of(site)
+    if subscription is None or subscription.billing_exempt:
+        return None
+    now = at or timezone.now()
+    due = _due(subscription, now)
+    state = DUE_TO_STATE[due[0]] if due else subscription.state
+    if state not in ENDED_STATES:
+        return None
+    if due:
+        service_end = due[1]
+        deletion_due = _dates_after(subscription, service_end)[1]
+    else:
+        service_end, deletion_due = subscription.service_ended_at, subscription.deletion_due_at
+    if service_end is None or (state == State.CANCELLED and now < service_end):
+        return None  # a cancellation inside the paid period is still served
+    return service_end, deletion_due
+
+
+def deletion_point(site, at=None):
+    """The instant the site's data is due for deletion, or None when there is no clock: the site
+    is served, exempt, has no subscription, or never paid and collection is not live yet.
+
+    The stored `deletion_due_at`, or the date a time-driven transition that is due but not yet
+    swept would write, so the answer never waits for the sweep. Writes nothing."""
+    found = end_dates(site, at)
+    return None if found is None else found[1]
+
+
 # Writing
 
 def _write(subscription, at, change, *, key=None):
