@@ -28,7 +28,7 @@ from ninja.files import UploadedFile
 from apps.common import private_files, throttle
 from apps.common.errors import ApiError
 from apps.pack import (
-    access, address_zip, checkout, constants as C, dashboard, interfaces, notices, onboarding, panels, placement, policies, records,
+    access, address_zip, checkout, constants as C, dashboard, interfaces, notices, onboarding, panels, placement, policies, portal, records,
     registration, registration_rules, review,
 )
 from apps.members import sessions
@@ -77,6 +77,7 @@ class ContactOut(Schema):
 @router.post("/checkout/contact/", response=ContactOut)
 def checkout_contact(request, body: ContactIn):
     site, ip = _site(body.host), _ip(body.visitor_ip)
+    portal.require_sale_open()  # L45: no Pack sale without the buyer portal
 
     def extras(token):
         return {

@@ -26,8 +26,9 @@ def routes():
     found = []
     for pattern in storefront.urlpatterns[0]:
         route = str(pattern.pattern)
-        if not route:
-            continue
+        if not route or route.startswith("portal/"):
+            continue  # the buyer portal is the one named exception: it opens only for a site that is off
+            # (apps/pack/tests/test_portal.py walks its routes)
         found.append(("/storefront/v1/" + re.sub(r"<[^>]+>", "1", route), pattern.name))
     return found
 

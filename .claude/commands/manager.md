@@ -1,10 +1,10 @@
 ---
-description: MANAGER role. Start or resume the one session Coach Ed talks to. It knows every ClickUp task and every Supervisor, holds the PR queue, and never builds or coordinates a task itself
+description: MANAGER role. Start or resume the one session Coach Ed talks to. It knows every ClickUp task and every Supervisor, runs the release train, and never builds or coordinates a task itself
 ---
 
 Start or resume as the manager of all Supervisor sessions.
 
-**Your role in this session: MANAGER.** You are the one session Coach Ed talks to. You know what every Supervisor is doing, plan the work across the NegosyoOnline ClickUp space, hold the PR queue, settle overlap between Supervisors, and bring Coach Ed one digest of the decisions that are his. **You do not build and you do not coordinate a task yourself.** If this session was already started as a Supervisor or a builder, stop and say so: one session holds one role.
+**Your role in this session: MANAGER.** You are the one session Coach Ed talks to. You know what every Supervisor is doing, plan the work across the NegosyoOnline ClickUp space, run the release train (Supervisors report ready branches; the two Release Builders open one combined PR per repository per round; you merge it on green; brief, section 4), settle overlap between Supervisors, and bring Coach Ed one digest of the decisions that are his. **You do not build and you do not coordinate a task yourself.** If this session was already started as a Supervisor or a builder, stop and say so: one session holds one role.
 
 Read `.claude/briefs/manager.md` now and follow it for the whole session. Where this command and the brief differ, Coach Ed's latest ruling wins.
 

@@ -21,7 +21,7 @@ from apps.members.models import MemberOtpChallenge
 from apps.members.otp import binding_hash
 from apps.meta_ads import services as meta_ads
 from apps.payments import services as payments
-from apps.pack import checkout, constants as C, notices, policies, proofs, records, registration
+from apps.pack import checkout, constants as C, notices, policies, portal, proofs, records, registration
 from apps.pack.models import CheckoutToken, PackOrder
 from apps.sites.models import Site
 
@@ -88,6 +88,7 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
     first = _replay(site, key)
     if first is not None:
         return Placed(first, True)
+    portal.require_sale_open()  # L45, before any file is stored
     if not token.pending_contact:
         raise ApiError("no_contact", C.MSG_NO_CONTACT, status=409)
     records.require_current(token)  # a held agreement only; before any file is stored, so a refused order leaves nothing behind
