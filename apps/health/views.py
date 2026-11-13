@@ -16,6 +16,7 @@ from django.views.decorators.http import require_safe
 
 from apps.common import throttle
 from apps.common.errors import ApiError
+from apps.file_backup.constants import LAST_OK_KEY as FILES_BACKUP_KEY
 from apps.health.tasks import HEARTBEAT_KEY
 
 CHECK_TIMEOUT = 2  # seconds each check may take
@@ -113,6 +114,19 @@ def check_email():
         return False
 
 
+def _files_backup_fresh():
+    last = cache.get(FILES_BACKUP_KEY)
+    return last is not None and timezone.now().timestamp() - float(last) < settings.FILE_BACKUP_STALE_HOURS * 3600
+
+
+def check_files_backup():
+    """True while the file backup is switched off (no client is built or called). Switched on,
+    true while the last fully good run is younger than FILE_BACKUP_STALE_HOURS: one cache read."""
+    if not settings.FILE_BACKUP_ENABLED:
+        return True
+    return _bounded(_files_backup_fresh)
+
+
 @require_safe
 def readyz(request):
     limit, window = READYZ_LIMIT
@@ -128,6 +142,7 @@ def readyz(request):
         "beat": check_beat(),
         "sms_queue": check_sms_queue(),
         "email": check_email(),
+        "files_backup": check_files_backup(),
     }
     ok = all(checks.values())
     return JsonResponse({"ok": ok, **checks}, status=200 if ok else 503)
