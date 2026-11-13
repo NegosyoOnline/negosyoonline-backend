@@ -15,6 +15,8 @@ from apps.notifications.models import SmsMessage
 class ReadyzTests(TestCase):
     def setUp(self):
         cache.clear()
+        # A fresh beat heartbeat, as a running worker leaves; without Redis the check is skipped (eager mode).
+        cache.set(tasks.HEARTBEAT_KEY, timezone.now().timestamp(), 600)
 
     def get(self, **extra):
         return self.client.get("/readyz/", secure=True, **extra)
@@ -53,6 +55,7 @@ class ReadyzTests(TestCase):
 
     @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
     def test_beat_needs_a_fresh_heartbeat(self):
+        cache.delete(tasks.HEARTBEAT_KEY)
         self.assertFalse(self.get().json()["beat"])
         tasks.heartbeat()
         self.assertTrue(self.get().json()["beat"])
@@ -63,6 +66,7 @@ class ReadyzTests(TestCase):
         self.assertFalse(response.json()["beat"])
 
     def test_heartbeat_writes_the_cache(self):
+        cache.delete(tasks.HEARTBEAT_KEY)
         self.assertIsNone(cache.get(tasks.HEARTBEAT_KEY))
         tasks.heartbeat()
         self.assertAlmostEqual(
