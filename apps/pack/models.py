@@ -306,6 +306,29 @@ class SanteRegistration(models.Model):
         raise ImmutableRecordError("Registrations are never deleted.")
 
 
+class PackBuyerNotice(models.Model):
+    """The day-76 email to one buyer of one site for one deletion date (ClickUp z8uq9mep8p). The
+    row is the once-only record: `unique(site, member, deletion_due_at)`. It is written when the
+    first send is tried, so a failed send keeps its count (`attempts`, `last_attempt_at`) and a
+    notice that was given up on (the date passed, or the retries ran out) keeps `gave_up_at`, so
+    each is logged once. It holds no address and no text."""
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="pack_buyer_notices")
+    member = models.ForeignKey("members.Member", on_delete=models.PROTECT, related_name="pack_buyer_notices")
+    deletion_due_at = models.DateTimeField()
+    sent_at = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    gave_up_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["site", "member", "deletion_due_at"], name="pack_buyer_notice_once"
+            ),
+        ]
+
+
 class SanteRegistrationEvent(AppendOnly):
     site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="pack_reg_events")
     registration = models.ForeignKey(SanteRegistration, on_delete=models.PROTECT, related_name="events")

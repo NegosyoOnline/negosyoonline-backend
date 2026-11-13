@@ -8,12 +8,18 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.accounts import codes
-from apps.accounts.models import Account, AccountAuditEvent, ExternalIdentity, PolicyAcceptance
+from apps.accounts.models import (
+    Account,
+    AccountAuditEvent,
+    AccountMobile,
+    ExternalIdentity,
+    PolicyAcceptance,
+)
 from apps.accounts.sessions import client_ip, revoke_sessions, start_session
 from apps.common import throttle
 from apps.common.errors import ApiError
 from apps.notifications.email_render import account_mail
-from apps.notifications.services import EmailNotSent, send_email
+from apps.notifications.services import SMS_QUEUED, EmailNotSent, send_email, send_sms, sms_on
 
 SIGNIN = "signin"
 EMAIL_CHANGE_PAUSE = timedelta(hours=24)
@@ -315,41 +321,114 @@ def _refuse_paused(account):
         )
 
 
-def _step_up_purpose(account):
-    return f"change-old:{account.pk}"
-
-
 def _throttle_email_change(account):
     """At most 5 email-change mails an hour per account, so a session cannot be used to mail
     codes to arbitrary addresses."""
     throttle.hit("email-change", account.pk, limit=EMAIL_CHANGE_STARTS_PER_HOUR, window=codes.HOUR)
 
 
-def send_email_change_step_up(account, ip):
-    """Email a code to the CURRENT address: proof that the person holds the mailbox, asked for
-    before an email change can start. Only while ACCOUNT_EMAIL_CHANGE_HARDENED is on."""
+STEP_UP_PURPOSES = ("email_change", "mobile_change")
+STEP_UP_CHANNELS = ("email", "mobile")
+STEP_UP_SMS = "Your NegosyoOnline code is {code}. It expires in 10 minutes. Do not share it."
+
+
+def step_up_channels(account):
+    """Where a step-up code can go now: the email always, the verified mobile only while texts
+    are on and the account holds one. Empty while ACCOUNT_EMAIL_CHANGE_HARDENED is off."""
+    if not settings.ACCOUNT_EMAIL_CHANGE_HARDENED:
+        return []
+    channels = ["email"]
+    if sms_on() and AccountMobile.objects.filter(account=account).exists():
+        channels.append("mobile")
+    return channels
+
+
+def _step_code_scope(account, purpose, channel):
+    """A code is bound to its account, purpose and channel: the cache key holds all three."""
+    return str(account.pk), f"step-up:{purpose}:{channel}"
+
+
+def require_step_up(account, step_up_code, purpose):
+    """Accept a code from either channel for this purpose, or raise step_up_required."""
+    if step_up_code:
+        for channel in STEP_UP_CHANNELS:
+            value, scope = _step_code_scope(account, purpose, channel)
+            if codes.check_code(value, step_up_code, scope):
+                return
+    raise ApiError("step_up_required", "Enter the code we sent you first.")
+
+
+def clear_step_up(account, purpose):
+    for channel in STEP_UP_CHANNELS:
+        value, scope = _step_code_scope(account, purpose, channel)
+        codes.clear_code(value, scope)
+
+
+def send_step_up(account, ip, channel, purpose):
+    """Send a one-time code to the account's email or verified mobile: proof that the person
+    holds one of them, asked for before an email or mobile change can start. Only while
+    ACCOUNT_EMAIL_CHANGE_HARDENED is on."""
     if not settings.ACCOUNT_EMAIL_CHANGE_HARDENED:
         raise ApiError("not_found", "Not found.", status=404)
-    _refuse_paused(account)
-    _throttle_email_change(account)
-    purpose = _step_up_purpose(account)
-    code = codes.issue_code(account.email, ip, purpose)
-    try:
-        send_email(
-            to=account.email,
-            category="email_change_step_up",
-            subject="Confirm it is you on NegosyoOnline",
-            **account_mail(
-                "email_change_current",
-                f"Your confirmation code is {code}. It expires in 10 minutes.\n\n"
-                "If you did not ask to change your email, you can ignore this email.",
-                code=code,
-            ),
+    if purpose not in STEP_UP_PURPOSES or channel not in STEP_UP_CHANNELS:
+        raise ApiError("invalid_request", "Some values are missing or invalid.")
+    if channel not in step_up_channels(account):
+        raise ApiError(
+            "step_up_channel_unavailable", "We cannot send a code there for this account."
         )
-    except EmailNotSent:
-        codes.release_cooldown(account.email, ip, purpose)
+    if purpose == "email_change":
+        _refuse_paused(account)
+    _throttle_email_change(account)  # one limit across both channels
+    value, scope = _step_code_scope(account, purpose, channel)
+    code = codes.issue_code(value, ip, scope)
+    try:
+        if channel == "email":
+            _mail_step_up(account, code)
+        else:
+            _text_step_up(account, code)
+    except (EmailNotSent, ApiError):
+        codes.release_cooldown(value, ip, scope)
         raise
-    record_event(account, "email_change_step_up")
+    # The event holds the channel and purpose only: never an address, a number or a code.
+    record_event(account, f"{purpose}_step_up", channel=channel, purpose=purpose)
+
+
+def _mail_step_up(account, code):
+    send_email(
+        to=account.email,
+        category="email_change_step_up",
+        subject="Confirm it is you on NegosyoOnline",
+        **account_mail(
+            "email_change_current",
+            f"Your confirmation code is {code}. It expires in 10 minutes.\n\n"
+            "If you did not ask to change your email or mobile number, you can ignore this email.",
+            code=code,
+        ),
+    )
+
+
+def _text_step_up(account, code):
+    held = AccountMobile.objects.get(account=account)
+    result = send_sms(
+        to=held.number,
+        purpose="mobile_verify",
+        text=STEP_UP_SMS.format(code=code),
+        ttl=codes.CODE_TTL,
+    )
+    if result.outcome != SMS_QUEUED:
+        paused = result.reason in ("paused", "platform_limit")
+        raise ApiError(
+            "sms_paused" if paused else "sms_unavailable",
+            "Please try again shortly."
+            if paused
+            else "Text messages are not available right now. Please try again later.",
+            status=503,
+        )
+
+
+def send_email_change_step_up(account, ip):
+    """The first route, kept: a code to the CURRENT email for an email change."""
+    send_step_up(account, ip, "email", "email_change")
 
 
 def start_email_change(account, new_email, ip, step_up_code=""):
@@ -365,12 +444,7 @@ def start_email_change(account, new_email, ip, step_up_code=""):
         raise ApiError("email_unchanged", "That is already your email.")
     _throttle_email_change(account)
     if hardened:
-        step_purpose = _step_up_purpose(account)
-        if not step_up_code or not codes.check_code(account.email, step_up_code, step_purpose):
-            raise ApiError(
-                "step_up_required",
-                "Enter the code we sent to your current email first.",
-            )
+        require_step_up(account, step_up_code, "email_change")
     if Account.objects.filter(email=new_email).exists():
         if hardened:
             record_event(account, "email_change_started")
@@ -426,7 +500,7 @@ def _apply_email_change(account, new_email, code, current_session):
     if Account.objects.filter(email=new_email).exclude(pk=account.pk).exists():
         raise _email_taken()
     codes.clear_code(new_email, purpose)
-    codes.clear_code(account.email, _step_up_purpose(account))
+    clear_step_up(account, "email_change")
     old_email = account.email
     account.email = new_email
     account.email_verified_at = timezone.now()

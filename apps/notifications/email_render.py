@@ -35,9 +35,9 @@ CODE_KINDS = {
     "email_change_current": (
         "Confirm it is you on NegosyoOnline",
         "Confirm it is you",
-        "Your confirmation code is below. Enter it to go on with changing the email of your "
-        "NegosyoOnline account.",
-        "If you did not ask to change your email, you can ignore this email.",
+        "Your confirmation code is below. Enter it to go on with changing the email or mobile "
+        "number of your NegosyoOnline account.",
+        "If you did not ask to change your email or mobile number, you can ignore this email.",
     ),
 }
 

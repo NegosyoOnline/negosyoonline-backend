@@ -117,7 +117,7 @@ class QueueSetupTests(SimpleTestCase):
             [
                 "billing.notices", "billing.sweep", "health.heartbeat", "invoices.ensure_items",
                 "meta_ads.send_order_event", "meta_ads.send_page_event", "meta_ads.sweep",
-                "retention.run", "statements.ensure",
+                "pack.buyer_notice", "pack.purge", "retention.run", "statements.ensure",
             ],
         )
         self.assertTrue(tasks.sweep.ignore_result)
@@ -130,7 +130,8 @@ class QueueSetupTests(SimpleTestCase):
             list(schedule),
             [
                 "billing-sweep", "invoices-ensure-items", "statements-ensure", "meta-ads-sweep",
-                "billing-notices", "retention-daily", "health-heartbeat",
+                "billing-notices", "retention-daily", "pack-purge", "pack-buyer-notice",
+                "health-heartbeat",
             ],
         )
         self.assertEqual(schedule["billing-notices"]["task"], "billing.notices")

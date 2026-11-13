@@ -61,6 +61,7 @@ Replace `<env>` with `staging` or `production`.
 ## Pending
 
 - `production` has not been migrated at all (see Notes).
+- `pack.0005_buyer_notice` (one new table `PackBuyerNotice`, one unique constraint, no data change) is written in the BP-3 build (ClickUp z8uq9mep8p) and applied nowhere. The Supervisor runs it on staging after the merge, under Coach Ed's standing approval for a migration the approved plan specifies (decision B4, 2026-11-13); the History line is added after that run. `PACK_PURGE_ENABLED` and `PACK_BUYER_NOTICE_ENABLED` are not set. Production: not approved.
 - `inbox.0003_bulk` (Bulk SMS: three new tables and `InboxAccess.can_bulk`) is written in the plan 8 build PR and applied nowhere. The coordinator runs it on staging after the merge; the History line is added after that run.
 
 ## History
