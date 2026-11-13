@@ -24,6 +24,8 @@ from django.http import HttpResponse
 from ninja import File, Form, Router, Schema
 from ninja.files import UploadedFile
 
+from apps.catalog import media
+from apps.catalog.models import CatalogProduct
 from apps.common import throttle
 from apps.common.errors import ApiError
 from apps.members import sessions
@@ -174,11 +176,36 @@ def shop_place(request, body: Form[PlaceIn], proof: File[UploadedFile] = None):
     }
 
 
-def _buyer_view(order):
-    """What the buyer sees of an order: the tracker, the lines and the money. Never the proof,
-    the fingerprint, the token hash or the Subscriber's note."""
-    status = fulfilment_status(order)
+def _images(orders):
+    """{product public id: public image URL} for every product on these orders, in one query.
+    The catalog's public media store only (never a private file); None when a product has no
+    photo, is gone, or no media host is set."""
+    ids = {l.product_id for o in orders for l in o.lines.all()}
     return {
+        p.public_id: media.url_for(p.image_key)
+        for p in CatalogProduct.objects.filter(public_id__in=ids).only("public_id", "image_key")
+    }
+
+
+def _buyer_view(order, images=None):
+    """What the buyer sees of an order: the tracker, the lines and the money. Never the proof,
+    the fingerprint, the token hash or the Subscriber's note. The receiver's phone and email are
+    what the buyer typed (or their own member details); the buyer only reaches their own order.
+
+    Money, as TWCinc's `_order_summary` works it out from the stored rows: `member_savings_centavos`
+    is the SRP total of the lines less what was charged, > 0 only for a member home-ship order;
+    `srp_subtotal_centavos` is the subtotal before that saving, and each line's `unit_centavos`
+    is its SRP unit price (the lines list at SRP and the saving is deducted after them)."""
+    status = fulfilment_status(order)
+    if images is None:
+        images = _images([order])
+    lines = list(order.lines.all())
+    saved = sum(l.line_srp_total_centavos - l.line_charged_centavos for l in lines)
+    return {
+        "receiver_mobile": order.receiver_mobile, "receiver_email": order.contact_email,
+        "verified_at": order.verified_at.isoformat() if order.verified_at else None,
+        "member_savings_centavos": saved if saved > 0 else 0,
+        "srp_subtotal_centavos": order.subtotal_centavos + max(saved, 0),
         "id": order.public_id, "order_number": order.order_number, "status": status,
         "status_label": STATUS_LABELS[status],
         "tracker": list(TRACKER), "cancelled": status == "cancelled",
@@ -193,9 +220,11 @@ def _buyer_view(order):
         "lines": [
             {
                 "code": l.code, "name": l.name, "quantity": l.quantity,
+                "unit_centavos": l.srp_centavos, "image_url": images.get(l.product_id),
+                "line_srp_total_centavos": l.line_srp_total_centavos,
                 "line_charged_centavos": l.line_charged_centavos,
             }
-            for l in order.lines.all()
+            for l in lines
         ],
     }
 
@@ -238,4 +267,5 @@ def member_shop_orders(request, body: MemberIn):
         ShopOrder.objects.prefetch_related("lines").filter(site=site, member=session.member)
         .order_by("-created_at", "-pk")[:C.OWNER_LIST_MAX]
     )
-    return {"cards": [_buyer_view(o) for o in orders]}
+    images = _images(orders)
+    return {"cards": [_buyer_view(o, images) for o in orders]}
