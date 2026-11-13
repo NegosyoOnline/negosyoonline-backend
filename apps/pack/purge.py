@@ -3,7 +3,8 @@
 
 At a site's deletion point (`billing.deletion_point`) the personal details of its Pack buyers are
 cleared, whether or not the site is served, a removed site included. The rows stay (orders are
-never deleted and the Subscriber's books must add up); what identifies a person goes. The work is
+never deleted and the Subscriber's books must add up); what identifies a person goes, the
+members' address-edit history (old and new address, advisory IP) included. The work is
 assignment to empty values, so a second pass changes nothing, and rows made after a restore are
 cleared by the next cycle. It runs only through the hourly task `pack.purge`, behind
 `PACK_PURGE_ENABLED` (off by default; Coach Ed's word, per environment).
@@ -26,7 +27,7 @@ from django.utils import timezone
 from apps.billing import services as billing
 from apps.common import private_files
 from apps.lifecycle.models import ErasureHold
-from apps.members.models import Member, MemberContactAudit, MemberSession
+from apps.members.models import Member, MemberAddressEvent, MemberContactAudit, MemberSession
 from apps.pack import portal
 from apps.pack.models import (
     CheckoutToken, PackOrder, PackProofSubmission, SanteRegistration, SanteRegistrationEvent,
@@ -95,6 +96,10 @@ def _clear_details(site_id, now):
     CheckoutToken.objects.filter(site_id=site_id).delete()
     MemberSession.objects.filter(site_id=site_id).exclude(ip_advisory="").update(ip_advisory="")
     MemberContactAudit.objects.filter(site_id=site_id).exclude(ip_advisory="").update(ip_advisory="")
+    # The member's address-edit history (old and new address, advisory IP): append-only, so the
+    # base manager again; rows stay, only the personal values go.
+    address_events = MemberAddressEvent._base_manager.filter(site_id=site_id)
+    address_events.exclude(old={}, new={}, ip_advisory="").update(old={}, new={}, ip_advisory="")
     proofs = PackProofSubmission._base_manager.filter(site_id=site_id)
     proofs.update(**{name: "" for name in PROOF_TEXT_FIELDS}, transferred_at=F("submitted_at"))
 
