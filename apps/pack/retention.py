@@ -26,12 +26,14 @@ ORDERS, PROOFS, PROOF_FILES, TOKENS, REGISTRATIONS = (
     "pack_orders", "pack_proof_submissions", "pack_proof_files", "pack_checkout_tokens",
     "sante_registrations",
 )
-REGISTRATION_PERSONAL = ("date_of_birth", "desired_username", "alternate_username")
+REGISTRATION_PERSONAL = ("date_of_birth", "desired_username", "alternate_username", "sante_member_id")
 # TWCinc sweep.py: details are kept 90 days after the last status change, whatever the status.
 DETAILS_RETENTION = timedelta(days=90)
 HOLDS_DETAILS = (
     Q(date_of_birth__isnull=False) | ~Q(desired_username="") | ~Q(alternate_username="")
 )
+# Disposal also takes the Santé member ID, which the 90-day details purge keeps for the service.
+HOLDS_PERSONAL = HOLDS_DETAILS | ~Q(sante_member_id="")
 ERASE_T24 = ("waiting_for_accept", "ready_to_register", "in_registration", "retry_wait")
 CLEAR_CONFIRMED = ("awaiting_buyer_details", "needs_buyer_action", "possible_existing_member")
 ORDER_PERSONAL = ("buyer_name", "delivery_address")
@@ -77,7 +79,7 @@ def blank_packs(sites, dry_run=False, *, ignore_switch=False, keep_files=False):
     proofs = PackProofSubmission._base_manager.filter(site__in=sites)
     tokens = CheckoutToken.objects.filter(site__in=sites)
     keys = [] if keep_files else list(proofs.exclude(file_key="").values_list("file_key", flat=True))
-    registrations = SanteRegistration.objects.filter(site__in=sites).filter(HOLDS_DETAILS)
+    registrations = SanteRegistration.objects.filter(site__in=sites).filter(HOLDS_PERSONAL)
     counts = {
         ORDERS: orders.count(), PROOFS: proofs.count(), PROOF_FILES: len(keys), TOKENS: tokens.count(),
         REGISTRATIONS: registrations.count(),
@@ -89,7 +91,7 @@ def blank_packs(sites, dry_run=False, *, ignore_switch=False, keep_files=False):
         orders.update(buyer_name="", delivery_address={})
         wiped = {"sender_name": "", "sender_account_number": "", "reference_number": "", "ip_advisory": ""}
         proofs.update(**wiped, **({} if keep_files else {"file_key": ""}))
-        registrations.update(date_of_birth=None, desired_username="", alternate_username="")
+        registrations.update(date_of_birth=None, desired_username="", alternate_username="", sante_member_id="")
     return counts
 
 
@@ -114,6 +116,7 @@ def export_packs(sites):
                 "site": public_ids[row.site_id], "member": row.member.public_id, "status": row.status,
                 "date_of_birth": row.date_of_birth.isoformat() if row.date_of_birth else None,
                 "desired_username": row.desired_username, "alternate_username": row.alternate_username,
+                "sante_member_id": row.sante_member_id, "registered_at": _iso(row.registered_at),
                 "details_confirmed_at": _iso(row.details_confirmed_at),
             }
             for row in registrations

@@ -109,6 +109,12 @@ REG_STATUSES = (
 REG_STATUS_CHOICES = [(s, s.replace("_", " ").capitalize()) for s in REG_STATUSES]
 PAYMENT_OK = (VERIFIED,)
 
+# The "Santé account created" email (PackRegisteredNotice): pending until the first try, failed
+# while it is being retried, then sent or gave_up.
+NOTICE_PENDING, NOTICE_SENT, NOTICE_FAILED, NOTICE_GAVE_UP = "pending", "sent", "failed", "gave_up"
+NOTICE_STATUSES = (NOTICE_PENDING, NOTICE_SENT, NOTICE_FAILED, NOTICE_GAVE_UP)
+NOTICE_STATUS_CHOICES = [(s, s.replace("_", " ").capitalize()) for s in NOTICE_STATUSES]
+
 MSG_TERMS_NOT_ON_RECORD = (
     "We could not find your agreement to the Membership Terms for this order. Please contact the store."
 )

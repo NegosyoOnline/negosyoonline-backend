@@ -103,6 +103,9 @@ On the owner API, `https://<api>/v1/sites/{site_id}/pack/orders/...`, signed in 
 | `POST .../pack/orders/{order_id}/shipment/` | `{state_version, courier, courier_other_name?, tracking_number, shipped_on?}` | detail. Only from `verified`, not yet shipped. `409 wrong_status`, `already_shipped`; `422 invalid_shipment` with field messages. Switch `PACK_SHIPPING_ENABLED` off: `404`. Sends the shipped email after commit |
 | `POST .../pack/orders/{order_id}/shipment/correct/` | same body | detail. Shipped and not delivered only; `409 not_shipped`, `delivered_final`. No email |
 | `POST .../pack/orders/{order_id}/delivery/` | `{state_version, delivered_on?}` | detail. Shipped only; date from the shipped date to today (Manila); final. `409 not_shipped`, `delivered_final`; `422 invalid_delivery`. Sends the delivered email |
+| `GET .../pack/registrations/?filter=to_register\|registered\|all` | | `{registrations: [row]}` newest 200. Date of birth, usernames, delivery address and mobile only on `ready_to_register` / `in_registration` rows. See `docs/pack-registered-notice.md` |
+| `POST .../pack/registrations/{member_id}/start/` | `{state_version}` | row. T9. `409 wrong_status`, `stale` |
+| `POST .../pack/registrations/{member_id}/registered/` | `{state_version, sante_member_id}` | row. T11+; one email to the member after commit. `409 wrong_status`, `stale`; `422 invalid_success` |
 
 `row`: `{id, order_number, buyer_name, mobile_masked, method, payment_status, created_at, state_version, price_centavos}`. `detail` is `row` plus `{currency, delivery_address, rejection_lock_active, submissions, events}`; a submission is `{id, seq, account_kind, account_provider_name, account_name, account_number_last4, reference_number, amount_sent_centavos, sender_bank, sender_name, sender_account_number, transferred_at, submitted_at, content_type, decisions: [{decision, reason_code, reason_label, other_text, actor_label, decided_at}]}`.
 

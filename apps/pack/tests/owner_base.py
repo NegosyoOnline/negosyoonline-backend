@@ -63,6 +63,19 @@ def pack_call(case, method, path, client=None):
     cache.clear()
     site = Site.objects.filter(public_id=path.split("/sites/")[1].split("/")[0]).first()
     order = proof = None
+    if "{member_id}" in path:  # the registration routes: a ready (start) or in-progress (registered) member
+        from apps.pack.models import SanteRegistration
+        starting = path.endswith("/start/")
+        order, _ = make_order(site, status=C.VERIFIED)
+        reg = SanteRegistration.objects.create(
+            site=site, member=order.member, pack_order=order,
+            status="ready_to_register" if starting else "in_registration",
+        )
+        path = path.replace("{member_id}", order.member.public_id)
+        body = {"state_version": reg.state_version}
+        if path.endswith("/registered/"):
+            body["sante_member_id"] = "SA-1234567"
+        return case.send("post", path, body, client=client)
     if site is not None:
         if "{order_id}" in path:
             verified = path.endswith(("/shipment/", "/shipment/correct/", "/delivery/"))
