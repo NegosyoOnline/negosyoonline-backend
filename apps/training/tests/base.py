@@ -1,12 +1,12 @@
-"""Content helpers shared by the training tests."""
+"""Content helpers shared by the training tests. Every row belongs to a site."""
 from apps.training.models import Course, Lesson, Module
 
 YT = "https://www.youtube.com/embed/dQw4w9WgXcQ"
 
 
-def make_course(title="Ways to Earn", **fields):
+def make_course(site, title="Ways to Earn", **fields):
     values = {"slug": title.lower().replace(" ", "-"), **fields}
-    return Course.objects.create(title=title, **values)
+    return Course.objects.create(site=site, title=title, **values)
 
 
 def make_module(course, title="Module", **fields):
@@ -17,9 +17,9 @@ def make_lesson(module, title="Lesson", **fields):
     return Lesson.objects.create(module=module, title=title, video_url=fields.pop("video_url", YT), **fields)
 
 
-def make_course_with_lessons(counts=(2, 2), title="Ways to Earn"):
+def make_course_with_lessons(site, counts=(2, 2), title="Ways to Earn"):
     """A course whose modules hold `counts` lessons: L1.1, L1.2, L2.1 ... in order."""
-    course = make_course(title)
+    course = make_course(site, title)
     lessons = []
     for m, count in enumerate(counts, start=1):
         module = make_module(course, f"Module {m}", order=m)

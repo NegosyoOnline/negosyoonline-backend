@@ -77,8 +77,6 @@ ACTIONS = {
     "sante_agreement_version_updated": KEPT,
     "sante_agreement_version_deleted": KEPT,
     "sante_agreement_published": KEPT,
-    # Member training authored in HQ: ids and the kind of change, never the text.
-    "training_authored": KEPT,
     # The site deletion executor (plan z8uq9mb22v, section 7). Ids, codes, counts and the names of
     # fields: never a value.
     "erasure_batch_proposed": KEPT,

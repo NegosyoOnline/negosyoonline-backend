@@ -30,7 +30,7 @@ class TrainingTestCase(MembersTestCase):
 class SequentialUnlockTests(TrainingTestCase):
     def setUp(self):
         super().setUp()
-        self.course, self.lessons = make_course_with_lessons((2, 2))
+        self.course, self.lessons = make_course_with_lessons(self.site, (2, 2))
 
     def test_only_the_first_lesson_is_open_at_the_start(self):
         detail = self.call(f"courses/{self.course.public_id}/").json()
@@ -102,7 +102,7 @@ class ProgressTests(TrainingTestCase):
         return self.call("courses/").json()["courses"][0]
 
     def test_percent_is_computed_from_the_active_lessons(self):
-        course, lessons = make_course_with_lessons((3,))
+        course, lessons = make_course_with_lessons(self.site, (3,))
         row = self.first_row()
         self.assertEqual((row["percent"], row["total_lessons"]), (0, 3))
         self.complete(lessons[0])
@@ -119,15 +119,15 @@ class ProgressTests(TrainingTestCase):
         self.assertEqual((row["percent"], row["total_lessons"]), (100, 2))
 
     def test_module_counts_are_n_of_m(self):
-        course, lessons = make_course_with_lessons((2, 3))
+        course, lessons = make_course_with_lessons(self.site, (2, 3))
         self.complete(lessons[0])
         modules = self.call(f"courses/{course.public_id}/").json()["modules"]
         self.assertEqual([(m["completed_lessons"], m["total_lessons"]) for m in modules], [(1, 2), (0, 3)])
 
     def test_a_course_with_no_active_lesson_is_coming_soon_and_an_empty_module_is_hidden(self):
-        soon = make_course("Product Trainings", order=2)
+        soon = make_course(self.site, "Product Trainings", order=2)
         make_module(soon, "Empty")
-        course, _ = make_course_with_lessons((1,))
+        course, _ = make_course_with_lessons(self.site, (1,))
         make_module(course, "Hidden", order=9)
         rows = {c["title"]: c for c in self.call("courses/").json()["courses"]}
         self.assertTrue(rows["Product Trainings"]["coming_soon"])
@@ -137,9 +137,9 @@ class ProgressTests(TrainingTestCase):
         self.assertEqual([m["title"] for m in detail["modules"]], ["Module 1"])
 
     def test_inactive_and_archived_courses_are_not_listed_and_not_found(self):
-        off = make_course("Off", active=False)
-        old = make_course("Old", active=False, archived_at=timezone.now())
-        shown = make_course("Shown")
+        off = make_course(self.site, "Off", active=False)
+        old = make_course(self.site, "Old", active=False, archived_at=timezone.now())
+        shown = make_course(self.site, "Shown")
         found = [c["id"] for c in self.call("courses/").json()["courses"]]
         self.assertEqual(found, [shown.public_id])
         for course in (off, old):
@@ -147,12 +147,12 @@ class ProgressTests(TrainingTestCase):
             self.assertEqual((response.status_code, response.json()), (404, NOT_FOUND))
 
     def test_courses_come_in_sequence_order(self):
-        b, a = make_course("B", order=2), make_course("A", order=1)
+        b, a = make_course(self.site, "B", order=2), make_course(self.site, "A", order=1)
         self.assertEqual([c["id"] for c in self.call("courses/").json()["courses"]], [a.public_id, b.public_id])
 
     def test_resume_points_at_the_first_unfinished_lesson_of_the_course_touched_last(self):
         self.assertIsNone(self.call("courses/").json()["resume"])
-        course, lessons = make_course_with_lessons((2,))
+        course, lessons = make_course_with_lessons(self.site, (2,))
         self.assertIsNone(self.call("courses/").json()["resume"])
         self.complete(lessons[0])
         resume = self.call("courses/").json()["resume"]
@@ -165,7 +165,7 @@ class ProgressTests(TrainingTestCase):
 class AccessAndIsolationTests(TrainingTestCase):
     def setUp(self):
         super().setUp()
-        self.course, self.lessons = make_course_with_lessons((1,))
+        self.course, self.lessons = make_course_with_lessons(self.site, (1,))
 
     def paths(self):
         return [
@@ -193,16 +193,32 @@ class AccessAndIsolationTests(TrainingTestCase):
         ben = self.sign_in(BEN["email"], host=OTHER_HOST)
         self.assertEqual(self.call("courses/", token=ben).status_code, 401)
 
-    def test_a_course_of_another_template_is_never_found(self):
-        elsewhere = make_course("Elsewhere", template_key="basic")
+    def test_a_course_of_another_site_is_never_found(self):
+        elsewhere = make_course(self.other_site, "Elsewhere")
         lesson = make_lesson(make_module(elsewhere))
         response = self.call(f"courses/{elsewhere.public_id}/")
         self.assertEqual((response.status_code, response.json()), (404, NOT_FOUND))
         self.assertEqual(self.call(f"lessons/{lesson.public_id}/").status_code, 404)
         self.assertEqual(self.call(f"lessons/{lesson.public_id}/complete/").status_code, 404)
         self.assertNotIn("Elsewhere", [c["title"] for c in self.call("courses/").json()["courses"]])
-        LiveTraining.objects.create(template_key="basic", title="Other", starts_at=timezone.now() + timedelta(days=1))
+        LiveTraining.objects.create(site=self.other_site, title="Other", starts_at=timezone.now() + timedelta(days=1))
         self.assertIsNone(self.call("live/").json()["live"])
+        self.assertFalse(LessonProgress.objects.exists())
+
+    def test_a_second_site_sees_only_its_own_courses_and_never_the_first_ones(self):
+        mine = make_course(self.other_site, "Bens course")
+        self.new_member(self.other_site, email=BEN["email"], mobile=BEN["mobile"], name="Ben")
+        ben = self.sign_in(BEN["email"], host=OTHER_HOST)
+        theirs = [c["id"] for c in self.call("courses/", token=ben, host=OTHER_HOST).json()["courses"]]
+        self.assertEqual(theirs, [mine.public_id])
+        ours = [c["id"] for c in self.call("courses/").json()["courses"]]
+        self.assertEqual(ours, [self.course.public_id])
+        # the first site's ids are 404 on the second site's host
+        for path in (f"courses/{self.course.public_id}/", f"lessons/{self.lessons[0].public_id}/"):
+            self.assertEqual(self.call(path, token=ben, host=OTHER_HOST).json(), NOT_FOUND)
+
+    def test_the_same_slug_may_exist_on_two_sites(self):
+        make_course(self.other_site, "Ways to Earn")  # the same slug as self.course
 
     def test_a_site_of_another_template_gets_nothing(self):
         self.site.template = "basic"
@@ -218,7 +234,7 @@ class AccessAndIsolationTests(TrainingTestCase):
 
 class LiveTests(TrainingTestCase):
     def live(self, **fields):
-        values = {"title": "Bootcamp", "starts_at": timezone.now() + timedelta(days=2)}
+        values = {"site": self.site, "title": "Bootcamp", "starts_at": timezone.now() + timedelta(days=2)}
         return LiveTraining.objects.create(**{**values, **fields})
 
     def next(self, token=None):
@@ -246,7 +262,7 @@ class LiveTests(TrainingTestCase):
         running = self.live(starts_at=timezone.now() - timedelta(minutes=10), duration_minutes=60)
         self.assertEqual(self.next()["id"], running.public_id)
 
-    def test_a_site_specific_live_is_seen_only_by_that_sites_members(self):
+    def test_a_live_is_seen_only_by_its_own_sites_members(self):
         self.live(title="Bens own", site=self.other_site, starts_at=timezone.now() + timedelta(hours=1))
         mine = self.live(title="Ours", site=self.site, starts_at=timezone.now() + timedelta(days=3))
         self.assertEqual(self.next()["id"], mine.public_id)
@@ -255,12 +271,11 @@ class LiveTests(TrainingTestCase):
         ben = self.sign_in(BEN["email"], host=OTHER_HOST)
         self.assertEqual(self.next(ben)["title"], "Bens own")
 
-    def test_a_template_wide_live_is_seen_by_every_site_of_the_template(self):
-        wide = self.live()
+    def test_a_second_site_with_no_live_sees_none(self):
+        self.live()
         self.new_member(self.other_site, email=BEN["email"], mobile=BEN["mobile"], name="Ben")
         ben = self.sign_in(BEN["email"], host=OTHER_HOST)
-        self.assertEqual(self.next()["id"], wide.public_id)
-        self.assertEqual(self.next(ben)["id"], wide.public_id)
+        self.assertIsNone(self.next(ben))
 
 
 class LiveBellTests(MembersTestCase):
@@ -273,25 +288,21 @@ class LiveBellTests(MembersTestCase):
     def bells(self, member):
         return list(MemberNotification.objects.filter(member=member))
 
-    def test_a_template_wide_live_notifies_the_members_of_every_site(self):
-        services.create_live({"title": "Bootcamp", "starts_at": self.when})
-        for member in (self.member, self.carla, self.ben):
+    def test_a_live_notifies_its_own_sites_members_only(self):
+        services.create_live(self.site, {"title": "Ours", "starts_at": self.when})
+        for member in (self.member, self.carla):
             (row,) = self.bells(member)
             self.assertEqual(
                 (row.kind, row.title, row.url, row.site_id),
-                ("live", "Live training: Bootcamp", "/dashboard/training/", member.site_id),
+                ("live", "Live training: Ours", "/dashboard/training/", self.site.pk),
             )
-
-    def test_a_site_specific_live_notifies_that_sites_members_only(self):
-        services.create_live({"title": "Ours", "starts_at": self.when, "site": self.site.public_id})
-        self.assertEqual(len(self.bells(self.member)) + len(self.bells(self.carla)), 2)
         self.assertEqual(self.bells(self.ben), [])
 
     def test_an_inactive_live_or_an_update_notifies_nobody(self):
-        services.create_live({"title": "Off", "starts_at": self.when, "active": False})
-        live = services.create_live({"title": "On", "starts_at": self.when, "site": self.other_site.public_id})
+        services.create_live(self.site, {"title": "Off", "starts_at": self.when, "active": False})
+        live = services.create_live(self.other_site, {"title": "On", "starts_at": self.when})
         before = MemberNotification.objects.count()
-        services.update_live(live.public_id, {"title": "Renamed", "active": False})
-        services.update_live(live.public_id, {"active": True})
+        services.update_live(self.other_site, live.public_id, {"title": "Renamed", "active": False})
+        services.update_live(self.other_site, live.public_id, {"active": True})
         self.assertEqual(MemberNotification.objects.count(), before)
         self.assertEqual(before, 1)  # only Ben, for "On"

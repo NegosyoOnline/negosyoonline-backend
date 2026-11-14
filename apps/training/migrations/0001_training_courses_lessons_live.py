@@ -21,7 +21,6 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('public_id', models.CharField(default=apps.training.models.new_course_id, editable=False, max_length=40, unique=True)),
-                ('template_key', models.CharField(default='sante', max_length=20)),
                 ('title', models.CharField(max_length=120)),
                 ('slug', models.SlugField(max_length=140)),
                 ('description', models.TextField(blank=True)),
@@ -31,10 +30,11 @@ class Migration(migrations.Migration):
                 ('archived_at', models.DateTimeField(blank=True, null=True)),
                 ('created_at', models.DateTimeField(default=django.utils.timezone.now, editable=False)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
+                ('site', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='courses', to='sites.site')),
             ],
             options={
                 'ordering': ['order', 'pk'],
-                'constraints': [models.UniqueConstraint(fields=('template_key', 'slug'), name='training_course_slug'), models.CheckConstraint(condition=models.Q(('active', True), ('archived_at__isnull', False), _negated=True), name='training_course_archived_inactive')],
+                'constraints': [models.UniqueConstraint(fields=('site', 'slug'), name='training_course_slug'), models.CheckConstraint(condition=models.Q(('active', True), ('archived_at__isnull', False), _negated=True), name='training_course_archived_inactive')],
             },
         ),
         migrations.CreateModel(
@@ -91,7 +91,6 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('public_id', models.CharField(default=apps.training.models.new_live_id, editable=False, max_length=40, unique=True)),
-                ('template_key', models.CharField(default='sante', max_length=20)),
                 ('title', models.CharField(max_length=120)),
                 ('starts_at', models.DateTimeField()),
                 ('duration_minutes', models.PositiveIntegerField(default=60)),
@@ -101,11 +100,11 @@ class Migration(migrations.Migration):
                 ('active', models.BooleanField(default=True)),
                 ('created_at', models.DateTimeField(default=django.utils.timezone.now, editable=False)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
-                ('site', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='live_trainings', to='sites.site')),
+                ('site', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='live_trainings', to='sites.site')),
             ],
             options={
                 'ordering': ['starts_at', 'pk'],
-                'indexes': [models.Index(fields=['template_key', 'active', 'starts_at'], name='training_live_next')],
+                'indexes': [models.Index(fields=['site', 'active', 'starts_at'], name='training_live_next')],
             },
         ),
     ]

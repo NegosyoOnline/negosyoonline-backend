@@ -28,7 +28,6 @@ from apps.lifecycle import staff as lifecycle_staff
 from apps.notifications import staff as notifications_staff
 from apps.sante import staff as sante_staff
 from apps.statements import staff as statements_staff
-from apps.training import staff as training_staff
 
 logger = logging.getLogger(__name__)
 
@@ -227,9 +226,6 @@ ROUTES.update(
 )
 ROUTES.update(
     {path: ("POST", _for_staff(view)) for path, view in lifecycle_staff.ROUTES.items()}
-)
-ROUTES.update(
-    {path: ("POST", _for_staff(view)) for path, view in training_staff.ROUTES.items()}
 )
 
 

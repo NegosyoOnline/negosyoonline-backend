@@ -3,15 +3,13 @@
 Port of TWCinc app/university/models.py (Course, Module, Lesson, LessonProgress), trimmed: no
 access tier, author, certificates, comments or CourseProgress table (percent is computed in
 services.py), no streaming bootcamp (LiveTraining is a title, a time and a join link). Content
-belongs to a site template ("sante"), not to one Subscriber, and is written in HQ only. Write
-these tables through services.py.
+belongs to one Subscriber's site and is written by that owner in the dash. Write these tables
+through services.py.
 """
 from django.db import models
 from django.utils import timezone
 
 from apps.common.ids import new_public_id
-
-SANTE = "sante"
 
 
 def new_course_id():
@@ -32,7 +30,7 @@ def new_live_id():
 
 class Course(models.Model):
     public_id = models.CharField(max_length=40, unique=True, default=new_course_id, editable=False)
-    template_key = models.CharField(max_length=20, default=SANTE)
+    site = models.ForeignKey("sites.Site", on_delete=models.CASCADE, related_name="courses")
     title = models.CharField(max_length=120)
     slug = models.SlugField(max_length=140)
     description = models.TextField(blank=True)
@@ -47,7 +45,7 @@ class Course(models.Model):
     class Meta:
         ordering = ["order", "pk"]
         constraints = [
-            models.UniqueConstraint(fields=["template_key", "slug"], name="training_course_slug"),
+            models.UniqueConstraint(fields=["site", "slug"], name="training_course_slug"),
             models.CheckConstraint(
                 condition=~models.Q(active=True, archived_at__isnull=False),
                 name="training_course_archived_inactive",
@@ -110,14 +108,10 @@ class LessonProgress(models.Model):
 
 
 class LiveTraining(models.Model):
-    """A scheduled live session. With no site it is for every site of the template; with one, for
-    that site's members only."""
+    """A scheduled live session, for the members of its site only."""
 
     public_id = models.CharField(max_length=40, unique=True, default=new_live_id, editable=False)
-    template_key = models.CharField(max_length=20, default=SANTE)
-    site = models.ForeignKey(
-        "sites.Site", null=True, blank=True, on_delete=models.CASCADE, related_name="live_trainings"
-    )
+    site = models.ForeignKey("sites.Site", on_delete=models.CASCADE, related_name="live_trainings")
     title = models.CharField(max_length=120)
     starts_at = models.DateTimeField()
     duration_minutes = models.PositiveIntegerField(default=60)
@@ -130,7 +124,7 @@ class LiveTraining(models.Model):
 
     class Meta:
         ordering = ["starts_at", "pk"]
-        indexes = [models.Index(fields=["template_key", "active", "starts_at"], name="training_live_next")]
+        indexes = [models.Index(fields=["site", "active", "starts_at"], name="training_live_next")]
 
     def __str__(self):
         return self.public_id

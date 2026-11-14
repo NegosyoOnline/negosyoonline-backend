@@ -30,6 +30,7 @@ from apps.shop import constants as SHOP
 from apps.shop.tests.owner_base import make_order as make_shop_order
 from apps.payments.tests.base import BANK, make_payment_account, qr_file, stored_files, use_local_private_store
 from apps.sites.models import Site
+from apps.training.models import Course, Lesson, LiveTraining, Module
 from apps.sites.tests.api_base import SitesApiTestCase
 from apps.sites.tests.test_isolation import PROFILE_BODY, SITE_BODY
 from apps.statements.models import BillingProfile
@@ -48,6 +49,10 @@ MISSING_CHILD = {
     "product_id": "prod_00000000000000000000",
     "member_id": "mem_00000000000000000000",
     "notice_id": "ntc_00000000000000000000",
+    "course_id": "crs_00000000000000000000",
+    "module_id": "mdl_00000000000000000000",
+    "lesson_id": "lsn_00000000000000000000",
+    "live_id": "liv_00000000000000000000",
     "invoice_id": "mbi_00000000000000000000000000",
     "number": "NOBS-2026-000000",
     "ref": "999999_7000000000000",  # a conversation ref of no page of ours
@@ -80,6 +85,31 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/member-notices/{notice_id}/image/"): 200,
     ("DELETE", "/sites/{site_id}/member-notices/{notice_id}/image/"): 200,
     ("DELETE", "/sites/{site_id}/member-notices/{notice_id}/"): 200,
+    # training (the Subscriber's courses, modules, lessons and live trainings for their members)
+    ("GET", "/sites/{site_id}/training/courses/"): 200,
+    ("POST", "/sites/{site_id}/training/courses/"): 201,
+    ("POST", "/sites/{site_id}/training/courses/reorder/"): 200,
+    ("GET", "/sites/{site_id}/training/courses/{course_id}/"): 200,
+    ("PATCH", "/sites/{site_id}/training/courses/{course_id}/"): 200,
+    ("POST", "/sites/{site_id}/training/courses/{course_id}/image/"): 200,
+    ("DELETE", "/sites/{site_id}/training/courses/{course_id}/image/"): 200,
+    ("POST", "/sites/{site_id}/training/courses/{course_id}/modules/"): 201,
+    ("POST", "/sites/{site_id}/training/courses/{course_id}/modules/reorder/"): 200,
+    ("PATCH", "/sites/{site_id}/training/modules/{module_id}/"): 200,
+    ("POST", "/sites/{site_id}/training/modules/{module_id}/lessons/"): 201,
+    ("POST", "/sites/{site_id}/training/modules/{module_id}/lessons/reorder/"): 200,
+    ("PATCH", "/sites/{site_id}/training/lessons/{lesson_id}/"): 200,
+    ("POST", "/sites/{site_id}/training/lessons/{lesson_id}/image/"): 200,
+    ("DELETE", "/sites/{site_id}/training/lessons/{lesson_id}/image/"): 200,
+    ("DELETE", "/sites/{site_id}/training/lessons/{lesson_id}/"): 200,
+    ("DELETE", "/sites/{site_id}/training/modules/{module_id}/"): 200,
+    ("DELETE", "/sites/{site_id}/training/courses/{course_id}/"): 200,
+    ("GET", "/sites/{site_id}/training/live/"): 200,
+    ("POST", "/sites/{site_id}/training/live/"): 201,
+    ("PATCH", "/sites/{site_id}/training/live/{live_id}/"): 200,
+    ("POST", "/sites/{site_id}/training/live/{live_id}/thumbnail/"): 200,
+    ("DELETE", "/sites/{site_id}/training/live/{live_id}/thumbnail/"): 200,
+    ("DELETE", "/sites/{site_id}/training/live/{live_id}/"): 200,
     # billing
     ("GET", "/sites/{site_id}/billing/"): 200,
     ("GET", "/sites/{site_id}/billing/payment/"): 200,
@@ -153,6 +183,7 @@ APP_PREFIXES = [
     ("/sites/{site_id}/inquiries/", "inquiries"),
     ("/sites/{site_id}/shop/", "shop_owner"),
     ("/sites/{site_id}/member-notices/", "member_notices"),
+    ("/sites/{site_id}/training/", "training"),
 ]
 
 
@@ -280,6 +311,18 @@ class TwoOwnersTestCase(SitesApiTestCase):
         invoice_services.verify_scan(staff, scan.public_id)
         return item.public_id
 
+    def make_training(self, site):
+        """A course with a module and a lesson, and a live training, of this site."""
+        self.creates += 1
+        course = Course.objects.create(site=site, title="Fixture course", slug=f"fixture-{self.creates}")
+        module = Module.objects.create(course=course, title="Fixture module")
+        lesson = Lesson.objects.create(module=module, title="Fixture lesson")
+        live = LiveTraining.objects.create(site=site, title="Fixture live", starts_at=timezone.now())
+        return {
+            "course_id": course.public_id, "module_id": module.public_id,
+            "lesson_id": lesson.public_id, "live_id": live.public_id,
+        }
+
     def make_children(self, site, payment=False, shop=False, shop_status=SHOP.PENDING_REVIEW,
                       shop_shipped=False, pack_status=PACK.PENDING_REVIEW, pack_shipped=False):
         """A shop order has its own ids: with shop=True order_id and proof_id name it, not the pack's."""
@@ -295,6 +338,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
             "product_id": self.product.public_id,
             "member_id": order.member.public_id if not shop else MISSING_CHILD["member_id"],
             "notice_id": MemberNotice.objects.create(site=site, kind="promo", title="Fixture").public_id,
+            **self.make_training(site),
             "invoice_id": self.invoice_ids[site.pk],
             "number": self.statement_numbers[site.pk],
         }
@@ -326,6 +370,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             ids["account_id"] = make_payment_account(self.site).public_id
         if "{notice_id}" in template:  # made anew: the delete uses it up
             ids["notice_id"] = MemberNotice.objects.create(site=self.site, kind="promo", title="Fixture").public_id
+        if "/training/" in template:  # made anew: the deletes use them up
+            ids.update(self.make_training(self.site))
         if "{ref}" in template:
             ids["ref"] = inquiries_base.REF
         if "{invoice_id}" in template:
@@ -378,6 +424,10 @@ class TwoOwnersTestCase(SitesApiTestCase):
                     HTTP_ORIGIN=ORIGIN,
                 )
             return client.delete(f"{path}?revision={revision}", secure=True, HTTP_ORIGIN=ORIGIN)
+        if "/training/" in path and path.endswith(("/image/", "/thumbnail/")) and method == "POST":
+            return client.post(path, data={"file": image_file()}, secure=True, HTTP_ORIGIN=ORIGIN)
+        if "/training/" in path and path.endswith("/reorder/"):
+            return self.send("post", path, {"ids": self.reorder_ids(path)}, client=client)
         if "/member-notices/" in path and path.endswith("/image/") and method == "POST":
             return client.post(path, data={"file": image_file()}, secure=True, HTTP_ORIGIN=ORIGIN)
         if "/recovery/" in path and method == "POST":
@@ -385,6 +435,17 @@ class TwoOwnersTestCase(SitesApiTestCase):
         if method == "GET":
             return self.get(path, client=client)
         return self.send(method.lower(), path, self.body_for(method, template), client=client)
+
+    def reorder_ids(self, path):
+        """Every sibling the route lists, as stored (the routes refuse a list that misses one)."""
+        parts = path.split("/training/")[1].strip("/").split("/")
+        if parts[0] == "courses" and len(parts) == 2:
+            rows = Course.objects.filter(site__public_id=path.split("/sites/")[1].split("/")[0])
+        elif parts[0] == "courses":
+            rows = Module.objects.filter(course__public_id=parts[1])
+        else:
+            rows = Lesson.objects.filter(module__public_id=parts[1])
+        return list(rows.order_by("order", "pk").values_list("public_id", flat=True))
 
     def call_recovery(self, path, client):
         """The checklist of a member, answered as the Subscriber would, then the contact change
@@ -419,6 +480,12 @@ class TwoOwnersTestCase(SitesApiTestCase):
         if "/member-notices/" in template:
             if method == "POST":
                 return {"kind": "announcement", "title": "Fixture notice"}
+            return {"title": "Changed"} if method == "PATCH" else None
+        if "/training/" in template:
+            if template.endswith("/live/"):
+                return {"title": "Fixture live", "starts_at": "2026-12-01T10:00:00+08:00"}
+            if method == "POST":
+                return {"title": "Fixture"}
             return {"title": "Changed"} if method == "PATCH" else None
         if template.endswith("/billing/profile/"):
             return {**PROFILE, "company_name": "Fixture Co"}

@@ -15,8 +15,8 @@ member routes (apps/storefront/api.py mounts this router under /member/):
 
 Same gates as the other member routes: the storefronts server's credential, MEMBERS_ENABLED, a
 served Santé host (404), and a live member session of that host's site (401
-member_session_invalid). Courses and live trainings are read through the member's own site and
-its template, so another template's content answers the same 404 as a missing id.
+member_session_invalid). Courses and live trainings are read through the member's own site,
+so another site's content answers the same 404 as a missing id.
 """
 from datetime import datetime
 

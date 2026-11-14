@@ -1,7 +1,7 @@
-"""Member training: what a member reads and does, and what HQ writes.
+"""Member training: what a member reads and does, and what the site owner writes.
 
-Every member read starts from the member's own site and its template: a course of another
-template is never found (404, the same answer as a missing id). Percent is computed from the
+Every read and write starts from one site: a course, module, lesson or live training of another
+site is never found (404, the same answer as a missing id). Percent is computed from the
 active lessons, so there is no progress rollup to keep right. Write the tables through here.
 
 TWCinc source for the shape: app/university/models.py (Course, Module, Lesson, LessonProgress,
@@ -18,7 +18,7 @@ from datetime import timedelta
 from urllib.parse import urlsplit
 
 from django.db import IntegrityError, transaction
-from django.db.models import Max, Q
+from django.db.models import Max
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -27,9 +27,8 @@ from apps.catalog.services import IMAGE_MESSAGES
 from apps.common import private_files
 from apps.common.errors import ApiError
 from apps.members import notices
-from apps.sites.models import Site
 
-from .models import SANTE, Course, Lesson, LessonProgress, LiveTraining, Module
+from .models import Course, Lesson, LessonProgress, LiveTraining, Module
 
 IMAGE_FOLDER = "training"
 LIVE_PATH = "/dashboard/training/"
@@ -101,8 +100,8 @@ def _locked():
 # -- member reads -------------------------------------------------------------------------------
 
 def visible_courses(site):
-    """Active, unarchived courses of the site's template."""
-    return Course.objects.filter(template_key=site.template, active=True, archived_at__isnull=True)
+    """Active, unarchived courses of the site."""
+    return Course.objects.filter(site=site, active=True, archived_at__isnull=True)
 
 
 def _course_lessons(course_ids):
@@ -311,21 +310,20 @@ def live_out(live):
 
 
 def next_live(member, now=None):
-    """The soonest live training that has not ended and is for this member: template-wide, or set
-    for the member's own site. None when there is none."""
+    """The soonest live training of the member's own site that has not ended. None when there is none."""
     now = now or timezone.now()
-    site = member.site
-    candidates = LiveTraining.objects.filter(
-        Q(site__isnull=True) | Q(site=site), template_key=site.template, active=True
-    )
+    candidates = LiveTraining.objects.filter(site=member.site, active=True)
     for live in candidates.order_by("starts_at", "pk")[:50]:  # ended ones are skipped below
         if live.starts_at + timedelta(minutes=live.duration_minutes) > now:
             return live_out(live)
     return None
 
 
-# -- HQ authoring -------------------------------------------------------------------------------
-# Bodies are checked here, so the HQ routes and any later caller share one rule.
+
+
+# -- owner authoring ----------------------------------------------------------------------------
+# Bodies are checked here, so the owner routes and any later caller share one rule. Every row is
+# found through its site first, so another site's id is a 404.
 
 def _text(data, name, errors, out, *, required=False, maximum, message=None):
     if name not in data:
@@ -361,10 +359,10 @@ def _finish(errors):
         raise _invalid(errors)
 
 
-def _unique_slug(template_key, wanted, exclude_pk=None):
+def _unique_slug(site, wanted, exclude_pk=None):
     base = slugify(wanted)[:120] or "course"
     slug, n = base, 1
-    taken = Course.objects.filter(template_key=template_key)
+    taken = Course.objects.filter(site=site)
     if exclude_pk:
         taken = taken.exclude(pk=exclude_pk)
     while taken.filter(slug=slug).exists():
@@ -377,10 +375,10 @@ def _next_order(queryset):
     return (queryset.aggregate(top=Max("order"))["top"] or 0) + 1
 
 
-def course_staff_out(course):
+def course_owner_out(course):
     lessons = Lesson.objects.filter(module__course=course)
-    out = {
-        "id": course.public_id, "template_key": course.template_key, "title": course.title,
+    return {
+        "id": course.public_id, "title": course.title,
         "slug": course.slug, "description": course.description,
         "image_url": media.url_for(course.image_key), "order": course.order, "active": course.active,
         "archived_at": course.archived_at, "created_at": course.created_at, "updated_at": course.updated_at,
@@ -389,18 +387,17 @@ def course_staff_out(course):
             active=True, module__active=True
         ).count(),
     }
-    return out
 
 
-def module_staff_out(module):
+def module_owner_out(module):
     return {
         "id": module.public_id, "course_id": module.course.public_id, "title": module.title,
         "order": module.order, "active": module.active,
-        "lessons": [lesson_staff_out(lesson) for lesson in module.lessons.all()],
+        "lessons": [lesson_owner_out(lesson) for lesson in module.lessons.all()],
     }
 
 
-def lesson_staff_out(lesson):
+def lesson_owner_out(lesson):
     return {
         "id": lesson.public_id, "module_id": lesson.module.public_id, "title": lesson.title,
         "duration": lesson.duration, "description": lesson.description,
@@ -409,44 +406,50 @@ def lesson_staff_out(lesson):
     }
 
 
-def live_staff_out(live):
-    return {
-        **live_out(live), "template_key": live.template_key,
-        "site_id": live.site.public_id if live.site_id else None, "active": live.active,
-        "created_at": live.created_at, "updated_at": live.updated_at,
-    }
+def live_owner_out(live):
+    return {**live_out(live), "active": live.active, "created_at": live.created_at, "updated_at": live.updated_at}
 
 
 def course_tree(course):
     return {
-        **course_staff_out(course),
-        "modules": [module_staff_out(m) for m in course.modules.prefetch_related("lessons")],
+        **course_owner_out(course),
+        "modules": [module_owner_out(m) for m in course.modules.prefetch_related("lessons")],
     }
 
 
-def get_course(public_id, template_key=SANTE):
-    course = Course.objects.filter(public_id=public_id, template_key=template_key).first()
+def list_courses_for_owner(site):
+    return Course.objects.filter(site=site)
+
+
+def list_live_for_owner(site):
+    return LiveTraining.objects.filter(site=site)
+
+
+def get_course(site, public_id):
+    course = Course.objects.filter(site=site, public_id=public_id).first()
     if course is None:
         raise _not_found()
     return course
 
 
-def get_module(public_id):
-    module = Module.objects.select_related("course").filter(public_id=public_id).first()
+def get_module(site, public_id):
+    module = Module.objects.select_related("course").filter(course__site=site, public_id=public_id).first()
     if module is None:
         raise _not_found()
     return module
 
 
-def get_lesson(public_id):
-    lesson = Lesson.objects.select_related("module__course").filter(public_id=public_id).first()
+def get_lesson(site, public_id):
+    lesson = (
+        Lesson.objects.select_related("module__course").filter(module__course__site=site, public_id=public_id).first()
+    )
     if lesson is None:
         raise _not_found()
     return lesson
 
 
-def get_live(public_id):
-    live = LiveTraining.objects.select_related("site").filter(public_id=public_id).first()
+def get_live(site, public_id):
+    live = LiveTraining.objects.filter(site=site, public_id=public_id).first()
     if live is None:
         raise _not_found()
     return live
@@ -460,7 +463,7 @@ def _apply(row, values):
 
 
 @transaction.atomic
-def create_course(data):
+def create_course(site, data):
     errors, out = {}, {}
     _text(data, "title", errors, out, required=True, maximum=120)
     _text(data, "slug", errors, out, maximum=120)
@@ -468,14 +471,14 @@ def create_course(data):
     _flag(data, "active", errors, out)
     _number(data, "order", errors, out, low=1, high=100000)
     _finish(errors)
-    out["slug"] = _unique_slug(SANTE, out.get("slug") or out["title"])
-    out.setdefault("order", _next_order(Course.objects.filter(template_key=SANTE)))
-    return Course.objects.create(template_key=SANTE, **out)
+    out["slug"] = _unique_slug(site, out.get("slug") or out["title"])
+    out.setdefault("order", _next_order(Course.objects.filter(site=site)))
+    return Course.objects.create(site=site, **out)
 
 
 @transaction.atomic
-def update_course(public_id, data):
-    course = Course.objects.select_for_update().filter(public_id=public_id, template_key=SANTE).first()
+def update_course(site, public_id, data):
+    course = Course.objects.select_for_update().filter(site=site, public_id=public_id).first()
     if course is None:
         raise _not_found()
     errors, out = {}, {}
@@ -487,7 +490,7 @@ def update_course(public_id, data):
     _number(data, "order", errors, out, low=1, high=100000)
     _finish(errors)
     if "slug" in out:
-        out["slug"] = _unique_slug(SANTE, out["slug"], exclude_pk=course.pk)
+        out["slug"] = _unique_slug(site, out["slug"], exclude_pk=course.pk)
     archived = out.pop("archived", None)
     if archived is True:
         out["archived_at"], out["active"] = course.archived_at or timezone.now(), False
@@ -502,30 +505,27 @@ def _delete_with_images(row, keys):
         transaction.on_commit(lambda: [media.discard(key) for key in keys])
 
 
-def delete_course(public_id):
-    course = get_course(public_id)
+def delete_course(site, public_id):
+    course = get_course(site, public_id)
     keys = [course.image_key, *Lesson.objects.filter(module__course=course).values_list("image_key", flat=True)]
     _delete_with_images(course, keys)
 
 
 @transaction.atomic
-def create_module(data):
+def create_module(site, course_id, data):
+    course = get_course(site, course_id)
     errors, out = {}, {}
     _text(data, "title", errors, out, required=True, maximum=120)
     _flag(data, "active", errors, out)
     _number(data, "order", errors, out, low=1, high=100000)
-    parent = data.get("course")
-    course = Course.objects.filter(public_id=parent, template_key=SANTE).first() if isinstance(parent, str) else None
-    if course is None:
-        errors["course"] = "Choose a course."
     _finish(errors)
     out.setdefault("order", _next_order(course.modules))
     return Module.objects.create(course=course, **out)
 
 
 @transaction.atomic
-def update_module(public_id, data):
-    module = Module.objects.select_for_update().filter(public_id=public_id, course__template_key=SANTE).first()
+def update_module(site, public_id, data):
+    module = Module.objects.select_for_update().filter(course__site=site, public_id=public_id).first()
     if module is None:
         raise _not_found()
     errors, out = {}, {}
@@ -536,13 +536,13 @@ def update_module(public_id, data):
     return _apply(module, out)
 
 
-def delete_module(public_id):
-    module = get_module(public_id)
+def delete_module(site, public_id):
+    module = get_module(site, public_id)
     _delete_with_images(module, list(module.lessons.values_list("image_key", flat=True)))
 
 
-def _lesson_values(data, errors, out):
-    _text(data, "title", errors, out, required="title" in data or "module" in data, maximum=160)
+def _lesson_values(data, errors, out, *, creating):
+    _text(data, "title", errors, out, required=creating or "title" in data, maximum=160)
     _text(data, "duration", errors, out, maximum=20)
     _text(data, "description", errors, out, maximum=10000)
     _flag(data, "active", errors, out)
@@ -558,50 +558,40 @@ def _lesson_values(data, errors, out):
 
 
 @transaction.atomic
-def create_lesson(data):
+def create_lesson(site, module_id, data):
+    module = get_module(site, module_id)
     errors, out = {}, {}
-    _lesson_values(data, errors, out)
-    if "title" not in out and "title" not in errors:
-        errors["title"] = "This is required."
-    parent = data.get("module")
-    module = (
-        Module.objects.filter(public_id=parent, course__template_key=SANTE).first()
-        if isinstance(parent, str) else None
-    )
-    if module is None:
-        errors["module"] = "Choose a module."
+    _lesson_values(data, errors, out, creating=True)
     _finish(errors)
     out.setdefault("order", _next_order(module.lessons))
     return Lesson.objects.create(module=module, **out)
 
 
 @transaction.atomic
-def update_lesson(public_id, data):
-    lesson = (
-        Lesson.objects.select_for_update().filter(public_id=public_id, module__course__template_key=SANTE).first()
-    )
+def update_lesson(site, public_id, data):
+    lesson = Lesson.objects.select_for_update().filter(module__course__site=site, public_id=public_id).first()
     if lesson is None:
         raise _not_found()
     errors, out = {}, {}
-    _lesson_values({k: v for k, v in data.items() if k != "module"}, errors, out)
+    _lesson_values(data, errors, out, creating=False)
     _finish(errors)
     return _apply(lesson, out)
 
 
-def delete_lesson(public_id):
-    lesson = get_lesson(public_id)
+def delete_lesson(site, public_id):
+    lesson = get_lesson(site, public_id)
     _delete_with_images(lesson, [lesson.image_key])
 
 
 @transaction.atomic
-def reorder(kind, parent, ids):
+def reorder(site, kind, parent, ids):
     """Set `order` 1..n for the siblings, in the order sent. `ids` must be exactly all of them."""
     if kind == "course":
-        siblings = Course.objects.select_for_update().filter(template_key=SANTE)
+        siblings = Course.objects.select_for_update().filter(site=site)
     elif kind == "module":
-        siblings = Module.objects.select_for_update().filter(course=get_course(parent))
+        siblings = Module.objects.select_for_update().filter(course=get_course(site, parent))
     else:
-        siblings = Lesson.objects.select_for_update().filter(module=get_module(parent))
+        siblings = Lesson.objects.select_for_update().filter(module=get_module(site, parent))
     rows = {row.public_id: row for row in siblings}
     if not isinstance(ids, list) or len(ids) != len(set(ids)) or set(ids) != set(rows):
         raise _invalid({"ids": "Send every item of the list once, in the order you want."})
@@ -636,47 +626,28 @@ def _live_values(data, errors, out, *, creating):
             out["join_url"] = value
         else:
             errors["join_url"] = "Use an https link."
-    if "site" in data:
-        value = data["site"]
-        if value is None:
-            out["site"] = None
-        else:
-            site = (
-                Site.objects.filter(public_id=value, template=SANTE, deleted_at__isnull=True).first()
-                if isinstance(value, str) else None
-            )
-            if site is None:
-                errors["site"] = "Choose a Santé site, or leave it empty for every Santé site."
-            else:
-                out["site"] = site
 
 
 def notify_live(live):
-    """One bell entry (kind "live") for every member the training is for. Returns how many."""
-    if live.site_id:
-        sites = [live.site]
-    else:
-        sites = list(Site.objects.filter(template=live.template_key, deleted_at__isnull=True))
-    return sum(
-        notices.notify_members(site, "live", f"Live training: {live.title}", url=LIVE_PATH) for site in sites
-    )
+    """One bell entry (kind "live") for every member of the training's site. Returns how many."""
+    return notices.notify_members(live.site, "live", f"Live training: {live.title}", url=LIVE_PATH)
 
 
 @transaction.atomic
-def create_live(data):
-    """A new live training. One created active puts an entry in the bell of every member it is for."""
+def create_live(site, data):
+    """A new live training. One created active puts an entry in the bell of the site's members."""
     errors, out = {}, {}
     _live_values(data, errors, out, creating=True)
     _finish(errors)
-    live = LiveTraining.objects.create(template_key=SANTE, **out)
+    live = LiveTraining.objects.create(site=site, **out)
     if live.active:
         notify_live(live)
     return live
 
 
 @transaction.atomic
-def update_live(public_id, data):
-    live = LiveTraining.objects.select_for_update().filter(public_id=public_id, template_key=SANTE).first()
+def update_live(site, public_id, data):
+    live = LiveTraining.objects.select_for_update().filter(site=site, public_id=public_id).first()
     if live is None:
         raise _not_found()
     errors, out = {}, {}
@@ -685,8 +656,8 @@ def update_live(public_id, data):
     return _apply(live, out)
 
 
-def delete_live(public_id):
-    live = get_live(public_id)
+def delete_live(site, public_id):
+    live = get_live(site, public_id)
     _delete_with_images(live, [live.thumbnail_key])
 
 
@@ -695,16 +666,10 @@ KINDS = {"course": get_course, "lesson": get_lesson, "live": get_live}
 IMAGE_FIELD = {"course": "image_key", "lesson": "image_key", "live": "thumbnail_key"}
 
 
-def _target(kind, public_id):
-    if kind not in KINDS or not isinstance(public_id, str):
-        raise _invalid({"kind": "Choose course, lesson or live."})
-    return KINDS[kind](public_id)
-
-
-def set_image(kind, public_id, upload):
+def set_image(site, kind, public_id, upload):
     """Store `upload` (JPEG, PNG or WebP, at most 2 MB) as the picture, replacing any. 503 when the
     store is not configured; a refused file stores nothing; the old file goes after commit."""
-    _target(kind, public_id)
+    KINDS[kind](site, public_id)
     if not media.configured():
         raise ApiError("image_store_not_configured", IMAGE_NOT_CONFIGURED_MSG, status=503)
     try:
@@ -720,7 +685,7 @@ def set_image(kind, public_id, upload):
     field = IMAGE_FIELD[kind]
     try:
         with transaction.atomic():
-            row = _target(kind, public_id)
+            row = KINDS[kind](site, public_id)
             old = getattr(row, field)
             setattr(row, field, key)
             row.save(update_fields=[field, "updated_at"])
@@ -732,8 +697,8 @@ def set_image(kind, public_id, upload):
 
 
 @transaction.atomic
-def clear_image(kind, public_id):
-    row = _target(kind, public_id)
+def clear_image(site, kind, public_id):
+    row = KINDS[kind](site, public_id)
     field = IMAGE_FIELD[kind]
     old = getattr(row, field)
     if old:
