@@ -27,6 +27,7 @@ from apps.pack import constants as PACK
 from apps.pack.tests.owner_base import make_order
 from apps.payments.models import SitePaymentAccount
 from apps.shop import constants as SHOP
+from apps.shop.models import ProductReview
 from apps.shop.tests.owner_base import make_order as make_shop_order
 from apps.payments.tests.base import BANK, make_payment_account, qr_file, stored_files, use_local_private_store
 from apps.sites.models import Site
@@ -48,6 +49,7 @@ MISSING_CHILD = {
     "product_id": "prod_00000000000000000000",
     "member_id": "mem_00000000000000000000",
     "invoice_id": "mbi_00000000000000000000000000",
+    "review_id": "review_00000000000000000000",
     "number": "NOBS-2026-000000",
     "ref": "999999_7000000000000",  # a conversation ref of no page of ours
 }
@@ -123,6 +125,9 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/shop/orders/{order_id}/cancel/"): 200,
     ("POST", "/sites/{site_id}/shop/orders/{order_id}/ship/"): 200,
     ("POST", "/sites/{site_id}/shop/orders/{order_id}/deliver/"): 200,
+    ("GET", "/sites/{site_id}/shop/reviews/"): 200,
+    ("POST", "/sites/{site_id}/shop/reviews/{review_id}/hide/"): 200,
+    ("POST", "/sites/{site_id}/shop/reviews/{review_id}/show/"): 200,
     # meta_ads
     ("GET", "/sites/{site_id}/meta/"): 200,
     ("PUT", "/sites/{site_id}/meta/"): 200,
@@ -275,14 +280,20 @@ class TwoOwnersTestCase(SitesApiTestCase):
     def make_children(self, site, payment=False, shop=False, shop_status=SHOP.PENDING_REVIEW,
                       shop_shipped=False, pack_status=PACK.PENDING_REVIEW, pack_shipped=False):
         """A shop order has its own ids: with shop=True order_id and proof_id name it, not the pack's."""
+        review_id = MISSING_CHILD["review_id"]
         if shop:
             order, proof = make_shop_order(site, status=shop_status, shipped=shop_shipped)
+            review_id = ProductReview.objects.create(
+                site=site, order=order, order_line=order.lines.get(), product_id="prod_x", rating=5,
+                body="Fixture review", display_name="Maria S.",
+            ).public_id
         else:
             order, proof = make_order(site, status=pack_status, shipped=pack_shipped)
         ids = {
             **MISSING_CHILD,
             "order_id": order.public_id,
             "proof_id": proof.public_id,
+            "review_id": review_id,
             "account_id": SitePaymentAccount.objects.filter(site=site).order_by("-pk").first().public_id,
             "product_id": self.product.public_id,
             "member_id": order.member.public_id if not shop else MISSING_CHILD["member_id"],
@@ -305,6 +316,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
                 shop_status=SHOP.VERIFIED if template.endswith(("/ship/", "/deliver/")) else SHOP.PENDING_REVIEW,
                 shop_shipped=template.endswith("/deliver/"),
             ))
+        elif "{review_id}" in template:
+            ids["review_id"] = self.make_children(self.site, shop=True)["review_id"]
         elif "{order_id}" in template:
             ids.update(self.make_children(
                 self.site,
