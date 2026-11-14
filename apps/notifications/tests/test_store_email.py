@@ -222,11 +222,19 @@ class PreviewTests(TestCase):
         with tempfile.TemporaryDirectory() as folder:
             call_command("preview_store_email", "all", "--out-dir", folder)
             files = sorted(p.name for p in Path(folder).iterdir())
-            self.assertEqual(len(files), 36)
+            self.assertEqual(len(files), 40)
             html = (Path(folder) / "member_signin.html").read_text()
             self.assertEqual(html.count("123456"), 1)
         self.assertEqual(mail.outbox, [])
         self.assertEqual(EmailMessage.objects.count(), 0)
+
+    def test_registered_notice_preview_has_the_video_button_only_when_set(self):
+        for url, expected in (("https://videos.example.test/ordering", True), ("", False)):
+            with self.settings(PACK_ORDERING_VIDEO_URL=url), tempfile.TemporaryDirectory() as folder:
+                out = Path(folder) / "a.html"
+                call_command("preview_store_email", "pack_registered", "--out", str(out))
+                self.assertEqual("https://videos.example.test/ordering" in out.read_text(), expected)
+                self.assertEqual("coming soon" in out.read_text(), not expected)
 
     def test_single_kind_text_and_minimal(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -3,14 +3,18 @@ registration.py). Only the edges that end with the member's own sign-in are carr
 placement, T3 or T4 when the buyer gives their details (T13 when a later slice asks again), T8
 when the Subscriber approves the payment, and T24 is listed so the table stays TWCinc's. Nothing
 here reads another site's rows. The Subscriber's registration workflow is a later slice."""
+import re
+
 from django.db import transaction
 from django.utils import timezone
 
 from apps.billing import services as billing
 from apps.common.errors import ApiError
 from apps.members import contacts, services as member_services
-from apps.pack import address_zip, constants as C, records, registration_rules as rules
-from apps.pack.models import PackAgreementAcceptance, PackOrder, SanteRegistration, SanteRegistrationEvent
+from apps.pack import address_zip, constants as C, notices, records, registration_rules as rules
+from apps.pack.models import (
+    PackAgreementAcceptance, PackOrder, PackRegisteredNotice, SanteRegistration, SanteRegistrationEvent,
+)
 
 READY = "ready_target"
 EDGES = {  # edge: (from status or tuple, to status or READY)
@@ -18,6 +22,8 @@ EDGES = {  # edge: (from status or tuple, to status or READY)
     "T3": ("awaiting_buyer_details", "waiting_for_accept"),
     "T4": ("awaiting_buyer_details", "ready_to_register"),
     "T8": ("waiting_for_accept", "ready_to_register"),
+    "T9": ("ready_to_register", "in_registration"),
+    "T11+": ("in_registration", "registered"),
     "T13": ("needs_buyer_action", READY),
     "T24": (("waiting_for_accept", "ready_to_register", "in_registration", "retry_wait"), "needs_buyer_action"),
 }
@@ -328,3 +334,58 @@ def on_payment_verified(order):
     )
     if reg is not None and reg.status == "waiting_for_accept" and not past_deletion_point(reg.site_id):
         _transition(reg, "T8", actor=SYSTEM)
+
+
+STALE_MESSAGE = "This registration changed. Reload and try again."
+SANTE_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,32}$")  # TWCinc's shape of a Santé member ID
+SANTE_ID_ERROR = "Enter the Santé member ID."
+
+
+def _lock_for_owner(site, member_public_id, state_version):
+    """The site's registration for one member, under its row lock; a stale `state_version` is 409.
+    The site is part of the query: another site's member is a 404."""
+    refuse_after_point(site.pk)
+    reg = (
+        SanteRegistration.objects.select_for_update().select_related("member")
+        .filter(site=site, member__public_id=member_public_id).first()
+    )
+    if reg is None:
+        raise ApiError("not_found", "Not found.", status=404)
+    if state_version != reg.state_version:
+        raise ApiError("stale", STALE_MESSAGE, status=409)
+    return reg
+
+
+def start(actor, site, member_public_id, *, state_version):
+    """T9 (port of TWCinc registration.start): the Subscriber starts encoding the member in Santé.
+    Only from ready_to_register; any other status is 409 wrong_status."""
+    with transaction.atomic():
+        reg = _lock_for_owner(site, member_public_id, state_version)
+        _transition(reg, "T9", actor=actor)
+    return reg
+
+
+def mark_registered(actor, site, member_public_id, *, state_version, sante_member_id):
+    """T11+ (port of TWCinc registration.record_success, without the screenshot): the Subscriber
+    types the member's Santé ID. Only from in_registration; any other status, a second "Mark
+    registered" included, is 409 wrong_status. The once-only notice row is written in the same
+    transaction and the email goes after commit, so nothing is sent for a change that did not
+    commit, and a repeat sends nothing."""
+    sid = (sante_member_id or "").strip()
+    if not SANTE_ID_RE.fullmatch(sid):
+        raise ApiError(
+            "invalid_success", C.MSG_CHECK_FIELDS, status=422, fields={"sante_member_id": [SANTE_ID_ERROR]}
+        )
+    with transaction.atomic():
+        reg = _lock_for_owner(site, member_public_id, state_version)
+        if reg.status != "in_registration":
+            raise _wrong_status()
+        now = timezone.now()
+        reg.sante_member_id, reg.registered_at = sid, now
+        _transition(reg, "T11+", actor=actor, now=now)
+        notice, created = PackRegisteredNotice.objects.get_or_create(registration=reg, defaults={"site": site})
+        if created:
+            from apps.pack import registered_notice  # sends after commit; imports this module
+
+            notices.after_commit(registered_notice.send, notice.pk)
+    return reg

@@ -24,6 +24,7 @@ from apps.members.models import Member
 from apps.inquiries.tests import base as inquiries_base
 from apps.meta_ads.tests.base import CODE, KEY, PIXEL, TOKEN, FakeMeta, configure
 from apps.pack import constants as PACK
+from apps.pack.models import SanteRegistration
 from apps.pack.tests.owner_base import make_order
 from apps.payments.models import SitePaymentAccount
 from apps.shop import constants as SHOP
@@ -117,6 +118,9 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/shipment/"): 200,
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/shipment/correct/"): 200,
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/delivery/"): 200,
+    ("GET", "/sites/{site_id}/pack/registrations/"): 200,
+    ("POST", "/sites/{site_id}/pack/registrations/{member_id}/start/"): 200,
+    ("POST", "/sites/{site_id}/pack/registrations/{member_id}/registered/"): 200,
     # shop owner (the Subscriber's product orders; each call gets a fresh order in the state it needs)
     ("GET", "/sites/{site_id}/shop/orders/"): 200,
     ("GET", "/sites/{site_id}/shop/orders/{order_id}/"): 200,
@@ -248,7 +252,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
         BillingProfile.objects.create(site=self.ben_site, **PROFILE)
         self.product = make_product()
         self.creates = 0
-        self.ben_ids = self.make_children(self.ben_site, payment=True)
+        self.ben_ids = self.make_children(self.ben_site, payment=True, reg_status="in_registration")
         self.ben_shop_ids = self.make_children(self.ben_site, shop=True)
         configure(self.ben_site)
         inquiries_base.configure(self.site)
@@ -278,7 +282,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
         return item.public_id
 
     def make_children(self, site, payment=False, shop=False, shop_status=SHOP.PENDING_REVIEW,
-                      shop_shipped=False, pack_status=PACK.PENDING_REVIEW, pack_shipped=False):
+                      shop_shipped=False, pack_status=PACK.PENDING_REVIEW, pack_shipped=False, reg_status=None):
         """A shop order has its own ids: with shop=True order_id and proof_id name it, not the pack's."""
         review_id = MISSING_CHILD["review_id"]
         if shop:
@@ -289,6 +293,10 @@ class TwoOwnersTestCase(SitesApiTestCase):
             ).public_id
         else:
             order, proof = make_order(site, status=pack_status, shipped=pack_shipped)
+            if reg_status:  # the member's Santé registration, for the pack registration routes
+                SanteRegistration.objects.create(
+                    site=site, member=order.member, pack_order=order, status=reg_status,
+                )
         ids = {
             **MISSING_CHILD,
             "order_id": order.public_id,
@@ -323,6 +331,11 @@ class TwoOwnersTestCase(SitesApiTestCase):
                 self.site,
                 pack_status=PACK.VERIFIED if template.endswith(("/shipment/", "/shipment/correct/", "/delivery/")) else PACK.PENDING_REVIEW,
                 pack_shipped=template.endswith(("/shipment/correct/", "/delivery/")),
+            ))
+        elif "/pack/registrations/{member_id}" in template:
+            ids.update(self.make_children(
+                self.site, pack_status=PACK.VERIFIED,
+                reg_status="ready_to_register" if template.endswith("/start/") else "in_registration",
             ))
         elif "{member_id}" in template:
             ids.update(self.make_children(self.site))
@@ -435,6 +448,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
                 body.update(courier="lbc", tracking_number="LBC123456")
             if template.endswith("/reject/"):
                 body["reason_code"] = "proof_unreadable"
+            if template.endswith("/registered/"):
+                body["sante_member_id"] = "SA-1234567"
             return body
         if "/meta/" in template and method == "PUT":
             return {"pixel_id": PIXEL, "access_token": TOKEN, "test_event_code": CODE}
