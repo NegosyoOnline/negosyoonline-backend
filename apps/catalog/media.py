@@ -69,11 +69,11 @@ def _send(action, url, *, method, data=None, headers=None):
     raise StoreError(f"The media store {action} failed ({status}).")
 
 
-def save(content, content_type):
-    """Store checked bytes under a random key and return the key. Raises StoreError."""
+def save(content, content_type, folder=FOLDER):
+    """Store checked bytes under a random key in `folder` and return the key. Raises StoreError."""
     if not configured():
         raise StoreError("The media store is not configured.")
-    key = private_files.new_key(FOLDER, content_type)
+    key = private_files.new_key(folder, content_type)
     query = urllib.parse.urlencode({"pathname": key})
     body = _send(
         "put", f"{BLOB_API}/?{query}", method="PUT", data=content,

@@ -21,7 +21,7 @@ NOT_FOUND = {"error": {"code": "not_found", "message": "Not found."}}
 # "sites" count includes the 5 member-recovery routes under /sites/{site_id}/members/.
 EXPECTED_COUNTS = {
     "sites": 12, "billing": 16, "sante": 2, "catalog": 7, "payments": 5, "pack_owner": 8,
-    "shop_owner": 7, "meta_ads": 4, "inquiries": 7,
+    "shop_owner": 7, "meta_ads": 4, "inquiries": 7, "member_notices": 6,
 }
 
 
@@ -44,7 +44,7 @@ class RegistryGuardTests(TwoOwnersTestCase):
         for _, template in routes:
             counts[app_of(template)] = counts.get(app_of(template), 0) + 1
         self.assertEqual(counts, EXPECTED_COUNTS)
-        self.assertEqual(len(OWNER_ROUTES), 68)
+        self.assertEqual(len(OWNER_ROUTES), 74)
 
 
 class ForeignSiteTests(TwoOwnersTestCase):
@@ -84,6 +84,8 @@ class ForeignChildTests(TwoOwnersTestCase):
 
     def test_the_routes_with_a_child_id_are_the_ones_expected(self):
         self.assertEqual(sorted(self.child_routes()), [
+            ("DELETE", "/sites/{site_id}/member-notices/{notice_id}/"),
+            ("DELETE", "/sites/{site_id}/member-notices/{notice_id}/image/"),
             ("DELETE", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
             ("GET", "/sites/{site_id}/billing/invoices/{invoice_id}/copy/"),
             ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"),
@@ -96,7 +98,9 @@ class ForeignChildTests(TwoOwnersTestCase):
             ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"),
             ("GET", "/sites/{site_id}/shop/orders/{order_id}/"),
             ("GET", "/sites/{site_id}/shop/orders/{order_id}/proofs/{proof_id}/"),
+            ("PATCH", "/sites/{site_id}/member-notices/{notice_id}/"),
             ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reply/"),
+            ("POST", "/sites/{site_id}/member-notices/{notice_id}/image/"),
             ("POST", "/sites/{site_id}/members/{member_id}/recovery/"),
             ("POST", "/sites/{site_id}/members/{member_id}/recovery/check/"),
             ("POST", "/sites/{site_id}/pack/orders/{order_id}/approve/"),
