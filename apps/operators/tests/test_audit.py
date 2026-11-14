@@ -13,7 +13,7 @@ CALLERS = (
     APP, APP.parent / "notifications", APP.parent / "common", APP.parent / "accounts",
     APP.parent / "billing", APP.parent / "sante", APP.parent / "inbox",
     APP.parent / "statements", APP.parent / "invoices", APP.parent / "lifecycle", APP.parent / "pack",
-    APP.parent / "training",
+    APP.parent / "training", APP.parent / "media_library",
 )
 
 

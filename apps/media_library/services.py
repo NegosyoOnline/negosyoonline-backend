@@ -1,0 +1,406 @@
+"""Member media library: what a member reads and what HQ writes.
+
+Every member read starts from the member's own site and its template, and shows only assets that
+are active and published (published_at set and not in the future). Another template's asset is
+never listed or found.
+
+TWCinc source for the shape: app/media_library/models.py (MediaAsset: categories, crop ratios,
+size limits, the 7-day "new" badge) and the library page's filters (type, category, search,
+newest/oldest). The Source filter is not ported (Santé only); the product filter uses the
+catalog's own categories (apps/catalog/services.py CATEGORIES). Write the table through here.
+"""
+from datetime import timedelta
+
+from django.db import transaction
+from django.db.models import Count, Max, Q
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+
+from apps.catalog.services import CATEGORIES as PRODUCT_CATEGORIES
+from apps.common import private_files
+from apps.common.errors import ApiError
+
+from . import store
+from .models import SANTE, MediaAsset
+
+INVALID_MSG = "Some values are missing or invalid."
+STORE_NOT_CONFIGURED_MSG = "Media cannot be stored yet: the media store is not configured."
+NOT_SAVED_MSG = "The file could not be stored. Try again."
+
+PAGE_SIZE = 12  # "Load 12 more"
+SEARCH_MAX = 100
+NEW_DAYS = 7  # TWCinc ML_NEW_BADGE_DAYS
+
+ASSET_TYPES = {"image": "Image", "video": "Video"}
+CATEGORIES = {"promo": "Product Promo", "ad": "Ad Creative", "page": "Page Post"}  # TWCinc, minus Sponsoring
+CROP_RATIOS = ("4:5", "1:1", "9:16", "16:9")
+PRODUCT_LABELS = {key: key.capitalize() for key in PRODUCT_CATEGORIES}
+SORTS = ("newest", "oldest")
+FILE_KINDS = ("file", "thumb", "poster")
+FILE_MESSAGES = {
+    private_files.WRONG_TYPE: {
+        "image": "Upload a JPEG, PNG or WebP image.",
+        "video": "Upload an MP4 video.",
+    },
+    private_files.TOO_LARGE: {
+        "image": f"The image is too large. The limit is {store.IMAGE_MAX_BYTES // (1024 * 1024)} MB.",
+        "video": f"The video is too large. The limit is {store.VIDEO_MAX_BYTES // (1024 * 1024)} MB.",
+    },
+}
+
+
+def _not_found():
+    return ApiError("not_found", "Not found.", status=404, event="object_not_found", reason="missing")
+
+
+def _invalid(fields):
+    return ApiError("invalid_request", INVALID_MSG, fields={k: [v] for k, v in fields.items()})
+
+
+# -- member reads -------------------------------------------------------------------------------
+
+def visible(site, now=None):
+    return MediaAsset.objects.filter(
+        template_key=site.template, active=True, published_at__isnull=False,
+        published_at__lte=now or timezone.now(),
+    )
+
+
+def _thumb_key(asset):
+    return asset.thumb_key or asset.poster_key or (asset.file_key if asset.asset_type == "image" else "")
+
+
+def asset_out(asset, now=None):
+    now = now or timezone.now()
+    published = asset.published_at
+    return {
+        "id": asset.public_id, "title": asset.title, "asset_type": asset.asset_type,
+        "category": asset.category, "category_label": CATEGORIES.get(asset.category, asset.category),
+        "product_category": asset.product_category or None,
+        "product_category_label": PRODUCT_LABELS.get(asset.product_category),
+        "crop_ratio": asset.crop_ratio, "caption": asset.caption,
+        "file_url": store.url_for(asset.file_key), "thumb_url": store.url_for(_thumb_key(asset)),
+        "poster_url": store.url_for(asset.poster_key),
+        "width": asset.width, "height": asset.height, "file_size": asset.file_size,
+        "duration_seconds": asset.duration_seconds, "published_at": published,
+        "is_new": bool(published and published >= now - timedelta(days=NEW_DAYS)),
+    }
+
+
+def _options(base):
+    """Filter options with the number of visible assets behind each (before any filter)."""
+    def counts(field, labels):
+        found = dict(base.exclude(**{field: ""}).values_list(field).annotate(n=Count("pk")))
+        return [{"value": key, "label": label, "count": found.get(key, 0)} for key, label in labels.items()]
+    return {
+        "type": counts("asset_type", ASSET_TYPES),
+        "category": counts("category", CATEGORIES),
+        "product_category": counts("product_category", PRODUCT_LABELS),
+    }
+
+
+def _choice(value, allowed, name, errors):
+    if value in (None, ""):
+        return ""
+    if not isinstance(value, str) or value not in allowed:
+        errors[name] = "Choose one of: " + ", ".join(allowed) + "."
+        return ""
+    return value
+
+
+def list_assets(member, params, now=None):
+    now = now or timezone.now()
+    errors = {}
+    kind = _choice(params.get("type"), ASSET_TYPES, "type", errors)
+    category = _choice(params.get("category"), CATEGORIES, "category", errors)
+    product = _choice(params.get("product_category"), PRODUCT_LABELS, "product_category", errors)
+    sort = _choice(params.get("sort"), SORTS, "sort", errors) or "newest"
+    search = params.get("search") or ""
+    if not isinstance(search, str) or len(search) > SEARCH_MAX:
+        errors["search"] = f"Use up to {SEARCH_MAX} characters."
+        search = ""
+    offset = params.get("offset", 0)
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        errors["offset"] = "Use a whole number of 0 or more."
+        offset = 0
+    if errors:
+        raise _invalid(errors)
+
+    base = visible(member.site, now)
+    rows = base
+    if kind:
+        rows = rows.filter(asset_type=kind)
+    if category:
+        rows = rows.filter(category=category)
+    if product:
+        rows = rows.filter(product_category=product)
+    if search.strip():
+        rows = rows.filter(Q(title__icontains=search.strip()) | Q(caption__icontains=search.strip()))
+    rows = rows.order_by("published_at", "pk") if sort == "oldest" else rows.order_by("-published_at", "-pk")
+    count = rows.count()
+    page = list(rows[offset:offset + PAGE_SIZE])
+    end = offset + len(page)
+    return {
+        "items": [asset_out(a, now) for a in page], "count": count, "offset": offset,
+        "limit": PAGE_SIZE, "next_offset": end if end < count else None, "options": _options(base),
+    }
+
+
+# -- HQ writes ----------------------------------------------------------------------------------
+
+def staff_out(asset):
+    return {
+        **asset_out(asset), "active": asset.active, "order": asset.order,
+        "published": asset.published_at is not None, "created_at": asset.created_at,
+        "updated_at": asset.updated_at,
+    }
+
+
+def get_asset(public_id, lock=False):
+    rows = MediaAsset.objects.select_for_update() if lock else MediaAsset.objects
+    asset = rows.filter(public_id=public_id, template_key=SANTE).first() if isinstance(public_id, str) else None
+    if asset is None:
+        raise _not_found()
+    return asset
+
+
+def _next_order():
+    return (MediaAsset.objects.filter(template_key=SANTE).aggregate(top=Max("order"))["top"] or 0) + 1
+
+
+def _whole(value, low, high):
+    """An int from an int or, in a form post, a string of digits; else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    return value if isinstance(value, int) and low <= value <= high else None
+
+
+def _values(data, errors, *, creating):
+    out = {}
+    if "title" in data or creating:
+        title = data.get("title")
+        if not isinstance(title, str) or not 1 <= len(title.strip()) <= 160:
+            errors["title"] = "Use 1 to 160 characters."
+        else:
+            out["title"] = title.strip()
+    if "caption" in data:
+        caption = data["caption"]
+        if not isinstance(caption, str) or len(caption) > 5000:
+            errors["caption"] = "Use up to 5000 characters."
+        else:
+            out["caption"] = caption.strip()
+    for name, allowed in (("category", CATEGORIES), ("crop_ratio", CROP_RATIOS)):
+        if name in data:
+            if data[name] in allowed:
+                out[name] = data[name]
+            else:
+                errors[name] = "Choose one of: " + ", ".join(allowed) + "."
+    if "product_category" in data:
+        value = data["product_category"]
+        if value in (None, ""):
+            out["product_category"] = ""
+        elif value in PRODUCT_LABELS:
+            out["product_category"] = value
+        else:
+            errors["product_category"] = "Choose " + ", ".join(PRODUCT_LABELS) + ", or leave it blank."
+    for name, high in (("width", 20000), ("height", 20000), ("duration_seconds", 86400), ("order", 1_000_000)):
+        if name in data:
+            number = _whole(data[name], 0 if name != "order" else 1, high)
+            if number is None:
+                errors[name] = "Use a whole number" + (" of 1 or more." if name == "order" else ".")
+            else:
+                out[name] = number
+    if "active" in data:
+        flag = data["active"]
+        if isinstance(flag, str) and flag in ("true", "false"):
+            flag = flag == "true"
+        if isinstance(flag, bool):
+            out["active"] = flag
+        else:
+            errors["active"] = "Send true or false."
+    return out
+
+
+def _check(upload, kind, errors, name):
+    """(content, content type) or None with the problem in `errors`."""
+    try:
+        return store.check_video(upload) if kind == "video" else store.check_image(upload)
+    except private_files.FileRefused as refused:
+        errors[name] = FILE_MESSAGES[refused.reason][kind]
+        return None
+
+
+def _require_store():
+    if not store.configured():
+        raise ApiError("image_store_not_configured", STORE_NOT_CONFIGURED_MSG, status=503)
+
+
+def _put(content, content_type, saved):
+    try:
+        key = store.save(content, content_type)
+    except store.StoreError:
+        for stored in saved:
+            store.discard(stored)
+        raise ApiError("image_not_saved", NOT_SAVED_MSG, status=502) from None
+    saved.append(key)
+    return key
+
+
+def upload_asset(data, files):
+    """Create an asset (a draft: not published) from a form post. `data` holds title, asset_type and
+    the optional metadata; `files` holds `file`, `poster` (a video needs one) and `thumb` (optional).
+    Nothing is stored when anything is refused."""
+    errors = {}
+    values = _values(data, errors, creating=True)
+    kind = data.get("asset_type")
+    if kind not in ASSET_TYPES:
+        errors["asset_type"] = "Choose image or video."
+        kind = None
+    checked = {}
+    if kind:
+        upload = files.get("file")
+        if upload is None:
+            errors["file"] = "This is required."
+        else:
+            checked["file"] = _check(upload, kind, errors, "file")
+        if kind == "video":
+            if files.get("poster") is None:
+                errors["poster"] = "A video needs a poster image."
+            else:
+                checked["poster"] = _check(files.get("poster"), "image", errors, "poster")
+        if files.get("thumb") is not None:
+            checked["thumb"] = _check(files.get("thumb"), "image", errors, "thumb")
+    if errors:
+        raise _invalid(errors)
+    _require_store()
+    saved, keys = [], {}
+    for name, (content, content_type) in checked.items():
+        keys[name] = _put(content, content_type, saved)
+    try:
+        with transaction.atomic():
+            values.setdefault("order", _next_order())
+            return MediaAsset.objects.create(
+                template_key=SANTE, asset_type=kind, file_key=keys["file"],
+                thumb_key=keys.get("thumb", ""), poster_key=keys.get("poster", ""),
+                file_size=len(checked["file"][0]), **values,
+            )
+    except BaseException:
+        for stored in saved:
+            store.discard(stored)
+        raise
+
+
+@transaction.atomic
+def update_asset(public_id, data):
+    asset = get_asset(public_id, lock=True)
+    errors = {}
+    values = _values(data, errors, creating=False)
+    if errors:
+        raise _invalid(errors)
+    for name, value in values.items():
+        setattr(asset, name, value)
+    asset.save()
+    return asset
+
+
+def delete_asset(public_id):
+    with transaction.atomic():
+        asset = get_asset(public_id, lock=True)
+        keys = [asset.file_key, asset.thumb_key, asset.poster_key]
+        asset.delete()
+        transaction.on_commit(lambda: [store.discard(key) for key in keys])
+
+
+@transaction.atomic
+def reorder(ids):
+    """Set `order` 1..n for every asset of the template, in the order sent."""
+    rows = {a.public_id: a for a in MediaAsset.objects.select_for_update().filter(template_key=SANTE)}
+    if not isinstance(ids, list) or len(ids) != len(set(ids)) or set(ids) != set(rows):
+        raise _invalid({"ids": "Send every item of the list once, in the order you want."})
+    for position, public_id in enumerate(ids, start=1):
+        row = rows[public_id]
+        if row.order != position:
+            MediaAsset.objects.filter(pk=row.pk).update(order=position)
+            row.order = position
+    return [rows[public_id] for public_id in ids]
+
+
+@transaction.atomic
+def publish(public_id, when=None):
+    """Publish now, or at `when` (an ISO 8601 time with offset). Publishing again keeps the time
+    it already has unless `when` is sent."""
+    asset = get_asset(public_id, lock=True)
+    if when is not None:
+        parsed = parse_datetime(when) if isinstance(when, str) else None
+        if parsed is None or parsed.tzinfo is None:
+            raise _invalid({"published_at": "Use a date and time with a time zone, like 2026-11-14T09:00:00+08:00."})
+        asset.published_at = parsed
+    elif asset.published_at is None:
+        asset.published_at = timezone.now()
+    asset.save(update_fields=["published_at", "updated_at"])
+    return asset
+
+
+@transaction.atomic
+def unpublish(public_id):
+    asset = get_asset(public_id, lock=True)
+    asset.published_at = None
+    asset.save(update_fields=["published_at", "updated_at"])
+    return asset
+
+
+KEY_FIELD = {"file": "file_key", "thumb": "thumb_key", "poster": "poster_key"}
+
+
+def _file_kind(kind):
+    if kind not in FILE_KINDS:
+        raise _invalid({"kind": "Choose file, thumb or poster."})
+    return kind
+
+
+def set_file(public_id, kind, upload):
+    """Replace one file of an asset: `file` (of its own type), `thumb` or `poster` (images). The
+    old file goes after commit."""
+    asset = get_asset(public_id)
+    _file_kind(kind)
+    if kind == "poster" and asset.asset_type != "video":
+        raise _invalid({"kind": "Only a video has a poster."})
+    errors = {}
+    if upload is None:
+        errors["file"] = "This is required."
+        raise _invalid(errors)
+    checked = _check(upload, asset.asset_type if kind == "file" else "image", errors, "file")
+    if errors:
+        raise _invalid(errors)
+    _require_store()
+    saved = []
+    key = _put(*checked, saved)
+    field = KEY_FIELD[kind]
+    try:
+        with transaction.atomic():
+            asset = get_asset(public_id, lock=True)
+            old = getattr(asset, field)
+            setattr(asset, field, key)
+            update = [field, "updated_at"]
+            if kind == "file":
+                asset.file_size = len(checked[0])
+                update.append("file_size")
+            asset.save(update_fields=update)
+            transaction.on_commit(lambda: store.discard(old))
+    except BaseException:
+        store.discard(key)
+        raise
+    return asset
+
+
+@transaction.atomic
+def clear_thumb(public_id):
+    asset = get_asset(public_id, lock=True)
+    old = asset.thumb_key
+    if old:
+        asset.thumb_key = ""
+        asset.save(update_fields=["thumb_key", "updated_at"])
+        transaction.on_commit(lambda: store.discard(old))
+    return asset
