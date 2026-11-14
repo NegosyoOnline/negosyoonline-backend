@@ -39,6 +39,27 @@ Owner session (not the storefront secret), `apps/members/api_owner.py`, prefix `
 
 Limits per account: search 60 per 10 minutes, check 10 per hour, recover 5 per day (cache; per process without `REDIS_URL`). There is no per-member lock: failed checks are audited and limited only by the per-account check rate, and a recovery during a running hold restarts the 24-hour hold and notifies the old verified contacts again (the Subscriber owns the recovery of their members, Coach Ed 2026-11-13). A closed member is 409 `member_closed`. While texts are off (`sms.available()` false) `new_email` is required (422 `email_required`), because a mobile sign-in goes to the old email. The Membership Package order number is a checklist item when the member has an order (`apps/pack/recovery_item.py`). No migration.
 
+## Training routes (ClickUp z8uq9mezdj)
+
+The Subscriber writes the courses, modules, lessons and live trainings of their own site in the dash; there is no HQ authoring and no content shared between sites. Code: `apps/training/api_owner.py` (owner) and `apps/training/api.py` (member reads). Owner routes sit under `/v1/sites/{site_id}/training/`, behind the same gates as the notices (owner session, Santé site, Billing-only 403, 404 while `MEMBERS_ENABLED` is off) and answer `Cache-Control: no-store`. A foreign id is the same 404 as a missing one.
+
+| Method and path | Body | Answer |
+| --- | --- | --- |
+| `GET courses/`, `POST courses/` | `title`, `slug?`, `description?`, `order?`, `active?` | `{courses}`; 201 course |
+| `POST courses/reorder/` | `ids` (every course) | `{courses}` |
+| `GET`, `PATCH`, `DELETE courses/{course_id}/` | PATCH: any of the create keys plus `archived` | course + `modules[].lessons[]`; course; `{status}` |
+| `POST`, `DELETE courses/{course_id}/image/` | multipart `file` (JPEG, PNG, WebP, 2 MB) | course |
+| `POST courses/{course_id}/modules/`, `POST .../modules/reorder/` | `title`, `order?`, `active?`; `ids` | 201 module; `{modules}` |
+| `PATCH`, `DELETE modules/{module_id}/` | any of `title`, `order`, `active` | module; `{status}` |
+| `POST modules/{module_id}/lessons/`, `POST .../lessons/reorder/` | `title`, `duration?`, `description?`, `video_url?`, `order?`, `active?`; `ids` | 201 lesson; `{lessons}` |
+| `PATCH`, `DELETE lessons/{lesson_id}/` | any of the lesson keys | lesson; `{status}` |
+| `POST`, `DELETE lessons/{lesson_id}/image/` | multipart `file` | lesson |
+| `GET`, `POST live/` | `title`, `starts_at` (with time zone), `duration_minutes?`, `description?`, `join_url?`, `active?` | `{live}`; 201 live |
+| `PATCH`, `DELETE live/{live_id}/` | any of the live keys | live; `{status}` |
+| `POST`, `DELETE live/{live_id}/thumbnail/` | multipart `file` | live |
+
+`video_url` must be an https embed link of YouTube, Vimeo or Bunny Stream; `join_url` an https link. Creating a live training that is active rings the bell of that site's members only. The member routes (`/storefront/v1/member/training/...`) read only the member's own site's content.
+
 ## Rules
 
 - Ported from the approved TWCinc code (`otp.py`, `signin.py`, `sessions.py`, `holds.py`, `recovery.py`, `contact_change.py`). Codes are database rows (`MemberOtpChallenge`) bound to the browser binding; six digits, 10 minutes, 5 guesses, a resend inside the window reuses the code unless under 2 minutes is left, decoy rows make an unknown contact look like a member, and an advisory lock serialises one contact.
