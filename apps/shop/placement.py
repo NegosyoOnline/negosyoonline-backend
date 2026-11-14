@@ -100,8 +100,8 @@ def clean_receiver(buyer, data):
 
 def clean_address(buyer, mode, posted):
     """The delivery address stored on the order. `home` is the member's own saved address (the
-    server's, never the posted one); any other mode needs the typed address, with a province the
-    ZIP dataset knows."""
+    server's, never the posted one: a member's posted address is ignored); the guest mode needs the
+    typed address, with a province the ZIP dataset knows."""
     if mode == C.HOME:
         out, _source = quote.home_address(buyer.member)  # the profile, else the pack order's
         if out is None:
@@ -187,6 +187,7 @@ def place(site, *, lines, member_token="", ship_mode="", address=None, receiver=
                 raise ApiError("method_unavailable", C.MSG_PAYMENT_UNAVAILABLE, status=409)
             buyer = quote.resolve_buyer(locked, member_token)  # read again under the lock
             mode = quote.resolve_mode(buyer, ship_mode, strict=True)
+            delivery = clean_address(buyer, mode, address)  # a member's own address, read again
             priced = _priced(locked, wanted, buyer, mode, delivery)
             if not hmac.compare_digest(str(fingerprint or ""), priced.fingerprint):
                 raise ApiError("prices_changed", C.MSG_PRICES_CHANGED, status=409)
@@ -195,7 +196,7 @@ def place(site, *, lines, member_token="", ship_mode="", address=None, receiver=
             order = ShopOrder.objects.create(
                 site=locked, order_number=_next_number(locked),
                 buyer_kind=C.MEMBER if buyer.member is not None else C.GUEST, member=buyer.member,
-                ship_mode=mode, credited_member=buyer.member if mode == C.DIFFERENT else None,
+                ship_mode=mode, credited_member=None,  # the earnings-credit (ship to another address) path has ended
                 receiver_name=name, receiver_mobile=mobile, contact_email=email,
                 delivery_address=delivery, payment_status=C.PENDING_REVIEW,
                 subtotal_centavos=priced.subtotal_centavos,

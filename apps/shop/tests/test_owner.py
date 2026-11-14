@@ -227,6 +227,28 @@ class ShipAndDeliverTests(OwnerTestCase):
         self.assertEqual(ShopOrder.objects.get().payment_status, C.VERIFIED)
 
 
+class MemberOrderTests(OwnerTestCase):
+    def test_a_member_home_order_shows_on_my_dashboard_and_no_member_data_crosses_sites(self):
+        from apps.members import services as members
+
+        mine = members.create_member(
+            self.site, full_name="Maria Santos", mobile="09171234567", email="maria@mine.test", email_state="pending",
+        )
+        order, _ = make_order(self.site, member=mine)
+        ShopOrder.objects.filter(pk=order.pk).update(ship_mode="home", credited_member=None)
+        _ben, ben_site, ben_order, _ = self.other_site()
+        theirs = members.create_member(
+            ben_site, full_name="Juan Cruz", mobile="09170000002", email="juan@theirs.test", email_state="pending",
+        )
+        ShopOrder.objects.filter(pk=ben_order.pk).update(member=theirs, buyer_kind="member", ship_mode="home")
+        detail = self.get(self.url(f"{order.public_id}/")).json()
+        self.assertEqual((detail["buyer_kind"], detail["ship_mode"]), ("member", "home"))
+        everything = str(detail) + str(self.get(self.url()).json())
+        self.assertNotIn("juan@theirs.test", everything)
+        self.assertNotIn("Juan Cruz", everything)
+        self.error(self.get(self.url(f"{ben_order.public_id}/")), 404, "not_found")
+
+
 class IsolationTests(OwnerTestCase):
     def test_another_subscribers_site_and_order_are_404_and_untouched(self):
         ben, ben_site, order, proof = self.other_site()

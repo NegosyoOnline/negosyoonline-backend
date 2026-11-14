@@ -7,7 +7,10 @@ from django.core import mail
 from django.test import override_settings
 
 from apps.catalog.models import CatalogProduct
-from apps.shop import constants as C
+from django.core.files.uploadedfile import SimpleUploadedFile
+
+from apps.pack.models import PackOrder
+from apps.shop import constants as C, placement
 from apps.shop.models import ShopOrder, ShopOrderEvent, ShopOrderLine, ShopProofSubmission
 from apps.shop.tests.base import (
     CEBU_ADDRESS, HOST, MANILA_ADDRESS, NOT_FOUND, PDF, PNG, ShopTestCase,
@@ -112,6 +115,17 @@ class GuestPlacementTests(ShopTestCase):
             with self.subTest(lines=lines):
                 self.assertEqual(self.place(lines).status_code, 422)
         self.assertEqual(ShopOrder.objects.count(), 0)
+
+    def test_a_member_without_benefits_cannot_reach_the_member_price_or_a_member_mode(self):
+        member = self.member(address=HOME)
+        token = self.token(member)
+        for mode in ("home", "different"):
+            with self.subTest(mode=mode):
+                response = self.place(self.cart(), member_token=token, ship_mode=mode)
+                self.assertEqual(response.json()["error"]["code"], "ship_mode_not_allowed")
+        self.placed(self.cart(), member_token=token, ship_mode="guest")
+        order = ShopOrder.objects.get()
+        self.assertEqual((order.ship_mode, order.total_centavos, order.credited_member_id), ("guest", 10000, None))
 
     def test_a_guest_cannot_pick_a_member_ship_mode(self):
         for mode in ("home", "different"):
@@ -251,15 +265,79 @@ class MemberPlacementTests(ShopTestCase):
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.json()["error"]["code"], "no_home_address")
 
-    def test_a_different_address_pays_srp_and_credits_the_member(self):
-        member = self.member(benefits=True)
-        self.placed(self.cart(2), member_token=self.token(member), ship_mode="different", address=CEBU_ADDRESS)
+    def test_a_different_or_guest_ship_mode_is_refused_for_a_member_with_benefits(self):
+        member = self.member(benefits=True, address=HOME)
+        token = self.token(member)
+        for mode in ("different", "guest"):
+            with self.subTest(mode=mode):
+                response = self.place(self.cart(), member_token=token, ship_mode=mode, address=CEBU_ADDRESS)
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(response.json()["error"]["code"], "member_own_address_only")
+                self.assertEqual(response.json()["error"]["message"], C.MSG_MEMBER_OWN_ADDRESS_ONLY)
+        self.assertEqual(ShopOrder.objects.count(), 0)
+        self.assertEqual(self.proof_files(), [])
+
+    def test_a_new_member_order_never_credits_another_member(self):
+        member = self.member(benefits=True, address=HOME)
+        self.placed(self.cart(2), member_token=self.token(member), ship_mode="home", address=CEBU_ADDRESS)
         order = ShopOrder.objects.get()
-        self.assertEqual((order.ship_mode, order.credited_member_id, order.total_centavos),
-                         ("different", member.pk, 20000))
-        line = ShopOrderLine.objects.get()
-        self.assertEqual((line.line_earnings_centavos, line.line_charged_centavos), (7000, 20000))  # recorded, not paid
-        self.assertEqual(order.delivery_address["city"], "Cebu City")
+        self.assertIsNone(order.credited_member_id)
+        self.assertEqual(order.delivery_address["city"], "Makati")
+
+    def test_tampering_between_the_quote_and_the_placement_is_refused(self):
+        member = self.member(benefits=True, address=HOME)
+        token = self.token(member)
+        data = self.order_fields(self.cart(), member_token=token, ship_mode="home", address=None)
+        data["ship_mode"] = "different"  # quoted as home, placed as different
+        data["address"] = json.dumps(CEBU_ADDRESS)
+        response = self.client.post(
+            "/storefront/v1/shop/orders/", {"host": HOST, "visitor_ip": "203.0.113.50", **data,
+            "proof": SimpleUploadedFile("proof.png", PNG, content_type="image/png")},
+            secure=True, **self.headers(),
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"]["code"], "member_own_address_only")
+        self.assertEqual(ShopOrder.objects.count(), 0)
+
+    def test_the_rule_is_checked_again_under_the_lock(self):
+        """Benefits lost between the first read and the lock: the same read inside the lock."""
+        member = self.member(benefits=True, address=HOME)
+        token = self.token(member)
+        real = placement.payments.any_method
+
+        def lose_benefits(site):
+            PackOrder.objects.filter(member=member).delete()
+            return real(site)
+
+        with mock.patch.object(placement.payments, "any_method", side_effect=lose_benefits):
+            response = self.place(self.cart(), member_token=token, ship_mode="home", address=None)
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"]["code"], "ship_mode_not_allowed")
+        self.assertEqual(ShopOrder.objects.count(), 0)
+        self.assertEqual(self.proof_files(), [])
+
+    def test_the_saved_address_is_read_again_under_the_lock(self):
+        member = self.member(benefits=True, address=HOME)
+        token = self.token(member)
+        real = placement.payments.any_method
+
+        def move_address(site):
+            from apps.members.models import Member
+
+            Member.objects.filter(pk=member.pk).update(delivery_address={**HOME, "city": "Pasig"})
+            return real(site)
+
+        with mock.patch.object(placement.payments, "any_method", side_effect=move_address):
+            response = self.place(self.cart(), member_token=token, ship_mode="home", address=None)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(ShopOrder.objects.get().delivery_address["city"], "Pasig")
+
+    def test_a_member_with_benefits_and_no_saved_address_is_told_to_add_one(self):
+        member = self.member(benefits=True)
+        response = self.place(self.cart(), member_token=self.token(member), ship_mode="home", address=None)
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"]["code"], "no_home_address")
+        self.assertIn("member dashboard", response.json()["error"]["message"])
 
     def test_a_member_with_benefits_must_choose_a_mode(self):
         member = self.member(benefits=True, address=HOME)

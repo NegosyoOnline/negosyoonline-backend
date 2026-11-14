@@ -57,7 +57,13 @@ MSG_TOO_MANY_LINES = "A cart holds up to 20 different products."
 MSG_BAD_LINE = "Check the products in your cart."
 MSG_SHIP_MODE = "Choose how to ship this order."
 MSG_SHIP_MODE_NOT_ALLOWED = "Only a member with active benefits can ship to a member address."
-MSG_NO_HOME_ADDRESS = "Add your delivery address to your member profile first."
+MSG_NO_HOME_ADDRESS = (
+    "Add your delivery address in your member dashboard first. Member-price orders ship to your own saved address."
+)
+MSG_MEMBER_OWN_ADDRESS_ONLY = (
+    "Member-price orders ship only to your own saved address. To send an order to someone else, "
+    "buy as a guest without signing in."
+)
 MSG_CHECK_FIELDS = "Check the highlighted fields."
 MSG_PAYMENT_UNAVAILABLE = "Payment is not available right now."
 MSG_NO_SUBMIT_KEY = "This checkout has expired. Please start again."

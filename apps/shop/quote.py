@@ -80,8 +80,9 @@ def resolve_buyer(site, member_token):
 
 def resolve_mode(buyer, ship_mode, *, strict):
     """The ship mode of this order. A buyer without benefits is `guest` and may not ask for the
-    member modes. A member with benefits chooses `home` or `different`; left out, a quote shows
-    `home` and a placement refuses (`strict`)."""
+    member modes. A member with benefits ships to their own saved address only (`home`): a
+    request for `different` or `guest` is refused (`member_own_address_only`); left out, a quote
+    shows `home` and a placement refuses (`strict`)."""
     ship_mode = (ship_mode or "").strip()
     if not buyer.benefits:
         if ship_mode in ("", C.GUEST):
@@ -90,8 +91,13 @@ def resolve_mode(buyer, ship_mode, *, strict):
             "ship_mode_not_allowed", C.MSG_SHIP_MODE_NOT_ALLOWED, status=422,
             fields={"ship_mode": [C.MSG_SHIP_MODE_NOT_ALLOWED]},
         )
-    if ship_mode in (C.HOME, C.DIFFERENT):
+    if ship_mode == C.HOME:
         return ship_mode
+    if ship_mode in (C.DIFFERENT, C.GUEST):
+        raise ApiError(
+            "member_own_address_only", C.MSG_MEMBER_OWN_ADDRESS_ONLY, status=422,
+            fields={"ship_mode": [C.MSG_MEMBER_OWN_ADDRESS_ONLY]},
+        )
     if ship_mode == "" and not strict:
         return C.HOME
     raise ApiError(
@@ -143,7 +149,7 @@ def line_of_snapshot(snap, product):
 
 def charged_centavos(line, buyer, ship_mode):
     """What the buyer pays for the line: the members total for a member with benefits shipping to
-    their own address, else the SRP total. (`different`: SRP; the earnings are only recorded.)"""
+    their own address, else the SRP total. """
     if buyer.benefits and ship_mode == C.HOME:
         return line.line_members_total_centavos
     return line.line_srp_total_centavos

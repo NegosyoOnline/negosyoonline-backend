@@ -60,10 +60,12 @@ class QuoteTests(ShopTestCase):
         self.assertEqual(body["subtotal_centavos"], 29045)
         self.assertEqual([l["unit_members_price_centavos"] for l in body["lines"]], [6500, 22545])
 
-    def test_a_member_with_benefits_pays_srp_when_shipping_to_another_address(self):
+    def test_a_member_with_benefits_cannot_ask_for_another_address(self):
         member = self.member(benefits=True)
-        body = self.quote(self.cart(), member_token=self.token(member), ship_mode="different").json()
-        self.assertEqual(body["lines"][0]["line_total_centavos"], 10000)
+        response = self.quote(self.cart(), member_token=self.token(member), ship_mode="different")
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"]["code"], "member_own_address_only")
+        self.assertEqual(response.json()["error"]["message"], C.MSG_MEMBER_OWN_ADDRESS_ONLY)
 
     def test_a_rejected_pack_payment_keeps_the_member_price(self):
         """Q1 A: the member price stays while the pack proof is rejected or not yet reviewed."""
@@ -92,7 +94,8 @@ class QuoteTests(ShopTestCase):
     def test_a_member_with_benefits_must_not_pick_guest(self):
         member = self.member(benefits=True)
         response = self.quote(self.cart(), member_token=self.token(member), ship_mode="guest")
-        self.assertEqual(response.json()["error"]["code"], "ship_mode_required")
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["error"]["code"], "member_own_address_only")
 
     def test_a_bad_member_token_is_401(self):
         response = self.quote(self.cart(), member_token="nope")

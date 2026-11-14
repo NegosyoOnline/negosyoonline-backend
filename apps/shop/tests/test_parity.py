@@ -153,10 +153,8 @@ class BuyerViewExtraTests(ShopTestCase):
         self.assertEqual(view["receiver_mobile"], "+639171234567")
         self.assertEqual(view["receiver_email"], "")  # none typed
 
-    def test_a_member_different_address_order_has_no_savings(self):
-        member = self.member(benefits=True)
-        body = self.placed(self.cart(1), member_token=self.token(member), ship_mode="different",
-                           address=CEBU_ADDRESS)
+    def test_a_non_member_guest_order_has_no_savings(self):
+        body = self.placed(self.cart(1))
         view = self.view(body).json()
         self.assertEqual((view["member_savings_centavos"], view["srp_subtotal_centavos"]), (0, 10000))
 
@@ -173,10 +171,11 @@ class BuyerViewExtraTests(ShopTestCase):
     def test_my_orders_cards_carry_the_same_fields_for_the_owner_of_the_order_only(self):
         CatalogProduct.objects.filter(pk=self.a.pk).update(image_key="sante/products/a.png")
         mine = self.member(benefits=True, address=HOME)
-        theirs = self.member(email="juan@buyer.test", mobile="09170000002", name="Juan Cruz", benefits=True)
+        theirs = self.member(email="juan@buyer.test", mobile="09170000002", name="Juan Cruz", benefits=True,
+                             address=HOME)
         self.placed(self.cart(1), member_token=self.token(mine), ship_mode="home", address=None,
                     receiver_name=None, receiver_mobile=None, contact_email=None)
-        self.placed(self.cart(1), member_token=self.token(theirs), ship_mode="different", address=MANILA_ADDRESS,
+        self.placed(self.cart(1), member_token=self.token(theirs), ship_mode="home", address=None,
                     receiver_mobile="09179999999", contact_email="juan-private@example.test")
         cards = self.post("member/shop-orders/", token=self.token(mine)).json()["cards"]
         self.assertEqual(len(cards), 1)
