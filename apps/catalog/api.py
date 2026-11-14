@@ -65,7 +65,7 @@ class ProductCreateIn(StrictSchema):
     benefits: str = ""
     category: str = ""  # barley, drinks, essentials, beauty, or blank
     weight_kg: str = "0.00"
-    volume_slot: str | None = None  # left out or null: not set
+    volume_slot: str | None = None  # still accepted; derived from the sizes when they are given
     shipping_qty: StrictInt | None = None
     length_cm: str | None = None  # all three sizes or none
     width_cm: str | None = None
@@ -92,7 +92,7 @@ class ProductUpdateIn(StrictSchema):
     benefits: str | None = None
     category: str | None = None
     weight_kg: str | None = None
-    volume_slot: str | None = None
+    volume_slot: str | None = None  # still accepted, but derived from the sizes when given
     shipping_qty: StrictInt | None = None
     length_cm: str | None = None
     width_cm: str | None = None
@@ -206,7 +206,7 @@ class ShippingPreviewIn(StrictSchema):
     width_cm: str | None = None
     height_cm: str | None = None
     shipping_qty: StrictInt | None = None
-    volume_slot: str | None = None  # when given, priced as it is; else derived from the sizes
+    volume_slot: str | None = None  # derived from the sizes when given
 
 
 class ShippingPreviewOut(Schema):

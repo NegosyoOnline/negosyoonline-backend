@@ -228,8 +228,9 @@ class CatalogApiTests(CatalogApiTestCase):
 
     def test_shipping_inputs_are_central_and_revisioned(self):
         self.designate()
-        made = self.created(weight_kg="0.18", volume_slot="1.50", shipping_qty=2)
-        response = self.update(made["id"], {"revision": 1, "volume_slot": "2.00"})
+        sizes = {"length_cm": "10", "width_cm": "10"}  # the slot is derived from the sizes
+        made = self.created(weight_kg="0.18", shipping_qty=2, height_cm="4.7", **sizes)
+        response = self.update(made["id"], {"revision": 1, "height_cm": "6.3"})
         self.assertEqual(response.status_code, 200, response.content)
         revisions = self.revisions(made["id"]).json()["revisions"]
         self.assertEqual(
@@ -283,7 +284,8 @@ class CatalogApiTests(CatalogApiTestCase):
 
         response = self.update(
             made["id"],
-            {"revision": 1, "weight_kg": "0.18", "volume_slot": "1.90", "shipping_qty": 1},
+            {"revision": 1, "weight_kg": "0.18", "volume_slot": "1.90", "shipping_qty": 1,
+             "length_cm": "10", "width_cm": "10", "height_cm": "6"},  # 600 cm3: 1.9 slots
         )
         self.assertEqual((response.status_code, response.json()["volume_slot"]), (200, "1.90"))
         response = self.update(made["id"], {"revision": 2, "volume_slot": "0.00"})

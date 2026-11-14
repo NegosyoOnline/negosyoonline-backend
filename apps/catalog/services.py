@@ -328,6 +328,43 @@ def _clean(data):
     return cleaned
 
 
+# One slot is the Medium box volume / 100 (TWCinc app/shops/services/dimensions.py SLOT_CM3,
+# an inferred figure there too). Only the volume part of TWCinc's derivation is ported: the
+# smallest-box fit floor needs the package sizes, which apps/shop/zones.py does not carry.
+SLOT_CM3 = Decimal("317.4")
+SLOT_STEP = Decimal("0.1")
+SLOT_MAX = Decimal("9999.99")  # what the volume_slot column holds
+SIZES_TOO_BIG_MSG = "These sizes are too large to ship. Check the length, width and height."
+
+
+def slot_from_sizes(length, width, height):
+    """The volume slot of a product of these sizes in cm: length x width x height over
+    SLOT_CM3, rounded up to SLOT_STEP. The one formula, used by the shipping preview and by
+    the product writes, so a preview and a save always agree."""
+    return (length * width * height / SLOT_CM3).quantize(SLOT_STEP, rounding=ROUND_CEILING)
+
+
+def _derive_slot(cleaned, existing=None):
+    """Make cleaned["volume_slot"] the slot of the sizes the write leaves. A slot sent by the
+    client is never trusted (the key is still accepted so older clients do not error).
+    Create (existing None): all three sizes give the derived slot; none leave it null.
+    Update: sizes given give the derived slot of the resulting three; sizes not given leave the
+    stored slot alone (a product measured before sizes existed keeps its slot). Updates cannot
+    clear sizes (a null is refused)."""
+    cleaned.pop("volume_slot", None)
+    if existing is not None and not any(name in cleaned for name in DIM_FIELDS):
+        return
+    sizes = [cleaned.get(name, getattr(existing, name, None)) for name in DIM_FIELDS]
+    if any(size is None for size in sizes):
+        if existing is None:
+            cleaned["volume_slot"] = None
+        return
+    slot = slot_from_sizes(*sizes)
+    if slot > SLOT_MAX:
+        raise _invalid({name: SIZES_TOO_BIG_MSG for name in DIM_FIELDS})
+    cleaned["volume_slot"] = slot
+
+
 def _refuse_bad_measures(cleaned, existing=None, **weight):
     fields = dimension_errors(cleaned, existing)
     message = shipping_weight_error(cleaned, **weight)
@@ -402,6 +439,7 @@ def create_product(account, site, data):
     site = _writer_site(account, site)
     cleaned = _clean(data)
     _refuse_bad_measures(cleaned)
+    _derive_slot(cleaned)
     catalog = _locked_catalog(catalog_key_for(site))
     if CatalogProduct.objects.filter(catalog=catalog, code=cleaned["code"]).exists():
         raise _code_taken()
@@ -436,6 +474,7 @@ def update_product(account, site, product_id, data):
     _refuse_bad_measures(
         cleaned, existing=product, existing_weight=product.weight_kg, update=True
     )
+    _derive_slot(cleaned, product)
     changed = {name: value for name, value in cleaned.items() if getattr(product, name) != value}
     if not changed:
         return product
@@ -558,11 +597,6 @@ def clear_image(account, site, product_id, revision, slot=1):
 
 # The shipping preview (read-only; nothing is stored)
 
-# One slot is the Medium box volume / 100 (TWCinc app/shops/services/dimensions.py SLOT_CM3,
-# an inferred figure there too). Only the volume part of TWCinc's derivation is ported: the
-# smallest-box fit floor needs the package sizes, which apps/shop/zones.py does not carry.
-SLOT_CM3 = Decimal("317.4")
-SLOT_STEP = Decimal("0.1")
 PREVIEW_NCR = {"city": "Metro Manila"}
 PREVIEW_MINDANAO = {"province": "Davao del Sur"}
 PREVIEW_REASONS = {
@@ -606,13 +640,13 @@ def shipping_preview(site, data):
     weight = cleaned.get("weight_kg", Decimal(0))
     if weight <= 0:
         return {**empty, "reason": PREVIEW_REASONS["weight"]}
-    # Checkout prices on the stored volume slot, so a slot that is given is used as it is;
-    # without one it is derived from the sizes.
-    if "volume_slot" in cleaned:
+    # Checkout prices on the stored volume slot, which a save derives from the sizes; so with
+    # all three sizes the preview derives it the same way. A slot alone (no sizes) is priced
+    # as given.
+    if all(name in cleaned for name in DIM_FIELDS):
+        slot = slot_from_sizes(*(cleaned[name] for name in DIM_FIELDS))
+    elif "volume_slot" in cleaned:
         slot = cleaned["volume_slot"]
-    elif all(name in cleaned for name in DIM_FIELDS):
-        volume = cleaned["length_cm"] * cleaned["width_cm"] * cleaned["height_cm"]
-        slot = (volume / SLOT_CM3).quantize(SLOT_STEP, rounding=ROUND_CEILING)
     else:
         return {**empty, "reason": PREVIEW_REASONS["dims"]}
     if "shipping_qty" not in cleaned:
@@ -651,6 +685,8 @@ def seed_clean(row):
     values = {name: value for name, value in row.items() if value is not None}
     cleaned = _clean(values)
     _refuse_bad_measures(cleaned)
+    if all(name in cleaned for name in DIM_FIELDS):  # sizes given: same formula as the API
+        _derive_slot(cleaned)
     code = cleaned.pop("code", None)
     if code is None:
         raise _invalid({"code": FIELD_MESSAGES["code"]})
