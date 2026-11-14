@@ -293,6 +293,10 @@ Plan: `docs/superpowers/plans/2026-11-13-site-deletion-executor-z8uq9mb22v.md` (
 
 **Restore.** Erasure cannot be undone from the application. Backups keep erased data for up to about 6 days (staging Postgres uses the Daily volume backup only, kept 6 days; Coach Ed, 2026-11-14). The private file backup is not in use (declined for now on cost, 2026-11-14). When it is turned on (`docs/runbooks/backups-and-restore.md`, section 7), the copy of a deleted private file is kept 35 days after the file is seen deleted, then removed; an urgent erasure can remove it sooner with `backup_private_files --purge-prefix`. After a restore, erase again the sites listed in the `site_data_erased` and `account_disposed` records kept outside the database (support mailbox, PR and ClickUp record of each batch).
 
+## Emptying one TEST order (staging only)
+
+`manage.py shop_remove_test_order --site SITE --order ORDER [--actor USER]` is a dry run that prints counts and writes nothing; read it first, then add `--apply`. SITE is the site's public id, ORDER the order's public id or number (`SO00001`). It refuses unless the receiver name starts with "TEST " and the order is on that site. It blanks the order's receiver and contact fields and its proof's personal fields, deletes the proof file and the order's reviews, and keeps the order, lines, totals and events. One audit entry `shop_test_order_removed`. Run again, it changes nothing. Never on production; the real run waits for Coach Ed's word after the dry-run counts. (ClickUp z8uq9mf15g; same style as `pack_remove_test_member`.)
+
 ## Turning it off
 
 Unset `RETENTION_ENABLED`. Deleted rows cannot be brought back from the application; only a database backup holds them, until that backup expires.
