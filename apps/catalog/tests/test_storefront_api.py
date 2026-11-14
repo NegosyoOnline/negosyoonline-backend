@@ -15,6 +15,7 @@ KEYS = {
     "srp_centavos", "unit_members_price_centavos", "revision", "image_urls", "features",
     "specifications", "advantages", "benefits", "servings_per_pack", "faq", "ingredients",
     "price_per_serving_centavos", "members_price_per_serving_centavos",
+    "features_image_url", "advantages_image_url", "benefits_image_url", "category_faq",
 }
 NEVER = ("earnings_rate", "is_active", "weight", "changed_by", "seed_", "source", "image_key",
          "_cm", "volume", "shipping")

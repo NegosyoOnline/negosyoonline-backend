@@ -6,7 +6,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from django.test import TestCase
 
-from apps.catalog.models import Catalog, CatalogProduct, CatalogProductRevision
+from apps.catalog.models import Catalog, CatalogCategoryFaq, CatalogProduct, CatalogProductRevision
 from apps.catalog.tests.base import make_product
 from apps.common.ids import is_public_id
 
@@ -16,6 +16,7 @@ COPIED = {
     "long_description": ("TextField", None, False),
     "category": ("CharField", 20, False), "image_key": ("CharField", 200, False),
     **{f"image_key_{n}": ("CharField", 200, False) for n in (2, 3, 4, 5)},
+    **{f"{s}_image_key": ("CharField", 200, False) for s in ("features", "advantages", "benefits")},
     **{name: ("TextField", None, False)
        for name in ("features", "specifications", "advantages", "benefits")},
     "servings_per_pack": ("PositiveSmallIntegerField", None, True),
@@ -40,6 +41,14 @@ EXPECTED = {
         "revision": ("PositiveIntegerField", None, False),
         "created_at": ("DateTimeField", None, False), "updated_at": ("DateTimeField", None, False),
     },
+    CatalogCategoryFaq: {
+        "id": ("BigAutoField", None, False),
+        "catalog": ("ForeignKey", ("catalog.Catalog", "PROTECT"), False),
+        "category": ("CharField", 20, False), "faq": ("JSONField", None, False),
+        "changed_by_account_id": ("PositiveBigIntegerField", None, True),
+        "changed_by_site_id": ("PositiveBigIntegerField", None, True),
+        "updated_at": ("DateTimeField", None, False),
+    },
     CatalogProductRevision: {
         "id": ("BigAutoField", None, False),
         "product": ("ForeignKey", ("catalog.CatalogProduct", "PROTECT"), False),
@@ -62,6 +71,7 @@ CONSTRAINTS = {
         "catalog_product_dims_all_or_none_positive",
     },
     CatalogProductRevision: {"catalog_revision_uniq", "catalog_revision_writer"},
+    CatalogCategoryFaq: {"catalog_category_faq_uniq"},
 }
 
 

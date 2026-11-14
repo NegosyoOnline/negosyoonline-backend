@@ -101,6 +101,8 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/catalog/products/{product_id}/revisions/"): 200,
     ("POST", "/sites/{site_id}/catalog/products/{product_id}/image/"): 200,
     ("DELETE", "/sites/{site_id}/catalog/products/{product_id}/image/"): 200,
+    ("GET", "/sites/{site_id}/catalog/categories/{category}/faq/"): 200,
+    ("PUT", "/sites/{site_id}/catalog/categories/{category}/faq/"): 200,
     ("POST", "/sites/{site_id}/catalog/shipping-preview/"): 200,
     # payments
     ("GET", "/sites/{site_id}/payment-methods/"): 200,
@@ -290,7 +292,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
         else:
             order, proof = make_order(site, status=pack_status, shipped=pack_shipped)
         ids = {
-            **MISSING_CHILD,
+            **MISSING_CHILD, "category": "barley",
             "order_id": order.public_id,
             "proof_id": proof.public_id,
             "review_id": review_id,
@@ -309,7 +311,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
     def own_ids(self, template):
         """Children of Ana's site for the placeholders this route has. An order is made anew each
         time because approve and reject use it up; a payment is whatever Ana last sent."""
-        ids = {**MISSING_CHILD, "product_id": self.product.public_id}
+        ids = {**MISSING_CHILD, "category": "barley", "product_id": self.product.public_id}
         if "/shop/orders/{order_id}" in template:
             ids.update(self.make_children(
                 self.site, shop=True,
@@ -407,6 +409,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return {"sponsor_id": "TAKEN-1"}
         if "/catalog/" in template:
             self.product.refresh_from_db()
+            if "/categories/" in template:
+                return {"faq": [{"q": "Is it good?", "a": "Yes."}]}
             if template.endswith("/products/order/"):
                 return {"product_ids": list(
                     CatalogProduct.objects.order_by("pk").values_list("public_id", flat=True)

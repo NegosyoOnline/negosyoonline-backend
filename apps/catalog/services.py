@@ -22,7 +22,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Max
 
 from apps.catalog import media, pricing
-from apps.catalog.models import Catalog, CatalogProduct, CatalogProductRevision
+from apps.catalog.models import Catalog, CatalogCategoryFaq, CatalogProduct, CatalogProductRevision
 from apps.common import private_files
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
@@ -40,6 +40,12 @@ WRITE_LIMIT, WRITE_WINDOW = 120, 3600  # catalog writes per account per hour
 DIM_FIELDS = ("length_cm", "width_cm", "height_cm")
 IMAGE_SLOTS = 5
 IMAGE_FIELDS = ("image_key", "image_key_2", "image_key_3", "image_key_4", "image_key_5")
+# The optional image of each page section: section name -> model field.
+SECTION_IMAGE_FIELDS = {
+    "features": "features_image_key",
+    "advantages": "advantages_image_key",
+    "benefits": "benefits_image_key",
+}
 DETAIL_FIELDS = ("features", "specifications", "advantages", "benefits")  # at most 5000 each
 SERVINGS_MAX = 999
 FAQ_MAX_ITEMS, FAQ_Q_MAX, FAQ_A_MAX = 10, 150, 1000
@@ -50,7 +56,7 @@ OPTIONAL_FIELDS = (*SHIPPING_FIELDS, *DIM_FIELDS)  # may be left out of a create
 CATEGORIES = ("barley", "drinks", "essentials", "beauty")  # blank is allowed too
 CENTRAL_FIELDS = (
     "name", "short_description", "long_description", *DETAIL_FIELDS, *PACK_FIELDS, "ingredients", "category",
-    *IMAGE_FIELDS,
+    *IMAGE_FIELDS, *SECTION_IMAGE_FIELDS.values(),
     "weight_kg", "srp_centavos", "earnings_rate", "is_active", *OPTIONAL_FIELDS,
 )
 IMAGE_MESSAGES = {
@@ -67,6 +73,8 @@ SLOT_RE = re.compile(r"[0-9]{1,4}(\.[0-9]{1,2})?")
 DIM_RE = re.compile(r"[0-9]{1,5}(\.[0-9])?")
 
 SLOT_MSG = "Choose a photo slot from 1 to 5."
+SECTION_MSG = "Choose a section: features, advantages or benefits."
+SLOT_AND_SECTION_MSG = "Send a photo slot or a section, not both."
 READ_ONLY_MSG = "Only the catalog owner site can change the shared catalog."
 STALE_MSG = "This product was changed since you loaded it. Reload it and try again."
 CODE_TAKEN_MSG = "That product code is already in the catalog."
@@ -149,6 +157,14 @@ def _images_out(row):
     return {"image_url": urls[0], "image_urls": urls}
 
 
+def _section_images_out(row):
+    """The image URL of each page section, null where it has none. Never a photo slot."""
+    return {
+        f"{section}_image_url": media.url_for(getattr(row, field))
+        for section, field in SECTION_IMAGE_FIELDS.items()
+    }
+
+
 def _ingredients_out(row):
     """Each ingredient with the URL of the photo it points at; null when that slot is empty."""
     urls = _images_out(row)["image_urls"]
@@ -168,6 +184,7 @@ def _shared_out(row):
         "long_description": row.long_description,
         "category": row.category,
         **_images_out(row),
+        **_section_images_out(row),
         **{name: getattr(row, name) for name in DETAIL_FIELDS},
         **{name: getattr(row, name) for name in PACK_FIELDS},
         "ingredients": _ingredients_out(row),
@@ -198,9 +215,12 @@ def revision_out(revision):
     return {**_shared_out(revision), "source": revision.source, "changed_at": revision.changed_at}
 
 
-def public_product_out(product):
+def public_product_out(product, category_faqs=None):
     """What a storefront shows. Never the earnings rate, the writer, `is_active`, weights,
-    sizes or a file key."""
+    sizes or a file key. `category_faqs` is {category: faq list} for the catalog; without it
+    it is read here (one product)."""
+    if category_faqs is None:
+        category_faqs = _category_faqs(product.catalog_id)
     members_price = pricing.unit_display(product.srp_centavos, product.earnings_rate)
     return {
         "id": product.public_id,
@@ -210,9 +230,11 @@ def public_product_out(product):
         "short_description": product.short_description,
         "long_description": product.long_description,
         **_images_out(product),
+        **_section_images_out(product),
         **{name: getattr(product, name) for name in DETAIL_FIELDS},
         **{name: getattr(product, name) for name in PACK_FIELDS},
         "ingredients": _ingredients_out(product),
+        "category_faq": category_faqs.get(product.category, []),
         "srp_centavos": product.srp_centavos,
         "unit_members_price_centavos": members_price,
         "price_per_serving_centavos": pricing.per_serving(
@@ -225,9 +247,18 @@ def public_product_out(product):
     }
 
 
+def _category_faqs(catalog_id):
+    """{category: faq list} of the catalog's category FAQs."""
+    return dict(
+        CatalogCategoryFaq.objects.filter(catalog_id=catalog_id).values_list("category", "faq")
+    )
+
+
 def storefront_products(site):
     """The active products of the site's catalog, in shop order."""
-    return [public_product_out(product) for product in products_for_site(site)]
+    products = list(products_for_site(site))
+    faqs = _category_faqs(products[0].catalog_id) if products else {}
+    return [public_product_out(product, faqs) for product in products]
 
 
 def storefront_product(site, public_id):
@@ -618,12 +649,23 @@ def _slot_field(slot):
     return IMAGE_FIELDS[slot - 1]
 
 
-def set_image(account, site, product_id, upload, revision, slot=1):
-    """Store `upload` as the product's photo in `slot` (1 to 5), replacing any there. A write
-    that is not allowed (not the owner site, no store, a bad file) stores nothing. The old file
-    is removed once the change is committed; a new file whose change failed is removed at once.
-    Only that slot changes."""
-    field = _slot_field(slot)
+def image_field(slot=None, section=None):
+    """The model field a photo route writes: a page section's image, or a photo slot (default 1)."""
+    if section is not None:
+        if slot is not None:
+            raise _invalid({"section": SLOT_AND_SECTION_MSG})
+        if section not in SECTION_IMAGE_FIELDS:
+            raise _invalid({"section": SECTION_MSG})
+        return SECTION_IMAGE_FIELDS[section]
+    return _slot_field(1 if slot is None else slot)
+
+
+def set_image(account, site, product_id, upload, revision, slot=None, section=None):
+    """Store `upload` as the product's photo in `slot` (1 to 5, default 1) or as the image of a
+    page `section`, replacing any there. A write that is not allowed (not the owner site, no
+    store, a bad file) stores nothing. The old file is removed once the change is committed; a
+    new file whose change failed is removed at once. Only that slot or section changes."""
+    field = image_field(slot, section)
     if not is_writer(site):
         raise _read_only()
     if not media.configured():
@@ -655,10 +697,11 @@ def set_image(account, site, product_id, upload, revision, slot=1):
 
 
 @transaction.atomic
-def clear_image(account, site, product_id, revision, slot=1):
-    """Remove the product's photo in `slot`, and only that slot. A slot with none is returned
-    as it is, writing no revision. The stored file is removed once the change is committed."""
-    field = _slot_field(slot)
+def clear_image(account, site, product_id, revision, slot=None, section=None):
+    """Remove the product's photo in `slot` (default 1) or the image of a page `section`, and
+    only that one. One with none is returned as it is, writing no revision. The stored file is
+    removed once the change is committed."""
+    field = image_field(slot, section)
     site = _writer_site(account, site)
     product = _locked_product(site, product_id, revision)
     old_key = getattr(product, field)
@@ -670,6 +713,45 @@ def clear_image(account, site, product_id, revision, slot=1):
     _append_revision(product, **_owner_writer(account, site))
     transaction.on_commit(lambda: media.discard(old_key))
     return product
+
+
+# The category FAQs (general FAQs of a product category, shared by every Santé site)
+
+def _category_key(category):
+    if category not in CATEGORIES:
+        raise _not_found()
+    return category
+
+
+def category_faq_for(site, category):
+    """The general FAQs of a category, for the owner site only. No row means an empty list."""
+    category = _category_key(category)
+    if not is_writer(site):
+        raise _read_only()
+    row = CatalogCategoryFaq.objects.filter(
+        catalog__template_key=catalog_key_for(site), category=category
+    ).first()
+    return {"category": category, "faq": row.faq if row else []}
+
+
+@transaction.atomic
+def set_category_faq(account, site, category, faq):
+    """Replace the general FAQs of a category with `faq` (same shape and limits as a product's
+    faq; an empty list clears them). Owner site only. Creates the row on first use."""
+    category = _category_key(category)
+    site = _writer_site(account, site)
+    ok, cleaned = _faq(faq)
+    if not ok:
+        raise _invalid({"faq": FIELD_MESSAGES["faq"]})
+    catalog = _locked_catalog(catalog_key_for(site))
+    row, _ = CatalogCategoryFaq.objects.select_for_update().get_or_create(
+        catalog=catalog, category=category
+    )
+    row.faq = cleaned
+    row.changed_by_account_id = account.pk
+    row.changed_by_site_id = site.pk
+    row.save()
+    return {"category": category, "faq": row.faq}
 
 
 # The shipping preview (read-only; nothing is stored)

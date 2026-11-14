@@ -84,6 +84,10 @@ def catalog_call(case, method, path, client=None):
     path = path.replace("{product_id}", case.catalog_product.public_id)
     if path.endswith("/image/"):
         return _image_call(case, method, path, revision, client)
+    if "/categories/" in path:
+        path = path.replace("{category}", "barley")
+        if method == "PUT":
+            return case.send("put", path, {"faq": [{"q": "Is it good?", "a": "Yes."}]}, client=client)
     if method == "GET":
         return case.get(path, client=client)
     if path.endswith("/shipping-preview/"):  # read-only: a plain weight prices nothing

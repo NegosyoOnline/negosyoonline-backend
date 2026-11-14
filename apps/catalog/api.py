@@ -134,6 +134,9 @@ class ProductValues(Schema):
     faq: list[FaqItem]
     ingredients: list[IngredientItem]
     category: str
+    features_image_url: str | None  # What's Inside image; null when unset
+    advantages_image_url: str | None  # Why It Stands Out image
+    benefits_image_url: str | None  # What You Get From It image
     image_url: str | None  # photo slot 1
     image_urls: list[str | None]  # always 5: slots 1 to 5, null where empty
     weight_kg: str
@@ -194,9 +197,14 @@ def product_update(request, site_id: str, product_id: str, payload: ProductUpdat
 
 
 @router.post("/sites/{site_id}/catalog/products/{product_id}/image/", response=ProductOut)
-def product_image_set(request, site_id: str, product_id: str, slot: int = Query(1)):
+def product_image_set(
+    request, site_id: str, product_id: str, slot: int | None = Query(None),
+    section: str | None = Query(None),
+):
     """A form post (multipart): `file` is a JPEG, PNG or WebP of at most 2 MB, and `revision`
-    is the revision the caller loaded. `?slot=1..5` names the photo slot (default 1)."""
+    is the revision the caller loaded. `?slot=1..5` names the photo slot (default 1);
+    `?section=features|advantages|benefits` names a page section's own image instead (not
+    together with `slot`)."""
     revision = request.POST.get("revision", "")
     if not revision.isdigit() or not 1 <= int(revision) <= 2**31:
         raise ApiError(
@@ -205,7 +213,7 @@ def product_image_set(request, site_id: str, product_id: str, slot: int = Query(
         )
     product = services.set_image(
         request.account, request.catalog_site, product_id, request.FILES.get("file"),
-        int(revision), slot,
+        int(revision), slot, section,
     )
     return services.product_out(product)
 
@@ -213,13 +221,37 @@ def product_image_set(request, site_id: str, product_id: str, slot: int = Query(
 @router.delete("/sites/{site_id}/catalog/products/{product_id}/image/", response=ProductOut)
 def product_image_clear(
     request, site_id: str, product_id: str, revision: int = Query(..., ge=1),
-    slot: int = Query(1),
+    slot: int | None = Query(None), section: str | None = Query(None),
 ):
-    """Clears only the photo in `?slot=1..5` (default 1)."""
+    """Clears only the photo in `?slot=1..5` (default 1), or only the image of
+    `?section=features|advantages|benefits`."""
     product = services.clear_image(
-        request.account, request.catalog_site, product_id, revision, slot
+        request.account, request.catalog_site, product_id, revision, slot, section
     )
     return services.product_out(product)
+
+
+class CategoryFaqIn(StrictSchema):
+    faq: list[Any]  # [{"q", "a"}], same shape and limits as a product's faq; [] clears
+
+
+class CategoryFaqOut(Schema):
+    category: str
+    faq: list[FaqItem]
+
+
+@router.get("/sites/{site_id}/catalog/categories/{category}/faq/", response=CategoryFaqOut)
+def category_faq_get(request, site_id: str, category: str):
+    """Owner only: the general FAQs of barley, drinks, essentials or beauty."""
+    return services.category_faq_for(request.catalog_site, category)
+
+
+@router.put("/sites/{site_id}/catalog/categories/{category}/faq/", response=CategoryFaqOut)
+def category_faq_put(request, site_id: str, category: str, payload: CategoryFaqIn):
+    """Owner only: replaces the category's general FAQs (up to 10 questions; [] clears)."""
+    return services.set_category_faq(
+        request.account, request.catalog_site, category, payload.faq
+    )
 
 
 class ShippingPreviewIn(StrictSchema):

@@ -45,6 +45,10 @@ class ProductPublic(Schema):
     servings_per_pack: int | None
     faq: list[FaqItem]
     ingredients: list[IngredientItem]
+    category_faq: list[FaqItem]  # the product category's general FAQs; show after faq
+    features_image_url: str | None  # What's Inside image; null when unset, never a photo
+    advantages_image_url: str | None  # Why It Stands Out image
+    benefits_image_url: str | None  # What You Get From It image
     image_url: str | None  # photo slot 1
     image_urls: list[str | None]  # always 5: slots 1 to 5, null where empty
     srp_centavos: int
