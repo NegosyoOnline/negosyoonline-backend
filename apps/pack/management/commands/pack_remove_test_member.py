@@ -8,7 +8,7 @@ SITE and MEMBER are public ids. It reuses the blanking of the day-90 purge (`app
 of member disposal (`apps.members.retention`), limited to that one member. The rows stay (members,
 orders, proofs, decisions and events, registrations, Meta delivery rows); what identifies the
 person goes. It refuses, writing nothing, when the site or member is not found, the member is not
-on that site, the full name does not start with "TEST ", or one of the member's Pack orders is on
+on that site, the full name does not start with "TEST " (any letter case, leading spaces ignored), or one of the member's Pack orders is on
 another site. Without --apply it prints the counts and writes nothing. With it, everything is
 written in one transaction with one `pack_test_member_removed` audit entry (ids and counts only);
 the proof files are deleted from the private store only after the commit. Running it again changes
@@ -34,6 +34,11 @@ from apps.sites.models import Site
 logger = logging.getLogger(__name__)
 
 TEST_PREFIX = "TEST "
+
+
+def _is_test_name(name):
+    """True when the name, leading whitespace stripped, starts with "TEST " in any letter case."""
+    return name.lstrip().upper().startswith(TEST_PREFIX)
 
 
 def _delete_files(proof_ids):
@@ -71,8 +76,10 @@ class Command(BaseCommand):
             if found.site_id != found_site.pk:
                 raise CommandError("That member is not on that site. Nothing was written.")
             already = found.full_name == ""
-            if not already and not found.full_name.startswith(TEST_PREFIX):
-                raise CommandError('The member\'s name does not start with "TEST ". Nothing was written.')
+            if not already and not _is_test_name(found.full_name):
+                raise CommandError(
+                    'The member\'s name does not start with "TEST " (any case). Nothing was written.'
+                )
             orders = PackOrder.objects.filter(member=found)
             if orders.exclude(site=found_site).exists():
                 raise CommandError("A Pack order of that member is not on this site. Nothing was written.")
