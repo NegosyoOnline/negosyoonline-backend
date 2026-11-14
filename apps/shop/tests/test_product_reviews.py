@@ -46,6 +46,13 @@ class ReviewTestCase(ShopTestCase):
         deliver(ShopOrder.objects.get(public_id=body["order_id"]))
         return body
 
+    def member_delivered(self, member):
+        """A delivered order already linked to the member (placed before members were sent to the
+        app), made directly: the web checkout refuses a signed-in member now."""
+        order, _ = make_order(self.site, status=C.VERIFIED, shipped=True, member=member)
+        deliver(order)
+        return {"order_id": order.public_id}
+
     def page(self, product=None, host=HOST, **query):
         return self.client.get(
             f"/storefront/v1/shop/products/{(product or self.a).public_id}/reviews/",
@@ -74,7 +81,7 @@ class WritingTests(ReviewTestCase):
     def test_a_member_reviews_with_their_own_signed_in_order(self):
         member = self.member()
         token = self.token(member)
-        body = self.delivered(member_token=token)
+        body = self.member_delivered(member)
         response = self.review(body["order_id"], member_token=token, rating=4, display_name="Mia")
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["display_name"], "Mia")
@@ -82,7 +89,7 @@ class WritingTests(ReviewTestCase):
     def test_another_member_or_a_bad_token_cannot(self):
         mine = self.member()
         theirs = self.member(email="juan@buyer.test", mobile="09170000002", name="Juan Cruz")
-        body = self.delivered(member_token=self.token(mine))
+        body = self.member_delivered(mine)
         for fields in ({"member_token": self.token(theirs)}, {"member_token": "nope"}, {"view_token": "nope"}, {}):
             with self.subTest(fields=fields):
                 response = self.review(body["order_id"], rating=5, **fields)
@@ -238,8 +245,9 @@ class BuyerViewTests(ReviewTestCase):
         self.assertEqual((line["can_review"], line["review"]["rating"]), (False, 4))
 
     def test_my_orders_carries_the_review_state(self):
-        token = self.token(self.member())
-        body = self.delivered(member_token=token)
+        member = self.member()
+        token = self.token(member)
+        body = self.member_delivered(member)
         self.review(body["order_id"], member_token=token, rating=2)
         card = self.post("member/shop-orders/", token=token).json()["cards"][0]
         self.assertEqual(card["lines"][0]["review"]["rating"], 2)
