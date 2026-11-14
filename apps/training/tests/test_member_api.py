@@ -124,6 +124,30 @@ class ProgressTests(TrainingTestCase):
         modules = self.call(f"courses/{course.public_id}/").json()["modules"]
         self.assertEqual([(m["completed_lessons"], m["total_lessons"]) for m in modules], [(1, 2), (0, 3)])
 
+    def test_module_count_and_module_number_count_only_visible_modules(self):
+        course, lessons = make_course_with_lessons(self.site, (1, 1))
+        make_module(course, "Empty middle", order=15)  # no lesson: hidden, takes no number
+        third = make_module(course, "Module 3", order=30)
+        last = make_lesson(third, "L3.1", order=1)
+        make_lesson(make_module(course, "Off", order=40, active=False), "Hidden")
+        make_course(self.site, "Soon", order=5)
+        rows = {c["title"]: c for c in self.call("courses/").json()["courses"]}
+        self.assertEqual((rows["Ways to Earn"]["module_count"], rows["Soon"]["module_count"]), (3, 0))
+        detail = self.call(f"courses/{course.public_id}/").json()
+        self.assertEqual(detail["module_count"], 3)
+        self.assertEqual([m["module_number"] for m in detail["modules"]], [1, 2, 3])
+        self.complete(lessons[0])
+        self.complete(lessons[1])
+        body = self.call(f"lessons/{last.public_id}/").json()
+        self.assertEqual(body["module"]["module_number"], 3)
+        self.assertEqual(body["previous_module"]["module_number"], 2)
+        self.assertEqual(body["previous_module"]["title"], "Module 2")
+        self.assertIsNone(body["next_module"])
+        middle = self.call(f"lessons/{lessons[1].public_id}/").json()
+        self.assertEqual(middle["module"]["module_number"], 2)
+        self.assertEqual(middle["previous_module"]["module_number"], 1)
+        self.assertEqual(middle["next_module"]["module_number"], 3)
+
     def test_a_course_with_no_active_lesson_is_coming_soon_and_an_empty_module_is_hidden(self):
         soon = make_course(self.site, "Product Trainings", order=2)
         make_module(soon, "Empty")

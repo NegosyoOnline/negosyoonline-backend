@@ -47,6 +47,7 @@ class CourseOut(Schema):
     image_url: str | None
     order: int
     coming_soon: bool
+    module_count: int
     completed_lessons: int
     total_lessons: int
     percent: int
@@ -76,6 +77,7 @@ class ModuleOut(Schema):
     id: str
     title: str
     order: int
+    module_number: int
     completed_lessons: int
     total_lessons: int
     lessons: list[LessonRowOut]
@@ -94,9 +96,16 @@ class SideLessonOut(Schema):
     locked: bool
 
 
+class LessonModuleOut(Schema):
+    id: str
+    title: str
+    module_number: int
+
+
 class ModuleRefOut(Schema):
     id: str
     title: str
+    module_number: int
     first_lesson_id: str
 
 
@@ -109,7 +118,7 @@ class LessonOut(Schema):
     image_url: str | None
     completed: bool
     course: RefOut
-    module: RefOut
+    module: LessonModuleOut
     lessons: list[SideLessonOut]
     previous_lesson: RefOut | None
     next_lesson: RefOut | None

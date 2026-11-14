@@ -144,11 +144,12 @@ def _lesson_ref(lesson):
 
 def course_out(course, lessons, done):
     count = len(lessons)
+    visible_modules = len({lesson.module_id for lesson in lessons})
     finished = sum(1 for lesson in lessons if lesson.pk in done)
     return {
         "id": course.public_id, "slug": course.slug, "title": course.title,
         "description": course.description, "image_url": media.url_for(course.image_key),
-        "order": course.order, "coming_soon": count == 0,
+        "order": course.order, "coming_soon": count == 0, "module_count": visible_modules,
         "completed_lessons": finished, "total_lessons": count, "percent": _percent(finished, count),
     }
 
@@ -202,6 +203,7 @@ def course_detail(member, course_id):
             continue  # a module with no active lesson is not shown
         modules.append({
             "id": module.public_id, "title": module.title, "order": module.order,
+            "module_number": len(modules) + 1,
             "completed_lessons": sum(1 for lesson in mine if lesson.pk in done), "total_lessons": len(mine),
             "lessons": [
                 {
@@ -226,9 +228,12 @@ def _visible_lesson(member, lesson_id):
     return lesson
 
 
-def _module_ref(module, lessons):
+def _module_ref(module, lessons, number):
     first = next((lesson for lesson in lessons if lesson.module_id == module.pk), None)
-    return {"id": module.public_id, "title": module.title, "first_lesson_id": first.public_id}
+    return {
+        "id": module.public_id, "title": module.title, "module_number": number,
+        "first_lesson_id": first.public_id,
+    }
 
 
 def lesson_detail(member, lesson_id):
@@ -243,22 +248,21 @@ def lesson_detail(member, lesson_id):
     LessonProgress.objects.get_or_create(member=member, lesson=lesson)
     index = lessons.index(lesson)
     module = lesson.module
-    modules = list(course.modules.filter(active=True))
+    with_lessons = {x.module_id for x in lessons}
+    modules = [m for m in course.modules.filter(active=True) if m.pk in with_lessons]  # the visible ones
     position = modules.index(module)
     mine = [x for x in lessons if x.module_id == module.pk]
-
-    def module_ref(other):
-        return _module_ref(other, lessons) if any(x.module_id == other.pk for x in lessons) else None
-
-    previous_module = next((module_ref(m) for m in reversed(modules[:position]) if module_ref(m)), None)
-    next_module = next((module_ref(m) for m in modules[position + 1:] if module_ref(m)), None)
+    previous_module = _module_ref(modules[position - 1], lessons, position) if position > 0 else None
+    next_module = (
+        _module_ref(modules[position + 1], lessons, position + 2) if position + 1 < len(modules) else None
+    )
     nxt = lessons[index + 1] if index + 1 < len(lessons) else None
     return {
         "id": lesson.public_id, "title": lesson.title, "duration": lesson.duration,
         "description": lesson.description, "video_url": lesson.video_url or None,
         "image_url": media.url_for(lesson.image_key), "completed": lesson.pk in done,
         "course": {"id": course.public_id, "title": course.title},
-        "module": {"id": module.public_id, "title": module.title},
+        "module": {"id": module.public_id, "title": module.title, "module_number": position + 1},
         "lessons": [
             {"id": x.public_id, "title": x.title, "duration": x.duration,
              "completed": x.pk in done, "locked": locked[x.pk]}
