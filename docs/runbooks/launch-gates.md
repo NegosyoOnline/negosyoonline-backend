@@ -185,6 +185,7 @@ Before the go/no-go.
 | Gate 2 Membership Package walkthrough on staging on Site 2, with a dummy order Coach Ed approves; the test member is removed afterwards, dated | SANTE | 2026-11-18 | Not run |
 | Gate 3 billing walkthrough on staging, plus the ended-site 404 | BILLING | 2026-11-18 | Not run |
 | Meta events: `META_EVENTS_ENABLED` on staging api and worker; Santé's Pixel ID, token and test event code saved in dash; dash test answers ok; Meta Events Manager Test Events shows PageView, ViewContent, InitiateCheckout, AddPaymentInfo and Purchase from one test-account run (`docs/runbooks/meta-pixel.md`) | SANTE, Coach Ed in Meta | 2026-11-19 | Not run |
+| Meta test event code cleared in the dash Meta tab after the Nov 18 journey and before the campaign starts (while it is set, real events go to Test Events and are not used for attribution); the campaign is built but not started, and its destination is exactly the staging landing URL (z8uq9meyqg) | Coach Ed; GATES checks | 2026-11-20 | Pending |
 | All test data removed from Site 2 (Santé Barley, site_1tqtmvvpn6ksqv3b8b16); SANTE runs the cleanup and its read-only check | SANTE | 2026-11-20 | Pending |
 | Go/no-go run: every gate row re-read and dated | GATES | 2026-11-19 | Not run |
 | Freeze: no release round after the 2026-11-20 go/no-go except an approved hotfix | Manager | 2026-11-20 | Pending |
@@ -195,7 +196,7 @@ Launch-day checklist (2026-11-21).
 
 1. api-staging `/healthz/` answers 200 on the frozen commit, and `/readyz/` answers 200 with db, cache, beat, sms_queue, email and files_backup all true. Before the ads start, then hourly on the first day (GATES).
 2. UptimeRobot: all 4 monitors green; alert emails reach Coach Ed (Coach Ed).
-3. Meta: before the start, one test-account visit shows PageView and ViewContent in Events Manager. After the start, real Purchase events arrive. No MetaDelivery stays queued or retrying for more than 5 minutes (`backups-and-restore.md`, "Meta Conversions events"). Coach Ed watches Meta; GATES checks the queue at noon and in the evening.
+3. Meta: before the start, one test-account visit shows PageView and ViewContent in Events Manager. After the start, real Purchase events arrive. The first real PageView from an ad click shows a click ID (fbc) in Events Manager (z8uq9meyqg). No MetaDelivery stays queued or retrying for more than 5 minutes (`backups-and-restore.md`, "Meta Conversions events"). Coach Ed watches Meta; GATES checks the queue at noon and in the evening.
 4. Shop flow: home, product, basket and checkout pages open. No test order is placed on the Santé site, because staging is live (ruling 509745) (SANTE, read-only).
 5. Membership Package: the landing and buy pages open; the first real order reaches HQ Finance; Coach Ed confirms payments in HQ Finance (SANTE, Coach Ed).
 6. Backups: the last Railway volume backup is under 24 hours old, and, only if the private file backup has been turned on, its last run is ok (it is off for now: declined on cost, Coach Ed, 2026-11-14) (GATES, morning).
