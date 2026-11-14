@@ -28,12 +28,12 @@ class StaffMediaTestCase(StaffTestCase):
 
     def upload(self, **extra):
         data = {"title": "Barley promo", "asset_type": "image", "file": png_file(), **extra}
-        return self.form("upload/", data)
+        return self.form("upload/", {k: v for k, v in data.items() if v is not None})
 
 
 class AccessTests(StaffMediaTestCase):
     def test_the_routes_are_in_the_table_and_are_posts(self):
-        self.assertEqual(len(staff.ROUTES), 10)
+        self.assertEqual(len(staff.ROUTES), 12)
         for path in staff.ROUTES:
             self.assertTrue(path.startswith("media/"))
             self.assertEqual(staff_views.ROUTES[path][0], "POST")
@@ -88,19 +88,21 @@ class UploadTests(StaffMediaTestCase):
         self.assertEqual((entry.target_id, entry.detail), (body["id"], {"op": "upload"}))
         self.assertNotIn("Barley", str(entry.detail))
 
-    def test_a_video_needs_a_poster_and_an_optional_thumb_is_kept(self):
+    def test_a_video_is_created_without_its_file_and_needs_a_poster(self):
         with FakeStore() as fake:
-            no_poster = self.upload(asset_type="video", file=video_file())
+            no_poster = self.upload(asset_type="video", file=None)
             self.assertEqual(no_poster.status_code, 400)
             self.assertIn("poster", no_poster.json()["error"]["fields"])
+            with_file = self.upload(asset_type="video", file=video_file(), poster=png_file())
+            self.assertEqual(with_file.status_code, 400)  # a video never passes through this server
+            self.assertIn("file", with_file.json()["error"]["fields"])
             self.assertEqual(fake.files, {})
-            ok = self.upload(asset_type="video", file=video_file(), poster=png_file(), thumb=png_file(),
-                             duration_seconds="30")
+            ok = self.upload(asset_type="video", file=None, poster=png_file(), thumb=png_file(), duration_seconds="30")
             self.assertEqual(ok.status_code, 200, ok.content)
-            self.assertEqual(len(fake.files), 3)
+            self.assertEqual(len(fake.files), 2)
         body = ok.json()
-        self.assertEqual((body["asset_type"], body["duration_seconds"], body["file_size"]), ("video", 30, len(MP4)))
-        self.assertTrue(body["file_url"].endswith(".mp4"))
+        self.assertEqual((body["asset_type"], body["duration_seconds"], body["file_size"]), ("video", 30, 0))
+        self.assertFalse(body["file_url"])
         self.assertNotEqual(body["thumb_url"], body["poster_url"])
 
     def test_the_store_not_configured_is_503_and_nothing_is_written(self):
@@ -116,9 +118,7 @@ class UploadTests(StaffMediaTestCase):
                 dict(file=png_file(b"GIF89a" + b"0" * 20, "image/gif", "x.gif")),
                 dict(file=png_file(b"\x89PNG\r\n\x1a\n" + b"0", "text/html", "x.png")),  # declared type wrong
                 dict(file=video_file(), asset_type="image"),  # a video sent as an image
-                dict(asset_type="video", file=png_file(), poster=png_file()),  # an image sent as a video
-                dict(asset_type="video", file=video_file(b"\x00\x00\x00\x18xxxxmp42" + b"0" * 20), poster=png_file()),
-                dict(asset_type="video", file=video_file(content_type="video/webm", name="c.webm"), poster=png_file()),
+                dict(asset_type="video", file=video_file(), poster=png_file()),  # no video file goes here
                 dict(asset_type="video", file=video_file(), poster=video_file()),  # a video as a poster
                 dict(file=None),
             )
@@ -136,10 +136,6 @@ class UploadTests(StaffMediaTestCase):
             response = self.upload(file=big_image)
             self.assertEqual(response.status_code, 400)
             self.assertIn("10 MB", response.json()["error"]["fields"]["file"][0])
-            big_video = video_file(b"\x00\x00\x00\x18ftypmp42" + b"0" * store.VIDEO_MAX_BYTES)
-            response = self.upload(asset_type="video", file=big_video, poster=png_file())
-            self.assertEqual(response.status_code, 400)
-            self.assertIn("50 MB", response.json()["error"]["fields"]["file"][0])
             edge = png_file(b"\x89PNG\r\n\x1a\n" + b"0" * (store.IMAGE_MAX_BYTES - 8))
             self.assertEqual(self.upload(file=edge).status_code, 200)
             self.assertEqual(len(fake.files), 1)
@@ -163,7 +159,7 @@ class UploadTests(StaffMediaTestCase):
                 return real(content, content_type)
 
             with mock.patch("apps.media_library.store.save", side_effect=flaky):
-                response = self.upload(asset_type="video", file=video_file(), poster=png_file())
+                response = self.upload(asset_type="video", file=None, poster=png_file(), thumb=png_file())
             self.assertEqual((response.status_code, response.json()["error"]["code"]), (502, "image_not_saved"))
             self.assertEqual(fake.files, {})
             self.assertEqual(len(fake.deleted), 1)
@@ -261,10 +257,8 @@ class FileTests(StaffMediaTestCase):
             self.assertEqual(r.status_code, 200, r.content)
             self.assertEqual(r.json()["file_size"], 108)
             self.assertIn("media-library/old.png", fake.deleted)
-            with self.captureOnCommitCallbacks(execute=True):
-                v = self.form("file/set/", {"id": self.video.public_id, "kind": "file", "file": video_file()})
-            self.assertEqual(v.status_code, 200, v.content)
-            self.assertTrue(v.json()["file_url"].endswith(".mp4"))
+            v = self.form("file/set/", {"id": self.video.public_id, "kind": "file", "file": video_file()})
+            self.assertEqual(v.status_code, 400)  # a video file is attached, not posted here
             with self.captureOnCommitCallbacks(execute=True):
                 p = self.form("file/set/", {"id": self.video.public_id, "kind": "poster", "file": png_file()})
             self.assertEqual(p.status_code, 200)

@@ -20,7 +20,7 @@ from apps.catalog.services import CATEGORIES as PRODUCT_CATEGORIES
 from apps.common import private_files
 from apps.common.errors import ApiError
 
-from . import store
+from . import client_upload, store
 from .models import SANTE, MediaAsset
 
 INVALID_MSG = "Some values are missing or invalid."
@@ -224,9 +224,10 @@ def _values(data, errors, *, creating):
 
 
 def _check(upload, kind, errors, name):
-    """(content, content type) or None with the problem in `errors`."""
+    """(content, content type) of an image, or None with the problem in `errors`. A video is never
+    checked here: it does not pass through this server (see video_token and attach_video)."""
     try:
-        return store.check_video(upload) if kind == "video" else store.check_image(upload)
+        return store.check_image(upload)
     except private_files.FileRefused as refused:
         errors[name] = FILE_MESSAGES[refused.reason][kind]
         return None
@@ -248,10 +249,15 @@ def _put(content, content_type, saved):
     return key
 
 
+VIDEO_FILE_MSG = "A video is not sent here. Upload it straight to the media store (media/video/token/), then attach it."
+
+
 def upload_asset(data, files):
     """Create an asset (a draft: not published) from a form post. `data` holds title, asset_type and
-    the optional metadata; `files` holds `file`, `poster` (a video needs one) and `thumb` (optional).
-    Nothing is stored when anything is refused."""
+    the optional metadata; `files` holds `file` (an image asset only), `poster` (a video needs one)
+    and `thumb` (optional). A video is created without its file, which is then uploaded by the
+    browser with a client token and attached (video_token, attach_video). Nothing is stored when
+    anything is refused."""
     errors = {}
     values = _values(data, errors, creating=True)
     kind = data.get("asset_type")
@@ -259,19 +265,20 @@ def upload_asset(data, files):
         errors["asset_type"] = "Choose image or video."
         kind = None
     checked = {}
-    if kind:
-        upload = files.get("file")
-        if upload is None:
+    if kind == "video":
+        if files.get("file") is not None:
+            errors["file"] = VIDEO_FILE_MSG
+        if files.get("poster") is None:
+            errors["poster"] = "A video needs a poster image."
+        else:
+            checked["poster"] = _check(files.get("poster"), "image", errors, "poster")
+    elif kind == "image":
+        if files.get("file") is None:
             errors["file"] = "This is required."
         else:
-            checked["file"] = _check(upload, kind, errors, "file")
-        if kind == "video":
-            if files.get("poster") is None:
-                errors["poster"] = "A video needs a poster image."
-            else:
-                checked["poster"] = _check(files.get("poster"), "image", errors, "poster")
-        if files.get("thumb") is not None:
-            checked["thumb"] = _check(files.get("thumb"), "image", errors, "thumb")
+            checked["file"] = _check(files.get("file"), "image", errors, "file")
+    if kind and files.get("thumb") is not None:
+        checked["thumb"] = _check(files.get("thumb"), "image", errors, "thumb")
     if errors:
         raise _invalid(errors)
     _require_store()
@@ -282,9 +289,9 @@ def upload_asset(data, files):
         with transaction.atomic():
             values.setdefault("order", _next_order())
             return MediaAsset.objects.create(
-                template_key=SANTE, asset_type=kind, file_key=keys["file"],
+                template_key=SANTE, asset_type=kind, file_key=keys.get("file", ""),
                 thumb_key=keys.get("thumb", ""), poster_key=keys.get("poster", ""),
-                file_size=len(checked["file"][0]), **values,
+                file_size=len(checked["file"][0]) if "file" in checked else 0, **values,
             )
     except BaseException:
         for stored in saved:
@@ -332,6 +339,8 @@ def publish(public_id, when=None):
     """Publish now, or at `when` (an ISO 8601 time with offset). Publishing again keeps the time
     it already has unless `when` is sent."""
     asset = get_asset(public_id, lock=True)
+    if not asset.file_key:
+        raise _invalid({"file": "Attach the video file before publishing."})
     if when is not None:
         parsed = parse_datetime(when) if isinstance(when, str) else None
         if parsed is None or parsed.tzinfo is None:
@@ -368,10 +377,12 @@ def set_file(public_id, kind, upload):
     if kind == "poster" and asset.asset_type != "video":
         raise _invalid({"kind": "Only a video has a poster."})
     errors = {}
+    if kind == "file" and asset.asset_type == "video":
+        raise _invalid({"file": VIDEO_FILE_MSG})
     if upload is None:
         errors["file"] = "This is required."
         raise _invalid(errors)
-    checked = _check(upload, asset.asset_type if kind == "file" else "image", errors, "file")
+    checked = _check(upload, "image", errors, "file")
     if errors:
         raise _invalid(errors)
     _require_store()
@@ -403,4 +414,51 @@ def clear_thumb(public_id):
         asset.thumb_key = ""
         asset.save(update_fields=["thumb_key", "updated_at"])
         transaction.on_commit(lambda: store.discard(old))
+    return asset
+
+
+# -- video: the browser uploads straight to the store ---------------------------------------------
+
+def _video_asset(public_id, lock=False):
+    asset = get_asset(public_id, lock=lock)
+    if asset.asset_type != "video":
+        raise _invalid({"id": "Only a video asset has a video file."})
+    return asset
+
+
+def video_token(public_id):
+    """What the HQ browser needs to PUT one MP4 straight to the store (client_upload)."""
+    asset = _video_asset(public_id)
+    if not client_upload.usable():
+        raise ApiError("image_store_not_configured", STORE_NOT_CONFIGURED_MSG, status=503)
+    return client_upload.upload_instructions(asset)
+
+
+def attach_video(public_id, url):
+    """Record the video the browser stored. The URL must be on our store, under this asset's
+    prefix; a HEAD of it must show video/mp4 of at most VIDEO_MAX_BYTES, else it is removed."""
+    asset = _video_asset(public_id)
+    key = client_upload.key_from_url(asset, url)
+    if key is None:
+        raise _invalid({"url": "This is not a video uploaded for this asset."})
+    _require_store()
+    try:
+        kind, size = client_upload.confirm_object(key)
+    except store.StoreError:
+        raise ApiError("video_not_confirmed", "The uploaded video could not be found. Try again.", status=502) from None
+    problem = None
+    if kind != store.VIDEO_TYPE:
+        problem = FILE_MESSAGES[private_files.WRONG_TYPE]["video"]
+    elif size <= 0 or size > store.VIDEO_MAX_BYTES:
+        problem = FILE_MESSAGES[private_files.TOO_LARGE]["video"]
+    if problem:
+        store.discard(key)
+        raise _invalid({"url": problem})
+    with transaction.atomic():
+        asset = _video_asset(public_id, lock=True)
+        old = asset.file_key
+        asset.file_key, asset.file_size = key, size
+        asset.save(update_fields=["file_key", "file_size", "updated_at"])
+        if old and old != key:
+            transaction.on_commit(lambda: store.discard(old))
     return asset

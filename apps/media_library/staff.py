@@ -4,12 +4,14 @@ see. No Django admin.
 They are in no URL list. `apps.operators.staff_views` registers `ROUTES` under /staff/v1/ and
 calls each handler with the staff user of a session that passed both steps; the allowed Origin,
 the method and the session are checked there and nowhere else. Every route is a POST. The body
-is JSON, except `media/upload/` and `media/file/set/`, which are form posts (multipart).
+is JSON, except `media/upload/` and `media/file/set/`, which are form posts (multipart). A form
+post carries one image per request (10 MB each, so it stays under the 21 MB request cap); a video
+never goes through this server: the browser uploads it straight to the media store.
 
     media/list/        {}                          -> {assets: [asset]}  (every asset, drafts too, by `order`)
     media/get/         {id}                        -> asset
-    media/upload/      form: title, asset_type (image|video), file, poster (a video needs one),
-                       thumb?, category?, product_category?, crop_ratio?, caption?, width?, height?,
+    media/upload/      form: title, asset_type (image|video), file (image only), poster (a video
+                       needs one), thumb?, category?, product_category?, crop_ratio?, caption?, width?, height?,
                        duration_seconds?, active? -> asset   (created as a draft: not published)
     media/update/      {id, title?, caption?, category?, product_category?, crop_ratio?, width?,
                        height?, duration_seconds?, order?, active?} -> asset
@@ -17,16 +19,22 @@ is JSON, except `media/upload/` and `media/file/set/`, which are form posts (mul
     media/reorder/     {ids: [asset ids, all of them]} -> {assets}
     media/publish/     {id, published_at?}         -> asset  (now, or the ISO time with offset sent)
     media/unpublish/   {id}                        -> asset
-    media/file/set/    form: id, kind (file|thumb|poster), file -> asset
+    media/file/set/    form: id, kind (file|thumb|poster), file -> asset  (kind file: an image asset only)
+    media/video/token/ {id}                        -> {pathname, client_token, upload_url, method,
+                       headers, max_bytes, content_type, expires_at, public_url}  (a video asset;
+                       the browser PUTs the MP4 to upload_url with those headers within 10 minutes)
+    media/video/attach/ {id, url}                  -> asset  (url = public_url of the stored video;
+                       refused unless on our store, under this asset's prefix, video/mp4, <= 50 MB)
     media/file/clear/  {id}                        -> asset  (clears the thumb; it falls back to the poster or image)
 
 An asset is {id, title, asset_type, category, category_label, product_category,
 product_category_label, crop_ratio, caption, file_url, thumb_url, poster_url, width, height,
 file_size, duration_seconds, published_at, is_new, active, order, published, created_at,
-updated_at}. Files: images JPEG, PNG or WebP up to 10 MB; video MP4 up to 50 MB.
+updated_at}. Files: images JPEG, PNG or WebP up to 10 MB; video MP4 up to 50 MB (browser to store).
 
-Errors: 400 invalid_request with `fields`, 404 not_found, 502 image_not_saved, 503
-image_store_not_configured.
+Errors: 400 invalid_request with `fields`, 404 not_found, 502 image_not_saved or
+video_not_confirmed, 503 image_store_not_configured. A video asset cannot be published until its
+video is attached.
 """
 import json
 
@@ -149,6 +157,19 @@ def file_set(request, operator):
 
 
 @_route
+def video_token(request, operator):
+    return services.video_token(_id(_body(request)))
+
+
+@_route
+def video_attach(request, operator):
+    data = _body(request)
+    asset = services.attach_video(_id(data), data.get("url"))
+    _log(operator, "video_attach", asset)
+    return services.staff_out(asset)
+
+
+@_route
 def file_clear(request, operator):
     asset = services.clear_thumb(_id(_body(request)))
     _log(operator, "thumb_clear", asset)
@@ -166,4 +187,6 @@ ROUTES = {
     "media/unpublish/": asset_unpublish,
     "media/file/set/": file_set,
     "media/file/clear/": file_clear,
+    "media/video/token/": video_token,
+    "media/video/attach/": video_attach,
 }

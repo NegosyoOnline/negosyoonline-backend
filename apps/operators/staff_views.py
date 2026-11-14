@@ -22,6 +22,7 @@ from apps.billing import staff as billing_staff
 from apps.inbox import bulk_staff, contacts_staff
 from apps.inbox import staff as inbox_staff
 from apps.common.errors import error_body
+from apps.common.middleware import MAX_REQUEST_BYTES
 from apps.operators import audit, background, hq_auth, hq_views, two_step
 from apps.invoices import staff as invoices_staff
 from apps.lifecycle import staff as lifecycle_staff
@@ -253,6 +254,13 @@ def _answer(request, allowed):
         return response
     if request.method != method:
         return _error(405, "method_not_allowed", "Method not allowed.")
+    # HqHostMiddleware answers before RequestSizeCapMiddleware runs, so the cap is applied here.
+    try:
+        declared = int(request.META.get("CONTENT_LENGTH") or 0)
+    except ValueError:
+        declared = 0
+    if declared > MAX_REQUEST_BYTES:
+        return _error(413, "payload_too_large", "The request is too large.")
     return view(request)
 
 
