@@ -30,7 +30,7 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Staging runs the merged build | Staging check 2026-11-13: `/healthz/` 200 on commit `dc17431a27ad` (re-read read-only while drafting, same result) | Pass | GATES |
 | `manage.py check --deploy` | BE #148 description: 2 warnings only, HSTS preload and includeSubDomains, deferred on purpose | Pass | GATES |
 | Email failures reach a person | `/readyz/` field `email` goes false when 3 of the newest emails in 30 minutes failed and none sent, so the uptime check alerts. Built in z8uq9mewgn, merged in round 11 (BE #159). Staging check 2026-11-14: `/readyz/` 200 with `email: true` on commit e70872ced91f | Pass | GATES |
-| Storage usage and backup success | Weekly check by the Manager (`docs/runbooks/backups-and-restore.md`, Weekly check): newest backup within the schedule, Postgres volume under 80%. Pending until the first reading is recorded | Pending | GATES |
+| Storage usage and backup success | Weekly check by the Manager (`docs/runbooks/backups-and-restore.md`, Weekly check): newest backup within the schedule, Postgres volume under 80%. First reading 2026-11-14 (GATES, Railway dashboard, read-only): scheduled Daily backup 5 h old, 1.12 GB; Postgres volume 1.14 GB of 50 GB (2.3%) | Pass | GATES |
 | Checkout and background-job errors | Sentry error monitoring (Gate 5, Sentry row). Pending on `SENTRY_DSN` | Pending | GATES |
 | HQ Finance is operator-only (z8uq9mewke) | Every `/staff/v1/finance/` route answers 401 `unauthenticated` to a caller with no session and to a Subscriber's signed-in session, and changes nothing: `apps/billing/tests/test_staff_finance.py::FinanceGateTests` (`test_a_caller_with_no_session_is_refused_on_every_finance_route_and_nothing_changes`, `test_a_subscribers_signed_in_session_is_refused_on_every_finance_route`). Pass once merged | Pass | GATES |
 | Account export holds no other tenant's data (z8uq9mewke) | `export_account` with Pack data on two accounts: `apps/accounts/tests/test_export.py::ExportScopeTests::test_an_export_holds_this_accounts_pack_rows_and_none_of_the_other_accounts`. `export_pack_files`: `apps/pack/tests/test_export.py::ContentTests::test_the_archive_of_one_account_holds_none_of_another_accounts_rows_keys_or_files`. Pass once merged | Pass | GATES |
@@ -180,7 +180,7 @@ Before the go/no-go.
 |---|---|---|---|
 | Round 11 merged; api-staging `/readyz/` all true, including email | Manager, GATES | 2026-11-15 | Done 2026-11-14: `/readyz/` 200 with db, cache, beat, sms_queue, email and files_backup all true, on commit e70872ced91f |
 | Backup schedule frequency read (Edit schedule) | Coach Ed | 2026-11-17 | Done 2026-11-14 (Daily only, read by GATES) |
-| First scheduled Daily backup seen in the Backups tab (under 24 h old) | GATES | 2026-11-16 | Pending |
+| First scheduled Daily backup seen in the Backups tab (under 24 h old) | GATES | 2026-11-16 | Done 2026-11-14 (Daily Schedule backup 5 h old, 1.12 GB; read by GATES) |
 | Private file backup z8uq9mewtf: plan approved, build, staging selftest restore | GATES | 2026-11-18 | Declined 2026-11-14 (cost, Coach Ed); not on the go/no-go path. Plan approved (Manager, 2026-11-14), built and merged BE #161 |
 | Gate 2 Membership Package walkthrough on staging on Site 2, with a dummy order Coach Ed approves; the test member is removed afterwards, dated | SANTE | 2026-11-18 | Not run |
 | Gate 3 billing walkthrough on staging, plus the ended-site 404 | BILLING | 2026-11-18 | Not run |
