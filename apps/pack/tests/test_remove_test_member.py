@@ -165,6 +165,31 @@ class RemoveTestMemberTests(TestCase):
         self.assertEqual(state(self.member)["member"][0], "TEST Maria")
         self.assertEqual(OperatorAuditEntry.objects.filter(action="pack_test_member_removed").count(), 0)
 
+    def test_the_test_prefix_is_accepted_in_any_letter_case(self):
+        for name in ("test shop guest", "Test Maria", "  TEST Maria"):
+            with self.subTest(name=name):
+                Member.objects.filter(pk=self.member.pk).update(full_name=name)
+                before = state(self.member)
+                out = run(self.site, self.member)
+                self.assertIn("Dry run", out)
+                self.assertIn('"pack_orders": 1', out)
+                self.assertEqual(state(self.member), before)
+
+    def test_apply_blanks_a_lowercase_test_name(self):
+        Member.objects.filter(pk=self.member.pk).update(full_name="test maria")
+        with self.captureOnCommitCallbacks(execute=True):
+            out = run(self.site, self.member, "--apply")
+        self.assertIn("Applied", out)
+        self.assertEqual(Member.objects.get(pk=self.member.pk).full_name, "")
+
+    def test_it_refuses_names_that_only_look_like_the_prefix(self):
+        for name in ("TESTER Bob", "test", "Contest Guest", "tester bob"):
+            with self.subTest(name=name):
+                Member.objects.filter(pk=self.member.pk).update(full_name=name)
+                with self.assertRaisesMessage(CommandError, 'does not start with "TEST " (any case)'):
+                    run(self.site, self.member, "--apply")
+                self.assertEqual(Member.objects.get(pk=self.member.pk).full_name, name)
+
     def test_an_order_on_another_site_is_refused(self):
         PackOrder.objects.filter(pk=self.order.pk).update(site=self.other_site)
         with self.assertRaisesMessage(CommandError, "not on this site"):
