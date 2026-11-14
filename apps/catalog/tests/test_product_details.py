@@ -259,6 +259,29 @@ class PreviewTests(CatalogApiTestCase):
         many = self.preview({**self.BODY, "shipping_qty": 6}).json()
         self.assertGreater(many["ncr_centavos"], one["ncr_centavos"])
 
+    def test_a_given_volume_slot_is_priced_as_it_is(self):
+        from apps.shop import shipping
+
+        body = self.preview({**self.BODY, "volume_slot": "60.00"}).json()
+        item = shipping.ShippingItem(Decimal("0.50"), Decimal("60.00"), 1, 1)
+        self.assertEqual(body["ncr_centavos"], shipping.fee_centavos([item], "MANILA"))
+        self.assertEqual(body["mindanao_centavos"], shipping.fee_centavos([item], "MINDANAO"))
+        self.assertEqual(body["billable_kg"], "6.00")  # a medium box, not the derived pouch
+        self.assertNotEqual(body["ncr_centavos"], self.preview(self.BODY).json()["ncr_centavos"])
+
+    def test_a_given_volume_slot_needs_no_sizes_and_overrides_them(self):
+        only = self.preview({"weight_kg": "0.50", "shipping_qty": 1, "volume_slot": "3.20"}).json()
+        self.assertEqual(only, {**self.preview(self.BODY).json()})
+        self.assertIsNotNone(only["ncr_centavos"])
+
+    def test_a_bad_volume_slot_is_a_field_error(self):
+        for value in ("0", "abc", "1.234"):
+            with self.subTest(value=value):
+                response = self.preview({**self.BODY, "volume_slot": value})
+                self.assertEqual(
+                    self.fields(response), {"volume_slot": [services.FIELD_MESSAGES["volume_slot"]]}
+                )
+
     def test_shipping_policy_charge_gives_no_reason(self):
         with override_settings(SHOP_SHIPPING_POLICY="charge"):
             self.assertEqual(self.preview(self.BODY).json()["reason"], "")

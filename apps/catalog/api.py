@@ -206,6 +206,7 @@ class ShippingPreviewIn(StrictSchema):
     width_cm: str | None = None
     height_cm: str | None = None
     shipping_qty: StrictInt | None = None
+    volume_slot: str | None = None  # when given, priced as it is; else derived from the sizes
 
 
 class ShippingPreviewOut(Schema):

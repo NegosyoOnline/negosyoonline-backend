@@ -606,12 +606,17 @@ def shipping_preview(site, data):
     weight = cleaned.get("weight_kg", Decimal(0))
     if weight <= 0:
         return {**empty, "reason": PREVIEW_REASONS["weight"]}
-    if not all(name in cleaned for name in DIM_FIELDS):
+    # Checkout prices on the stored volume slot, so a slot that is given is used as it is;
+    # without one it is derived from the sizes.
+    if "volume_slot" in cleaned:
+        slot = cleaned["volume_slot"]
+    elif all(name in cleaned for name in DIM_FIELDS):
+        volume = cleaned["length_cm"] * cleaned["width_cm"] * cleaned["height_cm"]
+        slot = (volume / SLOT_CM3).quantize(SLOT_STEP, rounding=ROUND_CEILING)
+    else:
         return {**empty, "reason": PREVIEW_REASONS["dims"]}
     if "shipping_qty" not in cleaned:
         return {**empty, "reason": PREVIEW_REASONS["qty"]}
-    volume = cleaned["length_cm"] * cleaned["width_cm"] * cleaned["height_cm"]
-    slot = (volume / SLOT_CM3).quantize(SLOT_STEP, rounding=ROUND_CEILING)
     items = [shipping.ShippingItem(
         weight_kg=weight, volume_slot=slot, shipping_qty=cleaned["shipping_qty"], quantity=1
     )]
