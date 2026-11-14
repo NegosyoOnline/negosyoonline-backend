@@ -470,3 +470,79 @@ class ServingsAndFaqTests(CatalogApiTestCase):
         stranger = self.update(product["id"], {"revision": 1, "faq": []}, site=self.site, client=self.ben)
         self.assertIn(stranger.status_code, (403, 404))
         self.assertEqual(catalog_rows(), before)
+
+
+class IngredientTests(CatalogApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.designate()
+
+    def item(self, name="Barley", line="Young barley grass.", slot=None):
+        return {"name": name, "line": line, "photo_slot": slot}
+
+    def test_a_create_without_them_has_none(self):
+        self.assertEqual(self.created()["ingredients"], [])
+
+    def test_they_round_trip_through_create_update_revisions_and_the_list(self):
+        body = self.created(ingredients=[self.item("  Barley  ", " Green. ", 2)])
+        self.assertEqual(
+            body["ingredients"], [{"name": "Barley", "line": "Green.", "photo_slot": 2, "photo_url": None}]
+        )
+        newer = self.update(body["id"], {"revision": 1, "ingredients": [self.item("Kale", "", None)]}).json()
+        self.assertEqual((newer["ingredients"][0]["name"], newer["revision"]), ("Kale", 2))
+        rows = self.revisions(body["id"]).json()["revisions"]
+        self.assertEqual([r["ingredients"][0]["name"] for r in rows], ["Kale", "Barley"])
+        self.assertEqual(self.listed()["products"][0]["ingredients"][0]["name"], "Kale")
+
+    def test_the_same_list_writes_no_revision_and_an_empty_list_clears(self):
+        body = self.created(ingredients=[self.item()])
+        same = self.update(body["id"], {"revision": 1, "ingredients": [self.item(" Barley ")]})
+        self.assertEqual(same.json()["revision"], 1)
+        cleared = self.update(body["id"], {"revision": 1, "ingredients": []}).json()
+        self.assertEqual((cleared["ingredients"], cleared["revision"]), ([], 2))
+
+    def test_limits_and_shape(self):
+        for label, good in {
+            "eight": [self.item()] * 8,
+            "max name": [self.item("n" * 60)],
+            "max line": [self.item(line="l" * 200)],
+            "slot 5": [self.item(slot=5)],
+        }.items():
+            with self.subTest(label):
+                ok = self.create(code=f"IG-{label}".upper().replace(" ", "-"), ingredients=good)
+                self.assertEqual(ok.status_code, 201, ok.content)
+        bad = {
+            "nine": [self.item()] * 9,
+            "long name": [self.item("n" * 61)],
+            "empty name": [self.item("  ")],
+            "long line": [self.item(line="l" * 201)],
+            "slot 0": [self.item(slot=0)],
+            "slot 6": [self.item(slot=6)],
+            "slot text": [self.item(slot="1")],
+            "slot bool": [self.item(slot=True)],
+            "missing key": [{"name": "A", "line": "B"}],
+            "extra key": [{**self.item(), "x": "y"}],
+            "number name": [{"name": 1, "line": "", "photo_slot": None}],
+            "not a dict": ["Barley"],
+        }
+        for label, value in bad.items():
+            with self.subTest(label):
+                response = self.create(code="IG-BAD", ingredients=value)
+                self.assertEqual(self.fields(response), {"ingredients": [services.FIELD_MESSAGES["ingredients"]]})
+        product = self.created(code="IG-UPD")
+        for value in ([self.item()] * 9, None):
+            self.assertIn("ingredients", self.fields(self.update(product["id"], {"revision": 1, "ingredients": value})))
+
+    def test_a_slot_with_no_photo_is_saved_and_shows_no_photo_url(self):
+        body = self.created(ingredients=[self.item(slot=3)])
+        self.assertEqual(body["ingredients"][0]["photo_slot"], 3)
+        self.assertIsNone(body["ingredients"][0]["photo_url"])
+
+    def test_only_the_owner_site_writes_them(self):
+        product = self.created(ingredients=[self.item()])
+        before = catalog_rows()
+        response = self.update(
+            product["id"], {"revision": 1, "ingredients": []}, site=self.ben_site, client=self.ben
+        )
+        self.error(response, 403, "catalog_read_only")
+        self.assertEqual(catalog_rows(), before)

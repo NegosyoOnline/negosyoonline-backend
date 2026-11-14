@@ -13,7 +13,7 @@ LIST = "/storefront/v1/catalog/products/"
 KEYS = {
     "id", "code", "name", "category", "short_description", "long_description", "image_url",
     "srp_centavos", "unit_members_price_centavos", "revision", "image_urls", "features",
-    "specifications", "advantages", "benefits", "servings_per_pack", "faq",
+    "specifications", "advantages", "benefits", "servings_per_pack", "faq", "ingredients",
     "price_per_serving_centavos", "members_price_per_serving_centavos",
 }
 NEVER = ("earnings_rate", "is_active", "weight", "changed_by", "seed_", "source", "image_key",
@@ -153,3 +153,34 @@ class ServingsAndFaqStorefrontTests(SurfaceTestCase):
         self.assertEqual(first, second)
         self.assertEqual(second["price_per_serving_centavos"], 1000)
         self.assertEqual(other.template, self.site.template)
+
+
+@switched_on
+class IngredientsStorefrontTests(SurfaceTestCase):
+    def setUp(self):
+        super().setUp()
+        self.site = make_subscription().site
+
+    def test_each_item_points_at_its_photo_and_an_empty_slot_gives_null(self):
+        product = make_product()
+        CatalogProduct.objects.filter(pk=product.pk).update(
+            image_key_2="catalog/products/b.png",
+            ingredients=[
+                {"name": "Barley", "line": "Green.", "photo_slot": 2},
+                {"name": "Kale", "line": "", "photo_slot": 4},
+                {"name": "Oat", "line": "", "photo_slot": None},
+            ],
+        )
+        with override_settings(**MEDIA):
+            listed = self.call(path=LIST).json()["products"][0]
+            detail = self.call(path=f"{LIST}{product.public_id}/").json()
+        for body in (listed, detail):
+            self.assertEqual(
+                [i["photo_url"] for i in body["ingredients"]],
+                ["https://media.example.test/catalog/products/b.png", None, None],
+            )
+            self.assertEqual([i["name"] for i in body["ingredients"]], ["Barley", "Kale", "Oat"])
+
+    def test_a_product_without_them_returns_an_empty_list(self):
+        body = self.call(path=f"{LIST}{make_product().public_id}/").json()
+        self.assertEqual(body["ingredients"], [])

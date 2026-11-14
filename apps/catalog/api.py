@@ -66,6 +66,7 @@ class ProductCreateIn(StrictSchema):
     benefits: str = ""
     servings_per_pack: StrictInt | None = None  # 1 to 999, or not set
     faq: list[Any] = Field(default_factory=list)  # [{"q", "a"}]; shape checked in services
+    ingredients: list[Any] = Field(default_factory=list)  # [{"name", "line", "photo_slot"}]
     category: str = ""  # barley, drinks, essentials, beauty, or blank
     weight_kg: str = "0.00"
     volume_slot: str | None = None  # still accepted; derived from the sizes when they are given
@@ -95,6 +96,7 @@ class ProductUpdateIn(StrictSchema):
     benefits: str | None = None
     servings_per_pack: StrictInt | None = None  # null clears it
     faq: list[Any] | None = None
+    ingredients: list[Any] | None = None
     category: str | None = None
     weight_kg: str | None = None
     volume_slot: str | None = None  # still accepted, but derived from the sizes when given
@@ -112,6 +114,13 @@ class FaqItem(Schema):
     a: str
 
 
+class IngredientItem(Schema):
+    name: str
+    line: str
+    photo_slot: int | None
+    photo_url: str | None  # the photo it points at; null where that slot is empty
+
+
 class ProductValues(Schema):
     code: str
     name: str
@@ -123,6 +132,7 @@ class ProductValues(Schema):
     benefits: str
     servings_per_pack: int | None
     faq: list[FaqItem]
+    ingredients: list[IngredientItem]
     category: str
     image_url: str | None  # photo slot 1
     image_urls: list[str | None]  # always 5: slots 1 to 5, null where empty

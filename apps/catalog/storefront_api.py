@@ -24,6 +24,13 @@ class FaqItem(Schema):
     a: str
 
 
+class IngredientItem(Schema):
+    name: str
+    line: str
+    photo_slot: int | None
+    photo_url: str | None  # null where that slot has no photo
+
+
 class ProductPublic(Schema):
     id: str
     code: str
@@ -37,6 +44,7 @@ class ProductPublic(Schema):
     benefits: str
     servings_per_pack: int | None
     faq: list[FaqItem]
+    ingredients: list[IngredientItem]
     image_url: str | None  # photo slot 1
     image_urls: list[str | None]  # always 5: slots 1 to 5, null where empty
     srp_centavos: int

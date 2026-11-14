@@ -44,11 +44,13 @@ DETAIL_FIELDS = ("features", "specifications", "advantages", "benefits")  # at m
 SERVINGS_MAX = 999
 FAQ_MAX_ITEMS, FAQ_Q_MAX, FAQ_A_MAX = 10, 150, 1000
 PACK_FIELDS = ("servings_per_pack", "faq")
+INGREDIENT_MAX_ITEMS, INGREDIENT_NAME_MAX, INGREDIENT_LINE_MAX = 8, 60, 200
 SHIPPING_FIELDS = ("volume_slot", "shipping_qty")
 OPTIONAL_FIELDS = (*SHIPPING_FIELDS, *DIM_FIELDS)  # may be left out of a create
 CATEGORIES = ("barley", "drinks", "essentials", "beauty")  # blank is allowed too
 CENTRAL_FIELDS = (
-    "name", "short_description", "long_description", *DETAIL_FIELDS, *PACK_FIELDS, "category", *IMAGE_FIELDS,
+    "name", "short_description", "long_description", *DETAIL_FIELDS, *PACK_FIELDS, "ingredients", "category",
+    *IMAGE_FIELDS,
     "weight_kg", "srp_centavos", "earnings_rate", "is_active", *OPTIONAL_FIELDS,
 )
 IMAGE_MESSAGES = {
@@ -77,6 +79,10 @@ FIELD_MESSAGES = {
     **{name: "Use up to 5000 characters." for name in DETAIL_FIELDS},
     "servings_per_pack": "Enter the servings in one pack, a whole number from 1 to 999, or leave it blank.",
     "faq": "Send up to 10 questions, each with a question of 1 to 150 characters and an answer of 1 to 1000.",
+    "ingredients": (
+        "Send up to 8 ingredients, each with a name of 1 to 60 characters, a line of 0 to 200 "
+        "and a photo slot from 1 to 5 or null."
+    ),
     "category": "Choose barley, drinks, essentials or beauty, or leave it blank.",
     "weight_kg": "Enter a weight in kg of 0 or more, with up to 2 decimal places.",
     "srp_centavos": "Enter an SRP above 0, in whole centavos.",
@@ -143,6 +149,15 @@ def _images_out(row):
     return {"image_url": urls[0], "image_urls": urls}
 
 
+def _ingredients_out(row):
+    """Each ingredient with the URL of the photo it points at; null when that slot is empty."""
+    urls = _images_out(row)["image_urls"]
+    return [
+        {**item, "photo_url": urls[item["photo_slot"] - 1] if item["photo_slot"] else None}
+        for item in row.ingredients
+    ]
+
+
 def _shared_out(row):
     """The values a product and its revisions both carry. Amounts are whole centavos; the
     other numbers are fixed-format text."""
@@ -155,6 +170,7 @@ def _shared_out(row):
         **_images_out(row),
         **{name: getattr(row, name) for name in DETAIL_FIELDS},
         **{name: getattr(row, name) for name in PACK_FIELDS},
+        "ingredients": _ingredients_out(row),
         "weight_kg": _fixed(row.weight_kg, 2),
         "srp_centavos": row.srp_centavos,
         "earnings_rate": _fixed(row.earnings_rate, 4),
@@ -196,6 +212,7 @@ def public_product_out(product):
         **_images_out(product),
         **{name: getattr(product, name) for name in DETAIL_FIELDS},
         **{name: getattr(product, name) for name in PACK_FIELDS},
+        "ingredients": _ingredients_out(product),
         "srp_centavos": product.srp_centavos,
         "unit_members_price_centavos": members_price,
         "price_per_serving_centavos": pricing.per_serving(
@@ -269,6 +286,27 @@ def _faq(value):
     return True, cleaned
 
 
+def _ingredients(value):
+    """A list of {"name", "line", "photo_slot"}, stripped; the cleaned list is what is stored.
+    A photo slot that is empty today is accepted: the storefront shows no photo for it."""
+    if not isinstance(value, list) or len(value) > INGREDIENT_MAX_ITEMS:
+        return False, None
+    cleaned = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"name", "line", "photo_slot"}:
+            return False, None
+        name, line, slot = item["name"], item["line"], item["photo_slot"]
+        if not isinstance(name, str) or not isinstance(line, str):
+            return False, None
+        if slot is not None and not (_whole(slot) and 1 <= slot <= IMAGE_SLOTS):
+            return False, None
+        name, line = name.strip(), line.strip()
+        if not 1 <= len(name) <= INGREDIENT_NAME_MAX or len(line) > INGREDIENT_LINE_MAX:
+            return False, None
+        cleaned.append({"name": name, "line": line, "photo_slot": slot})
+    return True, cleaned
+
+
 def _category(value):
     value = value.strip()
     return value == "" or value in CATEGORIES, value
@@ -320,6 +358,8 @@ def field_errors(data):
             continue
         if name == "faq":
             ok, result = _faq(value)
+        elif name == "ingredients":
+            ok, result = _ingredients(value)
         elif name in WHOLE_NUMBER_MAX:
             most = WHOLE_NUMBER_MAX[name]
             ok = _whole(value) and value >= 1 and (most is None or value <= most)
