@@ -43,7 +43,7 @@ class SharedModelShapeTests(SimpleTestCase):
         models = list(apps.get_app_config("catalog").get_models())
         self.assertEqual(
             {model.__name__ for model in models},
-            {"Catalog", "CatalogProduct", "CatalogProductRevision"},
+            {"Catalog", "CatalogCategoryFaq", "CatalogProduct", "CatalogProductRevision"},
         )
         for model in models:
             for field in model._meta.get_fields():

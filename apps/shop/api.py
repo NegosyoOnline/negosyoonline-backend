@@ -31,7 +31,7 @@ from apps.common.errors import ApiError
 from apps.members import sessions
 from apps.payments import services as payments
 from apps.sante import pack as sante_pack
-from apps.shop import constants as C, placement, quote
+from apps.shop import constants as C, placement, product_reviews, quote
 from apps.shop.api_owner import fulfilment_status
 from apps.shop.models import ShopOrder
 from apps.storefront.services import served_sante_site
@@ -187,7 +187,7 @@ def _images(orders):
     }
 
 
-def _buyer_view(order, images=None):
+def _buyer_view(order, images=None, reviews=None):
     """What the buyer sees of an order: the tracker, the lines and the money. Never the proof,
     the fingerprint, the token hash or the Subscriber's note. The receiver's phone and email are
     what the buyer typed (or their own member details); the buyer only reaches their own order.
@@ -200,6 +200,9 @@ def _buyer_view(order, images=None):
     if images is None:
         images = _images([order])
     lines = list(order.lines.all())
+    if reviews is None:
+        reviews = product_reviews.reviews_by_line([order])
+    can_review = product_reviews.reviewable(order) if status == "delivered" else False
     saved = sum(l.line_srp_total_centavos - l.line_charged_centavos for l in lines)
     return {
         "receiver_mobile": order.receiver_mobile, "receiver_email": order.contact_email,
@@ -219,8 +222,11 @@ def _buyer_view(order, images=None):
         "delivered_on": order.delivered_on.isoformat() if order.delivered_on else None,
         "lines": [
             {
+                "position": l.position, "product_id": l.product_id,
                 "code": l.code, "name": l.name, "quantity": l.quantity,
                 "unit_centavos": l.srp_centavos, "image_url": images.get(l.product_id),
+                "can_review": can_review and l.pk not in reviews,
+                "review": product_reviews.buyer_out(reviews[l.pk]) if l.pk in reviews else None,
                 "line_srp_total_centavos": l.line_srp_total_centavos,
                 "line_charged_centavos": l.line_charged_centavos,
             }
@@ -241,7 +247,7 @@ def shop_order_view(request, order_id: str, body: ViewIn):
     A wrong id, a wrong token and another site's order all answer the same 404."""
     site = _site(body.host)
     _hit(C.VIEW_IP_LIMIT, site, _ip(body.visitor_ip))
-    order = ShopOrder.objects.prefetch_related("lines").filter(site=site, public_id=order_id).first()
+    order = ShopOrder.objects.prefetch_related("lines", "events").filter(site=site, public_id=order_id).first()
     given = placement.token_hash(body.view_token) if (body.view_token or "").strip() else ""
     if order is None or not given or not hmac.compare_digest(given, order.view_token_hash):
         raise ApiError("not_found", "Not found.", status=404)
@@ -264,8 +270,9 @@ def member_shop_orders(request, body: MemberIn):
         C.MEMBER_LIST_LIMIT[0], session.member_id, limit=C.MEMBER_LIST_LIMIT[1], window=C.MEMBER_LIST_LIMIT[2]
     )
     orders = (
-        ShopOrder.objects.prefetch_related("lines").filter(site=site, member=session.member)
+        ShopOrder.objects.prefetch_related("lines", "events").filter(site=site, member=session.member)
         .order_by("-created_at", "-pk")[:C.OWNER_LIST_MAX]
     )
     images = _images(orders)
-    return {"cards": [_buyer_view(o, images) for o in orders]}
+    found = product_reviews.reviews_by_line(orders)
+    return {"cards": [_buyer_view(o, images, found) for o in orders]}

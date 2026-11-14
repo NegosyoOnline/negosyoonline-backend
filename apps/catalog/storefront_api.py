@@ -19,6 +19,18 @@ from apps.storefront import services as storefront
 router = Router()
 
 
+class FaqItem(Schema):
+    q: str
+    a: str
+
+
+class IngredientItem(Schema):
+    name: str
+    line: str
+    photo_slot: int | None
+    photo_url: str | None  # null where that slot has no photo
+
+
 class ProductPublic(Schema):
     id: str
     code: str
@@ -26,9 +38,23 @@ class ProductPublic(Schema):
     category: str
     short_description: str
     long_description: str
-    image_url: str | None
+    features: str
+    specifications: str
+    advantages: str
+    benefits: str
+    servings_per_pack: int | None
+    faq: list[FaqItem]
+    ingredients: list[IngredientItem]
+    category_faq: list[FaqItem]  # the product category's general FAQs; show after faq
+    features_image_url: str | None  # What's Inside image; null when unset, never a photo
+    advantages_image_url: str | None  # Why It Stands Out image
+    benefits_image_url: str | None  # What You Get From It image
+    image_url: str | None  # photo slot 1
+    image_urls: list[str | None]  # always 5: slots 1 to 5, null where empty
     srp_centavos: int
     unit_members_price_centavos: int
+    price_per_serving_centavos: int | None  # SRP / servings, half-up; null without servings
+    members_price_per_serving_centavos: int | None
     revision: int
 
 

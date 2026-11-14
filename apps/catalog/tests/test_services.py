@@ -51,7 +51,9 @@ class ReadServiceTests(TestCase):
             "id", "code", "name", "short_description", "long_description", "weight_kg",
             "srp_centavos", "earnings_rate", "unit_members_price_centavos", "is_active",
             "revision", "updated_at", "volume_slot", "shipping_qty", "length_cm", "width_cm",
-            "height_cm", "category", "image_url",
+            "height_cm", "category", "image_url", "image_urls", "features", "specifications",
+            "advantages", "benefits", "servings_per_pack", "faq",
+            "ingredients", "features_image_url", "advantages_image_url", "benefits_image_url",
         })
         self.assertEqual(
             (out["id"], out["srp_centavos"], out["earnings_rate"],
@@ -316,3 +318,90 @@ class DimensionWriteTests(WriteServiceTestCase):
         product = self.create(**self.DIMS)
         fields = self.fields_of(lambda: self.update(product, revision=1, length_cm=None))
         self.assertEqual(fields, {"length_cm": [M["length_cm"]]})
+
+
+class DerivedSlotTests(WriteServiceTestCase):
+    """The volume slot is derived from the sizes on create and update (CAT-1 r3, volume slot)."""
+
+    EXACT = {"length_cm": "23", "width_cm": "23", "height_cm": "0.6"}  # 317.4 cm3: 1.0 slot
+    OVER = {"length_cm": "23.1", "width_cm": "23", "height_cm": "0.6"}  # 318.78 cm3: rounds up
+
+    def test_a_create_derives_the_slot_at_a_boundary_and_just_over_it(self):
+        self.assertEqual(self.create(code="A", **self.EXACT).volume_slot, Decimal("1.00"))
+        self.assertEqual(self.create(code="B", **self.OVER).volume_slot, Decimal("1.10"))
+        double = {**self.EXACT, "height_cm": "1.2"}  # 634.8 cm3: exactly 2.0
+        self.assertEqual(self.create(code="C", **double).volume_slot, Decimal("2.00"))
+        self.assertEqual(self.create(code="D", **{**double, "length_cm": "23.1"}).volume_slot,
+                         Decimal("2.10"))
+
+    def test_a_create_without_sizes_has_no_slot_even_if_one_is_sent(self):
+        product = self.create(volume_slot="3.5", weight_kg="0.50")
+        self.assertIsNone(product.volume_slot)
+
+    def test_a_slot_sent_with_sizes_is_overridden(self):
+        product = self.create(volume_slot="9.9", weight_kg="0.50", **self.OVER)
+        self.assertEqual(product.volume_slot, Decimal("1.10"))
+        product = self.update(product, revision=1, volume_slot="5", name="Renamed")
+        self.assertEqual(product.volume_slot, Decimal("1.10"))
+
+    def test_an_update_of_the_sizes_rederives_and_the_revision_records_it(self):
+        product = self.create(**self.EXACT)
+        product = self.update(product, revision=1, height_cm="1.2")
+        self.assertEqual(product.volume_slot, Decimal("2.00"))
+        product = self.update(product, revision=2, length_cm="23.1")
+        self.assertEqual(product.volume_slot, Decimal("2.10"))
+        stored = CatalogProduct.objects.get(pk=product.pk)
+        self.assertEqual(stored.volume_slot, Decimal("2.10"))
+        self.assertEqual(
+            list(product.revisions.order_by("revision").values_list("volume_slot", flat=True)),
+            [Decimal("1.00"), Decimal("2.00"), Decimal("2.10")],
+        )
+
+    def test_a_product_gaining_sizes_on_update_gets_a_slot(self):
+        product = self.create()
+        product = self.update(product, revision=1, **self.OVER)
+        self.assertEqual(product.volume_slot, Decimal("1.10"))
+
+    def test_an_update_not_touching_sizes_keeps_the_stored_slot(self):
+        product = self.create(weight_kg="0.50")
+        CatalogProduct.objects.filter(pk=product.pk).update(volume_slot=Decimal("4.00"))
+        product = self.update(product, revision=1, name="Renamed", volume_slot="7")
+        self.assertEqual(product.volume_slot, Decimal("4.00"))
+
+    def test_sizes_too_large_for_the_column_are_refused(self):
+        big = {"length_cm": "99999", "width_cm": "99999", "height_cm": "99999"}
+        self.assertEqual(set(self.fields_of(lambda: self.create(**big))), set(services.DIM_FIELDS))
+        self.assertFalse(CatalogProduct.objects.exists())
+
+    def test_the_seed_derives_from_sizes_and_keeps_a_slot_given_alone(self):
+        row = {"code": "S1", "name": "Seed", "srp_centavos": 100, "earnings_rate": "0.3000",
+               "weight_kg": "0.20"}
+        self.assertNotIn("volume_slot", services.seed_clean(row)[1])
+        self.assertEqual(services.seed_clean({**row, "volume_slot": "2.5"})[1]["volume_slot"],
+                         Decimal("2.50"))
+        cleaned = services.seed_clean({**row, "volume_slot": "2.5", **self.OVER})[1]
+        self.assertEqual(cleaned["volume_slot"], Decimal("1.10"))
+
+    def test_preview_and_save_give_the_same_slot(self):
+        sizes = {name: Decimal(value) for name, value in self.OVER.items()}
+        self.assertEqual(services.slot_from_sizes(*sizes.values()), self.create(**self.OVER).volume_slot)
+        out = services.shipping_preview(self.site, {
+            "weight_kg": "0.50", "shipping_qty": 1, "volume_slot": "9", **self.OVER,
+        })
+        self.assertIsNotNone(out["ncr_centavos"])  # priced on the derived slot, not the 9 sent
+        derived = services.shipping_preview(self.site, {
+            "weight_kg": "0.50", "shipping_qty": 1, **self.OVER,
+        })
+        self.assertEqual(out, derived)
+
+    def test_a_saved_product_gets_a_checkout_shipping_quote_under_both_policies(self):
+        from apps.shop import quote, shipping
+
+        product = self.create(weight_kg="0.50", shipping_qty=1, **self.OVER)
+        line = quote.line_of_product(product, 1)  # the lines checkout prices
+        item = shipping.ShippingItem(line.weight_kg, line.volume_slot, line.shipping_qty, 1)
+        for policy in ("zero", "charge"):
+            with self.subTest(policy=policy), override_settings(SHOP_SHIPPING_POLICY=policy):
+                result = shipping.quote([item], {"city": "Quezon City", "province": "Metro Manila"})
+                self.assertIsNotNone(result.computed_centavos)
+                self.assertEqual(result.charged_centavos == 0, policy == "zero")
