@@ -2,7 +2,7 @@
 
 ## Scope
 
-This repository is the clean Django API and background-services foundation for NegosyoOnline. It is independent from TWCinc. TWCinc may be consulted only as a behavior reference and must never become a runtime dependency or source-copy destination.
+This repository is the clean Django API and background-services foundation for NegosyoOnline. It is independent from TWCinc. TWCinc code may be copied and adapted to reproduce its process flow, but TWCinc must never become a runtime dependency; follow the TWCinc rule in `CLAUDE.md` (Coach Ed, 2026-11-14).
 
 ## Safety
 
