@@ -110,6 +110,66 @@ class SignInApiTests(ApiTestCase):
         self.assertEqual(self.get("/v1/me/").status_code, 200)
 
 
+class DuplicateSessionCookieTests(ApiTestCase):
+    """A stale `Path=/` copy of the cookie must not shadow the fresh `Path=/v1/` one."""
+
+    def fresh_token(self):
+        return self.sign_in().cookies["no_session"].value
+
+    def me(self, header):
+        return Client().get("/v1/me/", secure=True, HTTP_COOKIE=header)
+
+    def session_set_cookies(self, response):
+        return [m.OutputString() for m in response.cookies.values() if m.key == "no_session"]
+
+    def test_stale_duplicate_after_the_fresh_cookie_still_signs_in(self):
+        fresh = self.fresh_token()
+
+        self.assertEqual(self.me(f"no_session={fresh}; no_session=stale").status_code, 200)
+
+    def test_stale_value_first_then_fresh_also_signs_in(self):
+        fresh = self.fresh_token()
+
+        self.assertEqual(self.me(f"no_session=stale; no_session={fresh}").status_code, 200)
+
+    def test_only_stale_values_are_401(self):
+        self.fresh_token()
+
+        self.assertEqual(self.me("no_session=one; no_session=two").status_code, 401)
+
+    def test_single_valid_cookie_works_and_single_invalid_is_401(self):
+        fresh = self.fresh_token()
+
+        self.assertEqual(self.me(f"other=x; no_session={fresh}").status_code, 200)
+        self.assertEqual(self.me("no_session=stale").status_code, 401)
+        self.assertEqual(self.me("other=x").status_code, 401)
+
+    def test_verify_and_logout_also_expire_the_root_path_cookie(self):
+        lines = self.session_set_cookies(self.sign_in())
+
+        self.assertEqual(len(lines), 2)
+        fresh = [line for line in lines if "Path=/v1/" in line]
+        root = [line for line in lines if "Path=/v1/" not in line]
+        self.assertEqual(len(fresh), 1)
+        self.assertNotIn("Max-Age=0", fresh[0])
+        self.assertEqual(len(root), 1)
+        self.assertIn("Max-Age=0", root[0])
+        self.assertIn("Path=/;", root[0] + ";")
+
+        lines = self.session_set_cookies(self.post("/v1/auth/logout/"))
+
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(sorted("Path=/v1/" in line for line in lines), [False, True])
+        self.assertTrue(all("Max-Age=0" in line for line in lines))
+
+    def test_other_responses_do_not_set_the_session_cookie_at_the_root_path(self):
+        self.sign_in()
+        request_code = self.post("/v1/auth/email-code/request/", {"email": EMAIL})
+
+        self.assertEqual(self.session_set_cookies(self.get("/v1/me/")), [])
+        self.assertEqual(self.session_set_cookies(request_code), [])
+
+
 def email_of_length(length):
     domain = ".".join(["d" * 60] * 3) + ".test"
     local = "a" * (length - len(domain) - 1)

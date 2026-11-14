@@ -21,7 +21,8 @@ from apps.accounts.models import ExternalIdentity, Session
 from apps.accounts.sessions import (
     clear_session_cookie,
     client_ip,
-    find_session,
+    expire_root_session_cookie,
+    find_request_session,
     revoke_session,
     revoke_sessions,
     set_session_cookie,
@@ -214,6 +215,7 @@ def email_code_verify(request, response: HttpResponse, payload: VerifyIn):
     account, _session, token, created = services.verify_signin_code(
         payload.email, payload.code, payload.accept_policies, request
     )
+    expire_root_session_cookie(response)
     set_session_cookie(response, token)
     return {"account": account_out(account), "created": created}
 
@@ -221,6 +223,7 @@ def email_code_verify(request, response: HttpResponse, payload: VerifyIn):
 @router.post("/auth/logout/", response={204: None}, auth=signed_in)
 def logout(request, response: HttpResponse):
     revoke_session(request.account_session)
+    expire_root_session_cookie(response)
     clear_session_cookie(response)
     return 204, None
 
@@ -325,7 +328,7 @@ def finish_connect(request, started, provider, state, code, error, fetch_user_id
         return connect_redirect(provider, "invalid_state")
     if error or not code:
         return connect_redirect(provider, "cancelled")
-    session = find_session(request.COOKIES.get(settings.ACCOUNT_SESSION_COOKIE))
+    session = find_request_session(request)
     if (
         session is None
         or session.public_id != started.get("session")
