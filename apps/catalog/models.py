@@ -61,6 +61,10 @@ class CatalogProduct(models.Model):
     specifications = models.TextField(blank=True, default="")
     advantages = models.TextField(blank=True, default="")
     benefits = models.TextField(blank=True, default="")
+    # Servings in one pack (1 to 999) and the product FAQ: a list of {"q", "a"}, at most 10,
+    # checked in services.
+    servings_per_pack = models.PositiveSmallIntegerField(null=True, blank=True)
+    faq = models.JSONField(default=list, blank=True)
     weight_kg = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0"))
     # Shipping inputs: null means not set.
     volume_slot = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
@@ -156,6 +160,10 @@ class CatalogProductRevision(models.Model):
     specifications = models.TextField(blank=True, default="")
     advantages = models.TextField(blank=True, default="")
     benefits = models.TextField(blank=True, default="")
+    # Servings in one pack (1 to 999) and the product FAQ: a list of {"q", "a"}, at most 10,
+    # checked in services.
+    servings_per_pack = models.PositiveSmallIntegerField(null=True, blank=True)
+    faq = models.JSONField(default=list, blank=True)
     weight_kg = models.DecimalField(max_digits=10, decimal_places=2)
     volume_slot = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     shipping_qty = models.PositiveIntegerField(null=True, blank=True)

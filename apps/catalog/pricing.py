@@ -37,3 +37,13 @@ def line(srp_centavos, earnings_rate, quantity):
 def unit_display(srp_centavos, earnings_rate):
     """The members price of one unit, for display only."""
     return line(srp_centavos, earnings_rate, 1).line_members_total_centavos
+
+
+def per_serving(centavos, servings):
+    """`centavos` shared over `servings`, rounded half-up to a whole centavo; None when the
+    product has no servings value."""
+    if servings is None:
+        return None
+    if not _whole(centavos) or not _whole(servings) or servings < 1:
+        raise ValueError("centavos and servings must be ints, servings 1 or more")
+    return int((Decimal(centavos) / servings).quantize(Decimal("1"), rounding=ROUND_HALF_UP))

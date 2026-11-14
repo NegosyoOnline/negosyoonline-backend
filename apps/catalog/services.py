@@ -41,11 +41,14 @@ DIM_FIELDS = ("length_cm", "width_cm", "height_cm")
 IMAGE_SLOTS = 5
 IMAGE_FIELDS = ("image_key", "image_key_2", "image_key_3", "image_key_4", "image_key_5")
 DETAIL_FIELDS = ("features", "specifications", "advantages", "benefits")  # at most 5000 each
+SERVINGS_MAX = 999
+FAQ_MAX_ITEMS, FAQ_Q_MAX, FAQ_A_MAX = 10, 150, 1000
+PACK_FIELDS = ("servings_per_pack", "faq")
 SHIPPING_FIELDS = ("volume_slot", "shipping_qty")
 OPTIONAL_FIELDS = (*SHIPPING_FIELDS, *DIM_FIELDS)  # may be left out of a create
 CATEGORIES = ("barley", "drinks", "essentials", "beauty")  # blank is allowed too
 CENTRAL_FIELDS = (
-    "name", "short_description", "long_description", *DETAIL_FIELDS, "category", *IMAGE_FIELDS,
+    "name", "short_description", "long_description", *DETAIL_FIELDS, *PACK_FIELDS, "category", *IMAGE_FIELDS,
     "weight_kg", "srp_centavos", "earnings_rate", "is_active", *OPTIONAL_FIELDS,
 )
 IMAGE_MESSAGES = {
@@ -72,6 +75,8 @@ FIELD_MESSAGES = {
     "short_description": "Use up to 500 characters.",
     "long_description": "Use up to 20000 characters.",
     **{name: "Use up to 5000 characters." for name in DETAIL_FIELDS},
+    "servings_per_pack": "Enter the servings in one pack, a whole number from 1 to 999, or leave it blank.",
+    "faq": "Send up to 10 questions, each with a question of 1 to 150 characters and an answer of 1 to 1000.",
     "category": "Choose barley, drinks, essentials or beauty, or leave it blank.",
     "weight_kg": "Enter a weight in kg of 0 or more, with up to 2 decimal places.",
     "srp_centavos": "Enter an SRP above 0, in whole centavos.",
@@ -149,6 +154,7 @@ def _shared_out(row):
         "category": row.category,
         **_images_out(row),
         **{name: getattr(row, name) for name in DETAIL_FIELDS},
+        **{name: getattr(row, name) for name in PACK_FIELDS},
         "weight_kg": _fixed(row.weight_kg, 2),
         "srp_centavos": row.srp_centavos,
         "earnings_rate": _fixed(row.earnings_rate, 4),
@@ -179,6 +185,7 @@ def revision_out(revision):
 def public_product_out(product):
     """What a storefront shows. Never the earnings rate, the writer, `is_active`, weights,
     sizes or a file key."""
+    members_price = pricing.unit_display(product.srp_centavos, product.earnings_rate)
     return {
         "id": product.public_id,
         "code": product.code,
@@ -188,9 +195,14 @@ def public_product_out(product):
         "long_description": product.long_description,
         **_images_out(product),
         **{name: getattr(product, name) for name in DETAIL_FIELDS},
+        **{name: getattr(product, name) for name in PACK_FIELDS},
         "srp_centavos": product.srp_centavos,
-        "unit_members_price_centavos": pricing.unit_display(
-            product.srp_centavos, product.earnings_rate
+        "unit_members_price_centavos": members_price,
+        "price_per_serving_centavos": pricing.per_serving(
+            product.srp_centavos, product.servings_per_pack
+        ),
+        "members_price_per_serving_centavos": pricing.per_serving(
+            members_price, product.servings_per_pack
         ),
         "revision": product.revision,
     }
@@ -240,6 +252,23 @@ def _text(shortest, longest):
     return check
 
 
+def _faq(value):
+    """A list of {"q", "a"} pairs, stripped; the cleaned list is what is stored."""
+    if not isinstance(value, list) or len(value) > FAQ_MAX_ITEMS:
+        return False, None
+    cleaned = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"q", "a"}:
+            return False, None
+        if not isinstance(item["q"], str) or not isinstance(item["a"], str):
+            return False, None
+        q, a = item["q"].strip(), item["a"].strip()
+        if not 1 <= len(q) <= FAQ_Q_MAX or not 1 <= len(a) <= FAQ_A_MAX:
+            return False, None
+        cleaned.append({"q": q, "a": a})
+    return True, cleaned
+
+
 def _category(value):
     value = value.strip()
     return value == "" or value in CATEGORIES, value
@@ -283,7 +312,15 @@ def field_errors(data):
         if name == "is_active":
             cleaned[name] = value
             continue
-        if name in WHOLE_NUMBER_MAX:
+        if name == "servings_per_pack":  # null clears it
+            if value is None or (_whole(value) and 1 <= value <= SERVINGS_MAX):
+                cleaned[name] = value
+            else:
+                errors[name] = FIELD_MESSAGES[name]
+            continue
+        if name == "faq":
+            ok, result = _faq(value)
+        elif name in WHOLE_NUMBER_MAX:
             most = WHOLE_NUMBER_MAX[name]
             ok = _whole(value) and value >= 1 and (most is None or value <= most)
             result = value

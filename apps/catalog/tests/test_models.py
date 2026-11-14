@@ -18,6 +18,8 @@ COPIED = {
     **{f"image_key_{n}": ("CharField", 200, False) for n in (2, 3, 4, 5)},
     **{name: ("TextField", None, False)
        for name in ("features", "specifications", "advantages", "benefits")},
+    "servings_per_pack": ("PositiveSmallIntegerField", None, True),
+    "faq": ("JSONField", None, False),
     "weight_kg": ("DecimalField", (10, 2), False),
     "srp_centavos": ("PositiveBigIntegerField", None, False),
     "earnings_rate": ("DecimalField", (5, 4), False), "is_active": ("BooleanField", None, False),

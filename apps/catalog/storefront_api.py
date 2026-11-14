@@ -19,6 +19,11 @@ from apps.storefront import services as storefront
 router = Router()
 
 
+class FaqItem(Schema):
+    q: str
+    a: str
+
+
 class ProductPublic(Schema):
     id: str
     code: str
@@ -30,10 +35,14 @@ class ProductPublic(Schema):
     specifications: str
     advantages: str
     benefits: str
+    servings_per_pack: int | None
+    faq: list[FaqItem]
     image_url: str | None  # photo slot 1
     image_urls: list[str | None]  # always 5: slots 1 to 5, null where empty
     srp_centavos: int
     unit_members_price_centavos: int
+    price_per_serving_centavos: int | None  # SRP / servings, half-up; null without servings
+    members_price_per_serving_centavos: int | None
     revision: int
 
 

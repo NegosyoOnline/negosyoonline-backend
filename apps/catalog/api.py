@@ -17,6 +17,7 @@ and the sizes are fixed-format text. A product is named by its public id; no row
 appears in a route or a response.
 """
 from datetime import datetime
+from typing import Any
 
 from ninja import Field, Query, Router, Schema
 from pydantic import ConfigDict, StrictBool, StrictInt
@@ -63,6 +64,8 @@ class ProductCreateIn(StrictSchema):
     specifications: str = ""
     advantages: str = ""
     benefits: str = ""
+    servings_per_pack: StrictInt | None = None  # 1 to 999, or not set
+    faq: list[Any] = Field(default_factory=list)  # [{"q", "a"}]; shape checked in services
     category: str = ""  # barley, drinks, essentials, beauty, or blank
     weight_kg: str = "0.00"
     volume_slot: str | None = None  # still accepted; derived from the sizes when they are given
@@ -90,6 +93,8 @@ class ProductUpdateIn(StrictSchema):
     specifications: str | None = None
     advantages: str | None = None
     benefits: str | None = None
+    servings_per_pack: StrictInt | None = None  # null clears it
+    faq: list[Any] | None = None
     category: str | None = None
     weight_kg: str | None = None
     volume_slot: str | None = None  # still accepted, but derived from the sizes when given
@@ -102,6 +107,11 @@ class ProductUpdateIn(StrictSchema):
     is_active: StrictBool = None
 
 
+class FaqItem(Schema):
+    q: str
+    a: str
+
+
 class ProductValues(Schema):
     code: str
     name: str
@@ -111,6 +121,8 @@ class ProductValues(Schema):
     specifications: str
     advantages: str
     benefits: str
+    servings_per_pack: int | None
+    faq: list[FaqItem]
     category: str
     image_url: str | None  # photo slot 1
     image_urls: list[str | None]  # always 5: slots 1 to 5, null where empty

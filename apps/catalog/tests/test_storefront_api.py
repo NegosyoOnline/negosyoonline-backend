@@ -13,7 +13,8 @@ LIST = "/storefront/v1/catalog/products/"
 KEYS = {
     "id", "code", "name", "category", "short_description", "long_description", "image_url",
     "srp_centavos", "unit_members_price_centavos", "revision", "image_urls", "features",
-    "specifications", "advantages", "benefits",
+    "specifications", "advantages", "benefits", "servings_per_pack", "faq",
+    "price_per_serving_centavos", "members_price_per_serving_centavos",
 }
 NEVER = ("earnings_rate", "is_active", "weight", "changed_by", "seed_", "source", "image_key",
          "_cm", "volume", "shipping")
@@ -99,3 +100,56 @@ class CatalogStorefrontTests(SurfaceTestCase):
             with override_settings(**off):
                 self.assert_answer(self.listed(), 404, NOT_FOUND)
                 self.assert_answer(self.call(path=f"{LIST}{product.public_id}/"), 404, NOT_FOUND)
+
+
+@switched_on
+class ServingsAndFaqStorefrontTests(SurfaceTestCase):
+    def setUp(self):
+        super().setUp()
+        self.site = make_subscription().site
+
+    def body(self, product, host=HOST):
+        response = self.call(host, path=f"{LIST}{product.public_id}/")
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def test_without_servings_the_per_serving_values_are_null_and_the_faq_is_empty(self):
+        body = self.body(make_product())
+        self.assertEqual(
+            (body["servings_per_pack"], body["faq"], body["price_per_serving_centavos"],
+             body["members_price_per_serving_centavos"]),
+            (None, [], None, None),
+        )
+
+    def test_per_serving_is_rounded_half_up_from_the_srp_and_the_members_price(self):
+        # 120000 / 7 = 17142.857 -> 17143; members 120000 x 0.6 = 72000 / 7 = 10285.714 -> 10286
+        product = make_product("SERV-1", "Serv", 120000, "0.4000")
+        CatalogProduct.objects.filter(pk=product.pk).update(
+            servings_per_pack=7, faq=[{"q": "Why?", "a": "Because."}]
+        )
+        body = self.body(product)
+        self.assertEqual(body["servings_per_pack"], 7)
+        self.assertEqual(body["faq"], [{"q": "Why?", "a": "Because."}])
+        self.assertEqual(body["price_per_serving_centavos"], 17143)
+        self.assertEqual(body["members_price_per_serving_centavos"], 10286)
+        self.assertEqual(
+            body["members_price_per_serving_centavos"],
+            pricing.per_serving(body["unit_members_price_centavos"], 7),
+        )
+
+    def test_a_half_centavo_rounds_up(self):
+        product = make_product("SERV-2", "Half", 1001, "0.2000")
+        CatalogProduct.objects.filter(pk=product.pk).update(servings_per_pack=2)
+        body = self.body(product)
+        self.assertEqual(body["price_per_serving_centavos"], 501)  # 500.5
+        self.assertEqual(body["members_price_per_serving_centavos"], 401)  # 801 / 2 = 400.5
+
+    def test_another_site_reads_the_same_values(self):
+        product = make_product("SERV-3", "Shared", 30000, "0.4000")
+        CatalogProduct.objects.filter(pk=product.pk).update(servings_per_pack=30)
+        other = make_subscription("ben@example.test", "bens-store").site
+        first = self.body(product)
+        second = self.body(product, host="bens-store.negosyotest.com")
+        self.assertEqual(first, second)
+        self.assertEqual(second["price_per_serving_centavos"], 1000)
+        self.assertEqual(other.template, self.site.template)

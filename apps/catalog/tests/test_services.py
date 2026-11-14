@@ -52,7 +52,7 @@ class ReadServiceTests(TestCase):
             "srp_centavos", "earnings_rate", "unit_members_price_centavos", "is_active",
             "revision", "updated_at", "volume_slot", "shipping_qty", "length_cm", "width_cm",
             "height_cm", "category", "image_url", "image_urls", "features", "specifications",
-            "advantages", "benefits",
+            "advantages", "benefits", "servings_per_pack", "faq",
         })
         self.assertEqual(
             (out["id"], out["srp_centavos"], out["earnings_rate"],

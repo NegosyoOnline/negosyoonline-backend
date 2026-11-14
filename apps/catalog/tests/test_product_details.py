@@ -380,3 +380,93 @@ class StorefrontOutputTests(SurfaceTestCase):
         body = self.call(path="/storefront/v1/catalog/products/").json()["products"][0]
         self.assertEqual([body[name] for name in TEXTS], ["", "", "", ""])
         self.assertEqual((body["image_url"], body["image_urls"]), (None, [None] * 5))
+
+
+class ServingsAndFaqTests(CatalogApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.designate()
+
+    def test_a_create_without_them_has_no_servings_and_an_empty_faq(self):
+        body = self.created()
+        self.assertEqual((body["servings_per_pack"], body["faq"]), (None, []))
+
+    def test_both_round_trip_through_create_update_revisions_and_the_list(self):
+        faq = [{"q": "  How?  ", "a": " Like this. "}]
+        body = self.created(servings_per_pack=30, faq=faq)
+        self.assertEqual((body["servings_per_pack"], body["faq"]), (30, [{"q": "How?", "a": "Like this."}]))
+        again = self.update(body["id"], {"revision": 1, "servings_per_pack": 60}).json()
+        self.assertEqual((again["servings_per_pack"], again["revision"]), (60, 2))
+        newer = self.update(body["id"], {"revision": 2, "faq": [{"q": "A", "a": "B"}]}).json()
+        self.assertEqual((newer["faq"], newer["revision"]), ([{"q": "A", "a": "B"}], 3))
+        rows = self.revisions(body["id"]).json()["revisions"]
+        self.assertEqual([r["servings_per_pack"] for r in rows], [60, 60, 30])
+        self.assertEqual([r["faq"] for r in rows],
+                         [[{"q": "A", "a": "B"}], [{"q": "How?", "a": "Like this."}], [{"q": "How?", "a": "Like this."}]])
+        listed = self.listed()["products"][0]
+        self.assertEqual((listed["servings_per_pack"], listed["faq"]), (60, [{"q": "A", "a": "B"}]))
+
+    def test_the_same_values_write_no_revision_and_null_and_empty_clear(self):
+        body = self.created(servings_per_pack=5, faq=[{"q": "A", "a": "B"}])
+        same = self.update(body["id"], {"revision": 1, "servings_per_pack": 5, "faq": [{"q": " A", "a": "B "}]})
+        self.assertEqual(same.json()["revision"], 1)
+        cleared = self.update(body["id"], {"revision": 1, "servings_per_pack": None, "faq": []}).json()
+        self.assertEqual((cleared["servings_per_pack"], cleared["faq"], cleared["revision"]), (None, [], 2))
+
+    def test_servings_must_be_a_whole_number_from_1_to_999(self):
+        for good in (1, 999):
+            ok = self.create(code=f"SV-{good}", servings_per_pack=good)
+            self.assertEqual(ok.status_code, 201, ok.content)
+        for bad in (0, 1000, -1, 1.5, "7", True):
+            with self.subTest(bad=bad):
+                response = self.create(code="SV-BAD", servings_per_pack=bad)
+                self.assertIn("servings_per_pack", self.fields(response))
+        product = self.created(code="SV-UPD")
+        for bad in (0, 1000):
+            response = self.update(product["id"], {"revision": 1, "servings_per_pack": bad})
+            self.assertEqual(self.fields(response), {"servings_per_pack": [services.FIELD_MESSAGES["servings_per_pack"]]})
+
+    def test_faq_limits_and_shape(self):
+        pair = {"q": "Q", "a": "A"}
+        ok = self.create(code="FQ-OK", faq=[pair] * 10)
+        self.assertEqual(ok.status_code, 201, ok.content)
+        ok = self.create(code="FQ-MAX", faq=[{"q": "q" * 150, "a": "a" * 1000}])
+        self.assertEqual(ok.status_code, 201, ok.content)
+        bad = {
+            "eleven": [pair] * 11,
+            "long q": [{"q": "q" * 151, "a": "A"}],
+            "long a": [{"q": "Q", "a": "a" * 1001}],
+            "empty q": [{"q": "  ", "a": "A"}],
+            "empty a": [{"q": "Q", "a": ""}],
+            "missing key": [{"q": "Q"}],
+            "extra key": [{"q": "Q", "a": "A", "x": "y"}],
+            "number": [{"q": 1, "a": "A"}],
+            "not a dict": ["Q"],
+        }
+        for label, value in bad.items():
+            with self.subTest(label):
+                response = self.create(code="FQ-BAD", faq=value)
+                self.assertEqual(self.fields(response), {"faq": [services.FIELD_MESSAGES["faq"]]})
+        product = self.created(code="FQ-UPD")
+        for value in ([pair] * 11, [{"q": "Q"}], None):
+            response = self.update(product["id"], {"revision": 1, "faq": value})
+            self.assertIn("faq", self.fields(response))
+
+    def test_a_non_list_faq_is_refused(self):
+        response = self.create(code="FQ-STR", faq="Q and A")
+        self.assertEqual(response.status_code, 400, response.content)
+
+    def test_only_the_owner_site_writes_them_and_others_see_the_same_values(self):
+        product = self.created(servings_per_pack=10, faq=[{"q": "A", "a": "B"}])
+        before = catalog_rows()
+        response = self.update(
+            product["id"], {"revision": 1, "servings_per_pack": 2, "faq": []},
+            site=self.ben_site, client=self.ben,
+        )
+        self.error(response, 403, "catalog_read_only")
+        self.assertEqual(catalog_rows(), before)
+        seen = self.listed(site=self.ben_site, client=self.ben)["products"][0]
+        self.assertEqual((seen["servings_per_pack"], seen["faq"]), (10, [{"q": "A", "a": "B"}]))
+        stranger = self.update(product["id"], {"revision": 1, "faq": []}, site=self.site, client=self.ben)
+        self.assertIn(stranger.status_code, (403, 404))
+        self.assertEqual(catalog_rows(), before)
