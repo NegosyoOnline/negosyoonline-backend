@@ -20,7 +20,7 @@ NOT_FOUND = {"error": {"code": "not_found", "message": "Not found."}}
 # What the guard expects from the URLconf today (12 + 16 + 2 + 6 + 5 + 8 + 7 + 4 + 7 = 67). The
 # "sites" count includes the 5 member-recovery routes under /sites/{site_id}/members/.
 EXPECTED_COUNTS = {
-    "sites": 12, "billing": 16, "sante": 2, "catalog": 7, "payments": 5, "pack_owner": 8,
+    "sites": 12, "billing": 16, "sante": 2, "catalog": 8, "payments": 5, "pack_owner": 8,
     "shop_owner": 7, "meta_ads": 4, "inquiries": 7,
 }
 
@@ -44,7 +44,7 @@ class RegistryGuardTests(TwoOwnersTestCase):
         for _, template in routes:
             counts[app_of(template)] = counts.get(app_of(template), 0) + 1
         self.assertEqual(counts, EXPECTED_COUNTS)
-        self.assertEqual(len(OWNER_ROUTES), 68)
+        self.assertEqual(len(OWNER_ROUTES), 69)
 
 
 class ForeignSiteTests(TwoOwnersTestCase):

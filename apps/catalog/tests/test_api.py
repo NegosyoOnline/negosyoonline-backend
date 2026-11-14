@@ -29,6 +29,7 @@ ROUTES = [
     ("GET", "/sites/{site_id}/catalog/products/{product_id}/revisions/"),
     ("POST", "/sites/{site_id}/catalog/products/{product_id}/image/"),
     ("DELETE", "/sites/{site_id}/catalog/products/{product_id}/image/"),
+    ("POST", "/sites/{site_id}/catalog/shipping-preview/"),
 ]
 
 
@@ -404,7 +405,7 @@ class IsolationTests(CatalogApiTestCase):
 
     def test_every_route_under_a_site_is_one_this_test_knows(self):
         self.assertEqual(sorted(routes_under_a_site(router)), sorted(ROUTES))
-        self.assertEqual(len(router.path_operations), 5)  # none outside a site
+        self.assertEqual(len(router.path_operations), 6)  # none outside a site
 
     def test_another_accounts_site(self):
         self.assert_same_404(self.ben_site.public_id)
@@ -454,6 +455,7 @@ class SwitchedOffTests(CatalogApiTestCase):
             lambda: self.client.delete(
                 f"{self.products}{product.public_id}/image/?revision=1", secure=True
             ),
+            lambda: self.post(self.preview_url, {"weight_kg": "1.00"}),
         ]
         self.assertEqual(len(calls), len(ROUTES))
         off = (

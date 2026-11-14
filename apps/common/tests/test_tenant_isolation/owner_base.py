@@ -99,6 +99,7 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/catalog/products/{product_id}/revisions/"): 200,
     ("POST", "/sites/{site_id}/catalog/products/{product_id}/image/"): 200,
     ("DELETE", "/sites/{site_id}/catalog/products/{product_id}/image/"): 200,
+    ("POST", "/sites/{site_id}/catalog/shipping-preview/"): 200,
     # payments
     ("GET", "/sites/{site_id}/payment-methods/"): 200,
     ("PATCH", "/sites/{site_id}/payment-methods/"): 200,
@@ -397,6 +398,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
                 return {"product_ids": list(
                     CatalogProduct.objects.order_by("pk").values_list("public_id", flat=True)
                 )}
+            if template.endswith("/shipping-preview/"):
+                return {"weight_kg": "1.00"}
             if method == "PATCH":
                 return {"revision": self.product.revision, "name": self.product.name}
             self.creates += 1

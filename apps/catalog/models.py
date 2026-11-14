@@ -50,6 +50,17 @@ class CatalogProduct(models.Model):
     # Storage key of the one product image in the public media store; blank means no image.
     # The public URL is worked out on output (media.py), never stored.
     image_key = models.CharField(max_length=200, blank=True, default="")
+    # Extra photo slots 2 to 5 (slot 1 is image_key above), same kind of key; blank means empty.
+    image_key_2 = models.CharField(max_length=200, blank=True, default="")
+    image_key_3 = models.CharField(max_length=200, blank=True, default="")
+    image_key_4 = models.CharField(max_length=200, blank=True, default="")
+    image_key_5 = models.CharField(max_length=200, blank=True, default="")
+    # Longer product details, at most 5000 characters each (checked in services). Field source:
+    # TWCinc app/shops/models.py:178-183 (feature, specification, advantage, benefit).
+    features = models.TextField(blank=True, default="")
+    specifications = models.TextField(blank=True, default="")
+    advantages = models.TextField(blank=True, default="")
+    benefits = models.TextField(blank=True, default="")
     weight_kg = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0"))
     # Shipping inputs: null means not set.
     volume_slot = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
@@ -134,6 +145,17 @@ class CatalogProductRevision(models.Model):
     long_description = models.TextField(blank=True)
     category = models.CharField(max_length=20, blank=True, default="")
     image_key = models.CharField(max_length=200, blank=True, default="")
+    # Extra photo slots 2 to 5 (slot 1 is image_key above), same kind of key; blank means empty.
+    image_key_2 = models.CharField(max_length=200, blank=True, default="")
+    image_key_3 = models.CharField(max_length=200, blank=True, default="")
+    image_key_4 = models.CharField(max_length=200, blank=True, default="")
+    image_key_5 = models.CharField(max_length=200, blank=True, default="")
+    # Longer product details, at most 5000 characters each (checked in services). Field source:
+    # TWCinc app/shops/models.py:178-183 (feature, specification, advantage, benefit).
+    features = models.TextField(blank=True, default="")
+    specifications = models.TextField(blank=True, default="")
+    advantages = models.TextField(blank=True, default="")
+    benefits = models.TextField(blank=True, default="")
     weight_kg = models.DecimalField(max_digits=10, decimal_places=2)
     volume_slot = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     shipping_qty = models.PositiveIntegerField(null=True, blank=True)

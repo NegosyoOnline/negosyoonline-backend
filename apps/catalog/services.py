@@ -14,7 +14,8 @@ row (a create or a reorder) or the product row (an update).
 """
 import hashlib
 import re
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
+from math import ceil
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -27,6 +28,7 @@ from apps.common.errors import ApiError
 from apps.common.throttle import hit
 from apps.sante import services as sante
 from apps.sites import templates
+from apps.shop import constants as C, shipping, zones
 from apps.sites.models import Site
 
 CATALOG_KEYS = {templates.SANTE: "sante"}  # which catalog a template's sites read
@@ -36,12 +38,15 @@ RATE_MIN = Decimal("0.1000")
 RATE_MAX = Decimal("0.5000")
 WRITE_LIMIT, WRITE_WINDOW = 120, 3600  # catalog writes per account per hour
 DIM_FIELDS = ("length_cm", "width_cm", "height_cm")
+IMAGE_SLOTS = 5
+IMAGE_FIELDS = ("image_key", "image_key_2", "image_key_3", "image_key_4", "image_key_5")
+DETAIL_FIELDS = ("features", "specifications", "advantages", "benefits")  # at most 5000 each
 SHIPPING_FIELDS = ("volume_slot", "shipping_qty")
 OPTIONAL_FIELDS = (*SHIPPING_FIELDS, *DIM_FIELDS)  # may be left out of a create
 CATEGORIES = ("barley", "drinks", "essentials", "beauty")  # blank is allowed too
 CENTRAL_FIELDS = (
-    "name", "short_description", "long_description", "category", "image_key", "weight_kg",
-    "srp_centavos", "earnings_rate", "is_active", *OPTIONAL_FIELDS,
+    "name", "short_description", "long_description", *DETAIL_FIELDS, "category", *IMAGE_FIELDS,
+    "weight_kg", "srp_centavos", "earnings_rate", "is_active", *OPTIONAL_FIELDS,
 )
 IMAGE_MESSAGES = {
     private_files.WRONG_TYPE: "Upload a JPEG, PNG or WebP image.",
@@ -56,6 +61,7 @@ RATE_RE = re.compile(r"[0-9](\.[0-9]{1,4})?")
 SLOT_RE = re.compile(r"[0-9]{1,4}(\.[0-9]{1,2})?")
 DIM_RE = re.compile(r"[0-9]{1,5}(\.[0-9])?")
 
+SLOT_MSG = "Choose a photo slot from 1 to 5."
 READ_ONLY_MSG = "Only the catalog owner site can change the shared catalog."
 STALE_MSG = "This product was changed since you loaded it. Reload it and try again."
 CODE_TAKEN_MSG = "That product code is already in the catalog."
@@ -65,6 +71,7 @@ FIELD_MESSAGES = {
     "name": "Use 1 to 120 characters.",
     "short_description": "Use up to 500 characters.",
     "long_description": "Use up to 20000 characters.",
+    **{name: "Use up to 5000 characters." for name in DETAIL_FIELDS},
     "category": "Choose barley, drinks, essentials or beauty, or leave it blank.",
     "weight_kg": "Enter a weight in kg of 0 or more, with up to 2 decimal places.",
     "srp_centavos": "Enter an SRP above 0, in whole centavos.",
@@ -124,6 +131,13 @@ def _fixed(value, places):
     return None if value is None else f"{value:.{places}f}"
 
 
+def _images_out(row):
+    """`image_urls` is always five entries (slot 1 to 5), null where empty; `image_url` is
+    slot 1, kept for readers that only know one photo."""
+    urls = [media.url_for(getattr(row, name)) for name in IMAGE_FIELDS]
+    return {"image_url": urls[0], "image_urls": urls}
+
+
 def _shared_out(row):
     """The values a product and its revisions both carry. Amounts are whole centavos; the
     other numbers are fixed-format text."""
@@ -133,7 +147,8 @@ def _shared_out(row):
         "short_description": row.short_description,
         "long_description": row.long_description,
         "category": row.category,
-        "image_url": media.url_for(row.image_key),
+        **_images_out(row),
+        **{name: getattr(row, name) for name in DETAIL_FIELDS},
         "weight_kg": _fixed(row.weight_kg, 2),
         "srp_centavos": row.srp_centavos,
         "earnings_rate": _fixed(row.earnings_rate, 4),
@@ -171,7 +186,8 @@ def public_product_out(product):
         "category": product.category,
         "short_description": product.short_description,
         "long_description": product.long_description,
-        "image_url": media.url_for(product.image_key),
+        **_images_out(product),
+        **{name: getattr(product, name) for name in DETAIL_FIELDS},
         "srp_centavos": product.srp_centavos,
         "unit_members_price_centavos": pricing.unit_display(
             product.srp_centavos, product.earnings_rate
@@ -243,6 +259,7 @@ FIELD_CHECKS = {
     "name": _text(1, 120),
     "short_description": _text(0, 500),
     "long_description": _text(0, 20000),
+    **{name: _text(0, 5000) for name in DETAIL_FIELDS},
     "category": _category,
     "weight_kg": _number(WEIGHT_RE, lambda number: number >= 0),
     "earnings_rate": _number(RATE_RE, lambda number: RATE_MIN <= number <= RATE_MAX),
@@ -478,10 +495,19 @@ def _locked_product(site, product_id, revision):
     return product
 
 
-def set_image(account, site, product_id, upload, revision):
-    """Store `upload` as the product's one image, replacing any. A write that is not allowed
-    (not the owner site, no store, a bad file) stores nothing. The old file is removed once the
-    change is committed; a new file whose change failed is removed at once."""
+def _slot_field(slot):
+    """The model field of photo slot 1 to 5."""
+    if not _whole(slot) or not 1 <= slot <= IMAGE_SLOTS:
+        raise _invalid({"slot": SLOT_MSG})
+    return IMAGE_FIELDS[slot - 1]
+
+
+def set_image(account, site, product_id, upload, revision, slot=1):
+    """Store `upload` as the product's photo in `slot` (1 to 5), replacing any there. A write
+    that is not allowed (not the owner site, no store, a bad file) stores nothing. The old file
+    is removed once the change is committed; a new file whose change failed is removed at once.
+    Only that slot changes."""
+    field = _slot_field(slot)
     if not is_writer(site):
         raise _read_only()
     if not media.configured():
@@ -500,10 +526,10 @@ def set_image(account, site, product_id, upload, revision):
         with transaction.atomic():
             site = _writer_site(account, site)
             product = _locked_product(site, product_id, revision)
-            old_key = product.image_key
-            product.image_key = key
+            old_key = getattr(product, field)
+            setattr(product, field, key)
             product.revision += 1
-            product.save(update_fields=["image_key", "revision", "updated_at"])
+            product.save(update_fields=[field, "revision", "updated_at"])
             _append_revision(product, **_owner_writer(account, site))
             transaction.on_commit(lambda: media.discard(old_key))
     except BaseException:
@@ -513,20 +539,94 @@ def set_image(account, site, product_id, upload, revision):
 
 
 @transaction.atomic
-def clear_image(account, site, product_id, revision):
-    """Remove the product's image. A product with none is returned as it is, writing no
-    revision. The stored file is removed once the change is committed."""
+def clear_image(account, site, product_id, revision, slot=1):
+    """Remove the product's photo in `slot`, and only that slot. A slot with none is returned
+    as it is, writing no revision. The stored file is removed once the change is committed."""
+    field = _slot_field(slot)
     site = _writer_site(account, site)
     product = _locked_product(site, product_id, revision)
-    if not product.image_key:
+    old_key = getattr(product, field)
+    if not old_key:
         return product
-    old_key = product.image_key
-    product.image_key = ""
+    setattr(product, field, "")
     product.revision += 1
-    product.save(update_fields=["image_key", "revision", "updated_at"])
+    product.save(update_fields=[field, "revision", "updated_at"])
     _append_revision(product, **_owner_writer(account, site))
     transaction.on_commit(lambda: media.discard(old_key))
     return product
+
+
+# The shipping preview (read-only; nothing is stored)
+
+# One slot is the Medium box volume / 100 (TWCinc app/shops/services/dimensions.py SLOT_CM3,
+# an inferred figure there too). Only the volume part of TWCinc's derivation is ported: the
+# smallest-box fit floor needs the package sizes, which apps/shop/zones.py does not carry.
+SLOT_CM3 = Decimal("317.4")
+SLOT_STEP = Decimal("0.1")
+PREVIEW_NCR = {"city": "Metro Manila"}
+PREVIEW_MINDANAO = {"province": "Davao del Sur"}
+PREVIEW_REASONS = {
+    "weight": "Enter the weight in kg (above 0) to see the shipping fee.",
+    "dims": "Enter length, width and height together (each above 0) to see the shipping fee.",
+    "qty": "Enter the units per box (1 or more) to see the shipping fee.",
+    "table": "This load is above the shipping rate table, so no fee can be shown.",
+    "zero": "Customers are not charged shipping yet; this is the fee that would apply.",
+}
+
+
+def _billable_kg(total_weight, total_slots):
+    """The chargeable kg of the packages fee_centavos picks for this load: a pouch bills its
+    weight, a box at least its minimum. Same package choice as apps/shop/shipping.fee_centavos."""
+    for pkg in zones.PACKAGING_ORDER:
+        if total_slots <= zones.SLOT_CAPACITY[pkg]:
+            packages = [(pkg, total_weight)]
+            break
+    else:
+        boxes = int(ceil(total_slots / zones.SLOT_CAPACITY["BL"])) or 1
+        packages = [("BL", total_weight / Decimal(boxes))] * boxes
+    total = Decimal(0)
+    for pkg, weight in packages:
+        total += weight if pkg in zones.POUCHES else max(weight, zones.BOX_MIN_KG[pkg])
+    return total
+
+
+def shipping_preview(site, data):
+    """The J&T fee for ONE unit to an NCR address and to a Mindanao address, from
+    apps/shop/shipping.fee_centavos, with the billed weight. Writes nothing. Numbers are
+    checked with the product's own rules (a bad one is a field error); a value that is well
+    formed but cannot price the product (no weight, partly entered sizes, no units per box)
+    gives null amounts and a plain reason."""
+    if not is_writer(site):
+        raise _read_only()
+    data = {name: value for name, value in data.items() if value is not None}
+    cleaned, errors = field_errors(data)
+    if errors:
+        raise _invalid(errors)
+    empty = {"ncr_centavos": None, "mindanao_centavos": None, "billable_kg": None}
+    weight = cleaned.get("weight_kg", Decimal(0))
+    if weight <= 0:
+        return {**empty, "reason": PREVIEW_REASONS["weight"]}
+    if not all(name in cleaned for name in DIM_FIELDS):
+        return {**empty, "reason": PREVIEW_REASONS["dims"]}
+    if "shipping_qty" not in cleaned:
+        return {**empty, "reason": PREVIEW_REASONS["qty"]}
+    volume = cleaned["length_cm"] * cleaned["width_cm"] * cleaned["height_cm"]
+    slot = (volume / SLOT_CM3).quantize(SLOT_STEP, rounding=ROUND_CEILING)
+    items = [shipping.ShippingItem(
+        weight_kg=weight, volume_slot=slot, shipping_qty=cleaned["shipping_qty"], quantity=1
+    )]
+    try:
+        ncr = shipping.fee_centavos(items, zones.dest_zone(PREVIEW_NCR))
+        mindanao = shipping.fee_centavos(items, zones.dest_zone(PREVIEW_MINDANAO))
+    except shipping.ShippingUnavailable:
+        return {**empty, "reason": PREVIEW_REASONS["table"]}
+    units = Decimal(cleaned["shipping_qty"])
+    billable = _billable_kg(weight * units, slot * units)
+    return {
+        "ncr_centavos": ncr, "mindanao_centavos": mindanao,
+        "billable_kg": _fixed(billable, 2),
+        "reason": PREVIEW_REASONS["zero"] if shipping.policy() == C.ZERO else "",
+    }
 
 
 # The seed (manage.py catalog_seed_sante)

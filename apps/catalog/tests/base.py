@@ -36,6 +36,10 @@ def revisions_url(site_id, product_id):
     return f"/v1/sites/{site_id}/catalog/products/{product_id}/revisions/"
 
 
+def preview_url(site_id):
+    return f"/v1/sites/{site_id}/catalog/shipping-preview/"
+
+
 def operator(username="catalog-op"):
     users = get_user_model().objects
     return users.filter(username=username).first() or users.create_superuser(
@@ -82,6 +86,8 @@ def catalog_call(case, method, path, client=None):
         return _image_call(case, method, path, revision, client)
     if method == "GET":
         return case.get(path, client=client)
+    if path.endswith("/shipping-preview/"):  # read-only: a plain weight prices nothing
+        return case.send("post", path, {"weight_kg": "1.00"}, client=client)
     if path.endswith("/products/order/"):  # every product there is, in the order it has
         ids = list(CatalogProduct.objects.order_by("pk").values_list("public_id", flat=True))
         return case.send("post", path, {"product_ids": ids}, client=client)
@@ -176,6 +182,7 @@ class CatalogApiTestCase(SitesApiTestCase):
         self.ben, self.ben_site = self.subscriber("ben@example.test", "bens-store")
         self.cora, self.cora_site = self.subscriber("cora@example.test", "coras-store")
         self.products = products_url(self.site_id)
+        self.preview_url = preview_url(self.site_id)
 
     def subscriber(self, email, subdomain):
         client = self.other_client(email)

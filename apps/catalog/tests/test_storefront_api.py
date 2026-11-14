@@ -12,7 +12,8 @@ from apps.storefront.tests.base import HOST, NOT_FOUND, UNAUTHENTICATED, Surface
 LIST = "/storefront/v1/catalog/products/"
 KEYS = {
     "id", "code", "name", "category", "short_description", "long_description", "image_url",
-    "srp_centavos", "unit_members_price_centavos", "revision",
+    "srp_centavos", "unit_members_price_centavos", "revision", "image_urls", "features",
+    "specifications", "advantages", "benefits",
 }
 NEVER = ("earnings_rate", "is_active", "weight", "changed_by", "seed_", "source", "image_key",
          "_cm", "volume", "shipping")

@@ -59,6 +59,10 @@ class ProductCreateIn(StrictSchema):
     earnings_rate: str
     short_description: str = ""
     long_description: str = ""
+    features: str = ""  # the four texts: at most 5000 characters each
+    specifications: str = ""
+    advantages: str = ""
+    benefits: str = ""
     category: str = ""  # barley, drinks, essentials, beauty, or blank
     weight_kg: str = "0.00"
     volume_slot: str | None = None  # left out or null: not set
@@ -82,6 +86,10 @@ class ProductUpdateIn(StrictSchema):
     name: str | None = None
     short_description: str | None = None
     long_description: str | None = None
+    features: str | None = None
+    specifications: str | None = None
+    advantages: str | None = None
+    benefits: str | None = None
     category: str | None = None
     weight_kg: str | None = None
     volume_slot: str | None = None
@@ -99,8 +107,13 @@ class ProductValues(Schema):
     name: str
     short_description: str
     long_description: str
+    features: str
+    specifications: str
+    advantages: str
+    benefits: str
     category: str
-    image_url: str | None
+    image_url: str | None  # photo slot 1
+    image_urls: list[str | None]  # always 5: slots 1 to 5, null where empty
     weight_kg: str
     srp_centavos: int
     earnings_rate: str
@@ -159,9 +172,9 @@ def product_update(request, site_id: str, product_id: str, payload: ProductUpdat
 
 
 @router.post("/sites/{site_id}/catalog/products/{product_id}/image/", response=ProductOut)
-def product_image_set(request, site_id: str, product_id: str):
+def product_image_set(request, site_id: str, product_id: str, slot: int = Query(1)):
     """A form post (multipart): `file` is a JPEG, PNG or WebP of at most 2 MB, and `revision`
-    is the revision the caller loaded."""
+    is the revision the caller loaded. `?slot=1..5` names the photo slot (default 1)."""
     revision = request.POST.get("revision", "")
     if not revision.isdigit() or not 1 <= int(revision) <= 2**31:
         raise ApiError(
@@ -170,15 +183,42 @@ def product_image_set(request, site_id: str, product_id: str):
         )
     product = services.set_image(
         request.account, request.catalog_site, product_id, request.FILES.get("file"),
-        int(revision),
+        int(revision), slot,
     )
     return services.product_out(product)
 
 
 @router.delete("/sites/{site_id}/catalog/products/{product_id}/image/", response=ProductOut)
-def product_image_clear(request, site_id: str, product_id: str, revision: int = Query(..., ge=1)):
-    product = services.clear_image(request.account, request.catalog_site, product_id, revision)
+def product_image_clear(
+    request, site_id: str, product_id: str, revision: int = Query(..., ge=1),
+    slot: int = Query(1),
+):
+    """Clears only the photo in `?slot=1..5` (default 1)."""
+    product = services.clear_image(
+        request.account, request.catalog_site, product_id, revision, slot
+    )
     return services.product_out(product)
+
+
+class ShippingPreviewIn(StrictSchema):
+    weight_kg: str
+    length_cm: str | None = None
+    width_cm: str | None = None
+    height_cm: str | None = None
+    shipping_qty: StrictInt | None = None
+
+
+class ShippingPreviewOut(Schema):
+    ncr_centavos: int | None
+    mindanao_centavos: int | None
+    billable_kg: str | None
+    reason: str
+
+
+@router.post("/sites/{site_id}/catalog/shipping-preview/", response=ShippingPreviewOut)
+def shipping_preview(request, site_id: str, payload: ShippingPreviewIn):
+    """Owner only, read-only: the fee for one unit to NCR and to Mindanao. Nothing is stored."""
+    return services.shipping_preview(request.catalog_site, payload.dict())
 
 
 @router.get("/sites/{site_id}/catalog/products/{product_id}/revisions/", response=RevisionListOut)

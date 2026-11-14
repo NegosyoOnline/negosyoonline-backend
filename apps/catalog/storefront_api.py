@@ -26,7 +26,12 @@ class ProductPublic(Schema):
     category: str
     short_description: str
     long_description: str
-    image_url: str | None
+    features: str
+    specifications: str
+    advantages: str
+    benefits: str
+    image_url: str | None  # photo slot 1
+    image_urls: list[str | None]  # always 5: slots 1 to 5, null where empty
     srp_centavos: int
     unit_members_price_centavos: int
     revision: int
