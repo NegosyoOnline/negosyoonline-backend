@@ -303,6 +303,7 @@ INSTALLED_APPS = [
     'apps.health',
     'apps.storefront',
     'apps.members',
+    'apps.training',
     'apps.pack',
     'apps.shop',
     'apps.meta_ads',

@@ -16,6 +16,7 @@ from apps.members.api_notices import router as member_notices_router
 from apps.members.api_owner import router as member_recovery_router
 from apps.pack.api_owner import router as pack_owner_router
 from apps.payments.api import router as payments_router
+from apps.training.api_owner import router as training_owner_router
 from apps.sante.api import router as sante_router
 from apps.shop.api_owner import router as shop_owner_router
 from apps.sites.api import router as sites_router
@@ -43,6 +44,7 @@ api.add_router("", payments_router)
 api.add_router("", pack_owner_router)
 api.add_router("", member_recovery_router)
 api.add_router("", member_notices_router)
+api.add_router("", training_owner_router)
 api.add_router("", shop_owner_router)
 api.add_router("", meta_router)
 api.add_router("", inquiries_router)
