@@ -361,3 +361,29 @@ def save_address(request, body: AddressIn):
                   if isinstance(raw, dict) else {})
     address = services.save_own_address(site, member, posted, ip=_ip(body.visitor_ip))
     return {"home_address": address, "home_address_source": "profile"}
+
+
+class AddressReadIn(Schema):
+    host: str = ""
+    visitor_ip: str = ""
+    member_token: str = ""
+
+
+class AddressReadOut(Schema):
+    home_address: dict
+    home_address_locked: bool
+
+
+@router.post("/address/read/", response=AddressReadOut)
+def read_address(request, body: AddressReadIn):
+    """The member's own address for the dashboard form: the one the checkout quote uses (saved
+    address, else the latest Membership Package order's), plus whether a recovery hold locks edits."""
+    from apps.shop.quote import home_address  # lazy: shop imports members
+
+    site = _site(body.host)
+    member = _session(site, body.member_token).member
+    address = home_address(member)[0] or {}
+    return {
+        "home_address": {k: address[k] for k in services.ADDRESS_KEYS if k in address},
+        "home_address_locked": holds.active_hold(member, "address_change") is not None,
+    }
