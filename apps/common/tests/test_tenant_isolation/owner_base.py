@@ -20,7 +20,7 @@ from apps.catalog.tests.base import FakeMedia, designate, image_file, make_produ
 from apps.invoices import services as invoice_services
 from apps.invoices.tests.test_scans import MemoryScanStore
 from apps.members import recovery
-from apps.members.models import Member
+from apps.members.models import Member, MemberNotice
 from apps.inquiries.tests import base as inquiries_base
 from apps.meta_ads.tests.base import CODE, KEY, PIXEL, TOKEN, FakeMeta, configure
 from apps.pack import constants as PACK
@@ -49,6 +49,7 @@ MISSING_CHILD = {
     "payment_id": "btp_00000000000000000000",
     "product_id": "prod_00000000000000000000",
     "member_id": "mem_00000000000000000000",
+    "notice_id": "ntc_00000000000000000000",
     "invoice_id": "mbi_00000000000000000000000000",
     "review_id": "review_00000000000000000000",
     "number": "NOBS-2026-000000",
@@ -75,6 +76,13 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/members/{member_id}/recovery/"): 200,
     ("POST", "/sites/{site_id}/members/{member_id}/recovery/check/"): 200,
     ("POST", "/sites/{site_id}/members/{member_id}/recovery/"): 200,
+    # member notices (the Subscriber's announcements and promos for their members)
+    ("GET", "/sites/{site_id}/member-notices/"): 200,
+    ("POST", "/sites/{site_id}/member-notices/"): 201,
+    ("PATCH", "/sites/{site_id}/member-notices/{notice_id}/"): 200,
+    ("POST", "/sites/{site_id}/member-notices/{notice_id}/image/"): 200,
+    ("DELETE", "/sites/{site_id}/member-notices/{notice_id}/image/"): 200,
+    ("DELETE", "/sites/{site_id}/member-notices/{notice_id}/"): 200,
     # billing
     ("GET", "/sites/{site_id}/billing/"): 200,
     ("GET", "/sites/{site_id}/billing/payment/"): 200,
@@ -156,6 +164,7 @@ APP_PREFIXES = [
     ("/sites/{site_id}/pack/", "pack_owner"), ("/sites/{site_id}/meta/", "meta_ads"),
     ("/sites/{site_id}/inquiries/", "inquiries"),
     ("/sites/{site_id}/shop/", "shop_owner"),
+    ("/sites/{site_id}/member-notices/", "member_notices"),
 ]
 
 
@@ -307,6 +316,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
             "account_id": SitePaymentAccount.objects.filter(site=site).order_by("-pk").first().public_id,
             "product_id": self.product.public_id,
             "member_id": order.member.public_id if not shop else MISSING_CHILD["member_id"],
+            "notice_id": MemberNotice.objects.create(site=site, kind="promo", title="Fixture").public_id,
             "invoice_id": self.invoice_ids[site.pk],
             "number": self.statement_numbers[site.pk],
         }
@@ -343,6 +353,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             ids.update(self.make_children(self.site))
         elif "{account_id}" in template:
             ids["account_id"] = make_payment_account(self.site).public_id
+        if "{notice_id}" in template:  # made anew: the delete uses it up
+            ids["notice_id"] = MemberNotice.objects.create(site=self.site, kind="promo", title="Fixture").public_id
         if "{ref}" in template:
             ids["ref"] = inquiries_base.REF
         if "{invoice_id}" in template:
@@ -395,6 +407,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
                     HTTP_ORIGIN=ORIGIN,
                 )
             return client.delete(f"{path}?revision={revision}", secure=True, HTTP_ORIGIN=ORIGIN)
+        if "/member-notices/" in path and path.endswith("/image/") and method == "POST":
+            return client.post(path, data={"file": image_file()}, secure=True, HTTP_ORIGIN=ORIGIN)
         if "/recovery/" in path and method == "POST":
             return self.call_recovery(path, client)
         if method == "GET":
@@ -435,6 +449,10 @@ class TwoOwnersTestCase(SitesApiTestCase):
             self.creates += 1
             return {"code": f"FX-NEW-{self.creates}", "name": "Fixture New", "srp_centavos": 9999,
                     "earnings_rate": "0.3500"}
+        if "/member-notices/" in template:
+            if method == "POST":
+                return {"kind": "announcement", "title": "Fixture notice"}
+            return {"title": "Changed"} if method == "PATCH" else None
         if template.endswith("/billing/profile/"):
             return {**PROFILE, "company_name": "Fixture Co"}
         if template.endswith("/payment-methods/"):

@@ -120,9 +120,9 @@ class FakeMedia:
     def __init__(self):
         self.files, self.deleted, self.count = {}, [], 0
 
-    def _save(self, content, content_type):
+    def _save(self, content, content_type, folder="catalog/products"):
         self.count += 1
-        key = f"catalog/products/{self.count:032x}.png"
+        key = f"{folder}/{self.count:032x}.png"
         self.files[key] = content
         return key
 

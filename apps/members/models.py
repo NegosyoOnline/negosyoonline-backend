@@ -247,3 +247,72 @@ class MemberSecurityHold(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ImmutableRecordError("A security hold is never deleted.")
+
+
+NOTICE_KINDS = [("announcement", "Announcement"), ("promo", "Promo")]
+NOTIFICATION_KINDS = [
+    ("notice", "Announcement or promo"), ("training", "Training"), ("live", "Live training"),
+    ("referral_order", "Referral order"),
+]
+
+
+def new_notice_id():
+    return new_public_id("ntc")
+
+
+def new_notification_id():
+    return new_public_id("ntf")
+
+
+class MemberNotice(models.Model):
+    """An announcement or promo the Subscriber writes for the members of their own site (TWCinc
+    has one global announcement list; here each site has its own). Shown on the member dashboard
+    while `active` and inside its window (null start or end = open on that side). The picture is
+    a key in the public media store (apps/catalog/media.py), the URL worked out on output. Write
+    through apps/members/notices.py."""
+
+    public_id = models.CharField(max_length=40, unique=True, default=new_notice_id, editable=False)
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="member_notices")
+    kind = models.CharField(max_length=14, choices=NOTICE_KINDS)
+    title = models.CharField(max_length=120)
+    body = models.TextField(blank=True)  # at most 5000, checked in notices.py
+    image_key = models.CharField(max_length=200, blank=True, default="")
+    starts_at = models.DateTimeField(null=True, blank=True)
+    ends_at = models.DateTimeField(null=True, blank=True)
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [models.Index(fields=["site", "active"], name="members_notice_site_active")]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(starts_at__isnull=True) | models.Q(ends_at__isnull=True)
+                | models.Q(ends_at__gt=models.F("starts_at")),
+                name="members_notice_window_order",
+            ),
+        ]
+
+    def __str__(self):
+        return self.public_id
+
+
+class MemberNotification(models.Model):
+    """One entry in a member's bell. `url` is a path on the site (never an outside address)."""
+
+    public_id = models.CharField(max_length=40, unique=True, default=new_notification_id, editable=False)
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="member_notifications")
+    member = models.ForeignKey(Member, on_delete=models.PROTECT, related_name="notifications")
+    kind = models.CharField(max_length=16, choices=NOTIFICATION_KINDS)
+    title = models.CharField(max_length=160)
+    url = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [models.Index(fields=["member", "-created_at"], name="members_notif_member")]
+
+    def __str__(self):
+        return self.public_id
