@@ -70,9 +70,9 @@ def registration_panel(member):
         "line": member_reg_line(reg), "tone": REG_TONES.get(reg.status, "rev"),
         "details_form": reg.status in DETAILS_OPEN, "details_erased": details_erased(reg),
         "state_version": reg.state_version,
-        # TWCinc shows the Santé member ID on the "registered" card. The Subscriber registration
-        # workflow that records it is a later slice, so it is always "" here (no such column yet).
-        "sante_member_id": "",
+        # TWCinc shows the Santé member ID on the "registered" card; the Subscriber's "Mark
+        # registered" records it (ClickUp z8uq9meyqj).
+        "sante_member_id": reg.sante_member_id if reg.status == "registered" else "",
         # The details form asks for the delivery address while the member has none.
         # True only while the order has no Membership Terms acceptance: the details card then asks
         # the tick and posts it with the version id (the pack read's agreement.id).

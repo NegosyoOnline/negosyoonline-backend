@@ -164,6 +164,7 @@ def place(site, *, lines, member_token="", ship_mode="", address=None, receiver=
         raise _unavailable()
     wanted = quote.clean_lines(lines)
     buyer = quote.resolve_buyer(site, member_token)
+    quote.refuse_member(buyer)
     mode = quote.resolve_mode(buyer, ship_mode, strict=True)
     name, mobile, email = clean_receiver(buyer, receiver or {})
     delivery = clean_address(buyer, mode, address)
@@ -186,6 +187,7 @@ def place(site, *, lines, member_token="", ship_mode="", address=None, receiver=
             ).exists():
                 raise ApiError("method_unavailable", C.MSG_PAYMENT_UNAVAILABLE, status=409)
             buyer = quote.resolve_buyer(locked, member_token)  # read again under the lock
+            quote.refuse_member(buyer)
             mode = quote.resolve_mode(buyer, ship_mode, strict=True)
             priced = _priced(locked, wanted, buyer, mode, delivery)
             if not hmac.compare_digest(str(fingerprint or ""), priced.fingerprint):

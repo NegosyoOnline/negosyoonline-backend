@@ -225,78 +225,6 @@ class AtomicTests(ShopTestCase):
 
 
 class MemberPlacementTests(ShopTestCase):
-    def test_a_member_with_benefits_ships_home_at_the_members_price(self):
-        member = self.member(benefits=True, address=HOME)
-        token = self.token(member)
-        self.placed(self.cart(1, 1), member_token=token, ship_mode="home", address=None,
-                    receiver_name=None, receiver_mobile=None, contact_email=None)
-        order = ShopOrder.objects.get()
-        self.assertEqual((order.buyer_kind, order.ship_mode, order.member_id, order.credited_member_id),
-                         ("member", "home", member.pk, None))
-        self.assertEqual((order.subtotal_centavos, order.total_centavos), (6500 + 22545, 6500 + 22545))
-        self.assertEqual(order.delivery_address["line"], "9 Ayala Ave")  # the member's saved address
-        self.assertEqual((order.receiver_name, order.receiver_mobile), ("Maria Santos", "+639171234567"))
-        line = ShopOrderLine.objects.first()
-        self.assertEqual((line.line_srp_total_centavos, line.line_members_total_centavos, line.line_charged_centavos),
-                         (10000, 6500, 6500))
-
-    def test_home_uses_the_servers_address_not_the_posted_one(self):
-        member = self.member(benefits=True, address=HOME)
-        self.placed(member_token=self.token(member), ship_mode="home", address=CEBU_ADDRESS)
-        self.assertEqual(ShopOrder.objects.get().delivery_address["city"], "Makati")
-
-    def test_home_without_a_saved_address_is_refused(self):
-        member = self.member(benefits=True)
-        response = self.place(self.cart(), member_token=self.token(member), ship_mode="home", address=None)
-        self.assertEqual(response.status_code, 422)
-        self.assertEqual(response.json()["error"]["code"], "no_home_address")
-
-    def test_a_different_address_pays_srp_and_credits_the_member(self):
-        member = self.member(benefits=True)
-        self.placed(self.cart(2), member_token=self.token(member), ship_mode="different", address=CEBU_ADDRESS)
-        order = ShopOrder.objects.get()
-        self.assertEqual((order.ship_mode, order.credited_member_id, order.total_centavos),
-                         ("different", member.pk, 20000))
-        line = ShopOrderLine.objects.get()
-        self.assertEqual((line.line_earnings_centavos, line.line_charged_centavos), (7000, 20000))  # recorded, not paid
-        self.assertEqual(order.delivery_address["city"], "Cebu City")
-
-    def test_a_member_with_benefits_must_choose_a_mode(self):
-        member = self.member(benefits=True, address=HOME)
-        response = self.place(self.cart(), member_token=self.token(member), ship_mode=None)
-        self.assertEqual(response.json()["error"]["code"], "ship_mode_required")
-
-    def test_a_rejected_pack_payment_still_gets_the_members_price(self):
-        member = self.member(address=HOME)
-        self.give_benefits(member, status="rejected")
-        self.placed(member_token=self.token(member), ship_mode="home", address=None)
-        self.assertEqual(ShopOrder.objects.get().total_centavos, 6500)
-
-    def test_a_member_without_benefits_buys_as_a_guest_at_srp_but_the_order_is_theirs(self):
-        member = self.member()
-        self.placed(member_token=self.token(member))
-        order = ShopOrder.objects.get()
-        self.assertEqual((order.buyer_kind, order.ship_mode, order.member_id, order.total_centavos),
-                         ("member", "guest", member.pk, 10000))
-
-    def test_home_is_refused_without_benefits_at_placement(self):
-        member = self.member(address=HOME)
-        response = self.place(self.cart(), member_token=self.token(member), ship_mode="home", address=None)
-        self.assertEqual(response.status_code, 422)
-        self.assertEqual(ShopOrder.objects.count(), 0)
-
-    def test_benefits_lost_between_quote_and_order_change_the_price(self):
-        member = self.member(benefits=True, address=HOME)
-        token = self.token(member)
-        fields = self.order_fields(self.cart(), member_token=token, ship_mode="home", address=None)
-        from apps.pack.models import PackOrder
-        PackOrder.objects.filter(member=member).delete()
-        from django.core.files.uploadedfile import SimpleUploadedFile
-        fields.update(host=HOST, visitor_ip="203.0.113.50", proof=SimpleUploadedFile("p.png", PNG, "image/png"))
-        response = self.client.post("/storefront/v1/shop/orders/", fields, secure=True, **self.headers())
-        self.assertEqual(response.status_code, 422)  # no longer allowed to ship home
-        self.assertEqual(ShopOrder.objects.count(), 0)
-
     def test_a_bad_token_places_nothing(self):
         response = self.place(self.cart(), member_token="nope")
         self.assertEqual(response.status_code, 401)
@@ -335,8 +263,11 @@ class BuyerViewTests(ShopTestCase):
     def test_a_member_sees_only_their_own_orders(self):
         mine = self.member()
         theirs = self.member(email="juan@buyer.test", mobile="09170000002", name="Juan Cruz")
-        self.placed(member_token=self.token(mine))
-        self.placed(member_token=self.token(theirs))
+        # Members no longer order on the web (M1); their earlier orders stay readable.
+        for member in (mine, theirs):
+            self.placed()
+            ShopOrder.objects.filter(pk=ShopOrder.objects.latest("pk").pk).update(
+                buyer_kind="member", member=member)
         self.placed()  # a guest's
         cards = self.post("member/shop-orders/", token=self.token(mine)).json()["cards"]
         self.assertEqual([c["order_number"] for c in cards], ["SO00001"])
@@ -375,12 +306,6 @@ class EmailTests(ShopTestCase):
         mail.outbox.clear()
         self.placed(contact_email=None)
         self.assertNotIn("buyer@example.test", [m.to[0] for m in mail.outbox])
-
-    def test_a_member_without_a_typed_email_is_emailed_at_their_own(self):
-        member = self.member()
-        mail.outbox.clear()
-        self.placed(member_token=self.token(member), contact_email=None)
-        self.assertIn("maria@buyer.test", [m.to[0] for m in mail.outbox])
 
     def test_a_failing_email_never_undoes_the_order(self):
         with mock.patch("apps.shop.notices.send_email", side_effect=RuntimeError("smtp down")):

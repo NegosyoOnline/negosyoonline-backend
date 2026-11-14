@@ -12,6 +12,7 @@ from apps.accounts.models import Session
 SESSION_LIFETIME = timedelta(days=30)
 TOUCH_INTERVAL = timedelta(minutes=10)  # how stale last_used_at may get before it is rewritten
 COOKIE_PATH = "/v1/"
+ROOT_EXPIRY_KEY = "no_session@root"  # a dict key only; the Set-Cookie name is the morsel's own
 
 # First match wins, so the more specific tokens come first.
 BROWSERS = (
@@ -99,6 +100,31 @@ def find_session(token):
     return session
 
 
+def cookie_tokens(request):
+    """Every session cookie value in the raw Cookie header, in header order.
+
+    A browser can hold the same cookie name at two paths and send both; Django's parsed
+    `request.COOKIES` keeps only the last, which may be a stale one.
+    """
+    header = request.META.get("HTTP_COOKIE", "")
+    tokens = []
+    for part in header.split(";"):
+        name, separator, value = part.strip().partition("=")
+        # A cleared cookie is sent as an empty value (or `""`); there is nothing to look up.
+        if separator and name == settings.ACCOUNT_SESSION_COOKIE and value not in ("", '""'):
+            tokens.append(value)
+    return tokens
+
+
+def find_request_session(request):
+    """The first live session among the request's session cookie values, or None."""
+    for token in cookie_tokens(request):
+        session = find_session(token)
+        if session is not None:
+            return session
+    return None
+
+
 def revoke_session(session):
     Session.objects.filter(pk=session.pk, revoked_at__isnull=True).update(revoked_at=timezone.now())
 
@@ -126,3 +152,17 @@ def set_session_cookie(response, token):
 
 def clear_session_cookie(response):
     response.delete_cookie(settings.ACCOUNT_SESSION_COOKIE, path=COOKIE_PATH, samesite="Lax")
+
+
+def expire_root_session_cookie(response):
+    """Also expire a stale host-only `Path=/` copy of the cookie (verify and logout only).
+
+    `response.cookies` is keyed by name, so this second Set-Cookie for the same name is
+    stored under another key; the name that is sent is the morsel's own.
+    """
+    name = settings.ACCOUNT_SESSION_COOKIE
+    current = response.cookies.pop(name, None)
+    response.delete_cookie(name, path="/", samesite="Lax")
+    response.cookies[ROOT_EXPIRY_KEY] = response.cookies.pop(name)
+    if current is not None:
+        response.cookies[name] = current

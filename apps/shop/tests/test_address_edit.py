@@ -31,9 +31,6 @@ class AddressEditTestCase(ShopTestCase):
         body = {k: v for k, v in body.items() if v is not None}
         return self.post("member/address/", host=host, member_token=self.token_ if token is None else token, **body)
 
-    def my_quote(self, **fields):
-        return self.quote(self.cart(), member_token=self.token_, **fields).json()
-
     def hold(self, member=None, **extra):
         member = member or self.me
         audit = MemberContactAudit.objects.create(
@@ -46,24 +43,11 @@ class AddressEditTestCase(ShopTestCase):
 
 
 class SaveTests(AddressEditTestCase):
-    def test_save_then_the_quote_shows_it_as_the_profile_address(self):
+    def test_save_returns_the_profile_address(self):
         response = self.save()
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json(), {"home_address": NEW, "home_address_source": "profile"})
         self.assertEqual(Member.objects.get(pk=self.me.pk).delivery_address, NEW)
-        body = self.my_quote()
-        self.assertEqual((body["home_address"], body["home_address_source"]), (NEW, "profile"))
-        self.assertFalse(body["home_address_locked"])
-
-    def test_a_pack_order_address_becomes_the_profile_address(self):
-        member = self.member(email="juan@buyer.test", mobile="09170000002", name="Juan Cruz", benefits=True)
-        from apps.pack.models import PackOrder
-        PackOrder.objects.filter(member=member).update(delivery_address=OLD)
-        token = self.token(member)
-        self.assertEqual(self.quote(self.cart(), member_token=token).json()["home_address_source"], "pack_order")
-        self.assertEqual(self.save(token=token).status_code, 200)
-        body = self.quote(self.cart(), member_token=token).json()
-        self.assertEqual((body["home_address"], body["home_address_source"]), (NEW, "profile"))
 
     def test_a_guest_and_a_dead_session_are_refused(self):
         for token in ("", "not-a-real-token"):
@@ -117,30 +101,17 @@ class SaveTests(AddressEditTestCase):
         other = self.member(email="juan@buyer.test", mobile="09170000002", name="Juan Cruz", benefits=True)
         self.assertEqual(self.save(token=self.token(other)).status_code, 200)  # per member
 
-    def test_a_placed_orders_snapshot_does_not_change(self):
-        self.placed(member_token=self.token_, ship_mode="home", address=None)
-        order = ShopOrder.objects.get()
-        before = dict(order.delivery_address)
-        self.assertEqual(before["line"], "9 Ayala Ave")
-        self.assertEqual(self.save().status_code, 200)
-        self.assertEqual(ShopOrder.objects.get().delivery_address, before)
-        self.placed(member_token=self.token_, ship_mode="home", address=None)
-        self.assertEqual(ShopOrder.objects.order_by("-pk").first().delivery_address["city"], "Cebu City")
-
-
 class HoldTests(AddressEditTestCase):
-    def test_a_recovery_hold_refuses_the_save_and_locks_the_quote(self):
+    def test_a_recovery_hold_refuses_the_save(self):
         self.hold()
-        self.assertTrue(self.my_quote()["home_address_locked"])
         response = self.save()
         self.assertEqual((response.status_code, response.json()["error"]["code"]), (423, "address_locked"))
         self.assertEqual(Member.objects.get(pk=self.me.pk).delivery_address, OLD)
         self.assertEqual(MemberAddressEvent.objects.count(), 0)
 
-    def test_another_members_hold_and_an_ended_hold_lock_nothing(self):
+    def test_another_members_hold_and_an_ended_hold_block_nothing(self):
         other = self.member(email="juan@buyer.test", mobile="09170000002", name="Juan Cruz", benefits=True)
         self.hold(other)
-        self.assertFalse(self.my_quote()["home_address_locked"])
         self.assertEqual(self.save().status_code, 200)
         MemberSecurityHold.objects.all().update(ends_at=timezone.now() - timedelta(seconds=1))
         self.assertEqual(self.save().status_code, 200)
@@ -152,15 +123,6 @@ class HoldTests(AddressEditTestCase):
         )
         self.assertIsNone(holds.active_hold(self.me, "address_change"))
         self.assertEqual(self.save().status_code, 200)
-
-    def test_the_lock_is_only_for_a_member_with_benefits(self):
-        plain = self.member(email="juan@buyer.test", mobile="09170000002", name="Juan Cruz")
-        self.hold(plain)
-        body = self.quote(self.cart(), member_token=self.token(plain)).json()
-        self.assertFalse(body["home_address_locked"])
-        guest = self.quote(self.cart()).json()
-        self.assertFalse(guest["home_address_locked"])
-
 
 class AuditTests(AddressEditTestCase):
     def test_one_row_per_save_with_old_new_and_ip(self):

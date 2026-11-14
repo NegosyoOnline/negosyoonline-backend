@@ -45,55 +45,6 @@ class QuoteTests(ShopTestCase):
         self.assertEqual(body["shipping"]["error"], "Shipping is not available for this product yet.")
         self.assertIn("Shipping is not available for this product yet.", body["errors"])
 
-    def test_a_signed_in_member_without_benefits_is_a_guest(self):
-        member = self.member()
-        body = self.quote(self.cart(), member_token=self.token(member)).json()
-        self.assertFalse(body["member_price"])
-        self.assertEqual(body["lines"][0]["line_total_centavos"], 10000)
-
-    def test_a_member_with_benefits_gets_the_members_total_at_home(self):
-        member = self.member(benefits=True, address={"line": "1 St", "city": "Makati", "province": "Metro Manila"})
-        token = self.token(member)
-        body = self.quote(self.cart(1, 1), member_token=token, ship_mode="home").json()
-        self.assertTrue(body["member_price"])
-        self.assertEqual([l["line_total_centavos"] for l in body["lines"]], [6500, 22545])
-        self.assertEqual(body["subtotal_centavos"], 29045)
-        self.assertEqual([l["unit_members_price_centavos"] for l in body["lines"]], [6500, 22545])
-
-    def test_a_member_with_benefits_pays_srp_when_shipping_to_another_address(self):
-        member = self.member(benefits=True)
-        body = self.quote(self.cart(), member_token=self.token(member), ship_mode="different").json()
-        self.assertEqual(body["lines"][0]["line_total_centavos"], 10000)
-
-    def test_a_rejected_pack_payment_keeps_the_member_price(self):
-        """Q1 A: the member price stays while the pack proof is rejected or not yet reviewed."""
-        member = self.member()
-        self.give_benefits(member, status="rejected")
-        body = self.quote(self.cart(), member_token=self.token(member), ship_mode="home").json()
-        self.assertEqual(body["lines"][0]["line_total_centavos"], 6500)
-
-    def test_the_member_price_needs_the_pack_to_be_on(self):
-        member = self.member(benefits=True)
-        token = self.token(member)
-        with override_settings(PACK_ENABLED=False):
-            body = self.quote(self.cart(), member_token=token).json()
-        self.assertFalse(body["member_price"])
-        self.assertEqual(body["lines"][0]["line_total_centavos"], 10000)
-
-    def test_home_or_different_is_refused_for_a_buyer_without_benefits(self):
-        member = self.member()
-        for mode in ("home", "different"):
-            with self.subTest(mode=mode):
-                response = self.quote(self.cart(), member_token=self.token(member), ship_mode=mode)
-                self.assertEqual(response.status_code, 422)
-                self.assertEqual(response.json()["error"]["code"], "ship_mode_not_allowed")
-        self.assertEqual(self.quote(self.cart(), ship_mode="home").status_code, 422)
-
-    def test_a_member_with_benefits_must_not_pick_guest(self):
-        member = self.member(benefits=True)
-        response = self.quote(self.cart(), member_token=self.token(member), ship_mode="guest")
-        self.assertEqual(response.json()["error"]["code"], "ship_mode_required")
-
     def test_a_bad_member_token_is_401(self):
         response = self.quote(self.cart(), member_token="nope")
         self.assertEqual(response.status_code, 401)

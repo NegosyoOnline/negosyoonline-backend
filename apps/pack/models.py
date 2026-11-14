@@ -290,6 +290,10 @@ class SanteRegistration(models.Model):
     alternate_username = models.CharField(max_length=20, blank=True)
     details_confirmed_at = models.DateTimeField(null=True, blank=True)
     details_purged_at = models.DateTimeField(null=True, blank=True)
+    # Set by the Subscriber's "Mark registered" (T11+) and never changed after: the member's Santé
+    # ID is typed by the Subscriber, nothing is read from Santé (ClickUp z8uq9meyqj).
+    sante_member_id = models.CharField(max_length=32, blank=True)
+    registered_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -344,3 +348,30 @@ class SanteRegistrationEvent(AppendOnly):
 
     class Meta:
         ordering = ["created_at", "pk"]
+
+
+class PackRegisteredNotice(models.Model):
+    """The "your Santé account is created" email to one member (ClickUp z8uq9meyqj). One row per
+    registration: the once-only record, so a duplicate "Mark registered" or event sends no second
+    email. It is written in the same transaction as the move to `registered`, and holds delivery
+    evidence only: the state, the tries, the last error code and when it was sent. No address, no
+    text, no secret."""
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="pack_registered_notices")
+    registration = models.OneToOneField(
+        SanteRegistration, on_delete=models.PROTECT, related_name="registered_notice"
+    )
+    status = models.CharField(max_length=10, choices=C.NOTICE_STATUS_CHOICES, default=C.NOTICE_PENDING)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    last_error_code = models.CharField(max_length=32, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    gave_up_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(status__in=C.NOTICE_STATUSES), name="pack_registered_notice_status_valid"
+            ),
+        ]

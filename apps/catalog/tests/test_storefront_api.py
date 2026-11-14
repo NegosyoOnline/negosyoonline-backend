@@ -12,7 +12,10 @@ from apps.storefront.tests.base import HOST, NOT_FOUND, UNAUTHENTICATED, Surface
 LIST = "/storefront/v1/catalog/products/"
 KEYS = {
     "id", "code", "name", "category", "short_description", "long_description", "image_url",
-    "srp_centavos", "unit_members_price_centavos", "revision",
+    "srp_centavos", "unit_members_price_centavos", "revision", "image_urls", "features",
+    "specifications", "advantages", "benefits", "servings_per_pack", "faq", "ingredients",
+    "price_per_serving_centavos", "members_price_per_serving_centavos",
+    "features_image_url", "advantages_image_url", "benefits_image_url", "category_faq",
 }
 NEVER = ("earnings_rate", "is_active", "weight", "changed_by", "seed_", "source", "image_key",
          "_cm", "volume", "shipping")
@@ -98,3 +101,87 @@ class CatalogStorefrontTests(SurfaceTestCase):
             with override_settings(**off):
                 self.assert_answer(self.listed(), 404, NOT_FOUND)
                 self.assert_answer(self.call(path=f"{LIST}{product.public_id}/"), 404, NOT_FOUND)
+
+
+@switched_on
+class ServingsAndFaqStorefrontTests(SurfaceTestCase):
+    def setUp(self):
+        super().setUp()
+        self.site = make_subscription().site
+
+    def body(self, product, host=HOST):
+        response = self.call(host, path=f"{LIST}{product.public_id}/")
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def test_without_servings_the_per_serving_values_are_null_and_the_faq_is_empty(self):
+        body = self.body(make_product())
+        self.assertEqual(
+            (body["servings_per_pack"], body["faq"], body["price_per_serving_centavos"],
+             body["members_price_per_serving_centavos"]),
+            (None, [], None, None),
+        )
+
+    def test_per_serving_is_rounded_half_up_from_the_srp_and_the_members_price(self):
+        # 120000 / 7 = 17142.857 -> 17143; members 120000 x 0.6 = 72000 / 7 = 10285.714 -> 10286
+        product = make_product("SERV-1", "Serv", 120000, "0.4000")
+        CatalogProduct.objects.filter(pk=product.pk).update(
+            servings_per_pack=7, faq=[{"q": "Why?", "a": "Because."}]
+        )
+        body = self.body(product)
+        self.assertEqual(body["servings_per_pack"], 7)
+        self.assertEqual(body["faq"], [{"q": "Why?", "a": "Because."}])
+        self.assertEqual(body["price_per_serving_centavos"], 17143)
+        self.assertEqual(body["members_price_per_serving_centavos"], 10286)
+        self.assertEqual(
+            body["members_price_per_serving_centavos"],
+            pricing.per_serving(body["unit_members_price_centavos"], 7),
+        )
+
+    def test_a_half_centavo_rounds_up(self):
+        product = make_product("SERV-2", "Half", 1001, "0.2000")
+        CatalogProduct.objects.filter(pk=product.pk).update(servings_per_pack=2)
+        body = self.body(product)
+        self.assertEqual(body["price_per_serving_centavos"], 501)  # 500.5
+        self.assertEqual(body["members_price_per_serving_centavos"], 401)  # 801 / 2 = 400.5
+
+    def test_another_site_reads_the_same_values(self):
+        product = make_product("SERV-3", "Shared", 30000, "0.4000")
+        CatalogProduct.objects.filter(pk=product.pk).update(servings_per_pack=30)
+        other = make_subscription("ben@example.test", "bens-store").site
+        first = self.body(product)
+        second = self.body(product, host="bens-store.negosyotest.com")
+        self.assertEqual(first, second)
+        self.assertEqual(second["price_per_serving_centavos"], 1000)
+        self.assertEqual(other.template, self.site.template)
+
+
+@switched_on
+class IngredientsStorefrontTests(SurfaceTestCase):
+    def setUp(self):
+        super().setUp()
+        self.site = make_subscription().site
+
+    def test_each_item_points_at_its_photo_and_an_empty_slot_gives_null(self):
+        product = make_product()
+        CatalogProduct.objects.filter(pk=product.pk).update(
+            image_key_2="catalog/products/b.png",
+            ingredients=[
+                {"name": "Barley", "line": "Green.", "photo_slot": 2},
+                {"name": "Kale", "line": "", "photo_slot": 4},
+                {"name": "Oat", "line": "", "photo_slot": None},
+            ],
+        )
+        with override_settings(**MEDIA):
+            listed = self.call(path=LIST).json()["products"][0]
+            detail = self.call(path=f"{LIST}{product.public_id}/").json()
+        for body in (listed, detail):
+            self.assertEqual(
+                [i["photo_url"] for i in body["ingredients"]],
+                ["https://media.example.test/catalog/products/b.png", None, None],
+            )
+            self.assertEqual([i["name"] for i in body["ingredients"]], ["Barley", "Kale", "Oat"])
+
+    def test_a_product_without_them_returns_an_empty_list(self):
+        body = self.call(path=f"{LIST}{make_product().public_id}/").json()
+        self.assertEqual(body["ingredients"], [])

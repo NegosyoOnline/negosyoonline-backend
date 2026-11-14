@@ -20,6 +20,10 @@ def new_order_id():
     return new_public_id("sho")
 
 
+def new_review_id():
+    return new_public_id("review")
+
+
 def new_proof_id():
     return new_public_id("shp")
 
@@ -201,3 +205,40 @@ class ShopOrderEvent(AppendOnly):
 
     class Meta:
         ordering = ["created_at", "pk"]
+
+
+class ProductReview(models.Model):
+    """A buyer's review of one line of their own delivered order. It is created only by the buyer's
+    call (apps/shop/product_reviews.py): never seeded, never by an admin. One per order line. The
+    Subscriber may hide or show it and never changes its words. Reviews are kept, never deleted.
+    The text is stored as plain text; whatever shows it must treat it as data."""
+
+    public_id = models.CharField(max_length=40, unique=True, default=new_review_id, editable=False)
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="product_reviews")
+    order = models.ForeignKey(ShopOrder, on_delete=models.PROTECT, related_name="product_reviews")
+    order_line = models.OneToOneField(ShopOrderLine, on_delete=models.PROTECT, related_name="review")
+    product_id = models.CharField(max_length=40)  # the catalog product's public id
+    rating = models.PositiveSmallIntegerField()
+    body = models.TextField(blank=True, default="")
+    display_name = models.CharField(max_length=C.REVIEW_NAME_MAX)
+    is_hidden = models.BooleanField(default=False)
+    hidden_at = models.DateTimeField(null=True, blank=True)
+    edited_at = models.DateTimeField(null=True, blank=True)  # set by the one edit
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [models.Index(fields=["site", "product_id", "is_hidden", "-created_at"], name="shop_review_product_idx")]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(rating__gte=C.RATING_MIN, rating__lte=C.RATING_MAX), name="shop_review_rating_range"
+            ),
+            models.CheckConstraint(
+                condition=(Q(is_hidden=True, hidden_at__isnull=False) | Q(is_hidden=False, hidden_at__isnull=True)),
+                name="shop_review_hidden_matches_time",
+            ),
+        ]
+
+    def delete(self, *args, **kwargs):
+        raise ImmutableRecordError("Product reviews are never deleted.")

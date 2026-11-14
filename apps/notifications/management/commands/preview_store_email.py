@@ -39,6 +39,13 @@ def _notice(**kwargs):
     return subject, body, ""
 
 
+def _registered():
+    from apps.pack import registered_notice
+
+    subject, body, cta = registered_notice.texts(SimpleNamespace(full_name="Maria Santos"), SAMPLE_SITE)
+    return subject, body, "", cta
+
+
 KINDS = {  # kind -> (subject, body, code to highlight)
     "member_signin": lambda: _code("signin"),
     "member_email_verify": lambda: _code("email_verify"),
@@ -49,12 +56,13 @@ KINDS = {  # kind -> (subject, body, code to highlight)
     "pack_proof_rejected": lambda: _pack(pack_notices.REJECTED),
     "pack_verified": lambda: _pack(pack_notices.VERIFIED),
     "pack_access_link": lambda: _pack(pack_notices.ACCESS_EMAIL),
+    "pack_registered": _registered,  # the video link shows when PACK_ORDERING_VIDEO_URL is set
 }
 
 
 def render(kind, brand):
-    subject, body, code = KINDS[kind]()
-    text, html = store_email.render_store(brand, subject=subject, body=body, code=code)
+    subject, body, code, *cta = KINDS[kind]()
+    text, html = store_email.render_store(brand, subject=subject, body=body, code=code, cta=cta[0] if cta else None)
     return subject, text, html
 
 

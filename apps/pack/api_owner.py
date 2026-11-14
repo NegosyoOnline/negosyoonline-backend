@@ -10,6 +10,17 @@ negosyoonline_sante_pack/api.py), under /v1/sites/{site_id}/pack/orders/:
     POST .../pack/orders/{order_id}/shipment/correct/  (same body)
     POST .../pack/orders/{order_id}/delivery/          {state_version, delivered_on?}
 
+and the Subscriber's Santé registration work (ClickUp z8uq9meyqj), keyed by the member's public id:
+
+    GET  .../pack/registrations/?filter=to_register|registered|all -> {registrations: [row]} newest 200
+    POST .../pack/registrations/{member_id}/start/       {state_version}  (T9, ready_to_register -> in_registration)
+    POST .../pack/registrations/{member_id}/registered/  {state_version, sante_member_id}
+                                                         (T11+, in_registration -> registered; one email to the member)
+
+The encoding details (date of birth, usernames, delivery address, mobile) are in a row only while
+it is ready_to_register or in_registration. A registered row has the name, Santé member ID,
+registered date and email status. No export of these fields exists.
+
 The three shipment writes answer 404 while PACK_SHIPPING_ENABLED is off (filters ready_to_ship,
 shipped and delivered and the read fields work regardless; `shipping_enabled` tells the dash).
 
@@ -28,8 +39,8 @@ from apps.common import private_files
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
 from apps.members.contacts import mask
-from apps.pack import constants as C, fulfillment, review
-from apps.pack.models import PackOrder
+from apps.pack import constants as C, fulfillment, registration, review
+from apps.pack.models import PackOrder, SanteRegistration
 from apps.sites import templates
 from apps.sites.api import _owner_site
 from apps.sites.services import site_for
@@ -250,3 +261,106 @@ def order_deliver(request, site_id: str, order_id: str, payload: DeliveryIn):
         delivered_on=payload.delivered_on,
     )
     return detail(_order(request.pack_site, order_id))
+
+
+# --- The Subscriber's Santé registration work (ClickUp z8uq9meyqj) -----------------------------
+
+REG_FILTERS = {
+    "to_register": ("ready_to_register", "in_registration"),
+    "registered": ("registered",),
+    "all": ("ready_to_register", "in_registration", "registered"),
+}
+ENCODING_STATUSES = ("ready_to_register", "in_registration")  # the only statuses that show the details
+NOTICE_STATES = {  # the owner's words for the email's state
+    C.NOTICE_PENDING: "sending", C.NOTICE_SENT: "sent", C.NOTICE_FAILED: "retrying",
+    C.NOTICE_GAVE_UP: "gave_up",
+}
+
+
+class StartIn(VersionIn):
+    pass
+
+
+class RegisteredIn(VersionIn):
+    sante_member_id: str = ""
+
+
+def email_status(reg):
+    """The "account created" email's state, or None before it exists."""
+    notice = getattr(reg, "registered_notice", None)
+    if notice is None:
+        return None
+    return {
+        "state": NOTICE_STATES[notice.status], "attempts": notice.attempts,
+        "last_error_code": notice.last_error_code,
+        "sent_at": notice.sent_at.isoformat() if notice.sent_at else None,
+        "gave_up_at": notice.gave_up_at.isoformat() if notice.gave_up_at else None,
+    }
+
+
+def _encoding_details(reg):
+    """Date of birth, usernames, delivery address and mobile, as they are now. What the retention
+    job erased stays empty: nothing is read back from anywhere else."""
+    _, address = registration._held_address(reg.pack_order, reg.member)
+    return {
+        "date_of_birth": reg.date_of_birth.isoformat() if reg.date_of_birth else None,
+        "desired_username": reg.desired_username, "alternate_username": reg.alternate_username,
+        "mobile": reg.member.mobile, "delivery_address": address,
+        "details_erased": reg.details_purged_at is not None,
+    }
+
+
+def registration_row(reg):
+    """The registration as the Subscriber sees it. The data-minimisation rule is here: the
+    encoding details are added only while the row is being worked on, never on a registered row."""
+    out = {
+        "id": reg.member.public_id, "name": reg.member.full_name, "status": reg.status,
+        "order_number": reg.pack_order.order_number, "state_version": reg.state_version,
+        "status_entered_at": reg.status_entered_at.isoformat(),
+        "sante_member_id": reg.sante_member_id if reg.status == "registered" else "",
+        "registered_at": reg.registered_at.isoformat() if reg.registered_at else None,
+        "email": email_status(reg),
+    }
+    if reg.status in ENCODING_STATUSES:
+        out["details"] = _encoding_details(reg)
+    return out
+
+
+def _registration(site, member_id):
+    reg = (
+        SanteRegistration.objects.select_related("member", "pack_order", "registered_notice")
+        .filter(site=site, member__public_id=member_id, status__in=REG_FILTERS["all"]).first()
+    )
+    if reg is None:
+        raise ApiError("not_found", "Not found.", status=404, event="object_not_found", reason="missing")
+    return reg
+
+
+@router.get("/sites/{site_id}/pack/registrations/")
+def registrations_list(request, site_id: str, filter: str = "to_register"):
+    rows = (
+        SanteRegistration.objects.select_related("member", "pack_order", "registered_notice")
+        .filter(site=request.pack_site, status__in=REG_FILTERS.get(filter, REG_FILTERS["to_register"]))
+        .order_by("-status_entered_at", "-pk")[:LIST_MAX]
+    )
+    return {"registrations": [registration_row(r) for r in rows]}
+
+
+@router.post("/sites/{site_id}/pack/registrations/{member_id}/start/")
+def registration_start(request, site_id: str, member_id: str, payload: StartIn):
+    _limit(request, WRITE_LIMIT)
+    registration.start(
+        review.subscriber_actor(request.account), request.pack_site, member_id,
+        state_version=payload.state_version,
+    )
+    return registration_row(_registration(request.pack_site, member_id))
+
+
+@router.post("/sites/{site_id}/pack/registrations/{member_id}/registered/")
+def registration_registered(request, site_id: str, member_id: str, payload: RegisteredIn):
+    _limit(request, WRITE_LIMIT)
+    registration.mark_registered(
+        review.subscriber_actor(request.account), request.pack_site, member_id,
+        state_version=payload.state_version, sante_member_id=payload.sante_member_id,
+    )
+    return registration_row(_registration(request.pack_site, member_id))

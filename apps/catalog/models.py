@@ -50,6 +50,29 @@ class CatalogProduct(models.Model):
     # Storage key of the one product image in the public media store; blank means no image.
     # The public URL is worked out on output (media.py), never stored.
     image_key = models.CharField(max_length=200, blank=True, default="")
+    # Extra photo slots 2 to 5 (slot 1 is image_key above), same kind of key; blank means empty.
+    image_key_2 = models.CharField(max_length=200, blank=True, default="")
+    image_key_3 = models.CharField(max_length=200, blank=True, default="")
+    image_key_4 = models.CharField(max_length=200, blank=True, default="")
+    image_key_5 = models.CharField(max_length=200, blank=True, default="")
+    # One optional image for each of the three page sections (What's Inside = features, Why It
+    # Stands Out = advantages, What You Get From It = benefits). Same kind of key as the photo
+    # slots; blank means no image, and the page then shows the text only. Never a photo slot.
+    features_image_key = models.CharField(max_length=200, blank=True, default="")
+    advantages_image_key = models.CharField(max_length=200, blank=True, default="")
+    benefits_image_key = models.CharField(max_length=200, blank=True, default="")
+    # Longer product details, at most 5000 characters each (checked in services). Field source:
+    # TWCinc app/shops/models.py:178-183 (feature, specification, advantage, benefit).
+    features = models.TextField(blank=True, default="")
+    specifications = models.TextField(blank=True, default="")
+    advantages = models.TextField(blank=True, default="")
+    benefits = models.TextField(blank=True, default="")
+    # Servings in one pack (1 to 999) and the product FAQ: a list of {"q", "a"}, at most 10,
+    # checked in services.
+    servings_per_pack = models.PositiveSmallIntegerField(null=True, blank=True)
+    faq = models.JSONField(default=list, blank=True)
+    # What's inside: a list of {"name", "line", "photo_slot"}, at most 8, checked in services.
+    ingredients = models.JSONField(default=list, blank=True)
     weight_kg = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0"))
     # Shipping inputs: null means not set.
     volume_slot = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
@@ -116,6 +139,28 @@ class CatalogProduct(models.Model):
         raise self.DeleteRefused("Catalog products are deactivated, never deleted.")
 
 
+class CatalogCategoryFaq(models.Model):
+    """The general FAQs of one product category, shared by every Santé site like the products
+    (so keyed by catalog and category, not by site). A list of {"q", "a"}, same shape and limits
+    as a product's faq (checked in services). No row means no category FAQs."""
+
+    catalog = models.ForeignKey(Catalog, on_delete=models.PROTECT, related_name="category_faqs")
+    category = models.CharField(max_length=20)  # barley, drinks, essentials or beauty
+    faq = models.JSONField(default=list, blank=True)
+    changed_by_account_id = models.PositiveBigIntegerField(null=True, blank=True)
+    changed_by_site_id = models.PositiveBigIntegerField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "catalog category FAQ"
+        constraints = [
+            models.UniqueConstraint(fields=["catalog", "category"], name="catalog_category_faq_uniq"),
+        ]
+
+    def __str__(self):
+        return f"{self.category} FAQs"
+
+
 class CatalogProductRevision(models.Model):
     """A full copy of the product at each change. Append-only: this table is the record of
     who changed the catalog."""
@@ -134,6 +179,29 @@ class CatalogProductRevision(models.Model):
     long_description = models.TextField(blank=True)
     category = models.CharField(max_length=20, blank=True, default="")
     image_key = models.CharField(max_length=200, blank=True, default="")
+    # Extra photo slots 2 to 5 (slot 1 is image_key above), same kind of key; blank means empty.
+    image_key_2 = models.CharField(max_length=200, blank=True, default="")
+    image_key_3 = models.CharField(max_length=200, blank=True, default="")
+    image_key_4 = models.CharField(max_length=200, blank=True, default="")
+    image_key_5 = models.CharField(max_length=200, blank=True, default="")
+    # One optional image for each of the three page sections (What's Inside = features, Why It
+    # Stands Out = advantages, What You Get From It = benefits). Same kind of key as the photo
+    # slots; blank means no image, and the page then shows the text only. Never a photo slot.
+    features_image_key = models.CharField(max_length=200, blank=True, default="")
+    advantages_image_key = models.CharField(max_length=200, blank=True, default="")
+    benefits_image_key = models.CharField(max_length=200, blank=True, default="")
+    # Longer product details, at most 5000 characters each (checked in services). Field source:
+    # TWCinc app/shops/models.py:178-183 (feature, specification, advantage, benefit).
+    features = models.TextField(blank=True, default="")
+    specifications = models.TextField(blank=True, default="")
+    advantages = models.TextField(blank=True, default="")
+    benefits = models.TextField(blank=True, default="")
+    # Servings in one pack (1 to 999) and the product FAQ: a list of {"q", "a"}, at most 10,
+    # checked in services.
+    servings_per_pack = models.PositiveSmallIntegerField(null=True, blank=True)
+    faq = models.JSONField(default=list, blank=True)
+    # What's inside: a list of {"name", "line", "photo_slot"}, at most 8, checked in services.
+    ingredients = models.JSONField(default=list, blank=True)
     weight_kg = models.DecimalField(max_digits=10, decimal_places=2)
     volume_slot = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     shipping_qty = models.PositiveIntegerField(null=True, blank=True)
