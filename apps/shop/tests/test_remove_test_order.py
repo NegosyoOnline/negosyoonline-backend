@@ -67,6 +67,34 @@ class RemoveTestOrderTests(ReviewTestCase):
             run(self.site, self.public_id, "--apply")
         self.assertEqual(self.snapshot(), before)
 
+    def test_the_test_prefix_is_accepted_in_any_letter_case(self):
+        for name in ("test shop guest", "Test Shop Guest", "  TEST Shop Guest"):
+            with self.subTest(name=name):
+                ShopOrder.objects.filter(pk=self.order.pk).update(receiver_name=name)
+                before = self.snapshot()
+                out = run(self.site, self.public_id)
+                self.assertIn("Dry run", out)
+                self.assertIn('"orders_blanked": 1', out)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_apply_blanks_a_lowercase_test_name(self):
+        ShopOrder.objects.filter(pk=self.order.pk).update(receiver_name="test shop guest")
+        with self.captureOnCommitCallbacks(execute=True):
+            out = run(self.site, self.public_id, "--apply")
+        self.assertIn("Applied", out)
+        self.assertEqual(self.snapshot(), {
+            "order": ("", "", "", {}), "proof": ("", "", "", ""), "reviews": 0, "files": 0,
+        })
+
+    def test_it_refuses_names_that_only_look_like_the_prefix(self):
+        for name in ("TESTER Bob", "test", "Contest Guest", "tester bob"):
+            with self.subTest(name=name):
+                ShopOrder.objects.filter(pk=self.order.pk).update(receiver_name=name)
+                before = self.snapshot()
+                with self.assertRaisesMessage(CommandError, 'does not start with "TEST " (any case)'):
+                    run(self.site, self.public_id, "--apply")
+                self.assertEqual(self.snapshot(), before)
+
     def test_it_refuses_an_order_on_another_site(self):
         before = self.snapshot()
         with self.assertRaisesMessage(CommandError, "not on that site"):

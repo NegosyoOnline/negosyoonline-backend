@@ -9,7 +9,7 @@ order row, its lines, totals, status and events stay. What identifies the person
 receiver name, mobile, contact email and delivery address of the order, the reference number,
 account name and IP of its proof, and the proof file; the order's product reviews are deleted. It
 refuses, writing nothing, when the site or order is not found, the order is not on that site, or
-the receiver name does not start with "TEST ". Without --apply it prints the counts and writes
+the receiver name does not start with "TEST " (any letter case, leading spaces ignored). Without --apply it prints the counts and writes
 nothing. With it, everything is written in one transaction with one `shop_test_order_removed`
 audit entry (ids and counts only); the proof file is deleted from the private store only after
 the commit. Running it again changes nothing. No bulk mode.
@@ -31,6 +31,13 @@ from apps.sites.models import Site
 logger = logging.getLogger(__name__)
 
 TEST_PREFIX = "TEST "
+
+
+def _is_test_name(name):
+    """True when the name, leading whitespace stripped, starts with "TEST " in any letter case."""
+    return name.lstrip().upper().startswith(TEST_PREFIX)
+
+
 PROOF_BLANKED = ("reference_number", "account_name", "ip_advisory")
 
 
@@ -49,7 +56,10 @@ def _delete_files(proof_ids):
 
 
 class Command(BaseCommand):
-    help = "Remove the personal data of one TEST shop order of one site. Dry run unless --apply."
+    help = (
+        "Remove the personal data of one TEST shop order of one site (receiver name starts with "
+        '"TEST ", any case). Dry run unless --apply.'
+    )
 
     def add_arguments(self, parser):
         parser.add_argument("--site", required=True, help="the site's public id (site_...)")
@@ -79,8 +89,10 @@ class Command(BaseCommand):
             if found.receiver_name == "" and not personal_left and not reviews.exists():
                 self.stdout.write("That order was already emptied. Nothing was changed.")
                 return
-            if found.receiver_name != "" and not found.receiver_name.startswith(TEST_PREFIX):
-                raise CommandError('The receiver name does not start with "TEST ". Nothing was written.')
+            if found.receiver_name != "" and not _is_test_name(found.receiver_name):
+                raise CommandError(
+                    'The receiver name does not start with "TEST " (any case). Nothing was written.'
+                )
             proof_ids = list(proofs.values_list("pk", flat=True))
             counts = {
                 "orders_blanked": 1,
