@@ -9,6 +9,7 @@ from apps.members import holds
 from apps.members.models import (
     ImmutableRecordError, Member, MemberAddressEvent, MemberContactAudit, MemberSecurityHold,
 )
+from apps.pack.models import PackOrder
 from apps.shop.models import ShopOrder
 from apps.shop.tests.base import HOST, ShopTestCase
 
@@ -147,3 +148,43 @@ class AuditTests(AddressEditTestCase):
         with self.assertRaises(ImmutableRecordError):
             event.delete()
         self.assertEqual(MemberAddressEvent.objects.get().new, NEW)
+
+
+class ReadTests(AddressEditTestCase):
+    def read(self, token=None, host=HOST):
+        return self.post("member/address/read/", host=host, member_token=self.token_ if token is None else token)
+
+    def test_the_saved_address_is_returned_unlocked(self):
+        response = self.read()
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {"home_address": OLD, "home_address_locked": False})
+
+    def test_the_membership_pack_order_address_is_the_fallback(self):
+        member = self.member(email="ana@buyer.test", mobile="09170000003", name="Ana Reyes", benefits=True)
+        PackOrder.objects.filter(member=member).update(delivery_address=NEW)
+        response = self.read(token=self.token(member))
+        self.assertEqual(response.json(), {"home_address": NEW, "home_address_locked": False})
+
+    def test_no_address_is_an_empty_object(self):
+        member = self.member(email="ana@buyer.test", mobile="09170000003", name="Ana Reyes")
+        response = self.read(token=self.token(member))
+        self.assertEqual(response.json(), {"home_address": {}, "home_address_locked": False})
+
+    def test_a_recovery_hold_reports_locked(self):
+        self.hold()
+        self.assertEqual(self.read().json(), {"home_address": OLD, "home_address_locked": True})
+
+    def test_a_guest_and_a_dead_session_are_refused(self):
+        for token in ("", "not-a-real-token"):
+            response = self.read(token=token)
+            self.assertEqual((response.status_code, response.json()["error"]["code"]), (401, "member_session_invalid"))
+
+    def test_another_sites_session_is_refused_and_never_sees_this_sites_data(self):
+        theirs = self.member(email="juan@buyer.test", mobile="09170000002", name="Juan Cruz",
+                             site=self.other_site, address=NEW)
+        theirs_token = self.token(theirs)
+        self.assertEqual(self.read(token=theirs_token).status_code, 401)  # their token on this host
+        self.assertEqual(self.read(token=self.token_, host=OTHER_HOST).status_code, 401)  # mine on theirs
+        own = self.read(token=theirs_token, host=OTHER_HOST)
+        self.assertEqual(own.json()["home_address"], NEW)
+        self.assertEqual(self.read().json()["home_address"], OLD)
