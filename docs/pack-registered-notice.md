@@ -29,3 +29,7 @@ A failed try (including a member whose email is not verified yet) leaves the row
 ## Switches and migration
 
 No new on/off switch: the routes follow `PACK_ENABLED`. Migration `pack.0006_registered_notice` adds `santeregistration.sante_member_id`, `santeregistration.registered_at` and the table `PackRegisteredNotice`. It is written, not run. Staging only, by the Supervisor, after the release merges; never production without Coach Ed.
+
+## Retention
+
+The account export carries `sante_member_id` and `registered_at` on each registration row. Account disposal blanks `sante_member_id` (and counts a row that holds only a member ID) and keeps `registered_at`, a date. The scheduled 90-day details purge does not touch the member ID: it is kept for the service until account disposal.
