@@ -78,6 +78,17 @@ def resolve_buyer(site, member_token):
     return Buyer(member, benefits)
 
 
+MEMBER_USE_APP = "member_use_app"
+MSG_MEMBER_USE_APP = "Members order through the Santé Mobile App."
+
+
+def refuse_member(buyer):
+    """A signed-in Santé member never orders on the web (ruling 1100430000523941): 409, before any
+    ship mode is looked at, so a tampered `ship_mode` cannot get around it. Guests pass."""
+    if buyer.member is not None:
+        raise ApiError(MEMBER_USE_APP, MSG_MEMBER_USE_APP, status=409)
+
+
 def resolve_mode(buyer, ship_mode, *, strict):
     """The ship mode of this order. A buyer without benefits is `guest` and may not ask for the
     member modes. A member with benefits chooses `home` or `different`; left out, a quote shows
@@ -231,6 +242,7 @@ def quote(site, raw_lines, *, member_token="", ship_mode="", address=None):
     shipping problem are answered in the dict (`ok` False, no fingerprint), not raised."""
     wanted = clean_lines(raw_lines)
     buyer = resolve_buyer(site, member_token)
+    refuse_member(buyer)
     mode = resolve_mode(buyer, ship_mode, strict=False)
     key = catalog.catalog_key_for(site)
     found = {

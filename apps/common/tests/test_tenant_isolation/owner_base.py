@@ -20,13 +20,15 @@ from apps.catalog.tests.base import FakeMedia, designate, image_file, make_produ
 from apps.invoices import services as invoice_services
 from apps.invoices.tests.test_scans import MemoryScanStore
 from apps.members import recovery
-from apps.members.models import Member
+from apps.members.models import Member, MemberNotice
 from apps.inquiries.tests import base as inquiries_base
 from apps.meta_ads.tests.base import CODE, KEY, PIXEL, TOKEN, FakeMeta, configure
 from apps.pack import constants as PACK
+from apps.pack.models import SanteRegistration
 from apps.pack.tests.owner_base import make_order
 from apps.payments.models import SitePaymentAccount
 from apps.shop import constants as SHOP
+from apps.shop.models import ProductReview
 from apps.shop.tests.owner_base import make_order as make_shop_order
 from apps.payments.tests.base import BANK, make_payment_account, qr_file, stored_files, use_local_private_store
 from apps.sites.models import Site
@@ -47,7 +49,9 @@ MISSING_CHILD = {
     "payment_id": "btp_00000000000000000000",
     "product_id": "prod_00000000000000000000",
     "member_id": "mem_00000000000000000000",
+    "notice_id": "ntc_00000000000000000000",
     "invoice_id": "mbi_00000000000000000000000000",
+    "review_id": "review_00000000000000000000",
     "number": "NOBS-2026-000000",
     "ref": "999999_7000000000000",  # a conversation ref of no page of ours
 }
@@ -72,6 +76,13 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/members/{member_id}/recovery/"): 200,
     ("POST", "/sites/{site_id}/members/{member_id}/recovery/check/"): 200,
     ("POST", "/sites/{site_id}/members/{member_id}/recovery/"): 200,
+    # member notices (the Subscriber's announcements and promos for their members)
+    ("GET", "/sites/{site_id}/member-notices/"): 200,
+    ("POST", "/sites/{site_id}/member-notices/"): 201,
+    ("PATCH", "/sites/{site_id}/member-notices/{notice_id}/"): 200,
+    ("POST", "/sites/{site_id}/member-notices/{notice_id}/image/"): 200,
+    ("DELETE", "/sites/{site_id}/member-notices/{notice_id}/image/"): 200,
+    ("DELETE", "/sites/{site_id}/member-notices/{notice_id}/"): 200,
     # billing
     ("GET", "/sites/{site_id}/billing/"): 200,
     ("GET", "/sites/{site_id}/billing/payment/"): 200,
@@ -99,6 +110,9 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/catalog/products/{product_id}/revisions/"): 200,
     ("POST", "/sites/{site_id}/catalog/products/{product_id}/image/"): 200,
     ("DELETE", "/sites/{site_id}/catalog/products/{product_id}/image/"): 200,
+    ("GET", "/sites/{site_id}/catalog/categories/{category}/faq/"): 200,
+    ("PUT", "/sites/{site_id}/catalog/categories/{category}/faq/"): 200,
+    ("POST", "/sites/{site_id}/catalog/shipping-preview/"): 200,
     # payments
     ("GET", "/sites/{site_id}/payment-methods/"): 200,
     ("PATCH", "/sites/{site_id}/payment-methods/"): 200,
@@ -114,6 +128,9 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/shipment/"): 200,
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/shipment/correct/"): 200,
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/delivery/"): 200,
+    ("GET", "/sites/{site_id}/pack/registrations/"): 200,
+    ("POST", "/sites/{site_id}/pack/registrations/{member_id}/start/"): 200,
+    ("POST", "/sites/{site_id}/pack/registrations/{member_id}/registered/"): 200,
     # shop owner (the Subscriber's product orders; each call gets a fresh order in the state it needs)
     ("GET", "/sites/{site_id}/shop/orders/"): 200,
     ("GET", "/sites/{site_id}/shop/orders/{order_id}/"): 200,
@@ -122,6 +139,9 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/shop/orders/{order_id}/cancel/"): 200,
     ("POST", "/sites/{site_id}/shop/orders/{order_id}/ship/"): 200,
     ("POST", "/sites/{site_id}/shop/orders/{order_id}/deliver/"): 200,
+    ("GET", "/sites/{site_id}/shop/reviews/"): 200,
+    ("POST", "/sites/{site_id}/shop/reviews/{review_id}/hide/"): 200,
+    ("POST", "/sites/{site_id}/shop/reviews/{review_id}/show/"): 200,
     # meta_ads
     ("GET", "/sites/{site_id}/meta/"): 200,
     ("PUT", "/sites/{site_id}/meta/"): 200,
@@ -144,6 +164,7 @@ APP_PREFIXES = [
     ("/sites/{site_id}/pack/", "pack_owner"), ("/sites/{site_id}/meta/", "meta_ads"),
     ("/sites/{site_id}/inquiries/", "inquiries"),
     ("/sites/{site_id}/shop/", "shop_owner"),
+    ("/sites/{site_id}/member-notices/", "member_notices"),
 ]
 
 
@@ -242,7 +263,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
         BillingProfile.objects.create(site=self.ben_site, **PROFILE)
         self.product = make_product()
         self.creates = 0
-        self.ben_ids = self.make_children(self.ben_site, payment=True)
+        self.ben_ids = self.make_children(self.ben_site, payment=True, reg_status="in_registration")
         self.ben_shop_ids = self.make_children(self.ben_site, shop=True)
         configure(self.ben_site)
         inquiries_base.configure(self.site)
@@ -272,19 +293,30 @@ class TwoOwnersTestCase(SitesApiTestCase):
         return item.public_id
 
     def make_children(self, site, payment=False, shop=False, shop_status=SHOP.PENDING_REVIEW,
-                      shop_shipped=False, pack_status=PACK.PENDING_REVIEW, pack_shipped=False):
+                      shop_shipped=False, pack_status=PACK.PENDING_REVIEW, pack_shipped=False, reg_status=None):
         """A shop order has its own ids: with shop=True order_id and proof_id name it, not the pack's."""
+        review_id = MISSING_CHILD["review_id"]
         if shop:
             order, proof = make_shop_order(site, status=shop_status, shipped=shop_shipped)
+            review_id = ProductReview.objects.create(
+                site=site, order=order, order_line=order.lines.get(), product_id="prod_x", rating=5,
+                body="Fixture review", display_name="Maria S.",
+            ).public_id
         else:
             order, proof = make_order(site, status=pack_status, shipped=pack_shipped)
+            if reg_status:  # the member's Santé registration, for the pack registration routes
+                SanteRegistration.objects.create(
+                    site=site, member=order.member, pack_order=order, status=reg_status,
+                )
         ids = {
-            **MISSING_CHILD,
+            **MISSING_CHILD, "category": "barley",
             "order_id": order.public_id,
             "proof_id": proof.public_id,
+            "review_id": review_id,
             "account_id": SitePaymentAccount.objects.filter(site=site).order_by("-pk").first().public_id,
             "product_id": self.product.public_id,
             "member_id": order.member.public_id if not shop else MISSING_CHILD["member_id"],
+            "notice_id": MemberNotice.objects.create(site=site, kind="promo", title="Fixture").public_id,
             "invoice_id": self.invoice_ids[site.pk],
             "number": self.statement_numbers[site.pk],
         }
@@ -297,23 +329,32 @@ class TwoOwnersTestCase(SitesApiTestCase):
     def own_ids(self, template):
         """Children of Ana's site for the placeholders this route has. An order is made anew each
         time because approve and reject use it up; a payment is whatever Ana last sent."""
-        ids = {**MISSING_CHILD, "product_id": self.product.public_id}
+        ids = {**MISSING_CHILD, "category": "barley", "product_id": self.product.public_id}
         if "/shop/orders/{order_id}" in template:
             ids.update(self.make_children(
                 self.site, shop=True,
                 shop_status=SHOP.VERIFIED if template.endswith(("/ship/", "/deliver/")) else SHOP.PENDING_REVIEW,
                 shop_shipped=template.endswith("/deliver/"),
             ))
+        elif "{review_id}" in template:
+            ids["review_id"] = self.make_children(self.site, shop=True)["review_id"]
         elif "{order_id}" in template:
             ids.update(self.make_children(
                 self.site,
                 pack_status=PACK.VERIFIED if template.endswith(("/shipment/", "/shipment/correct/", "/delivery/")) else PACK.PENDING_REVIEW,
                 pack_shipped=template.endswith(("/shipment/correct/", "/delivery/")),
             ))
+        elif "/pack/registrations/{member_id}" in template:
+            ids.update(self.make_children(
+                self.site, pack_status=PACK.VERIFIED,
+                reg_status="ready_to_register" if template.endswith("/start/") else "in_registration",
+            ))
         elif "{member_id}" in template:
             ids.update(self.make_children(self.site))
         elif "{account_id}" in template:
             ids["account_id"] = make_payment_account(self.site).public_id
+        if "{notice_id}" in template:  # made anew: the delete uses it up
+            ids["notice_id"] = MemberNotice.objects.create(site=self.site, kind="promo", title="Fixture").public_id
         if "{ref}" in template:
             ids["ref"] = inquiries_base.REF
         if "{invoice_id}" in template:
@@ -366,6 +407,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
                     HTTP_ORIGIN=ORIGIN,
                 )
             return client.delete(f"{path}?revision={revision}", secure=True, HTTP_ORIGIN=ORIGIN)
+        if "/member-notices/" in path and path.endswith("/image/") and method == "POST":
+            return client.post(path, data={"file": image_file()}, secure=True, HTTP_ORIGIN=ORIGIN)
         if "/recovery/" in path and method == "POST":
             return self.call_recovery(path, client)
         if method == "GET":
@@ -393,15 +436,23 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return {"sponsor_id": "TAKEN-1"}
         if "/catalog/" in template:
             self.product.refresh_from_db()
+            if "/categories/" in template:
+                return {"faq": [{"q": "Is it good?", "a": "Yes."}]}
             if template.endswith("/products/order/"):
                 return {"product_ids": list(
                     CatalogProduct.objects.order_by("pk").values_list("public_id", flat=True)
                 )}
+            if template.endswith("/shipping-preview/"):
+                return {"weight_kg": "1.00"}
             if method == "PATCH":
                 return {"revision": self.product.revision, "name": self.product.name}
             self.creates += 1
             return {"code": f"FX-NEW-{self.creates}", "name": "Fixture New", "srp_centavos": 9999,
                     "earnings_rate": "0.3500"}
+        if "/member-notices/" in template:
+            if method == "POST":
+                return {"kind": "announcement", "title": "Fixture notice"}
+            return {"title": "Changed"} if method == "PATCH" else None
         if template.endswith("/billing/profile/"):
             return {**PROFILE, "company_name": "Fixture Co"}
         if template.endswith("/payment-methods/"):
@@ -419,6 +470,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
                 body.update(courier="lbc", tracking_number="LBC123456")
             if template.endswith("/reject/"):
                 body["reason_code"] = "proof_unreadable"
+            if template.endswith("/registered/"):
+                body["sante_member_id"] = "SA-1234567"
             return body
         if "/meta/" in template and method == "PUT":
             return {"pixel_id": PIXEL, "access_token": TOKEN, "test_event_code": CODE}

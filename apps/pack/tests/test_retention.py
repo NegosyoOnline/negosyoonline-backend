@@ -142,6 +142,40 @@ class RegistrationDetailsRetentionTests(PackTestCase):
         reg = SanteRegistration.objects.get()
         self.assertEqual((reg.date_of_birth, reg.desired_username), (None, ""))
 
+    def test_the_export_carries_member_id_and_registered_at(self):
+        from apps.pack.models import SanteRegistration
+        SanteRegistration.objects.update(sante_member_id="SM123", registered_at=timezone.now())
+        row = retention.export_packs_of(self.site.account)["sante_registrations"][0]
+        self.assertEqual(row["sante_member_id"], "SM123")
+        self.assertTrue(row["registered_at"])
+
+    def test_disposal_blanks_member_id_keeps_registered_at(self):
+        from apps.pack.models import SanteRegistration
+        SanteRegistration.objects.update(
+            sante_member_id="SM123", registered_at=timezone.now(), date_of_birth=None,
+            desired_username="", alternate_username="",
+        )
+        self.assertEqual(retention.blank_packs_of(self.site.account, dry_run=True)["sante_registrations"], 1)
+        self.assertEqual(SanteRegistration.objects.get().sante_member_id, "SM123")
+        self.assertEqual(retention.blank_packs_of(self.site.account)["sante_registrations"], 1)
+        reg = SanteRegistration.objects.get()
+        self.assertEqual(reg.sante_member_id, "")
+        self.assertIsNotNone(reg.registered_at)
+        self.assertIn("sante_member_id", retention.blanked()["sante_registrations"])
+
+    def test_another_sites_disposal_leaves_member_id(self):
+        from apps.pack.models import SanteRegistration
+        SanteRegistration.objects.update(sante_member_id="SM123")
+        retention.blank_packs_of(self.other_site.account)
+        self.assertEqual(SanteRegistration.objects.get().sante_member_id, "SM123")
+
+    def test_the_details_purge_keeps_member_id(self):
+        from apps.pack.models import SanteRegistration
+        self.fill("waiting_for_accept")
+        SanteRegistration.objects.update(sante_member_id="SM123")
+        self.run_rule()
+        self.assertEqual(SanteRegistration.objects.get().sante_member_id, "SM123")
+
     def test_the_export_lists_registrations(self):
         self.fill("waiting_for_accept", age_days=1)
         row = retention.export_packs_of(self.site.account)["sante_registrations"][0]

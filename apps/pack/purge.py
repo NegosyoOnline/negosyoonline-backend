@@ -86,10 +86,10 @@ def _clear_details(site_id, now, member_id=None):
     registrations = scoped(SanteRegistration.objects)
     registrations.filter(
         Q(date_of_birth__isnull=False) | ~Q(desired_username="") | ~Q(alternate_username="")
-        | Q(details_purged_at__isnull=True)
+        | ~Q(sante_member_id="") | Q(details_purged_at__isnull=True)
     ).update(
         date_of_birth=None, desired_username="", alternate_username="",
-        details_purged_at=now,
+        sante_member_id="", details_purged_at=now,
     )
     counts["sante_registrations"] = registrations.count()
     # Append-only tables refuse queryset writes; the purge is the sanctioned exception, through

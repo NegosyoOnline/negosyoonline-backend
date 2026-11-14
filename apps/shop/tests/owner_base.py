@@ -11,7 +11,7 @@ from django.utils import timezone
 from apps.common import private_files
 from apps.payments.tests.base import PNG, make_payment_account, stored_files, use_local_private_store
 from apps.shop import constants as C
-from apps.shop.models import ShopOrder, ShopOrderEvent, ShopOrderLine, ShopProofSubmission
+from apps.shop.models import ProductReview, ShopOrder, ShopOrderEvent, ShopOrderLine, ShopProofSubmission
 from apps.sites.models import Site
 from apps.sites.tests.api_base import SitesApiTestCase
 
@@ -70,6 +70,14 @@ def shop_call(case, method, path, client=None):
         needs_verified = path.endswith(("/ship/", "/deliver/"))
         order, proof = make_order(site, status=C.VERIFIED if needs_verified else C.PENDING_REVIEW,
                                   shipped=path.endswith("/deliver/"))
+    review = None
+    if site is not None and "{review_id}" in path:
+        made, _ = make_order(site, status=C.VERIFIED, shipped=True, delivered=True)
+        review = ProductReview.objects.create(
+            site=site, order=made, order_line=made.lines.get(), product_id="prod_x", rating=5,
+            display_name="Maria S.",
+        )
+    path = path.replace("{review_id}", review.public_id if review else "review_missing")
     path = path.replace("{order_id}", order.public_id if order else "sho_missing")
     path = path.replace("{proof_id}", proof.public_id if proof else "shp_missing")
     if method == "GET":

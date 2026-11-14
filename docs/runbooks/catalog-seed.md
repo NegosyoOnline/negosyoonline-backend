@@ -30,6 +30,25 @@ hash. Production is never covered. Nothing here runs by itself.
   Arrange again. The migration is run like `0002` (staging by the Supervisor, production
   never without Coach Ed's approval) and is reversible (`migrate catalog 0002` drops the
   column and the order falls back to creation order).
+- Section images and category FAQs (migration `catalog.0007_product_section_images_category_faq`,
+  additive only: three `*_image_key` columns on products and on revisions, and the table
+  `CatalogCategoryFaq`; run like `0002`, staging by the Supervisor, production never without
+  Coach Ed's approval). Owner routes, all owner-site only:
+  - `POST /v1/sites/{site_id}/catalog/products/{product_id}/image/?section=features|advantages|benefits`
+    (multipart `file` and `revision`) and `DELETE ...?revision=N&section=...` set, replace and
+    clear the one optional image of What's Inside (`features`), Why It Stands Out
+    (`advantages`) and What You Get From It (`benefits`). Same store, size and type rules as
+    the photo slots, and each change is a product revision. `section` and `slot` are never sent
+    together; with neither, slot 1 is used as before.
+  - `GET` and `PUT /v1/sites/{site_id}/catalog/categories/{category}/faq/`, with `category` one
+    of `barley`, `drinks`, `essentials`, `beauty` (else 404). `PUT {"faq": [{"q", "a"}]}`
+    replaces the category's general FAQs (up to 10, question 1 to 150, answer 1 to 1000
+    characters, as a product's faq; `[]` clears). General FAQs are shared by every Santé store,
+    like the products, so they are keyed by category, not by site. Not a product revision.
+  - Payloads: owner product and revisions carry `features_image_url`, `advantages_image_url`,
+    `benefits_image_url`; the storefront product reads carry those and `category_faq` (the
+    product's category FAQs, `[]` when none; shown after the product's own `faq`). A section
+    image URL is `null` when unset and never falls back to a photo.
 
 ## Variables (read by `config/settings.py`; names only, values are Coach Ed's to set)
 

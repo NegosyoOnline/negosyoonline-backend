@@ -71,6 +71,20 @@ MSG_SHIP_DATE_ORDER = "The delivery date cannot be before the shipping date."
 MSG_STORE_UNAVAILABLE = "We could not save your proof. Please try again shortly."
 MSG_STORE_PAYS_SHIPPING = "This store pays your shipping."
 
+# Product reviews
+RATING_MIN, RATING_MAX = 1, 5
+REVIEW_BODY_MAX, REVIEW_NAME_MAX = 1000, 40
+REVIEW_EDIT_DAYS = 7
+REVIEW_PAGE_SIZE = 10
+MSG_REVIEW_FIELDS = "Check the highlighted fields."
+MSG_REVIEW_RATING = "Choose a rating from 1 to 5."
+MSG_REVIEW_BODY = "Write up to 1000 characters."
+MSG_REVIEW_NAME = "Use a name of 1 to 40 characters."
+MSG_REVIEW_NOT_DELIVERED = "You can review a product once your order is delivered."
+MSG_REVIEW_EXISTS = "You already reviewed this product."
+MSG_REVIEW_LOCKED = "This review can no longer be changed."
+MSG_REVIEW_NONE = "There is no review to change."
+
 # Throttles: (scope, limit, window seconds).
 QUOTE_IP_LIMIT = ("shop-quote-ip", 120, 3600)
 PLACE_IP_LIMIT = ("shop-place-ip", 20, 3600)
@@ -79,3 +93,4 @@ MEMBER_LIST_LIMIT = ("shop-member-orders", 120, 3600)
 OWNER_WRITE_LIMIT = ("shop-write-acct", 60, 600)
 OWNER_LINK_LIMIT = ("shop-link-acct", 120, 600)
 OWNER_LIST_MAX = 200
+REVIEW_IP_LIMIT = ("shop-review-ip", 30, 3600)

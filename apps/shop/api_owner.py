@@ -7,6 +7,8 @@
     POST .../shop/orders/{order_id}/cancel/           {state_version, note}
     POST .../shop/orders/{order_id}/ship/             {state_version, courier, tracking_no?, shipped_on?}
     POST .../shop/orders/{order_id}/deliver/          {state_version, delivered_on?}
+    GET  .../shop/reviews/?product=<catalog id>&hidden=true|false -> {reviews: [row]} newest 200
+    POST .../shop/reviews/{review_id}/hide/ and /show/  -> the review (the buyer's words are never edited)
 
 Order ids are public ids; money is integer centavos. Every route is signed-in only and reaches its
 site through site_for(account, site_id, template=SANTE), so a missing, removed, foreign or non-Santé
@@ -26,7 +28,7 @@ from apps.common import private_files
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
 from apps.members.contacts import mask
-from apps.shop import constants as C, review
+from apps.shop import constants as C, product_reviews, review
 from apps.shop.models import ShopOrder
 from apps.sites import templates
 from apps.sites.api import _owner_site
@@ -225,3 +227,20 @@ def order_deliver(request, site_id: str, order_id: str, payload: DeliverIn):
         delivered_on=payload.delivered_on,
     )
     return detail(_order(request.shop_site, order_id))
+
+
+@router.get("/sites/{site_id}/shop/reviews/")
+def reviews_list(request, site_id: str, product: str = "", hidden: bool | None = None):
+    return {"reviews": product_reviews.owner_list(request.shop_site, product_id=product, hidden=hidden)}
+
+
+@router.post("/sites/{site_id}/shop/reviews/{review_id}/hide/")
+def review_hide(request, site_id: str, review_id: str):
+    _limit(request, C.OWNER_WRITE_LIMIT)
+    return product_reviews.owner_out(product_reviews.set_hidden(request.shop_site, review_id, True))
+
+
+@router.post("/sites/{site_id}/shop/reviews/{review_id}/show/")
+def review_show(request, site_id: str, review_id: str):
+    _limit(request, C.OWNER_WRITE_LIMIT)
+    return product_reviews.owner_out(product_reviews.set_hidden(request.shop_site, review_id, False))

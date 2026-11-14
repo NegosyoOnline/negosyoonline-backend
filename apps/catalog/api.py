@@ -17,6 +17,7 @@ and the sizes are fixed-format text. A product is named by its public id; no row
 appears in a route or a response.
 """
 from datetime import datetime
+from typing import Any
 
 from ninja import Field, Query, Router, Schema
 from pydantic import ConfigDict, StrictBool, StrictInt
@@ -59,9 +60,16 @@ class ProductCreateIn(StrictSchema):
     earnings_rate: str
     short_description: str = ""
     long_description: str = ""
+    features: str = ""  # the four texts: at most 5000 characters each
+    specifications: str = ""
+    advantages: str = ""
+    benefits: str = ""
+    servings_per_pack: StrictInt | None = None  # 1 to 999, or not set
+    faq: list[Any] = Field(default_factory=list)  # [{"q", "a"}]; shape checked in services
+    ingredients: list[Any] = Field(default_factory=list)  # [{"name", "line", "photo_slot"}]
     category: str = ""  # barley, drinks, essentials, beauty, or blank
     weight_kg: str = "0.00"
-    volume_slot: str | None = None  # left out or null: not set
+    volume_slot: str | None = None  # still accepted; derived from the sizes when they are given
     shipping_qty: StrictInt | None = None
     length_cm: str | None = None  # all three sizes or none
     width_cm: str | None = None
@@ -82,9 +90,16 @@ class ProductUpdateIn(StrictSchema):
     name: str | None = None
     short_description: str | None = None
     long_description: str | None = None
+    features: str | None = None
+    specifications: str | None = None
+    advantages: str | None = None
+    benefits: str | None = None
+    servings_per_pack: StrictInt | None = None  # null clears it
+    faq: list[Any] | None = None
+    ingredients: list[Any] | None = None
     category: str | None = None
     weight_kg: str | None = None
-    volume_slot: str | None = None
+    volume_slot: str | None = None  # still accepted, but derived from the sizes when given
     shipping_qty: StrictInt | None = None
     length_cm: str | None = None
     width_cm: str | None = None
@@ -94,13 +109,36 @@ class ProductUpdateIn(StrictSchema):
     is_active: StrictBool = None
 
 
+class FaqItem(Schema):
+    q: str
+    a: str
+
+
+class IngredientItem(Schema):
+    name: str
+    line: str
+    photo_slot: int | None
+    photo_url: str | None  # the photo it points at; null where that slot is empty
+
+
 class ProductValues(Schema):
     code: str
     name: str
     short_description: str
     long_description: str
+    features: str
+    specifications: str
+    advantages: str
+    benefits: str
+    servings_per_pack: int | None
+    faq: list[FaqItem]
+    ingredients: list[IngredientItem]
     category: str
-    image_url: str | None
+    features_image_url: str | None  # What's Inside image; null when unset
+    advantages_image_url: str | None  # Why It Stands Out image
+    benefits_image_url: str | None  # What You Get From It image
+    image_url: str | None  # photo slot 1
+    image_urls: list[str | None]  # always 5: slots 1 to 5, null where empty
     weight_kg: str
     srp_centavos: int
     earnings_rate: str
@@ -159,9 +197,14 @@ def product_update(request, site_id: str, product_id: str, payload: ProductUpdat
 
 
 @router.post("/sites/{site_id}/catalog/products/{product_id}/image/", response=ProductOut)
-def product_image_set(request, site_id: str, product_id: str):
+def product_image_set(
+    request, site_id: str, product_id: str, slot: int | None = Query(None),
+    section: str | None = Query(None),
+):
     """A form post (multipart): `file` is a JPEG, PNG or WebP of at most 2 MB, and `revision`
-    is the revision the caller loaded."""
+    is the revision the caller loaded. `?slot=1..5` names the photo slot (default 1);
+    `?section=features|advantages|benefits` names a page section's own image instead (not
+    together with `slot`)."""
     revision = request.POST.get("revision", "")
     if not revision.isdigit() or not 1 <= int(revision) <= 2**31:
         raise ApiError(
@@ -170,15 +213,67 @@ def product_image_set(request, site_id: str, product_id: str):
         )
     product = services.set_image(
         request.account, request.catalog_site, product_id, request.FILES.get("file"),
-        int(revision),
+        int(revision), slot, section,
     )
     return services.product_out(product)
 
 
 @router.delete("/sites/{site_id}/catalog/products/{product_id}/image/", response=ProductOut)
-def product_image_clear(request, site_id: str, product_id: str, revision: int = Query(..., ge=1)):
-    product = services.clear_image(request.account, request.catalog_site, product_id, revision)
+def product_image_clear(
+    request, site_id: str, product_id: str, revision: int = Query(..., ge=1),
+    slot: int | None = Query(None), section: str | None = Query(None),
+):
+    """Clears only the photo in `?slot=1..5` (default 1), or only the image of
+    `?section=features|advantages|benefits`."""
+    product = services.clear_image(
+        request.account, request.catalog_site, product_id, revision, slot, section
+    )
     return services.product_out(product)
+
+
+class CategoryFaqIn(StrictSchema):
+    faq: list[Any]  # [{"q", "a"}], same shape and limits as a product's faq; [] clears
+
+
+class CategoryFaqOut(Schema):
+    category: str
+    faq: list[FaqItem]
+
+
+@router.get("/sites/{site_id}/catalog/categories/{category}/faq/", response=CategoryFaqOut)
+def category_faq_get(request, site_id: str, category: str):
+    """Owner only: the general FAQs of barley, drinks, essentials or beauty."""
+    return services.category_faq_for(request.catalog_site, category)
+
+
+@router.put("/sites/{site_id}/catalog/categories/{category}/faq/", response=CategoryFaqOut)
+def category_faq_put(request, site_id: str, category: str, payload: CategoryFaqIn):
+    """Owner only: replaces the category's general FAQs (up to 10 questions; [] clears)."""
+    return services.set_category_faq(
+        request.account, request.catalog_site, category, payload.faq
+    )
+
+
+class ShippingPreviewIn(StrictSchema):
+    weight_kg: str
+    length_cm: str | None = None
+    width_cm: str | None = None
+    height_cm: str | None = None
+    shipping_qty: StrictInt | None = None
+    volume_slot: str | None = None  # derived from the sizes when given
+
+
+class ShippingPreviewOut(Schema):
+    ncr_centavos: int | None
+    mindanao_centavos: int | None
+    billable_kg: str | None
+    reason: str
+
+
+@router.post("/sites/{site_id}/catalog/shipping-preview/", response=ShippingPreviewOut)
+def shipping_preview(request, site_id: str, payload: ShippingPreviewIn):
+    """Owner only, read-only: the fee for one unit to NCR and to Mindanao. Nothing is stored."""
+    return services.shipping_preview(request.catalog_site, payload.dict())
 
 
 @router.get("/sites/{site_id}/catalog/products/{product_id}/revisions/", response=RevisionListOut)

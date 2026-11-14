@@ -5,7 +5,7 @@ switch is off (`PACK_PURGE_ENABLED`; `PACK_BUYER_NOTICE_ENABLED`, which also nee
 """
 from celery import shared_task
 
-from apps.pack import buyer_notice, purge
+from apps.pack import buyer_notice, purge, registered_notice
 
 
 @shared_task(name="pack.purge", ignore_result=True)
@@ -19,3 +19,10 @@ def run_purge():
 def run_buyer_notice():
     """Send the day-76 emails that are due, each once. Returns counts only."""
     return buyer_notice.run()
+
+
+@shared_task(name="pack.registered_notice", ignore_result=True)
+def run_registered_notice():
+    """Try the "Santé account created" emails that failed (or were never tried) again, each 6 hours
+    after its last try; gives up after 6 retries. Returns counts only. Needs PACK_ENABLED."""
+    return registered_notice.run()

@@ -233,6 +233,10 @@ SITE_ERASURE_ENABLED = os.environ.get("SITE_ERASURE_ENABLED", "").strip() == "1"
 # The day-76 email to a paid buyer, 14 days before the portal closes. "1" lets the hourly task
 # send it. It is never sent unless PACK_PURGE_ENABLED is on as well. Off, nothing is read or sent.
 PACK_BUYER_NOTICE_ENABLED = os.environ.get("PACK_BUYER_NOTICE_ENABLED", "").strip() == "1"
+# The approved Santé Mobile App ordering video, linked in the "your Santé account is created"
+# email (apps/pack/registered_notice.py, ClickUp z8uq9meyqj). An https link; empty (the default):
+# the email says the video guide is coming soon and links nothing.
+PACK_ORDERING_VIDEO_URL = os.environ.get("PACK_ORDERING_VIDEO_URL", "").strip()
 # The Santé shop (apps/shop): cart quote, checkout with bank-transfer proof, product orders and the
 # Subscriber's order review. "1" turns on its storefront and owner routes. Off, every one of them
 # answers the 404 of an unknown site and no shop table is read or written. Needs
@@ -462,6 +466,12 @@ CELERY_BEAT_SCHEDULE = {
     },
     "pack-buyer-notice": {
         "task": "pack.buyer_notice",
+        "schedule": 3600,
+        "options": {"expires": 3600},
+    },
+    # The retry of the "Santé account created" email (needs only PACK_ENABLED; reads one small table).
+    "pack-registered-notice": {
+        "task": "pack.registered_notice",
         "schedule": 3600,
         "options": {"expires": 3600},
     },

@@ -27,11 +27,13 @@ from ninja import NinjaAPI, Schema
 from apps.catalog.storefront_api import router as catalog_storefront_router
 from apps.common.errors import ApiError, error_body, register_error_handlers
 from apps.members.api import router as members_router
+from apps.members.api_content import router as member_content_router
 from apps.meta_ads.api_storefront import router as meta_storefront_router
 from apps.pack.api import router as pack_checkout_router
 from apps.pack.api_portal import router as portal_router
 from apps.sante import pack_api
 from apps.shop.api import router as shop_router
+from apps.shop.api_reviews import router as shop_reviews_router
 from apps.sites import seal
 from apps.storefront import services
 from apps.storefront.auth import server_only
@@ -44,6 +46,7 @@ api = NinjaAPI(
 )
 register_error_handlers(api)
 api.add_router("/member/", members_router)
+api.add_router("/member/", member_content_router)  # notices and the bell (apps/members/api_content.py)
 api.add_router("/portal/", portal_router)  # the buyer portal for a site that is off (apps/pack/api_portal.py)
 
 
@@ -131,6 +134,7 @@ api.add_router("", pack_checkout_router)  # the Membership Pack checkout (apps/p
 api.add_router("", pack_api.router)  # the Membership Pack reads (apps/sante/pack_api.py)
 api.add_router("", catalog_storefront_router)  # the catalog reads (apps/catalog/storefront_api.py)
 api.add_router("", shop_router)  # the Santé shop (apps/shop/api.py)
+api.add_router("", shop_reviews_router)  # its product reviews (apps/shop/api_reviews.py)
 api.add_router("", meta_storefront_router)  # the Meta Conversions API events (apps/meta_ads)
 
 
