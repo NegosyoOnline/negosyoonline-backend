@@ -21,7 +21,7 @@ Backend half of ClickUp z8uq9md3n5. The browser Pixel and the dash tab are the f
 ## Rules
 
 - Nothing is stored or sent for a visitor without consent (`consent: true` on the events route, `meta_consent=1` at placement).
-- `Purchase` is sent when the Subscriber approves the proof, `AddPaymentInfo` at placement; both are built in Django from the order. They are refused by name on the events route.
+- `Purchase` is sent once per order when the buyer first opens the onboarding verify page (the storefront asks `/storefront/v1/meta/purchase/`; it needs consent on that visit and the order's saved context), `AddPaymentInfo` at placement; both are built in Django from the order. They are refused by name on the events route. Approval sends nothing. Each send records Meta's `events_received` and `fbtrace_id` on its `MetaDelivery` row (a number and a trace id only).
 - Delivery evidence (`MetaDelivery`) holds the event name and id, outcome, attempts, HTTP status and Meta's numeric error code. No payload, no token, no message text.
 - Browser identifiers kept for an order (`MetaOrderContext`) are deleted when its Purchase is sent, or after 30 days (retention rule `meta_order_contexts`).
 - Beat entry `meta-ads-sweep` (300 s) re-queues waiting Purchase and AddPaymentInfo deliveries and expires any open delivery after 7 days.

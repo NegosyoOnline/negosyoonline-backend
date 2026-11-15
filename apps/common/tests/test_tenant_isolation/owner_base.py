@@ -33,6 +33,8 @@ from apps.shop.tests.owner_base import make_order as make_shop_order
 from apps.payments.tests.base import BANK, make_payment_account, qr_file, stored_files, use_local_private_store
 from apps.sites.models import Site
 from apps.training.models import Course, Lesson, LiveTraining, Module
+from apps.media_library.models import MediaAsset
+from apps.media_library.tests.base import FakeStore, HEAD, RW_SETTINGS, rw_blob_url
 from apps.sites.tests.api_base import SitesApiTestCase
 from apps.sites.tests.test_isolation import PROFILE_BODY, SITE_BODY
 from apps.statements.models import BillingProfile
@@ -55,6 +57,7 @@ MISSING_CHILD = {
     "module_id": "mdl_00000000000000000000",
     "lesson_id": "lsn_00000000000000000000",
     "live_id": "liv_00000000000000000000",
+    "asset_id": "mda_00000000000000000000",
     "invoice_id": "mbi_00000000000000000000000000",
     "review_id": "review_00000000000000000000",
     "number": "NOBS-2026-000000",
@@ -113,6 +116,18 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/training/live/{live_id}/thumbnail/"): 200,
     ("DELETE", "/sites/{site_id}/training/live/{live_id}/thumbnail/"): 200,
     ("DELETE", "/sites/{site_id}/training/live/{live_id}/"): 200,
+    # media library (the Subscriber's promotion images and videos for their members)
+    ("GET", "/sites/{site_id}/media/"): 200,
+    ("POST", "/sites/{site_id}/media/"): 201,
+    ("POST", "/sites/{site_id}/media/reorder/"): 200,
+    ("PATCH", "/sites/{site_id}/media/{asset_id}/"): 200,
+    ("POST", "/sites/{site_id}/media/{asset_id}/publish/"): 200,
+    ("POST", "/sites/{site_id}/media/{asset_id}/unpublish/"): 200,
+    ("POST", "/sites/{site_id}/media/{asset_id}/image/"): 200,
+    ("DELETE", "/sites/{site_id}/media/{asset_id}/image/"): 200,
+    ("POST", "/sites/{site_id}/media/{asset_id}/video/token/"): 200,
+    ("POST", "/sites/{site_id}/media/{asset_id}/video/attach/"): 200,
+    ("DELETE", "/sites/{site_id}/media/{asset_id}/"): 200,
     # billing
     ("GET", "/sites/{site_id}/billing/"): 200,
     ("GET", "/sites/{site_id}/billing/payment/"): 200,
@@ -196,6 +211,7 @@ APP_PREFIXES = [
     ("/sites/{site_id}/shop/", "shop_owner"),
     ("/sites/{site_id}/member-notices/", "member_notices"),
     ("/sites/{site_id}/training/", "training"),
+    ("/sites/{site_id}/media/", "media"),
 ]
 
 
@@ -256,6 +272,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
         self.private_dir = use_local_private_store(self)
         self.media = FakeMedia().__enter__()
         self.addCleanup(self.media.__exit__, None, None, None)
+        self.media_store = FakeStore().__enter__()  # the media library's own store calls
+        self.addCleanup(self.media_store.__exit__, None, None, None)
         self.meta = FakeMeta().__enter__()
         self.addCleanup(self.meta.__exit__, None, None, None)
         self.pancake = inquiries_base.FakePancake().__enter__()
@@ -335,6 +353,22 @@ class TwoOwnersTestCase(SitesApiTestCase):
             "lesson_id": lesson.public_id, "live_id": live.public_id,
         }
 
+    def make_media(self, site, video=False):
+        """A media asset of this site: a published image with its file, or (video=True) a draft
+        video with its poster and no video file yet."""
+        self.creates += 1
+        if video:
+            asset = MediaAsset.objects.create(
+                site=site, title="Fixture video", asset_type="video",
+                poster_key=f"media-library/{site.public_id}/poster-{self.creates}.png",
+            )
+        else:
+            asset = MediaAsset.objects.create(
+                site=site, title="Fixture image", asset_type="image", published_at=timezone.now(),
+                file_key=f"media-library/{site.public_id}/image-{self.creates}.png",
+            )
+        return {"asset_id": asset.public_id}
+
     def make_children(self, site, payment=False, shop=False, shop_status=SHOP.PENDING_REVIEW,
                       shop_shipped=False, pack_status=PACK.PENDING_REVIEW, pack_shipped=False, reg_status=None):
         """A shop order has its own ids: with shop=True order_id and proof_id name it, not the pack's."""
@@ -361,6 +395,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
             "member_id": order.member.public_id if not shop else MISSING_CHILD["member_id"],
             "notice_id": MemberNotice.objects.create(site=site, kind="promo", title="Fixture").public_id,
             **self.make_training(site),
+            **self.make_media(site),
             "invoice_id": self.invoice_ids[site.pk],
             "number": self.statement_numbers[site.pk],
         }
@@ -401,6 +436,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             ids["notice_id"] = MemberNotice.objects.create(site=self.site, kind="promo", title="Fixture").public_id
         if "/training/" in template:  # made anew: the deletes use them up
             ids.update(self.make_training(self.site))
+        if "/media/" in template:  # made anew: the delete uses it up, and a video route needs a video
+            ids.update(self.make_media(self.site, video="/video/" in template))
         if "{ref}" in template:
             ids["ref"] = inquiries_base.REF
         if "{invoice_id}" in template:
@@ -457,6 +494,20 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return client.post(path, data={"file": image_file()}, secure=True, HTTP_ORIGIN=ORIGIN)
         if "/training/" in path and path.endswith("/reorder/"):
             return self.send("post", path, {"ids": self.reorder_ids(path)}, client=client)
+        if "/media/" in path and path.endswith("/image/") and method == "POST":
+            return client.post(path, data={"file": image_file()}, secure=True, HTTP_ORIGIN=ORIGIN)
+        if "/media/" in path and path.endswith("/video/token/"):
+            with override_settings(**RW_SETTINGS):
+                return self.send("post", path, None, client=client)
+        if "/media/" in path and path.endswith("/video/attach/"):
+            site_pid = path.split("/sites/")[1].split("/")[0]
+            asset_pid = path.split("/media/")[1].split("/")[0]
+            with override_settings(**RW_SETTINGS), mock.patch(HEAD, return_value=("video/mp4", 5 * 1024 * 1024)):
+                return self.send("post", path, {"url": rw_blob_url(site_pid, asset_pid)}, client=client)
+        if "/media/" in path and path.endswith("/reorder/"):
+            site_pid = path.split("/sites/")[1].split("/")[0]
+            ids = list(MediaAsset.objects.filter(site__public_id=site_pid).order_by("order", "pk").values_list("public_id", flat=True))
+            return self.send("post", path, {"ids": ids}, client=client)
         if "/member-notices/" in path and path.endswith("/image/") and method == "POST":
             return client.post(path, data={"file": image_file()}, secure=True, HTTP_ORIGIN=ORIGIN)
         if "/recovery/" in path and method == "POST":
@@ -514,6 +565,12 @@ class TwoOwnersTestCase(SitesApiTestCase):
             if method == "POST":
                 return {"kind": "announcement", "title": "Fixture notice"}
             return {"title": "Changed"} if method == "PATCH" else None
+        if "/media/" in template:
+            if method == "POST" and template.endswith("/media/"):
+                return {"title": "Fixture media", "asset_type": "image"}
+            if template.endswith("/publish/"):
+                return {}
+            return {"title": "Changed"} if method == "PATCH" else None
         if "/training/" in template:
             if template.endswith("/live/"):
                 return {"title": "Fixture live", "starts_at": "2026-12-01T10:00:00+08:00"}
@@ -556,6 +613,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
             "private_files": stored_files(self.private_dir),
             "billing_proof_files": sorted(self.proof_store.files),
             "public_media": (sorted(self.media.files), list(self.media.deleted)),
+            "media_library_store": (sorted(self.media_store.files), list(self.media_store.deleted)),
             "outbox": [(m.to, m.subject) for m in mail.outbox],
             "meta_requests": len(self.meta.requests),
             "inquiry_requests": len(self.pancake.requests),

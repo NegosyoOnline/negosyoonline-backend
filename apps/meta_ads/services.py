@@ -151,6 +151,7 @@ def capture_order_context(order, meta, ip):
 
 
 def _queue_order_event(order, name, prefix):
+    """(delivery, created) for an order event, or None when nothing may be sent."""
     row = ready_config(order.site)
     if row is None or not MetaOrderContext.objects.filter(order=order).exists():
         return None  # no Pixel or token, or no consent was given: nothing is sent
@@ -160,7 +161,7 @@ def _queue_order_event(order, name, prefix):
     )
     if created:
         transaction.on_commit(lambda: _dispatch_order(delivery.pk), robust=True)
-    return delivery
+    return delivery, created
 
 
 def after_placement(order, meta, ip):
@@ -173,22 +174,34 @@ def after_placement(order, meta, ip):
         _safely("placement", order.site_id, run)
 
 
-def queue_purchase(order):
-    """Called inside the approving transaction, after the order is verified. Only registers the
-    send for after commit, so a rolled-back approval sends nothing."""
-    if enabled():
-        _safely("purchase", order.site_id, lambda: _queue_order_event(order, "Purchase", events.ORDER_EVENTS["Purchase"]))
+def queue_onboarding_purchase(order, *, consent):
+    """The buyer opened the onboarding verify page for a placed order. Returns the Purchase
+    delivery and whether this was its first time, or None when nothing may be sent: the switch is
+    off, there is no Pixel or token, the visitor has not consented on this visit, or the order has
+    no saved context (no consent at placement). The delivery's unique event id (pur_<public id>)
+    makes it once per order; only the first call registers a send, after commit."""
+    if not enabled() or consent is not True:
+        return None
+    return _safely("purchase", order.site_id, lambda: _queue_order_event(order, "Purchase", events.ORDER_EVENTS["Purchase"]))
 
 
 # -- delivery -----------------------------------------------------------------------------------
+
+
+def _record(delivery, result):
+    """What Meta's answer leaves on the row: status, numeric error code, events_received, trace id."""
+    delivery.http_status, delivery.meta_error_code = result.http_status, result.error_code
+    delivery.events_received, delivery.fbtrace_id = result.events_received, result.fbtrace_id
 
 
 def _finish(delivery, outcome, result=None):
     delivery.outcome = outcome
     delivery.finished_at = timezone.now()
     if result is not None:
-        delivery.http_status, delivery.meta_error_code = result.http_status, result.error_code
-    delivery.save(update_fields=["outcome", "finished_at", "http_status", "meta_error_code", "attempts"])
+        _record(delivery, result)
+    delivery.save(update_fields=[
+        "outcome", "finished_at", "http_status", "meta_error_code", "events_received", "fbtrace_id", "attempts",
+    ])
     return outcome
 
 
@@ -203,8 +216,6 @@ def _order_event(delivery):
     )
     context = MetaOrderContext.objects.filter(order=order).first() if order else None
     if order is None or context is None:
-        return None
-    if delivery.event_name == "Purchase" and order.payment_status != "verified":
         return None
     return events.order_event(delivery, order, context)
 
@@ -244,8 +255,10 @@ def deliver(delivery_id, event=None):
             return outcome
         if result.outcome in send.RETRYABLE and delivery.attempts < MAX_ATTEMPTS:
             delivery.outcome = MetaDelivery.RETRYING
-            delivery.http_status, delivery.meta_error_code = result.http_status, result.error_code
-            delivery.save(update_fields=["outcome", "attempts", "http_status", "meta_error_code"])
+            _record(delivery, result)
+            delivery.save(update_fields=[
+                "outcome", "attempts", "http_status", "meta_error_code", "events_received", "fbtrace_id",
+            ])
             return RETRY
         return _finish(delivery, MetaDelivery.FAILED, result)
 
@@ -298,7 +311,7 @@ def run_test(row, *, ip, user_agent):
     delivery.outcome = MetaDelivery.SENT if outcome == "ok" else MetaDelivery.FAILED
     delivery.finished_at = timezone.now()
     if result is not None:
-        delivery.http_status, delivery.meta_error_code = result.http_status, result.error_code
+        _record(delivery, result)
     delivery.save()
     MetaSettings.objects.filter(pk=row.pk).update(last_test_at=now, last_test_outcome=outcome)
     return outcome

@@ -1,21 +1,12 @@
-"""The storefront events route, the site payload and the Purchase integrity of the order hooks."""
-from datetime import timedelta
-from unittest import mock
-
-from django.db import transaction
-from django.utils import timezone
-
-from apps.meta_ads import events
-from apps.meta_ads.models import MetaDelivery, MetaOrderContext
-from apps.meta_ads.tests.base import PIXEL, TOKEN, FakeMeta, configure, switched_on
+"""The storefront events route and the site payload."""
+from apps.meta_ads.models import MetaDelivery
+from apps.meta_ads.tests.base import PIXEL, FakeMeta, configure, switched_on
 from apps.meta_ads.tests.base import setUpModule, tearDownModule  # noqa: F401
-from apps.pack import constants as C, review
-from apps.pack.models import PackOrder
 from apps.pack.tests.base import HOST, NOT_FOUND, OTHER_HOST, PackTestCase
 from apps.storefront.tests.base import SECRET
 
 PATH = "/storefront/v1/meta/events/"
-PV, VC = "pv_" + "a" * 16, "vc_" + "b" * 16
+PV, VC, IC = "pv_" + "a" * 16, "vc_" + "b" * 16, "ic_" + "c" * 16
 UA = "Mozilla/5.0 Visitor"
 
 
@@ -48,21 +39,33 @@ class EventsRouteTests(MetaStorefrontTestCase):
     def test_consent_queues_the_event_for_this_site_only(self):
         configure(self.other_site, pixel="555555555")
         with FakeMeta(200) as meta, self.captureOnCommitCallbacks(execute=True):
-            response = self.events(("PageView", PV), ("ViewContent", VC))
+            response = self.events(("InitiateCheckout", IC), ("ViewContent", VC))
         self.assertEqual(response.json(), {"status": "queued"})
         self.assertEqual(MetaDelivery.objects.filter(site=self.site).count(), 2)
         self.assertEqual(MetaDelivery.objects.filter(site=self.other_site).count(), 0)
         self.assertTrue(all(f"/{PIXEL}/events" in r.full_url for r, _ in meta.requests))
-        self.assertEqual([e["event_id"] for e in meta.events()], [PV, VC])
+        self.assertEqual([e["event_id"] for e in meta.events()], [IC, VC])
         self.assertEqual(meta.events()[0]["user_data"]["client_user_agent"], UA)
 
     def test_without_consent_nothing_is_stored_or_sent(self):
         with FakeMeta(200) as meta, self.captureOnCommitCallbacks(execute=True):
-            response = self.events(("PageView", PV), consent=False)
-            absent = self.events(("PageView", PV), consent=None)
+            response = self.events(("ViewContent", VC), consent=False)
+            absent = self.events(("ViewContent", VC), consent=None)
         self.assertEqual(response.json(), {"status": "ignored"})
         self.assertEqual(absent.json(), {"status": "ignored"})
         self.assertEqual((meta.requests, MetaDelivery.objects.count()), ([], 0))
+
+    def test_a_page_view_is_never_queued_or_sent_from_the_server(self):
+        """PageView is browser-only (Coach Ed, 2026-11-15): the route drops it without a row, a send or an
+        error, so a storefront that still lists it (deploy-order skew) keeps its other events."""
+        with FakeMeta(200) as meta, self.captureOnCommitCallbacks(execute=True):
+            alone = self.events(("PageView", PV))
+            mixed = self.events(("PageView", PV), ("ViewContent", VC))
+        self.assertEqual((alone.status_code, alone.json()), (200, {"status": "ignored"}))
+        self.assertEqual(mixed.json(), {"status": "queued"})
+        self.assertEqual([e["event_name"] for e in meta.events()], ["ViewContent"])
+        self.assertEqual(list(MetaDelivery.objects.values_list("event_name", flat=True)), ["ViewContent"])
+        self.assertFalse(MetaDelivery.objects.filter(event_name="PageView").exists())
 
     def test_purchase_and_add_payment_info_are_refused_by_name(self):
         for name in ("Purchase", "AddPaymentInfo", "Lead", "AddToCart", ""):
@@ -81,141 +84,35 @@ class EventsRouteTests(MetaStorefrontTestCase):
 
     def test_a_malformed_id_or_a_mismatched_prefix_is_dropped(self):
         with FakeMeta(200) as meta, self.captureOnCommitCallbacks(execute=True):
-            response = self.events(("PageView", "pv_zz"), ("PageView", VC), ("PageView", "x" * 90))
+            response = self.events(("ViewContent", "vc_zz"), ("ViewContent", IC), ("ViewContent", "x" * 90))
         self.assertEqual(response.json(), {"status": "ignored"})
         self.assertEqual(meta.requests, [])
 
     def test_an_address_on_another_host_is_not_sent_and_the_query_is_dropped(self):
         with FakeMeta(200) as meta, self.captureOnCommitCallbacks(execute=True):
-            self.events(("PageView", PV), url="https://evil.test/p?x=1")
-            self.events(("PageView", "pv_" + "c" * 16), url=f"https://{HOST}/funnel/x?token=SECRET#frag")
+            self.events(("ViewContent", VC), url="https://evil.test/p?x=1")
+            self.events(("ViewContent", "vc_" + "c" * 16), url=f"https://{HOST}/funnel/x?token=SECRET#frag")
         urls = [e.get("event_source_url") for e in meta.events()]
         self.assertEqual(urls, [None, f"https://{HOST}/funnel/x"])
 
     def test_unknown_host_foreign_secret_and_switch_off(self):
-        self.assertEqual(self.events(("PageView", PV), host="nobody.negosyotest.com").json(), NOT_FOUND)
-        self.assertEqual(self.events(("PageView", PV), secret="wrong" * 8).status_code, 401)
+        self.assertEqual(self.events(("ViewContent", VC), host="nobody.negosyotest.com").json(), NOT_FOUND)
+        self.assertEqual(self.events(("ViewContent", VC), secret="wrong" * 8).status_code, 401)
         with self.settings(META_EVENTS_ENABLED=False):
-            self.assertEqual(self.events(("PageView", PV)).json(), NOT_FOUND)
+            self.assertEqual(self.events(("ViewContent", VC)).json(), NOT_FOUND)
         self.assertEqual(MetaDelivery.objects.count(), 0)
 
     def test_a_site_without_a_pixel_or_token_queues_nothing(self):
         configure(self.site, token="")
         with FakeMeta(200) as meta, self.captureOnCommitCallbacks(execute=True):
-            self.assertEqual(self.events(("PageView", PV)).json(), {"status": "ignored"})
+            self.assertEqual(self.events(("ViewContent", VC)).json(), {"status": "ignored"})
         self.assertEqual((meta.requests, MetaDelivery.objects.count()), ([], 0))
 
     def test_too_many_events_in_one_call_are_refused(self):
-        items = [("PageView", f"pv_{i:016x}") for i in range(6)]
+        items = [("ViewContent", f"vc_{i:016x}") for i in range(6)]
         self.assertEqual(self.events(*items).status_code, 422)
 
     def test_the_route_is_throttled_per_address(self):
         for _ in range(120):
-            self.events(("PageView", PV), consent=False)
-        self.assertEqual(self.events(("PageView", PV), consent=False).status_code, 429)
-
-
-class PurchaseIntegrityTests(MetaStorefrontTestCase):
-    """Purchase is built in Django from the order row; nothing from a browser reaches it."""
-
-    def verified_order(self):
-        from apps.pack.tests.owner_base import make_order
-
-        order, _ = make_order(self.site)
-        MetaOrderContext.objects.create(
-            order=order, site=self.site, client_ip="203.0.113.77", user_agent=UA,
-            fbp="fb.1.1700000000000.123456789", source_url=f"https://{HOST}/funnel/membership-pack/checkout",
-        )
-        return order
-
-    def approve(self, order):
-        from apps.accounts.models import Account
-
-        account = Account.objects.get(pk=self.site.account_id)
-        with self.captureOnCommitCallbacks(execute=True):
-            return review.approve(account, self.site, order.pk, state_version=order.state_version)
-
-    def test_purchase_uses_the_orders_amount_currency_and_id_and_hashed_contact(self):
-        order = self.verified_order()
-        with FakeMeta(200) as meta:
-            self.approve(order)
-        event = meta.events()[0]
-        self.assertEqual((event["event_name"], event["event_id"]), ("Purchase", f"pur_{order.public_id}"))
-        self.assertEqual((event["custom_data"]["value"], event["custom_data"]["currency"]), (1488.0, "PHP"))
-        self.assertEqual(event["custom_data"]["order_id"], order.order_number)
-        self.assertEqual(event["event_time"], int(PackOrder.objects.get(pk=order.pk).verified_at.timestamp()))
-        user = event["user_data"]
-        self.assertEqual(user["em"], [events.sha(order.member.email)])
-        self.assertEqual(user["ph"], [events.sha(order.member.mobile.lstrip("+"))])
-        self.assertEqual((user["client_ip_address"], user["client_user_agent"]), ("203.0.113.77", UA))
-        self.assertNotIn(order.member.email, str(event))
-        self.assertEqual(MetaDelivery.objects.get().outcome, "sent")
-        self.assertFalse(MetaOrderContext.objects.exists())  # its job is done
-
-    def test_a_second_approval_sends_nothing_more(self):
-        order = self.verified_order()
-        with FakeMeta(200) as meta:
-            self.approve(order)
-            from apps.common.errors import ApiError
-
-            with self.assertRaises(ApiError):
-                self.approve(order)
-        self.assertEqual(len(meta.requests), 1)
-        self.assertEqual(MetaDelivery.objects.count(), 1)
-
-    def test_approval_without_a_pixel_token_or_consent_queues_nothing(self):
-        order = self.verified_order()
-        configure(self.site, token="")
-        with FakeMeta(200) as meta:
-            self.approve(order)
-        self.assertEqual((meta.requests, MetaDelivery.objects.count()), ([], 0))
-        # no saved identifiers means the visitor gave no consent: nothing is sent either
-        configure(self.site)
-        other = self.verified_order()
-        MetaOrderContext.objects.filter(order=other).delete()
-        with FakeMeta(200) as meta:
-            self.approve(other)
-        self.assertEqual((meta.requests, MetaDelivery.objects.count()), ([], 0))
-
-    def test_a_rolled_back_approval_queues_nothing(self):
-        order = self.verified_order()
-        from apps.accounts.models import Account
-
-        account = Account.objects.get(pk=self.site.account_id)
-        with FakeMeta(200) as meta, self.captureOnCommitCallbacks(execute=True) as callbacks:
-            try:
-                with transaction.atomic():
-                    review.approve(account, self.site, order.pk, state_version=order.state_version)
-                    raise RuntimeError("undo")
-            except RuntimeError:
-                pass
-        self.assertEqual((callbacks, meta.requests), ([], []))
-        self.assertEqual(PackOrder.objects.get(pk=order.pk).payment_status, C.PENDING_REVIEW)
-
-    def test_with_the_switch_off_approval_is_as_it_was(self):
-        order = self.verified_order()
-        with self.settings(META_EVENTS_ENABLED=False), FakeMeta(200) as meta:
-            done = self.approve(order)
-        self.assertEqual(done.payment_status, C.VERIFIED)
-        self.assertEqual((meta.requests, MetaDelivery.objects.count()), ([], 0))
-
-    def test_a_failing_meta_hook_never_breaks_the_approval(self):
-        order = self.verified_order()
-        with mock.patch("apps.meta_ads.services._queue_order_event", side_effect=RuntimeError(TOKEN)):
-            with self.assertLogs("apps.meta_ads", level="ERROR") as logs:
-                done = self.approve(order)
-        self.assertEqual(done.payment_status, C.VERIFIED)
-        self.assertNotIn(TOKEN, "\n".join(logs.output))
-
-    def test_an_order_event_older_than_seven_days_expires(self):
-        order = self.verified_order()
-        with FakeMeta(200) as meta:
-            self.approve(order)
-        MetaDelivery.objects.update(outcome="queued")
-        PackOrder.objects.filter(pk=order.pk).update(verified_at=timezone.now() - timedelta(days=8))
-        MetaOrderContext.objects.create(order=order, site=self.site, client_ip="203.0.113.77", user_agent=UA)
-        from apps.meta_ads import services
-
-        with FakeMeta(200) as again:
-            self.assertEqual(services.deliver(MetaDelivery.objects.get().pk), "expired")
-        self.assertEqual(again.requests, [])
+            self.events(("ViewContent", VC), consent=False)
+        self.assertEqual(self.events(("ViewContent", VC), consent=False).status_code, 429)

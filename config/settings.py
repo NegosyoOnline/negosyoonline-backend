@@ -304,6 +304,7 @@ INSTALLED_APPS = [
     'apps.storefront',
     'apps.members',
     'apps.training',
+    'apps.media_library',
     'apps.pack',
     'apps.shop',
     'apps.meta_ads',

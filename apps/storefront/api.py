@@ -31,6 +31,7 @@ from apps.members.api_content import router as member_content_router
 from apps.members.api_orders import router as member_orders_router
 from apps.meta_ads.api_storefront import router as meta_storefront_router
 from apps.training.api import router as training_router
+from apps.media_library.api import router as media_library_router
 from apps.pack.api import router as pack_checkout_router
 from apps.pack.api_portal import router as portal_router
 from apps.sante import pack_api
@@ -51,6 +52,7 @@ api.add_router("/member/", members_router)
 api.add_router("/member/", member_content_router)  # notices and the bell (apps/members/api_content.py)
 api.add_router("/member/", member_orders_router)  # the Orders log (apps/members/api_orders.py)
 api.add_router("/member/", training_router)  # courses, lessons, live training (apps/training/api.py)
+api.add_router("/member/", media_library_router)  # the media library (apps/media_library/api.py)
 api.add_router("/portal/", portal_router)  # the buyer portal for a site that is off (apps/pack/api_portal.py)
 
 
