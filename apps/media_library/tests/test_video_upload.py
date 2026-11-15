@@ -210,3 +210,26 @@ class RequestCapTests(VideoTestCase):
         response = self.upload(f"{self.image.public_id}/image/", file=png_file(b"\x89PNG\r\n\x1a\n" + b"0" * (10 * MB)))
         self.assertEqual(response.status_code, 400, response.content)
         self.assertEqual(self.store.files, {})
+
+
+class PublicUrlTests(VideoTestCase):
+    """The token's public_url is what the browser sends to video/attach/."""
+
+    def test_the_public_url_from_the_token_passes_the_attach_prefix_check(self):
+        body = self.token().json()
+        self.assertEqual(body["public_url"], store.url_for(body["pathname"]))
+        asset = MediaAsset.objects.select_related("site").get(pk=self.video.pk)
+        self.assertEqual(client_upload.key_from_url(asset, body["public_url"]), body["pathname"])
+        with mock.patch(HEAD, return_value=("video/mp4", 5 * MB)):
+            response = self.send("post", self.url(f"{self.video.public_id}/video/attach/"), {"url": body["public_url"]})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["file_url"], body["public_url"])
+
+    def test_another_assets_public_url_is_still_refused(self):
+        other = make_asset(self.site, "Vid2", asset_type="video", file_key="")
+        foreign = self.token(other).json()["public_url"]
+        with mock.patch(HEAD, return_value=("video/mp4", 5 * MB)) as head:
+            response = self.send("post", self.url(f"{self.video.public_id}/video/attach/"), {"url": foreign})
+        self.assertEqual(response.status_code, 400, response.content)
+        head.assert_not_called()
+        self.assertEqual(MediaAsset.objects.get(pk=self.video.pk).file_key, "")

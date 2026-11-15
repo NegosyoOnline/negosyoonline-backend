@@ -89,7 +89,7 @@ def upload_instructions(asset, now=None):
         "max_bytes": store.VIDEO_MAX_BYTES,
         "content_type": store.VIDEO_TYPE,
         "expires_at": datetime.fromtimestamp(claims["validUntil"] / 1000, tz=dt_timezone.utc),
-        "public_url": media.url_for(pathname),
+        "public_url": store.url_for(pathname),
     }
 
 
