@@ -46,17 +46,17 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='inquiryconversation',
             name='auth_flag',
-            field=models.CharField(blank=True, choices=[('', 'None'), ('unverified_sender', 'Unverified sender')], max_length=24),
+            field=models.CharField(blank=True, choices=[('', 'None'), ('unverified_sender', 'Unverified sender')], db_default='', max_length=24),
         ),
         migrations.AddField(
             model_name='inquiryconversation',
             name='contact_email',
-            field=models.EmailField(blank=True, max_length=254),
+            field=models.EmailField(blank=True, db_default='', max_length=254),
         ),
         migrations.AddField(
             model_name='inquiryconversation',
             name='contact_name',
-            field=models.CharField(blank=True, max_length=120),
+            field=models.CharField(blank=True, db_default='', max_length=120),
         ),
         migrations.AddField(
             model_name='inquiryconversation',
@@ -66,22 +66,22 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='inquiryconversation',
             name='status',
-            field=models.CharField(choices=[('open', 'Open'), ('closed', 'Closed')], default='open', max_length=8),
+            field=models.CharField(choices=[('open', 'Open'), ('closed', 'Closed')], db_default='open', default='open', max_length=8),
         ),
         migrations.AddField(
             model_name='inquiryconversation',
             name='thread_token',
-            field=models.CharField(blank=True, max_length=24),
+            field=models.CharField(blank=True, db_default='', max_length=24),
         ),
         migrations.AddField(
             model_name='inquiryconversation',
             name='unread',
-            field=models.BooleanField(default=False),
+            field=models.BooleanField(db_default=False, default=False),
         ),
         migrations.AddField(
             model_name='inquiryconversation',
             name='visitor_hash',
-            field=models.CharField(blank=True, max_length=64),
+            field=models.CharField(blank=True, db_default='', max_length=64),
         ),
         migrations.AlterField(
             model_name='inquiryconversation',

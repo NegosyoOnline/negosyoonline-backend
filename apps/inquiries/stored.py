@@ -6,10 +6,13 @@ that site's rows. A ref is the conversation's server-made random `external_id` (
 looked up together with the site, so another site's ref is a ref that does not exist. A reply's
 text is stored in InquiryMessage (there is no provider to hold it); the InquiryReply audit row
 keeps only its length and a code. The Pancake path (services.py) is not touched by any of this."""
+import re
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 
 from django.db import IntegrityError, transaction
+from django.db.models import F, Q
 from django.utils import timezone
 
 from apps.inquiries import outcomes
@@ -53,12 +56,41 @@ def _snippet(text):
     return " ".join(text.split())[:SNIPPET]
 
 
-def list_items(site, limit=LIST_LIMIT):
-    """The site's stored conversations, latest first, in the shape of the Pancake list items."""
-    items = []
+EPOCH = datetime(1970, 1, 1, tzinfo=dt_timezone.utc)
+STORED_CURSOR_RE = re.compile(r"^(?:[0-9]{1,20}|n)_[0-9]{1,18}$")
+
+
+def cursor_of(conversation):
+    """The keyset position of a stored conversation: its last message time (microseconds since the
+    epoch, or `n` for none) and its id. Opaque to the dashboard."""
+    at = conversation.last_message_at
+    stamp = (at - EPOCH) // timedelta(microseconds=1) if at else "n"
+    return f"{stamp}_{conversation.pk}"
+
+
+def _after(rows, cursor):
+    """The rows that sort after `cursor` in (last_message_at desc, nulls last; pk desc) order."""
+    stamp, _, pk = cursor.partition("_")
+    pk = int(pk)
+    if stamp == "n":
+        return rows.filter(last_message_at__isnull=True, pk__lt=pk)
+    at = EPOCH + timedelta(microseconds=int(stamp))
+    return rows.filter(
+        Q(last_message_at__lt=at) | Q(last_message_at=at, pk__lt=pk) | Q(last_message_at__isnull=True)
+    )
+
+
+def list_items(site, limit=LIST_LIMIT, after=None):
+    """(items, next_cursor): the site's stored conversations, latest first, in the shape of the
+    Pancake list items. `after` is a previous call's next_cursor; next_cursor is None on the last page."""
     rows = InquiryConversation.objects.filter(
         site=site, provider__in=InquiryConversation.STORED_PROVIDERS, stores_history=True,
-    ).order_by("-last_message_at", "-pk")[:limit]
+    ).order_by(F("last_message_at").desc(nulls_last=True), "-pk")
+    if after:
+        rows = _after(rows, after)
+    rows = list(rows[: limit + 1])
+    more, rows = len(rows) > limit, rows[:limit]
+    items = []
     for conversation in rows:
         last = InquiryMessage.objects.filter(conversation=conversation).order_by("-created_at", "-pk").first()
         items.append({
@@ -71,7 +103,7 @@ def list_items(site, limit=LIST_LIMIT):
             "status": conversation.status,
             "unread": conversation.unread,
         })
-    return items
+    return items, (cursor_of(rows[-1]) if more else None)
 
 
 def has_any(site):

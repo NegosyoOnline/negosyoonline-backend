@@ -20,6 +20,11 @@ so they never collide with a Pancake ref; the ref chooses the path. Pancake bein
 down is a flag on its source, not a failure of the list, once the site has a stored conversation;
 before that the list answers as it always did.
 
+Paging. `cursor` pages Pancake only, as before. The first response carries the newest 30 stored
+conversations and `stored_next_cursor` (null when there are no more). Pass it back as
+`?stored_cursor=` to get the next stored page alone: {items, next_cursor: null, stored_next_cursor,
+sources: {stored}}. The cursor is opaque (last message time and id); a malformed one is 422.
+
 No route returns the page token, not even a mask or a length. While INQUIRIES_ENABLED is off,
 or before the tables exist, every route answers 404, signed in or not. The site is found in the
 router's sign-in step through site_for(account, site_id, template=SANTE), so a missing, removed,
@@ -208,12 +213,17 @@ def _stored_on():
 
 
 @router.get("/sites/{site_id}/inquiries/conversations/")
-def conversations(request, site_id: str, cursor: str | None = None):
+def conversations(request, site_id: str, cursor: str | None = None, stored_cursor: str | None = None):
     hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
     if cursor and not CURSOR_RE.match(cursor):
         raise _invalid("cursor", "That cursor does not look right.")
+    if stored_cursor and not stored.STORED_CURSOR_RE.match(stored_cursor):
+        raise _invalid("stored_cursor", "That cursor does not look right.")
     site = request.inquiry_site
     stored_on = _stored_on()
+    if stored_cursor and stored_on:  # a further page of the stored conversations only
+        page, stored_next = stored.list_items(site, after=stored_cursor)
+        return {"items": page, "next_cursor": None, "stored_next_cursor": stored_next, "sources": {"stored": "ok"}}
     row = services.connection_of(site)
     if services.configured(row):
         code, data = services.list_conversations(row, cursor)
@@ -223,16 +233,17 @@ def conversations(request, site_id: str, cursor: str | None = None):
         if code != outcomes.OK:
             raise _refuse(code)
         return data
-    if cursor:  # further pages are Pancake's; the stored conversations are all on the first
+    if cursor:  # further Pancake pages; the first stored page came with the first response
         if code != outcomes.OK:
             raise _refuse(code)
-        return {**data, "sources": {"pancake": "ok", "stored": "ok"}}
+        return {**data, "stored_next_cursor": None, "sources": {"pancake": "ok", "stored": "ok"}}
     if code != outcomes.OK and not stored.has_any(site):
         raise _refuse(code)  # nothing stored to show: the list answers as it always did
-    items = [*(data["items"] if data else []), *stored.list_items(site)]
+    stored_items, stored_next = stored.list_items(site)
+    items = [*(data["items"] if data else []), *stored_items]
     items.sort(key=lambda item: _when(item.get("updated_at")), reverse=True)
     return {
-        "items": items, "next_cursor": data["next_cursor"] if data else None,
+        "items": items, "next_cursor": data["next_cursor"] if data else None, "stored_next_cursor": stored_next,
         "sources": {"pancake": "ok" if code == outcomes.OK else code, "stored": "ok"},
     }
 

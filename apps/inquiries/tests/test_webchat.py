@@ -112,6 +112,36 @@ class SendTests(ChatTestCase):
         self.assertEqual(InquiryConversation.objects.filter(site=self.site, status="open").count(), 1)
         self.assertEqual(InquiryConversation.objects.filter(site=self.site).count(), 2)
 
+    def test_an_older_conversation_the_owner_reopened_takes_the_next_send(self):
+        secret = self.first()["visitor_secret"]
+        InquiryConversation.objects.filter(site=self.site).update(status="closed")
+        self.first(visitor_secret=secret, text="Second chat")  # B, made after A was closed
+        older, newer = InquiryConversation.objects.filter(site=self.site).order_by("pk")
+        InquiryConversation.objects.filter(pk=newer.pk).update(status="closed")
+        InquiryConversation.objects.filter(pk=older.pk).update(status="open")  # the owner reopens A
+        again = self.send(visitor_secret=secret, text="Third message")
+        self.assertEqual(again.status_code, 200, again.content)
+        self.assertEqual(again.json()["state"], "open")
+        self.assertEqual(InquiryConversation.objects.filter(site=self.site).count(), 2)
+        self.assertEqual(InquiryMessage.objects.filter(conversation=older).count(), 2)
+        self.assertEqual(self.poll(secret).json()["state"], "open")
+
+    def test_the_race_fallback_also_prefers_the_open_conversation(self):
+        secret = self.first()["visitor_secret"]
+        InquiryConversation.objects.filter(site=self.site).update(status="closed")
+        self.first(visitor_secret=secret, text="Second chat")
+        older, newer = InquiryConversation.objects.filter(site=self.site).order_by("pk")
+        InquiryConversation.objects.filter(pk=newer.pk).update(status="closed")
+        InquiryConversation.objects.filter(pk=older.pk).update(status="open")
+        # a send that read the newer, closed row just before the reopen (the race): it tries to
+        # start a new conversation, the database refuses, and the message joins the open one
+        stale = InquiryConversation.objects.get(pk=newer.pk)
+        saved = webchat._store(
+            self.site, stale, webchat.hash_of(secret), "", "", "Raced message", timezone.now(),
+        )
+        self.assertEqual(saved.pk, older.pk)
+        self.assertEqual(InquiryMessage.objects.filter(conversation=older, body="Raced message").count(), 1)
+
     def test_a_wrong_secret_is_treated_as_none_and_gets_a_new_one(self):
         body = self.first(visitor_secret="x" * 43)
         self.assertEqual(len(body["visitor_secret"]), 43)

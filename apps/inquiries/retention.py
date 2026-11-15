@@ -1,7 +1,8 @@
 """Reply audit rows are deleted 12 months after they were written. Stored-channel messages (website
 chat) and the conversation's personal fields are deleted or blanked MESSAGE_RETENTION after the
-conversation's last message. Touches nothing while INQUIRIES_ENABLED is off or before the tables
-exist. Account and site disposal and site erasure blank the provider token, the customer names
+conversation's last message. The reply rule waits for INQUIRIES_ENABLED; the message rule only
+deletes, so it runs whatever that switch says (stored text must not outlive its period), and
+both wait for RETENTION_ENABLED and for the tables to exist. Account and site disposal and site erasure blank the provider token, the customer names
 and everything personal a stored channel holds."""
 from datetime import timedelta
 
@@ -51,7 +52,7 @@ def old_messages(now, dry_run):
     """Delete the messages of every stored conversation 180 days after its last message, blank its
     personal fields, and delete the conversation unless a reply audit row still points at it (that
     row has its own, longer rule). The count is the messages plus the conversations dealt with."""
-    if not inquiries_on() or not stored_tables_exist():
+    if not stored_tables_exist():  # no INQUIRIES_ENABLED gate: this rule only deletes
         return 0
     conversations = list(_expired_stored(now).values_list("pk", flat=True))
     messages = InquiryMessage.objects.filter(conversation_id__in=conversations)

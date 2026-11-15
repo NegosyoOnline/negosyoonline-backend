@@ -69,6 +69,40 @@ class ListAndThreadTests(StoredOwnerTestCase):
         self.assertEqual(len(refs), 3)
         self.assertEqual(body["sources"], {"pancake": "ok", "stored": "ok"})
 
+    def test_stored_conversations_past_the_first_page_are_reached_by_the_stored_cursor(self):
+        from apps.inquiries.stored import LIST_LIMIT
+
+        base = timezone.now() - timedelta(days=1)
+        for n in range(LIST_LIMIT + 5):  # 5 more than a page, two of them with the same time
+            at = base + timedelta(minutes=min(n, LIST_LIMIT + 2))
+            make_stored(self.site, ref="wc_" + f"{n:024x}", at=at)
+        total = InquiryConversation.objects.filter(site=self.site).count()
+        first = self.get(self.base + "conversations/").json()
+        self.assertEqual(len(first["items"]), LIST_LIMIT)
+        self.assertIsNone(first["next_cursor"])  # the Pancake cursor contract is untouched
+        self.assertTrue(first["stored_next_cursor"])
+        seen = [i["ref"] for i in first["items"]]
+        cursor = first["stored_next_cursor"]
+        while cursor:
+            page = self.get(self.base + "conversations/?stored_cursor=" + cursor).json()
+            self.assertIsNone(page["next_cursor"])
+            seen += [i["ref"] for i in page["items"]]
+            cursor = page["stored_next_cursor"]
+        self.assertEqual(len(seen), total)
+        self.assertEqual(len(set(seen)), total)  # no row twice, none skipped
+        self.assertNotIn(BEN_WC_REF, seen)
+        last = self.get(self.base + "conversations/").json()
+        self.assertEqual(last["items"][0]["ref"], seen[0])
+
+    def test_a_stored_cursor_is_checked_and_reads_only_this_sites_rows(self):
+        for bad in ("x", "1_", "_5", "1-5", "n_x"):
+            self.error(self.get(self.base + "conversations/?stored_cursor=" + bad), 422, "invalid")
+        ben_first = self.get(self.ben_base + "conversations/", client=self.ben).json()
+        self.assertIsNone(ben_first["stored_next_cursor"])
+        page = self.get(self.base + "conversations/?stored_cursor=n_999999999").json()
+        self.assertEqual(page["items"], [])
+        self.assertNotIn(BEN_WC_REF, str(page))
+
     def test_pancake_down_keeps_the_stored_list(self):
         from apps.inquiries.tests.base import configure, http_error
 
@@ -314,13 +348,23 @@ class StoredRetentionTests(DisposalTestCase):
         self.assertEqual(InquiryReply.objects.count(), 1)
         self.assertEqual(retention.run_all(only=["inquiry_messages"], dry_run=True).counts["inquiry_messages"], 0)
 
-    def test_nothing_runs_with_either_switch_off(self):
+    def test_nothing_runs_with_the_retention_switch_off_or_before_0002(self):
         self.plant(self.mine, "wc_" + "1" * 24, self.old)
         with override_settings(RETENTION_ENABLED=False):
             retention.run_all(only=["inquiry_messages"])
-        with override_settings(INQUIRIES_ENABLED=False):
+        with mock.patch("apps.inquiries.retention.stored_tables_exist", return_value=False):
             retention.run_all(only=["inquiry_messages"])
         self.assertEqual(InquiryMessage.objects.count(), 2)
+
+    def test_old_messages_are_deleted_even_while_the_inquiries_switch_is_off(self):
+        # the rule only deletes: messages stored while the switch was on must not outlive 180 days
+        old = self.plant(self.mine, "wc_" + "1" * 24, self.old)
+        fresh = self.plant(self.mine, "wc_" + "2" * 24, self.fresh, hash_="b" * 64)
+        with override_settings(INQUIRIES_ENABLED=False):
+            retention.run_all(only=["inquiry_messages"])
+        self.assertFalse(InquiryMessage.objects.filter(conversation=old).exists())
+        self.assertFalse(InquiryConversation.objects.filter(pk=old.pk).exists())
+        self.assertEqual(InquiryMessage.objects.filter(conversation=fresh).count(), 2)
 
     def test_disposal_clears_only_that_account_and_a_dry_run_changes_nothing(self):
         mine = self.plant(self.mine, "wc_" + "1" * 24, self.fresh)

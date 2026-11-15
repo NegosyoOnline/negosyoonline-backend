@@ -21,6 +21,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
+from django.db.models import Case, When
 from django.utils import timezone
 
 from apps.common import throttle
@@ -119,12 +120,14 @@ def _owner_messages(conversation, after_id):
 
 
 def _latest(site, secret_hash):
-    """The visitor's latest conversation on this site, or None. The site is part of the lookup."""
+    """The visitor's open conversation on this site if they have one (the database allows one),
+    otherwise their newest, or None. The site is part of the lookup. Open first, because the
+    owner can reopen an older conversation after a newer one was made and closed."""
     if not secret_hash:
         return None
     return InquiryConversation.objects.filter(
         site=site, provider=InquiryConversation.WEBCHAT, visitor_hash=secret_hash,
-    ).order_by("-pk").first()
+    ).order_by(Case(When(status=InquiryConversation.OPEN, then=0), default=1), "-pk").first()
 
 
 def _site_hit(site, spec):

@@ -14,10 +14,51 @@ from apps.inquiries import crypto, limiter, outcomes
 from apps.inquiries.adapters import get as get_adapter
 from apps.inquiries.adapters.base import Credentials, Result
 from apps.inquiries.models import InquiryConnection, InquiryConversation, InquiryReply
+from apps.inquiries.switch import stored_tables_exist
 
 CACHE_SECONDS = 25  # absorbs refreshes under the provider's rate limit
 LIST_LIMIT = 30
 RECENT_REPLIES = 20
+
+
+# The columns inquiries.0002 added. The code is released before that migration is applied, so while
+# stored_tables_exist() is False the Pancake paths neither select nor insert them.
+CONVERSATION_0002 = (
+    "status", "contact_name", "contact_email", "visitor_hash", "thread_token", "last_inbound_at", "unread",
+    "auth_flag",
+)
+REPLY_0002 = ("message",)
+
+
+def _conversations():
+    objects = InquiryConversation.objects
+    return objects if stored_tables_exist() else objects.defer(*CONVERSATION_0002)
+
+
+def _replies(*related):
+    """InquiryReply rows, with `related` conversations joined, without the 0002 columns before 0002."""
+    qs = InquiryReply.objects.select_related(*related) if related else InquiryReply.objects.all()
+    if stored_tables_exist():
+        return qs
+    return qs.defer(*REPLY_0002, *(f"conversation__{name}" for name in CONVERSATION_0002 if related))
+
+
+def _create_without_0002(model, skipped, **values):
+    """INSERT a row naming only the columns that exist before inquiries.0002."""
+    obj = model(**values)
+    fields = [f for f in model._meta.local_concrete_fields if not f.primary_key and f.name not in skipped]
+    returning = [f for f in model._meta.db_returning_fields if f.name not in skipped]  # db_default fields too
+    rows = model._base_manager._insert([obj], fields=fields, returning_fields=returning)
+    for field, value in zip(returning, rows[0]):
+        setattr(obj, field.attname, value)
+    obj._state.adding, obj._state.db = False, model._base_manager.db
+    return obj
+
+
+def _create(model, skipped, **values):
+    if stored_tables_exist():
+        return model.objects.create(**values)
+    return _create_without_0002(model, skipped, **values)
 
 
 def connection_of(site):
@@ -118,13 +159,18 @@ def list_conversations(connection, cursor):
 
 def _handle(connection, adapter, ref, name=""):
     """The thin conversation row a reply points at, made on first use."""
-    handle, _ = InquiryConversation.objects.get_or_create(
-        site=connection.site, provider=connection.provider, external_id=ref,
-        defaults={
-            "connection": connection, "stores_history": adapter.stores_history, "display_name": name[:120],
-        },
-    )
-    return handle
+    where = {"site": connection.site, "provider": connection.provider, "external_id": ref}
+    handle = _conversations().filter(**where).first()
+    if handle:
+        return handle
+    try:
+        with transaction.atomic():
+            return _create(
+                InquiryConversation, CONVERSATION_0002, connection=connection,
+                stores_history=adapter.stores_history, display_name=name[:120], **where,
+            )
+    except IntegrityError:  # made by a request at the same moment
+        return _conversations().get(**where)
 
 
 def _reply_out(reply):
@@ -161,7 +207,7 @@ def thread(connection, ref, cursor):
     InquiryConversation.objects.filter(pk=handle.pk).update(
         reply_open=data["reply"]["open"], reply_checked_at=timezone.now(),
     )
-    replies = InquiryReply.objects.filter(conversation=handle)[:RECENT_REPLIES]
+    replies = _replies().filter(conversation=handle)[:RECENT_REPLIES]
     return outcomes.OK, {**data, "replies": [_reply_out(r) for r in replies]}
 
 
@@ -173,19 +219,19 @@ def reply(connection, account, ref, text, idempotency_key):
         return outcomes.NOT_CONFIGURED, None
     if not get_adapter(connection.provider).ref_ok(connection.external_page_id, ref):
         return outcomes.NOT_FOUND, None
-    existing = InquiryReply.objects.filter(site=site, idempotency_key=idempotency_key).select_related("conversation").first()
+    existing = _replies("conversation").filter(site=site, idempotency_key=idempotency_key).first()
     if existing:
         return _earlier(existing, ref)
     adapter = get_adapter(connection.provider)
     handle = _handle(connection, adapter, ref)
     try:
         with transaction.atomic():
-            row = InquiryReply.objects.create(
-                site=site, conversation=handle, author=account, idempotency_key=idempotency_key,
-                body_length=len(text),
+            row = _create(
+                InquiryReply, REPLY_0002, site=site, conversation=handle, author=account,
+                idempotency_key=idempotency_key, body_length=len(text),
             )
     except IntegrityError:  # the same key arrived twice at once: the first one wins
-        existing = InquiryReply.objects.select_related("conversation").get(site=site, idempotency_key=idempotency_key)
+        existing = _replies("conversation").get(site=site, idempotency_key=idempotency_key)
         return _earlier(existing, ref)
     try:
         _deliver(connection, handle, row, ref, text)
