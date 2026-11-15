@@ -151,7 +151,7 @@ def send_contact_message(site, fields, visitor_ip):
 
 
 def _keep_in_inbox(site, values):
-    """With INQUIRY_CONTACT_INBOX_ENABLED on, keep a copy as a stored email conversation, after
+    """With INQUIRY_CONTACT_INBOX_ENABLED on and this site's email_enabled on, keep a copy as a stored email conversation, after
     the email has gone. Off, or with the inquiries tables not yet there, nothing is read or
     written. A failure here never breaks the form: only the error's class name is logged."""
     from apps.inquiries import stored
@@ -161,6 +161,9 @@ def _keep_in_inbox(site, values):
         return
     try:
         if stored_tables_exist():
+            row = stored.channel_settings(site)
+            if not (row and row.email_enabled):  # the site's own switch (Settings > Inbox)
+                return
             stored.add_contact_message(
                 site, name=values["name"], email=values["email"], subject=values["subject"],
                 message=values["message"],

@@ -216,6 +216,29 @@ class ChannelsTests(StoredOwnerTestCase):
         self.assertTrue(InquiryChannelSettings.objects.get(site=self.site).webchat_enabled)
         self.assertIsNone(self.send("put", path, {"paused_until": None}).json()["paused_until"])
 
+    def test_the_email_switch_shape_default_and_save(self):
+        path = self.base + "channels/"
+        body = self.get(path).json()
+        self.assertIs(body["email_enabled"], False)
+        self.assertIs(body["contact_inbox_available"], False)
+        with override_settings(INQUIRY_CONTACT_INBOX_ENABLED=True):
+            self.assertIs(self.get(path).json()["contact_inbox_available"], True)
+        with override_settings(INQUIRY_CONTACT_INBOX_ENABLED=True, INQUIRIES_ENABLED=True):
+            body = self.send("put", path, {"email_enabled": True}).json()
+        self.assertIs(body["email_enabled"], True)
+        self.assertTrue(InquiryChannelSettings.objects.get(site=self.site).email_enabled)
+        # None / absent leaves it unchanged, and other fields do not reset it
+        self.assertIs(self.send("put", path, {"email_enabled": None, "webchat_enabled": True}).json()["email_enabled"], True)
+        self.assertIs(self.send("put", path, {"email_enabled": False}).json()["email_enabled"], False)
+        self.assertEqual(self.send("put", path, {"email_enabled": "maybe"}).status_code, 400)
+
+    def test_one_sites_email_switch_never_changes_the_others(self):
+        self.send("put", self.base + "channels/", {"email_enabled": True})
+        self.assertFalse(InquiryChannelSettings.objects.filter(site=self.ben_site, email_enabled=True).exists())
+        self.error(self.get(self.ben_base + "channels/"), 404, "not_found")
+        self.error(self.send("put", self.ben_base + "channels/", {"email_enabled": True}), 404, "not_found")
+        self.assertFalse(InquiryChannelSettings.objects.filter(site=self.ben_site).exists())
+
     def test_a_pause_in_the_past_or_too_far_ahead_is_refused(self):
         path = self.base + "channels/"
         for when in (timezone.now() - timedelta(minutes=1), timezone.now() + timedelta(days=91)):
@@ -223,7 +246,7 @@ class ChannelsTests(StoredOwnerTestCase):
 
     def test_other_fields_are_refused_and_one_site_never_changes_the_others(self):
         path = self.base + "channels/"
-        self.assertEqual(self.send("put", path, {"email_enabled": True}).status_code, 400)
+        self.assertEqual(self.send("put", path, {"sms_enabled": True}).status_code, 400)
         self.send("put", path, {"webchat_enabled": True})
         self.assertFalse(InquiryChannelSettings.objects.filter(site=self.ben_site).exists())
 

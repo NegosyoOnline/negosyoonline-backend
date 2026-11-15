@@ -11,7 +11,7 @@ from django.test.utils import CaptureQueriesContext
 
 from apps.billing.tests.base import make_subscription
 from apps.inquiries import stored
-from apps.inquiries.models import InquiryConversation, InquiryMessage
+from apps.inquiries.models import InquiryChannelSettings, InquiryConversation, InquiryMessage
 from apps.sites.models import Site
 from apps.storefront.tests.test_contact import FORM, SENT, ContactTestCase
 
@@ -27,6 +27,10 @@ def inquiry_sql(queries):
 
 
 class InboxCopyTests(ContactTestCase):
+    def setUp(self):
+        super().setUp()
+        InquiryChannelSettings.objects.create(site=self.site, email_enabled=True)  # the site's own switch
+
     @ON
     def test_a_form_message_becomes_a_new_unverified_email_conversation(self):
         self.assert_answer(self.post(), 200, SENT)
@@ -145,3 +149,43 @@ class InboxCopyTests(ContactTestCase):
         self.assertFalse(InquiryConversation.objects.filter(site=other).exists())
         self.assertFalse(InquiryMessage.objects.filter(site=other).exists())
         self.assertEqual(InquiryMessage.objects.get().site_id, self.site.pk)
+
+
+class SiteSwitchTests(ContactTestCase):
+    """Stored only when the global switch AND the site's email_enabled are both on. The email goes
+    out in every combination."""
+
+    def combo(self, global_on, site_on):
+        InquiryChannelSettings.objects.update_or_create(site=self.site, defaults={"email_enabled": site_on})
+        with override_settings(INQUIRIES_ENABLED=True, INQUIRY_CONTACT_INBOX_ENABLED=global_on):
+            self.assert_answer(self.post(), 200, SENT)
+
+    def test_the_email_always_goes_and_a_copy_is_stored_only_when_both_are_on(self):
+        for global_on in (False, True):
+            for site_on in (False, True):
+                with self.subTest(global_on=global_on, site_on=site_on):
+                    mail.outbox.clear()
+                    InquiryConversation.objects.all().delete()
+                    cache.clear()
+                    self.combo(global_on, site_on)
+                    self.assertEqual(len(mail.outbox), 1)
+                    self.assertEqual(InquiryConversation.objects.count(), 1 if (global_on and site_on) else 0)
+
+    @ON
+    def test_a_site_with_no_settings_row_stores_nothing(self):
+        self.assert_answer(self.post(), 200, SENT)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertFalse(InquiryConversation.objects.exists())
+        self.assertFalse(InquiryChannelSettings.objects.exists())  # reading creates no row
+
+    @ON
+    def test_another_sites_switch_does_not_affect_this_site(self):
+        other = make_subscription(email="ben@example.test", name="bens-store").site
+        InquiryChannelSettings.objects.create(site=other, email_enabled=True)
+        self.assert_answer(self.post(), 200, SENT)  # this site's switch is off
+        self.assertFalse(InquiryConversation.objects.exists())
+        InquiryChannelSettings.objects.create(site=self.site, email_enabled=True)
+        InquiryChannelSettings.objects.filter(site=other).update(email_enabled=False)
+        self.assert_answer(self.post(visitor_ip="203.0.113.99"), 200, SENT)
+        (conversation,) = InquiryConversation.objects.all()
+        self.assertEqual(conversation.site_id, self.site.pk)

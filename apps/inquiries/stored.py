@@ -359,12 +359,13 @@ def settings_out(row):
     paused = bool(row and row.paused_until and row.paused_until > now)
     return {
         "webchat_enabled": bool(row and row.webchat_enabled),
+        "email_enabled": bool(row and row.email_enabled),
         "paused_until": row.paused_until.isoformat() if paused else None,
         "chat_limit_reached": bool(row and row.chat_limit_at and row.chat_limit_at > now - timedelta(hours=24)),
     }
 
 
-def update_settings(site, *, webchat_enabled=None, paused_until=None, set_pause=False):
+def update_settings(site, *, webchat_enabled=None, email_enabled=None, paused_until=None, set_pause=False):
     """Save the owner's choices. `set_pause` says paused_until was part of the request, so that
     None can clear it. Returns the row."""
     row, _ = InquiryChannelSettings.objects.get_or_create(site=site)
@@ -372,6 +373,8 @@ def update_settings(site, *, webchat_enabled=None, paused_until=None, set_pause=
         row.webchat_enabled = webchat_enabled
         if webchat_enabled:
             row.chat_limit_at = None
+    if email_enabled is not None:
+        row.email_enabled = email_enabled
     if set_pause:
         row.paused_until = paused_until
     row.save()
