@@ -4,7 +4,7 @@ Coach Ed → Manager → Supervisors → Builders. Exactly one session titled Ma
 
 ## 1. Sources and startup
 
-Follow docs/runbooks/manager-context.md once at startup. Read the current consolidated DESCRIPTION of ClickUp z8uq9med6x and any new comments; latest explicit Coach Ed ruling wins. The deleted 43 comments are archived in docs/session-state/rulings-source.json, not checkpoints to find online. No historical task-map or prior-state-chain startup reads. The consolidation contains the verbatim marching instruction, product/staging rules, authority exceptions and source IDs; read it fully, not a truncated task summary.
+Follow docs/runbooks/manager-context.md once at startup. Read the current consolidated DESCRIPTION of ClickUp z8uq9med6x and any new comments; latest explicit Coach Ed ruling wins. The deleted 43 comments are archived in docs/runbooks/rulings-archive/rulings-source.json, not checkpoints to find online. No historical task-map or prior-state-chain startup reads. The consolidation contains the verbatim marching instruction, product/staging rules, authority exceptions and source IDs; read it fully, not a truncated task summary.
 
 Read manager-now.md for current work and manager-decisions.md for settled/open decisions. They grant no authority beyond cited evidence. Refresh sources relevant to a decision; mark unavailable information unread. Do not invent status, ruling, approval or evidence. Silence is never approval.
 
@@ -40,7 +40,7 @@ One open PR per repository. Only the two Release Builders under Manager combine 
 
 Every CI check passes locally on the combined branch before push/PR. Backend: full SQLite and throwaway local PostgreSQL/localhost Redis suites, check, makemigrations --check, fresh PostgreSQL migrations and all other CI jobs. Frontend: frozen-lockfile install, lint/tests/build for each CI matrix app using CI Node/pnpm. PR body lists results. Manager gives PR go only after reading them.
 
-Two ready branches or half-day wait trigger a round; at most two per day/repository. Approved hotfix alone and first. Never hold ready work for an unready branch. Failed branches return to owners, not fixed in the release branch/PR. Investigate unexpected CI failure before rerun. Never update/rerun merely to refresh; retained recovery exception: if two PRs mistakenly coexist and GitHub refuses the later merge, update the later branch once. Spending-limit/blocked CI goes to Coach Ed immediately; no branch-protection bypass.
+Two ready branches or half-day wait trigger a round; at most two per day/repository. Approved hotfix alone and first. Never hold ready work for an unready branch. Failed branches return to owners, not fixed in the release branch/PR. Investigate unexpected CI failure before rerun. Never update/rerun merely to refresh. Spending-limit/blocked CI goes to Coach Ed immediately; no branch-protection bypass.
 
 Release Builder merges green at its head; if refused, Manager squash-merges and keeps branch. Manager verifies intended staging health/commit; Supervisors verify their feature and update statuses. Production excluded.
 

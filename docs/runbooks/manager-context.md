@@ -8,7 +8,7 @@ Authorized by Coach Ed, 2026-11-15. Workflow and ruling authority are unchanged;
 - Current work: docs/session-state/manager-now.md, maximum 2,500 words; replace stale facts, do not append an endless log.
 - Settled/open business decisions: docs/session-state/manager-decisions.md, maximum 1,500 words of active entries; exact evidence and limits.
 - Task locator: manager-task-index.md, maximum 5,000 words; search relevant rows only.
-- History: dated snapshots, manager-task-map.md and rulings-source.json; targeted lookup only, outside ordinary startup.
+- History: dated snapshots, manager-task-map.md and docs/runbooks/rulings-archive/ (rulings-source.json, rulings-inventory.json; committed); targeted lookup only, outside ordinary startup.
 
 ## Startup
 
@@ -47,6 +47,6 @@ Keep existing check-in cadence and Supervisor ownership. Ask for deltas: milesto
 
 Follow .claude/commands/handover-manager.md. Preserve marching instruction verbatim in current state; short pointer and constant resume prompt. Live Manager owns state; another audit must not overwrite concurrent live updates.
 
-Run .venv/bin/python scripts/manager_context.py. Default validation is read-only. --build-index and --build-rulings are explicit generation actions; do not run generation at startup or during ordinary validation. Archive absence, hash mismatch or missing ruling IDs fails validation. No production access or app deployment is required for these docs checks.
+Run .venv/bin/python scripts/manager_context.py. Run it in the Manager's main checkout: docs/session-state/ is gitignored, so the state-budget checks fail in other worktrees; the ruling archive check works anywhere. Default validation is read-only. --build-index and --build-rulings are explicit generation actions; do not run generation at startup or during ordinary validation. Archive absence, hash mismatch or missing ruling IDs fails validation. No production access or app deployment is required for these docs checks.
 
 Acceptance: refreshed clear baseline and paused startup breakdown; selected files only; ruling/decision continuity checks. Word limits do not guarantee a token reduction. Existing approval, visual-review, release and production gates remain in force.

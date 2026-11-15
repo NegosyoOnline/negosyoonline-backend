@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / 'docs/session-state'
+ARCHIVE = ROOT / 'docs/runbooks/rulings-archive'
 
 
 def main():
@@ -17,7 +18,7 @@ def main():
     parser.add_argument('--build-index', action='store_true')
     parser.add_argument('--build-rulings', action='store_true')
     args = parser.parse_args()
-    source_path = STATE / 'rulings-source.json'
+    source_path = ARCHIVE / 'rulings-source.json'
     if args.build_rulings and source_path.exists():
         source = json.loads(source_path.read_text())
         comments = source['comments']
@@ -38,7 +39,7 @@ def main():
             inventory.append({'id': c['id'], 'date': c['date'], 'classification': kind,
                               'sha256': hashlib.sha256(c['comment_text'].encode()).hexdigest()})
         (STATE / 'active-rulings.md').write_text('\n'.join(rows) + '\n')
-        (STATE / 'rulings-inventory.json').write_text(json.dumps({
+        (ARCHIVE / 'rulings-inventory.json').write_text(json.dumps({
             'coverage': 'COMPLETE_SOURCE_INVENTORY', 'newest_comment_id': comments[0]['id'],
             'count': len(comments), 'entries': inventory}, indent=2) + '\n')
     if args.build_index:
@@ -66,7 +67,7 @@ def main():
         failed |= not ok
     try:
         source = json.loads(source_path.read_text())
-        inventory = json.loads((STATE / 'rulings-inventory.json').read_text())
+        inventory = json.loads((ARCHIVE / 'rulings-inventory.json').read_text())
         entries = {entry['id']: entry for entry in inventory['entries']}
         summary = (ROOT / 'docs/runbooks/manager-rulings-consolidated.md').read_text()
         for comment in source['comments']:
