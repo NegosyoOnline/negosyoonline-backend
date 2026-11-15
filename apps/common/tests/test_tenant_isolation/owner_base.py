@@ -44,6 +44,7 @@ from apps.common import private_files
 
 BEN_PAGE = "5000000000005"
 BEN_REF = f"{BEN_PAGE}_7000000000001"
+BEN_WC_REF = "wc_" + "f0e1d2c3b4a5" * 2  # Ben's website-chat conversation
 MISSING_SITE = "site_00000000000000000000"
 MISSING_CHILD = {
     "order_id": "pko_00000000000000000000",
@@ -199,6 +200,11 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/inquiries/conversations/"): 200,
     ("GET", "/sites/{site_id}/inquiries/conversations/{ref}/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reply/"): 200,
+    ("GET", "/sites/{site_id}/inquiries/channels/"): 200,
+    ("PUT", "/sites/{site_id}/inquiries/channels/"): 200,
+    ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/read/"): 200,
+    ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/close/"): 200,
+    ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reopen/"): 200,
     ("DELETE", "/sites/{site_id}/inquiries/connection/"): 200,
     # last: a cancelled trial is Billing-only, so every route called after it would answer 403
     ("POST", "/sites/{site_id}/billing/cancel/"): 200,
@@ -317,6 +323,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
         configure(self.ben_site)
         inquiries_base.configure(self.site)
         inquiries_base.configure(self.ben_site, page=BEN_PAGE)
+        self.ana_chat = inquiries_base.make_stored(self.site)
+        self.ben_chat = inquiries_base.make_stored(self.ben_site, ref=BEN_WC_REF, name="Ben's Visitor")
         for ids in (self.ben_ids, self.ben_shop_ids):
             ids["ref"] = BEN_REF
         mail.outbox.clear()
@@ -439,7 +447,10 @@ class TwoOwnersTestCase(SitesApiTestCase):
         if "/media/" in template:  # made anew: the delete uses it up, and a video route needs a video
             ids.update(self.make_media(self.site, video="/video/" in template))
         if "{ref}" in template:
-            ids["ref"] = inquiries_base.REF
+            # the stored-channel routes need a website-chat conversation of Ana's, the others a Pancake ref
+            ids["ref"] = (
+                inquiries_base.WC_REF if template.endswith(("/read/", "/close/", "/reopen/")) else inquiries_base.REF
+            )
         if "{invoice_id}" in template:
             ids["invoice_id"] = self.invoice_ids[self.site.pk]
         if "{number}" in template:
@@ -454,7 +465,10 @@ class TwoOwnersTestCase(SitesApiTestCase):
 
     def foreign_ids(self, template):
         """Ben's children for the placeholders this route has (a shop route gets his shop order)."""
-        return self.ben_shop_ids if "/shop/" in template else self.ben_ids
+        ids = self.ben_shop_ids if "/shop/" in template else self.ben_ids
+        if template.endswith(("/read/", "/close/", "/reopen/")):  # a stored-channel route: Ben's website chat
+            return {**ids, "ref": BEN_WC_REF}
+        return ids
 
     # calling a route --------------------------------------------------------
     def call(self, method, template, site_id, ids, client=None):
@@ -599,6 +613,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return body
         if "/meta/" in template and method == "PUT":
             return {"pixel_id": PIXEL, "access_token": TOKEN, "test_event_code": CODE}
+        if template.endswith("/inquiries/channels/") and method == "PUT":
+            return {"webchat_enabled": True}
         if "/inquiries/" in template and method == "PUT":
             return {"page_id": inquiries_base.PAGE, "access_token": inquiries_base.TOKEN}
         if template.endswith("/reply/"):

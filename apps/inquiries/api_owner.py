@@ -7,6 +7,23 @@
     GET    .../conversations/?cursor=           -> {items, next_cursor}   (read from the provider)
     GET    .../conversations/{ref}/?cursor=     -> the thread, whether a reply may be sent, the replies sent
     POST   .../conversations/{ref}/reply/       {text, idempotency_key} -> {state, error_code, created_at}
+    GET    .../channels/                        -> {webchat_enabled, paused_until, chat_limit_reached, webchat_available}
+    PUT    .../channels/                        {webchat_enabled?, paused_until?}  (null clears the pause)
+    POST   .../conversations/{ref}/close/       -> {ref, status, unread}   (stored channels only)
+    POST   .../conversations/{ref}/reopen/      -> {ref, status, unread}
+    POST   .../conversations/{ref}/read/        -> {ref, status, unread}
+
+The list merges the Pancake conversations (read from the provider) with the stored channels'
+(website chat, read from our own tables), latest first, and adds `sources` ({pancake, stored}: "ok" or
+the reason that source gave nothing). A stored channel's refs start `wc_` (`em_` for email, later),
+so they never collide with a Pancake ref; the ref chooses the path. Pancake being unconnected or
+down is a flag on its source, not a failure of the list, once the site has a stored conversation;
+before that the list answers as it always did.
+
+Paging. `cursor` pages Pancake only, as before. The first response carries the newest 30 stored
+conversations and `stored_next_cursor` (null when there are no more). Pass it back as
+`?stored_cursor=` to get the next stored page alone: {items, next_cursor: null, stored_next_cursor,
+sources: {stored}}. The cursor is opaque (last message time and id); a malformed one is 422.
 
 No route returns the page token, not even a mask or a length. While INQUIRIES_ENABLED is off,
 or before the tables exist, every route answers 404, signed in or not. The site is found in the
@@ -15,17 +32,19 @@ foreign or non-Santé site answers 404 before any body is read; then the Billing
 `billing_only`). A conversation ref that is not this site's connection's answers the same 404.
 """
 import re
+from datetime import datetime, timezone as dt_timezone
 
 from django.conf import settings
+from django.utils import timezone
 from ninja import Router, Schema
 from pydantic import ConfigDict
 
 from apps.accounts.api import signed_in
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
-from apps.inquiries import crypto, outcomes, services
+from apps.inquiries import crypto, outcomes, services, stored
 from apps.inquiries.models import InquiryConnection
-from apps.inquiries.switch import inquiries_on, tables_exist
+from apps.inquiries.switch import inquiries_on, stored_tables_exist, tables_exist
 from apps.sites import templates
 from apps.sites.api import _owner_site
 from apps.sites.services import site_for
@@ -66,6 +85,12 @@ class ReplyIn(Schema):
     model_config = ConfigDict(extra="forbid")
     text: str
     idempotency_key: str
+
+
+class ChannelsIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    webchat_enabled: bool | None = None
+    paused_until: datetime | None = None
 
 
 def _invalid(field, message):
@@ -174,15 +199,53 @@ def connection_test(request, site_id: str):
     return {"outcome": services.run_test(row)}
 
 
+def _when(value):
+    """An item's time as an aware datetime, for ordering the merged list. Unreadable sorts last."""
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.min.replace(tzinfo=dt_timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt_timezone.utc)
+
+
+def _stored_on():
+    return stored_tables_exist()
+
+
 @router.get("/sites/{site_id}/inquiries/conversations/")
-def conversations(request, site_id: str, cursor: str | None = None):
+def conversations(request, site_id: str, cursor: str | None = None, stored_cursor: str | None = None):
     hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
     if cursor and not CURSOR_RE.match(cursor):
         raise _invalid("cursor", "That cursor does not look right.")
-    code, data = services.list_conversations(_connected(request.inquiry_site), cursor)
-    if code != outcomes.OK:
-        raise _refuse(code)
-    return data
+    if stored_cursor and not stored.STORED_CURSOR_RE.match(stored_cursor):
+        raise _invalid("stored_cursor", "That cursor does not look right.")
+    site = request.inquiry_site
+    stored_on = _stored_on()
+    if stored_cursor and stored_on:  # a further page of the stored conversations only
+        page, stored_next = stored.list_items(site, after=stored_cursor)
+        return {"items": page, "next_cursor": None, "stored_next_cursor": stored_next, "sources": {"stored": "ok"}}
+    row = services.connection_of(site)
+    if services.configured(row):
+        code, data = services.list_conversations(row, cursor)
+    else:
+        code, data = outcomes.NOT_CONFIGURED, None
+    if not stored_on:
+        if code != outcomes.OK:
+            raise _refuse(code)
+        return data
+    if cursor:  # further Pancake pages; the first stored page came with the first response
+        if code != outcomes.OK:
+            raise _refuse(code)
+        return {**data, "stored_next_cursor": None, "sources": {"pancake": "ok", "stored": "ok"}}
+    if code != outcomes.OK and not stored.has_any(site):
+        raise _refuse(code)  # nothing stored to show: the list answers as it always did
+    stored_items, stored_next = stored.list_items(site)
+    items = [*(data["items"] if data else []), *stored_items]
+    items.sort(key=lambda item: _when(item.get("updated_at")), reverse=True)
+    return {
+        "items": items, "next_cursor": data["next_cursor"] if data else None, "stored_next_cursor": stored_next,
+        "sources": {"pancake": "ok" if code == outcomes.OK else code, "stored": "ok"},
+    }
 
 
 @router.get("/sites/{site_id}/inquiries/conversations/{ref}/")
@@ -191,6 +254,11 @@ def conversation_thread(request, site_id: str, ref: str, cursor: str | None = No
     _check_ref(ref)
     if cursor and not CURSOR_RE.match(cursor):
         raise _invalid("cursor", "That cursor does not look right.")
+    if stored.is_stored_ref(ref):
+        data = stored.thread(request.inquiry_site, ref) if _stored_on() else None
+        if data is None:
+            raise _refuse(outcomes.NOT_FOUND)
+        return data
     code, data = services.thread(_connected(request.inquiry_site), ref, cursor)
     if code != outcomes.OK:
         raise _refuse(code)
@@ -208,11 +276,85 @@ def conversation_reply(request, site_id: str, ref: str, payload: ReplyIn):
         raise _invalid("text", f"A reply is at most {MAX_REPLY} characters.")
     if not KEY_RE.match(payload.idempotency_key):
         raise _invalid("idempotency_key", "That key does not look right.")
-    code, data = services.reply(
-        _connected(request.inquiry_site), request.account, ref, text, payload.idempotency_key,
-    )
+    if stored.is_stored_ref(ref):
+        if not _stored_on():
+            raise _refuse(outcomes.NOT_FOUND)
+        code, data = stored.reply(request.inquiry_site, request.account, ref, text, payload.idempotency_key)
+        if code == stored.CLOSED_CODE:
+            raise ApiError("closed", "This conversation is closed. Reopen it to reply.", status=409)
+    else:
+        code, data = services.reply(
+            _connected(request.inquiry_site), request.account, ref, text, payload.idempotency_key,
+        )
     if code == "idempotency_conflict":
         raise ApiError("conflict", "That key was already used for another conversation.", status=409)
     if code != outcomes.OK:
         raise _refuse(code)
     return data
+
+
+# -- stored channels: settings, close and reopen, read -----------------------------------------
+
+def _channels_out(site):
+    return {**stored.settings_out(stored.channel_settings(site)), "webchat_available": bool(settings.INQUIRY_WEBCHAT_ENABLED)}
+
+
+def _need_stored():
+    if not _stored_on():
+        raise _refuse(outcomes.NOT_FOUND)
+
+
+@router.get("/sites/{site_id}/inquiries/channels/")
+def channels_detail(request, site_id: str):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_stored()
+    return _channels_out(request.inquiry_site)
+
+
+@router.put("/sites/{site_id}/inquiries/channels/")
+def channels_update(request, site_id: str, payload: ChannelsIn):
+    hit("inq-write", request.account.pk, limit=WRITE_LIMIT, window=WINDOW)
+    _need_stored()
+    set_pause = "paused_until" in payload.model_fields_set
+    until = payload.paused_until
+    if until is not None:
+        until = until if until.tzinfo else until.replace(tzinfo=dt_timezone.utc)
+        now = timezone.now()
+        if until <= now or until > now + stored.MAX_PAUSE:
+            raise _invalid("paused_until", "Pick a time in the future, within 90 days.")
+    stored.update_settings(
+        request.inquiry_site, webchat_enabled=payload.webchat_enabled, paused_until=until, set_pause=set_pause,
+    )
+    return _channels_out(request.inquiry_site)
+
+
+def _stored_change(code, data):
+    if code == outcomes.NOT_FOUND:
+        raise _refuse(outcomes.NOT_FOUND)
+    if code == stored.CONFLICT_CODE:
+        raise ApiError("conflict", "That visitor already has another open conversation.", status=409)
+    return data
+
+
+@router.post("/sites/{site_id}/inquiries/conversations/{ref}/close/")
+def conversation_close(request, site_id: str, ref: str):
+    hit("inq-status", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _check_ref(ref)
+    _need_stored()
+    return _stored_change(*stored.set_status(request.inquiry_site, ref, "closed"))
+
+
+@router.post("/sites/{site_id}/inquiries/conversations/{ref}/reopen/")
+def conversation_reopen(request, site_id: str, ref: str):
+    hit("inq-status", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _check_ref(ref)
+    _need_stored()
+    return _stored_change(*stored.set_status(request.inquiry_site, ref, "open"))
+
+
+@router.post("/sites/{site_id}/inquiries/conversations/{ref}/read/")
+def conversation_read(request, site_id: str, ref: str):
+    hit("inq-mark", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _check_ref(ref)
+    _need_stored()
+    return _stored_change(*stored.mark_read(request.inquiry_site, ref))

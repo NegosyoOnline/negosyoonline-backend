@@ -1,9 +1,14 @@
-"""Inquiry tables: a site's provider connection, a thin handle for each conversation the owner
-opened or answered, and one audit row per outgoing reply attempt.
+"""Inquiry tables: a site's provider connection, a handle for each conversation, and one audit
+row per outgoing reply attempt.
 
-No table holds an inbound message, a reply's text, a token in the clear, a message from the
-provider or a URL with a query. The provider stays the source of the conversation history."""
+For a provider channel (Pancake) no table holds an inbound message, a reply's text, a token in
+the clear or a URL with a query: the provider stays the source of the conversation history. A
+stored channel (website chat) has no provider to hold its history, so InquiryMessage keeps the
+text, for MESSAGE_RETENTION (apps/inquiries/retention.py). The reply audit row never holds text."""
+import secrets
+
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.inquiries import outcomes
@@ -40,18 +45,42 @@ class InquiryConnection(models.Model):
     __str__ = __repr__
 
 
+def route_token():
+    """A random, unguessable token that is not the site id (used by the email channel, PR2)."""
+    return secrets.token_urlsafe(14)[:18]
+
+
 class InquiryConversation(models.Model):
-    """A handle, created lazily when the owner opens or answers a conversation, so a reply has
-    something to point at. The list and the messages are fetched from the provider on demand."""
+    """For a provider channel, a handle created lazily when the owner opens or answers a
+    conversation, so a reply has something to point at; the list and the messages are fetched
+    from the provider on demand. For a stored channel (`stores_history`), the conversation
+    itself: made by the visitor's first message, with its messages in InquiryMessage."""
+
+    PANCAKE, WEBCHAT, EMAIL = "pancake", "webchat", "email"
+    PROVIDERS = [(PANCAKE, "Pancake"), (WEBCHAT, "Website chat"), (EMAIL, "Email")]
+    STORED_PROVIDERS = (WEBCHAT, EMAIL)
+    REF_PREFIX = {WEBCHAT: "wc_", EMAIL: "em_"}  # a stored channel's refs never collide with Pancake's
+    OPEN, CLOSED = "open", "closed"
+    STATUSES = [(OPEN, "Open"), (CLOSED, "Closed")]
+    UNVERIFIED_SENDER = "unverified_sender"
+    AUTH_FLAGS = [("", "None"), (UNVERIFIED_SENDER, "Unverified sender")]
 
     site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_conversations")
     connection = models.ForeignKey(
         InquiryConnection, null=True, blank=True, on_delete=models.PROTECT, related_name="conversations",
     )  # null for channels with no external connection (a later slice)
-    provider = models.CharField(max_length=16, choices=InquiryConnection.PROVIDERS)
-    external_id = models.CharField(max_length=128)
+    provider = models.CharField(max_length=16, choices=PROVIDERS)
+    external_id = models.CharField(max_length=128)  # a stored channel: a server-made random ref
     stores_history = models.BooleanField(default=False)  # True only for channels with no external history
     display_name = models.CharField(max_length=120, blank=True)  # the customer's name; blanked on disposal
+    status = models.CharField(max_length=8, choices=STATUSES, default=OPEN, db_default=OPEN)
+    contact_name = models.CharField(max_length=120, blank=True, db_default="")  # stored channels; personal, blanked
+    contact_email = models.EmailField(max_length=254, blank=True, db_default="")  # only if the person gave it; blanked
+    visitor_hash = models.CharField(max_length=64, blank=True, db_default="")  # SHA-256 of the chat visitor's secret
+    thread_token = models.CharField(max_length=24, blank=True, db_default="")  # the email reply-thread token (PR2)
+    last_inbound_at = models.DateTimeField(null=True, blank=True)
+    unread = models.BooleanField(default=False, db_default=False)
+    auth_flag = models.CharField(max_length=24, blank=True, choices=AUTH_FLAGS, db_default="")
     last_message_at = models.DateTimeField(null=True, blank=True)
     reply_open = models.BooleanField(null=True, blank=True)  # the provider's last answer; a cache only
     reply_checked_at = models.DateTimeField(null=True, blank=True)
@@ -63,7 +92,15 @@ class InquiryConversation(models.Model):
             models.UniqueConstraint(
                 fields=["site", "provider", "external_id"], name="inquiry_conversation_site_ref_uniq",
             ),
+            models.UniqueConstraint(
+                fields=["site", "visitor_hash"], condition=Q(status="open") & ~Q(visitor_hash=""),
+                name="inquiry_conversation_one_open_per_visitor",
+            ),
+            models.UniqueConstraint(
+                fields=["thread_token"], condition=~Q(thread_token=""), name="inquiry_conversation_thread_token_uniq",
+            ),
         ]
+        indexes = [models.Index(fields=["site", "visitor_hash"], name="inquiry_conv_site_visitor")]
 
     def __repr__(self):
         return f"<InquiryConversation site={self.site_id} pk={self.pk}>"
@@ -76,9 +113,11 @@ class InquiryReply(models.Model):
 
     SENDING, SENT, FAILED = "sending", "sent", "failed"
     BLOCKED_WINDOW, BLOCKED_RATE = "blocked_window", "blocked_rate"
+    DELIVERED, BOUNCED = "delivered", "bounced"  # email only, from the provider's events (PR2)
     STATES = [
         (SENDING, "Sending"), (SENT, "Sent"), (FAILED, "Failed"),
         (BLOCKED_WINDOW, "Blocked, reply window closed"), (BLOCKED_RATE, "Blocked, rate limit"),
+        (DELIVERED, "Delivered"), (BOUNCED, "Bounced"),
     ]
 
     site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_replies")
@@ -89,6 +128,9 @@ class InquiryReply(models.Model):
     idempotency_key = models.CharField(max_length=64)
     body_length = models.PositiveSmallIntegerField()
     provider_message_ref = models.CharField(max_length=128, blank=True)
+    message = models.ForeignKey(  # a stored channel's outgoing message (its text lives there, not here)
+        "inquiries.InquiryMessage", null=True, blank=True, on_delete=models.SET_NULL, related_name="replies",
+    )
     created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     class Meta:
@@ -100,5 +142,71 @@ class InquiryReply(models.Model):
 
     def __repr__(self):
         return f"<InquiryReply site={self.site_id} pk={self.pk} state={self.state}>"
+
+    __str__ = __repr__
+
+
+class InquiryMessage(models.Model):
+    """One message of a stored channel. The text is untrusted: it is shown as plain text only.
+    Deleted MESSAGE_RETENTION after the conversation's last message, and with the site's data."""
+
+    IN, OUT = "in", "out"
+    DIRECTIONS = [(IN, "From the customer"), (OUT, "From the store")]
+    CUSTOMER, OWNER = "customer", "owner"
+    SENDER_KINDS = [(CUSTOMER, "Customer"), (OWNER, "Store owner")]
+    DELIVERY_STATES = [
+        ("", "None"), ("sent", "Sent"), ("failed", "Failed"), ("delivered", "Delivered"), ("bounced", "Bounced"),
+    ]
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_messages")
+    conversation = models.ForeignKey(InquiryConversation, on_delete=models.CASCADE, related_name="messages")
+    direction = models.CharField(max_length=3, choices=DIRECTIONS)
+    sender_kind = models.CharField(max_length=8, choices=SENDER_KINDS)
+    body = models.TextField(max_length=4000)
+    external_id = models.CharField(max_length=128, blank=True)  # the provider's message id (email, PR2)
+    delivery_state = models.CharField(max_length=12, blank=True, choices=DELIVERY_STATES)  # outgoing only
+    error_code = models.CharField(max_length=24, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["site", "external_id"], condition=~Q(external_id=""), name="inquiry_message_site_external_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["conversation", "created_at"], name="inquiry_msg_conv_time"),
+            models.Index(fields=["site", "created_at"], name="inquiry_msg_site_time"),
+        ]
+
+    def __repr__(self):
+        return f"<InquiryMessage site={self.site_id} pk={self.pk} {self.direction}>"
+
+    __str__ = __repr__
+
+
+class InquiryChannelSettings(models.Model):
+    """One row per site: which stored channels it has switched on. Nothing here is a credential."""
+
+    site = models.OneToOneField("sites.Site", on_delete=models.PROTECT, related_name="inquiry_channel_settings")
+    webchat_enabled = models.BooleanField(default=False)
+    email_enabled = models.BooleanField(default=False)  # PR2
+    email_route_token = models.CharField(max_length=24, blank=True, default=route_token)  # PR2; blank = none
+    paused_until = models.DateTimeField(null=True, blank=True)
+    chat_limit_at = models.DateTimeField(null=True, blank=True)  # when the site's daily chat cap last tripped
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["email_route_token"], condition=~Q(email_route_token=""),
+                name="inquiry_channel_route_token_uniq",
+            ),
+        ]
+
+    def __repr__(self):
+        return f"<InquiryChannelSettings site={self.site_id}>"
 
     __str__ = __repr__

@@ -12,6 +12,8 @@ Authorized by Coach Ed, 2026-11-15. Workflow and ruling authority are unchanged;
 
 ## Startup
 
+Apply the Manager brief's visible-message gate before every unsolicited commentary/final reply, including startup, scheduled check-ins and Supervisor/Asst. Manager messages. Only a new owner decision, ready owner test or urgent owner action warrants visible output. Save routine results internally; no file-read narration, takeover announcement, timer confirmation, “nothing needs your action” or final status wrap-up. Send internal acknowledgments normally. Internal handover prompts do not request an owner report. Answer explicit owner questions/requested reports and preserve detailed action packets, approvals, checks and cadence.
+
 1. Automated resume: acknowledge Asst. Manager “I'm IN” first, repeat once on duplicate. Confirm existing Manager identity/main checkout; safely update main as brief specifies.
 2. Read named pointer, manager-now.md, manager-decisions.md, manager brief and this SOP directly once. Do not follow old state chains or load historical indexes/archives in full.
 3. Read ClickUp task with include description, avoiding a truncated task summary. Check current comments; zero is valid. The 43 incorporated comments through 1100430000523941 were explicitly deleted by Coach Ed; IDs refer to local archive, never an online boundary to search for.
