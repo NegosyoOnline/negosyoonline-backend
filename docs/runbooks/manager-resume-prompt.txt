@@ -1,0 +1,5 @@
+Resume the existing Manager in <absolute backend checkout>, Opus 5.5. First send Asst. Manager <id> “I'm IN”; repeat once on duplicate.
+Read <absolute pointer>, docs/session-state/manager-now.md, docs/session-state/manager-decisions.md, .claude/briefs/manager.md and docs/runbooks/manager-context.md once.
+Read the FULL DESCRIPTION of ClickUp z8uq9med6x plus new comments/replies. The 43 incorporated comments were deleted; zero is expected. Do not search for deleted checkpoints or load history chains/full task map.
+Preserve the marching instruction and all approval/release boundaries. Reconcile settled decisions before asking.
+Record startup files, ruling version/reconciliation and context count internally before browser work. Report/pause only if Coach Ed requested a measurement test; otherwise continue quietly. Notify him only for a decision, ready test or urgent incident requiring his action, using detailed self-contained packets. Answer his direct requests normally. Follow supplied current state, not historical snapshots.
