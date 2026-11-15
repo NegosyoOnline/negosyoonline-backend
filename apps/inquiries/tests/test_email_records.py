@@ -39,13 +39,17 @@ class RuleTests(TestCase):
         self.assertFalse(EmailMessage.objects.filter(pk=old.pk).exists())
         self.assertTrue(EmailMessage.objects.filter(pk__in=[new.pk, other.pk]).count() == 2)
 
-    def test_the_rule_waits_for_both_switches(self):
+    def test_the_rule_waits_for_the_retention_switch(self):
         record("a@x.test", age_days=400)
-        with override_settings(INQUIRIES_ENABLED=False):
-            self.assertEqual(retention.run_all(only=[RULE]).counts.get(RULE, 0), 0)
         with override_settings(RETENTION_ENABLED=False):
             retention.run_all(only=[RULE])
         self.assertEqual(EmailMessage.objects.count(), 1)
+
+    def test_the_rule_still_deletes_with_inquiries_switched_off(self):
+        record("a@x.test", age_days=181)
+        with override_settings(INQUIRIES_ENABLED=False):
+            self.assertEqual(retention.run_all(only=[RULE]).counts[RULE], 1)
+        self.assertEqual(EmailMessage.objects.count(), 0)
 
     def test_the_period_is_the_message_period_which_is_shorter_than_the_generic_rule(self):
         from apps.notifications.retention import EMAIL_RECORD_LIFETIME

@@ -76,8 +76,7 @@ def old_email_records(now, dry_run):
     """The send records of inquiry email replies (they hold the customer's address) go on the
     message clock, MESSAGE_RETENTION, instead of the generic 2-year rule of the notifications
     app; whichever deletes a row first wins, so the shorter period holds."""
-    if not inquiries_on() or not tables_exist():
-        return 0
+    # no INQUIRIES_ENABLED gate: this rule only deletes, and the EmailMessage table always exists
     rows = EmailMessage.objects.filter(category=EMAIL_CATEGORY, created_at__lte=now - MESSAGE_RETENTION)
     return retention.remove(rows, dry_run)
 
