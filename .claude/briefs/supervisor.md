@@ -52,6 +52,8 @@ After ACCEPTED, archive finished builders and prune only after verifying clean/p
 
 ## 7. Reports and handover
 
+Supervisor clear recovery follows docs/runbooks/supervisor-clear-recovery.md (Coach Ed, 2026-11-16). After verifying saved state and prompt, Manager may direct supported self-clear if its parent clear is refused. This overrides the normal no-self-clear rule only for that recovery; Manager owns prompt delivery after confirmed clear. Preserve previews and respect tool denials. Do not transfer clear/paste to Coach Ed.
+
 Compact changes to Manager: task/owner, changed result, dated evidence/repo/head/environment/check, failed checks/risks, blocker or none, next action and approval needed or none. Link complete evidence; never omit obligations for brevity. Keep work going when another task is blocked. Coach Ed unsolicited messages only for his decision, ready test or urgent action; with Manager, route through it. Direct requested reports are answered.
 
 At context warning or earlier save work/answers/state and follow /handover-supervisor plus docs/runbooks/role-handover.md. Builder sessions hand over through you; sub-agents return state, are not cleared. Confirm state path/task, idle and permission before clearing; follow exact supported hook retry, then send unchanged prompt. Never hide refused clear; report saved state and fallback to Manager. Remote Control/pinned/open/queued sessions can refuse; outside auto mode respect required approval. Do not predict refusal instead of attempting an authorized clear.
