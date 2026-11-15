@@ -62,6 +62,7 @@ Replace `<env>` with `staging` or `production`.
 
 - `production` has not been migrated at all (see Notes).
 - `inbox.0003_bulk` (Bulk SMS: three new tables and `InboxAccess.can_bulk`) is written in the plan 8 build PR and applied nowhere. The coordinator runs it on staging after the merge; the History line is added after that run.
+- `inquiries.0002_stored_channels` (website chat: `InquiryMessage` and `InquiryChannelSettings`, new `InquiryConversation` fields and constraints, `InquiryReply.message` and the `delivered`/`bounced` states; additive, no data change) is written in the G3 PR1 build PR and applied nowhere. The Supervisor runs it on staging after the merge; the History line is added after that run. The code works before it is applied: the chat routes answer 404, and disposal and retention skip the new tables.
 
 ## History
 
@@ -88,3 +89,4 @@ Replace `<env>` with `staging` or `production`.
 - 2026-11-13: `meta_ads.0001_initial` was applied to `staging` after PR #139 merged (merge commit `11b7bb3`). The plan read beforehand listed only that migration. Afterwards `migrate --plan` reported no pending operations and `/healthz/` returned ok.
 - 2026-11-13: `catalog.0002_product_category_image` was applied to `staging` by the Supervisor session under Coach Ed's standing approval for a migration the approved plan specifies, after PR #141 merged (merge commit `c0dbc08`). The plan read beforehand listed only that migration (four added blank fields, no data change). Afterwards `migrate --plan` reported no pending operations and `/healthz/` returned ok. The catalog seed was not run. `production`: not run.
 - 2026-11-13: `pack.0005_buyer_notice` was applied to `staging` by the BILLING Supervisor under Coach Ed's standing approval for a migration the approved plan specifies, after PR #152 merged (merge commit `e75c1a4`). The plan read beforehand listed only that migration (one new table). Afterwards `migrate --plan` reported no pending operations and `/healthz/` returned ok. `PACK_PURGE_ENABLED` and `PACK_BUYER_NOTICE_ENABLED` were not set. `production`: not run.
+- 2026-11-16: `media_library.0001_media_assets` and `meta_ads.0002_delivery_meta_receipt` were applied to `staging` by the SANTE Supervisor under Coach Ed's standing approval for a migration the approved plan specifies, at commit `a03ae10`. The plan read beforehand listed only those two migrations. Afterwards `migrate --plan` reported no pending operations and `/healthz/` returned ok. `production`: not run.

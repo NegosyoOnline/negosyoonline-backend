@@ -11,8 +11,10 @@ from unittest import mock
 from cryptography.fernet import Fernet
 from django.test import override_settings
 
+from django.utils import timezone
+
 from apps.inquiries import crypto
-from apps.inquiries.models import InquiryConnection
+from apps.inquiries.models import InquiryChannelSettings, InquiryConnection, InquiryConversation, InquiryMessage
 
 KEY = Fernet.generate_key().decode()  # made for this test run; never a real value
 TOKEN = "TESTPAGETOKEN" + "abcdefghij" * 6  # 73 characters, made up
@@ -144,3 +146,30 @@ def no_limiter(testcase):
     patcher = mock.patch("apps.inquiries.limiter.acquire", return_value=True)
     patcher.start()
     testcase.addCleanup(patcher.stop)
+
+
+WC_REF = "wc_" + "a1b2c3d4e5f6" * 2  # a stored website-chat ref, made up
+
+
+def chat_on(site, **fields):
+    """The site's chat switched on (the owner's choice), as the channels route would."""
+    row, _ = InquiryChannelSettings.objects.update_or_create(
+        site=site, defaults={"webchat_enabled": True, **fields},
+    )
+    return row
+
+
+def make_stored(site, *, ref=WC_REF, name="Maria Santos", email="", text="Do you deliver to Cebu?",
+                status=InquiryConversation.OPEN, visitor_hash="", at=None, unread=True):
+    """A website-chat conversation with one customer message, as the chat route would make it."""
+    at = at or timezone.now()
+    conversation = InquiryConversation.objects.create(
+        site=site, provider=InquiryConversation.WEBCHAT, external_id=ref, stores_history=True,
+        display_name=name, contact_name=name, contact_email=email, visitor_hash=visitor_hash,
+        status=status, unread=unread, last_message_at=at, last_inbound_at=at,
+    )
+    InquiryMessage.objects.create(
+        site=site, conversation=conversation, direction=InquiryMessage.IN,
+        sender_kind=InquiryMessage.CUSTOMER, body=text, created_at=at,
+    )
+    return conversation

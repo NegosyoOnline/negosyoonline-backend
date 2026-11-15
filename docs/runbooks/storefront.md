@@ -76,3 +76,15 @@ There is one secret at a time, so the surface refuses the storefronts server bet
 3. Check a served site opens again.
 
 Rotate at once if the value was ever shown in a log, a chat, a screenshot or a commit.
+
+## Web chat
+
+Two routes of the surface, `POST /storefront/v1/chat/send/` and `/chat/poll/` (`apps/inquiries/api_storefront.py`), called by the storefronts server only, with the same credential and host lookup as the contact call.
+
+| Switch | Default | Does |
+|---|---|---|
+| `INQUIRY_WEBCHAT_ENABLED` | off | Opens the two chat routes. Needs `INQUIRIES_ENABLED` and `STOREFRONT_ENABLED`; `manage.py check --deploy` reports `inquiries.E002` otherwise. Off, or before `inquiries.0002` is applied, both routes answer the 404 of an unknown site before the body is read and read no table. |
+
+A store's visitors can chat only while its owner has turned chat on (`PUT /v1/sites/{id}/inquiries/channels/`) and has not paused it. Staging order: apply `inquiries.0002_stored_channels` (see `docs/runbooks/migrations.md`), check `migrate --plan` and `/healthz/`, then the switch on the reference site only. Do not switch it on in staging until the Privacy wording for chat is approved.
+
+The visitor's secret (256 bits) is returned once, by the first send; only its SHA-256 is stored. The storefronts server keeps it in an HttpOnly, Secure, SameSite=Lax cookie scoped to the store's host. Limits: 5 new conversations and 30 messages an hour per visitor address (shared by every store), 10 messages in 10 minutes per secret, 60 new conversations and 600 messages a day per site (a trip sets the owner's `chat_limit_reached` flag and answers visitors with the paused text), 400 polls an hour per address; the hidden field `website`; two seconds from `opened_at` to a first send; 1 to 1000 characters, no control characters, at most 2 links; the same text twice in 5 minutes dropped. No CAPTCHA.

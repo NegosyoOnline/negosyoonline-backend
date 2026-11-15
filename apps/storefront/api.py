@@ -12,6 +12,9 @@ The second emails a visitor's "Send a Message" form to the store's own contact e
 answers {"status": "sent"}. `website` is the form's hidden field: filled, the answer is the
 same and nothing is sent.
 
+The website chat (POST /storefront/v1/chat/send/ and /chat/poll/) is documented in
+apps/inquiries/api_storefront.py; it is off unless INQUIRY_WEBCHAT_ENABLED is on.
+
 It is outside /v1/, so it is not in the published API and the browser Origin rules do not
 apply to it. Every call carries the server credential (apps/storefront/auth.py) and the host
 the visitor asked for. The host is untrusted and is only ever a lookup value. A host whose
@@ -26,6 +29,7 @@ from ninja import NinjaAPI, Schema
 
 from apps.catalog.storefront_api import router as catalog_storefront_router
 from apps.common.errors import ApiError, error_body, register_error_handlers
+from apps.inquiries.api_storefront import router as inquiries_storefront_router
 from apps.members.api import router as members_router
 from apps.members.api_content import router as member_content_router
 from apps.members.api_orders import router as member_orders_router
@@ -142,6 +146,7 @@ api.add_router("", catalog_storefront_router)  # the catalog reads (apps/catalog
 api.add_router("", shop_router)  # the Santé shop (apps/shop/api.py)
 api.add_router("", shop_reviews_router)  # its product reviews (apps/shop/api_reviews.py)
 api.add_router("", meta_storefront_router)  # the Meta Conversions API events (apps/meta_ads)
+api.add_router("", inquiries_storefront_router)  # the website chat (apps/inquiries/api_storefront.py)
 
 
 def _no_such_endpoint(request):
