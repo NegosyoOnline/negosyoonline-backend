@@ -19,6 +19,13 @@ def webchat_on():
     return bool(settings.INQUIRY_WEBCHAT_ENABLED and settings.INQUIRIES_ENABLED)
 
 
+def contact_inbox_on():
+    """INQUIRY_CONTACT_INBOX_ENABLED: the storefront contact form's messages are also stored as
+    email conversations. Only while INQUIRIES_ENABLED is on too. Replying by email needs no switch
+    of its own: it is part of the owner's routes."""
+    return bool(settings.INQUIRY_CONTACT_INBOX_ENABLED and settings.INQUIRIES_ENABLED)
+
+
 def tables_exist():
     """True once inquiries.0001 is applied to this database. The code is released before its
     tables are created, so everything that must work with the switch off asks this first."""

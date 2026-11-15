@@ -31,3 +31,19 @@ def check_webchat_dependencies(app_configs, **kwargs):
         hint="Website chat is reached through the storefront surface and stored by the inquiries app: turn both on, or turn chat off.",
         id="inquiries.E002",
     )]
+
+
+@register(deploy=True)
+def check_contact_inbox_dependencies(app_configs, **kwargs):
+    if not settings.INQUIRY_CONTACT_INBOX_ENABLED:
+        return []
+    missing = [
+        name for name in ("INQUIRIES_ENABLED", "STOREFRONT_ENABLED") if not getattr(settings, name)
+    ]
+    if not missing:
+        return []
+    return [Error(
+        f"INQUIRY_CONTACT_INBOX_ENABLED is on but {' and '.join(missing)} {'is' if len(missing) == 1 else 'are'} off.",
+        hint="The contact form is reached through the storefront surface and its copy is stored by the inquiries app: turn both on, or turn this off.",
+        id="inquiries.E003",
+    )]

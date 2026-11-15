@@ -133,22 +133,27 @@ def _split_urls(text):
     return parts
 
 
-def footer_lines(brand):
-    """The footer, one line each, only what is present."""
+def default_footer_reason(brand):
+    return f"You are receiving this because of your order or account with {brand['name']}."
+
+
+def footer_lines(brand, footer_reason=None):
+    """The footer, one line each, only what is present. `footer_reason` replaces the sentence
+    about why the person is receiving this; None keeps the order-or-account sentence."""
     lines = [brand["name"]]
     lines += [v for v in (brand["email"], brand["mobile"], brand["address"]) if v]
-    lines.append(f"You are receiving this because of your order or account with {brand['name']}.")
+    lines.append(footer_reason or default_footer_reason(brand))
     return lines
 
 
-def render_store(brand, *, subject, body, code="", cta=None):
+def render_store(brand, *, subject, body, code="", cta=None, footer_reason=None):
     """(text, html). `text` is `body` plus the footer lines; `html` is one 600px table layout.
     `code` is shown large in the sentence that holds it, once. `cta` is an optional
     (label, https url) button, HTML only."""
     color = safe_color(brand.get("color"))
     if cta and not str(cta[1]).startswith(("https://", "http://")):
         cta = None
-    footer = footer_lines(brand)
+    footer = footer_lines(brand, footer_reason)
     text = body.rstrip("\n") + "\n\n--\n" + "\n".join(footer) + "\n"
     html = render_to_string("notifications/email/store.html", {
         "subject": subject,
@@ -158,24 +163,42 @@ def render_store(brand, *, subject, body, code="", cta=None):
         "paragraphs": _lines(body, code),
         "cta": cta,
         "footer_contact": [v for v in (brand["email"], brand["mobile"], brand["address"]) if v],
+        "footer_reason": footer_reason or default_footer_reason(brand),
         "preheader": re.sub(r"\s+", " ", body.replace(code, "") if code else body).strip()[:90],
     })
     return text, html
 
 
-def send_store_email(site, *, to, category, subject, body, code="", cta=None):
+def send_store_email(
+    site, *, to, category, subject, body, code="", cta=None,
+    reply_to=None, footer_reason=None, branded=None, log_detail=True,
+):
     """The one call for an email to a store's member or buyer. Returns the EmailMessage record.
     Raises what `send_email` raises (EmailNotSent) and ValueError for a bad sender or Reply-To,
-    as the callers already handle."""
+    as the callers already handle.
+
+    The four optional arguments are for the inquiry replies and change nothing when left out:
+    `reply_to` (default: the owner's verified email) is checked like the default one;
+    `footer_reason` replaces the footer's reason sentence; `branded=True` uses the branded
+    layout and the store's own sender whatever STORE_EMAILS_BRANDED says (None follows it);
+    `log_detail=False` keeps the failure's exception text out of the log."""
     from apps.members import messaging
 
-    from_name, reply_to = messaging.sender(site)
-    if not settings.STORE_EMAILS_BRANDED:
+    from_name, owner_email = messaging.sender(site)
+    reply_to = owner_email if reply_to is None else reply_to
+    if branded is None:
+        branded = settings.STORE_EMAILS_BRANDED
+    extra = {} if log_detail else {"log_detail": False}
+    if not branded:
         return send_email(
-            to=to, category=category, subject=subject, body=body, sender_name=from_name, reply_to=reply_to
+            to=to, category=category, subject=subject, body=body, sender_name=from_name, reply_to=reply_to,
+            **extra,
         )
-    text, html = render_store(brand_for(site), subject=subject, body=body, code=code, cta=cta)
+    text, html = render_store(
+        brand_for(site), subject=subject, body=body, code=code, cta=cta, footer_reason=footer_reason,
+    )
     return send_email(
         to=to, category=category, subject=subject, body=text, html_body=html,
         sender_name=safe_from_name(from_name), reply_to=reply_to, from_address=sender_address(site),
+        **extra,
     )
