@@ -44,6 +44,8 @@ class MetaDelivery(models.Model):
     attempts = models.PositiveSmallIntegerField(default=0)
     http_status = models.PositiveSmallIntegerField(null=True, blank=True)
     meta_error_code = models.IntegerField(null=True, blank=True)  # Meta's numeric code only
+    events_received = models.PositiveSmallIntegerField(null=True, blank=True)  # Meta's count, a number only
+    fbtrace_id = models.CharField(max_length=40, blank=True)  # Meta's trace id for support; not personal
     is_test = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     finished_at = models.DateTimeField(null=True, blank=True)

@@ -8,7 +8,6 @@ from django.utils import timezone
 
 from apps.common import private_files
 from apps.common.errors import ApiError
-from apps.meta_ads import services as meta_ads
 from apps.pack import constants as C, notices, proofs, registration
 from apps.pack.models import PackOrder, PackProofDecision
 
@@ -57,7 +56,6 @@ def approve(account, site, order_id, *, state_version):
         order.rejection_lock_active = False
         _save(order, ["payment_status", "verified_at", "rejection_lock_active"])
         registration.on_payment_verified(order)  # T8
-        meta_ads.queue_purchase(order)  # Meta Purchase after commit; does nothing while Meta events are off
         notices.after_commit(notices.payment_verified, decision.pk)
     return order
 

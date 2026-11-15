@@ -3,6 +3,10 @@ apps/storefront/api.py):
 
     POST /storefront/v1/meta/events/  {host, events: [{name, id}], url, fbp, fbc, ip, user_agent,
         consent} -> {status}: "queued" or "ignored"
+    POST /storefront/v1/meta/purchase/  {host, visitor_ip, token, consent} -> {status, event_id,
+        first, value, currency, content_ids}: the buyer opened the onboarding verify page. Django
+        resolves the order from the checkout token (site-scoped) and queues Purchase once per
+        order; `first` is true only on the call that created it, so the browser fires only then.
 
 Only PageView, ViewContent and InitiateCheckout are accepted here; AddPaymentInfo and Purchase
 are built inside Django from an order and are refused by name. No value, currency or custom
@@ -76,3 +80,44 @@ def meta_events(request, body: EventsIn):
         url=services.clean_url(body.url, body.host),
     )
     return {"status": "queued" if queued else "ignored"}
+
+
+class PurchaseIn(Schema):
+    host: str = ""
+    visitor_ip: str = ""
+    token: str = ""
+    consent: bool = False
+
+
+class PurchaseOut(Schema):
+    status: str
+    event_id: str = ""
+    first: bool = False
+    value: float = 0
+    currency: str = ""
+    content_ids: list[str] = []
+
+
+PURCHASE_IP_LIMIT = ("meta-purchase-ip", 60, 600)
+
+
+@router.post("/meta/purchase/", response=PurchaseOut)
+def meta_purchase(request, body: PurchaseIn):
+    """The buyer opened /funnel/membership-pack/onboarding/verify/. The order comes from the
+    checkout token and the site only, never from a field the browser chooses."""
+    from apps.pack.api import _funnel  # the same token and site resolution as the onboarding state call
+
+    if not settings.META_EVENTS_ENABLED:
+        raise ApiError("not_found", "Not found.", status=404)
+    throttle.hit(
+        PURCHASE_IP_LIMIT[0], _ip(body.visitor_ip) or "unknown", limit=PURCHASE_IP_LIMIT[1], window=PURCHASE_IP_LIMIT[2],
+    )
+    _site, _token, order, _member = _funnel(body.host, body.token)
+    queued = services.queue_onboarding_purchase(order, consent=body.consent)
+    if queued is None:
+        return {"status": "ignored"}
+    delivery, created = queued
+    return {
+        "status": "queued" if created else "ignored", "event_id": delivery.event_id, "first": created,
+        "value": order.price_centavos / 100, "currency": order.currency, "content_ids": [events.CONTENT_ID],
+    }
