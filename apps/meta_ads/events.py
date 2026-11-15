@@ -100,7 +100,7 @@ def order_event(delivery, order, context):
     custom = {**pack_data(), "order_id": order.order_number}
     if delivery.event_name == "Purchase":
         custom["value"], custom["currency"] = order.price_centavos / 100, order.currency
-        when = order.verified_at
+        when = delivery.created_at  # the buyer's first onboarding visit, when Purchase was queued
     else:
         when = order.created_at
     if when is None:

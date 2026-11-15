@@ -51,8 +51,12 @@ def configure(site, *, pixel=PIXEL, token=TOKEN, code=CODE):
 
 
 class FakeResponse:
-    def __init__(self, status=200):
+    def __init__(self, status=200, body=None):
         self.status = status
+        self.body = json.dumps(body).encode() if body is not None else b""
+
+    def read(self, size=-1):
+        return self.body
 
     def __enter__(self):
         return self
@@ -61,14 +65,14 @@ class FakeResponse:
         return False
 
 
-def http_error(status, code=None):
-    body = json.dumps({"error": {"code": code, "message": "SECRET MESSAGE FROM META"}}).encode()
+def http_error(status, code=None, fbtrace_id=None):
+    body = json.dumps({"error": {"code": code, "message": "SECRET MESSAGE FROM META", "fbtrace_id": fbtrace_id}}).encode()
     return urllib.error.HTTPError("https://graph.facebook.com/x", status, "x", {}, io.BytesIO(body))
 
 
 class FakeMeta:
     """Patches the network. `answers` is a list used in order (the last repeats): a status
-    number, or an exception to raise."""
+    number, a (number, body) pair for an answer with a JSON body, or an exception to raise."""
 
     def __init__(self, *answers):
         self.answers = list(answers) or [200]
@@ -79,7 +83,7 @@ class FakeMeta:
         answer = self.answers[min(len(self.requests), len(self.answers)) - 1]
         if isinstance(answer, BaseException):
             raise answer
-        return FakeResponse(answer)
+        return FakeResponse(*answer) if isinstance(answer, tuple) else FakeResponse(answer)
 
     def __enter__(self):
         self.patcher = mock.patch("apps.meta_ads.send._open", self)

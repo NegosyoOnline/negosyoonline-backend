@@ -4,6 +4,7 @@ The access token travels in the POST body, never the query string. Nothing from 
 is kept but the HTTP status and the numeric error code; exception text, response bodies and the
 request are never logged or returned."""
 import json
+import re
 import urllib.error
 import urllib.request
 from typing import NamedTuple
@@ -13,6 +14,7 @@ from typing import NamedTuple
 GRAPH_VERSION = "v25.0"
 TIMEOUT_SECONDS = 5
 MAX_ERROR_BODY = 20_000
+FBTRACE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,40}$")
 
 OK, BAD_TOKEN, BAD_PIXEL, RATE_LIMITED, META_DOWN, FAILED = (
     "ok", "bad_token", "bad_pixel", "rate_limited", "meta_down", "failed",
@@ -29,6 +31,25 @@ class Result(NamedTuple):
     outcome: str
     http_status: int | None = None
     error_code: int | None = None
+    events_received: int | None = None  # Meta's count of events it took; a number, never text
+    fbtrace_id: str = ""  # Meta's trace id for support; not personal
+
+
+def _int(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 32_000 else None
+
+
+def _trace(value):
+    return value if isinstance(value, str) and FBTRACE_RE.match(value) else ""
+
+
+def _read(source):
+    """The parsed JSON body of an answer, or {}. Nothing but numbers and a short id leaves here."""
+    try:
+        body = json.loads(source.read(MAX_ERROR_BODY).decode("utf-8", "replace"))
+    except Exception:  # noqa: BLE001 - an unreadable answer is just "nothing recorded"
+        return {}
+    return body if isinstance(body, dict) else {}
 
 
 def _open(request, timeout):
@@ -36,13 +57,13 @@ def _open(request, timeout):
     return urllib.request.urlopen(request, timeout=timeout)  # noqa: S310 - a fixed https address
 
 
-def _error_code(error):
-    try:
-        body = json.loads(error.read(MAX_ERROR_BODY).decode("utf-8", "replace"))
-        code = body["error"]["code"]
-    except Exception:  # noqa: BLE001 - an unreadable answer is just "no code"
-        return None
-    return code if isinstance(code, int) and not isinstance(code, bool) else None
+def _error_parts(error):
+    """(numeric error code or None, fbtrace_id or "") of an error answer."""
+    err = _read(error).get("error")
+    err = err if isinstance(err, dict) else {}
+    code = err.get("code")
+    code = code if isinstance(code, int) and not isinstance(code, bool) else None
+    return code, _trace(err.get("fbtrace_id"))
 
 
 def post_event(pixel_id, token, event, test_event_code=""):
@@ -58,17 +79,19 @@ def post_event(pixel_id, token, event, test_event_code=""):
     )
     try:
         with _open(request, TIMEOUT_SECONDS) as response:
-            return Result(OK, response.status)
+            body = _read(response)
+            return Result(OK, response.status, None, _int(body.get("events_received")), _trace(body.get("fbtrace_id")))
     except urllib.error.HTTPError as error:
-        status, code = error.code, _error_code(error)
+        status = error.code
+        code, trace = _error_parts(error)
         if status >= 500:
-            return Result(META_DOWN, status, code)
+            return Result(META_DOWN, status, code, None, trace)
         if status == 429 or code in RATE_CODES:
-            return Result(RATE_LIMITED, status, code)
+            return Result(RATE_LIMITED, status, code, None, trace)
         if code in TOKEN_CODES or status in (401, 403):
-            return Result(BAD_TOKEN, status, code)
+            return Result(BAD_TOKEN, status, code, None, trace)
         if code in PIXEL_CODES:
-            return Result(BAD_PIXEL, status, code)
-        return Result(FAILED, status, code)
+            return Result(BAD_PIXEL, status, code, None, trace)
+        return Result(FAILED, status, code, None, trace)
     except Exception:  # noqa: BLE001 - timeout, DNS, TLS: the text is never kept
         return Result(META_DOWN)
