@@ -36,6 +36,7 @@ def routes():
 @override_settings(
     PACK_ENABLED=True, MEMBERS_ENABLED=True, SHOP_ENABLED=True, META_EVENTS_ENABLED=True,
     SANTE_CATALOG_ENABLED=True, PAYMENT_METHODS_ENABLED=True, SANTE_AGREEMENT_ENABLED=True,
+    INQUIRIES_ENABLED=True, INQUIRY_WEBCHAT_ENABLED=True,  # so the chat routes are walked too
 )
 class EveryRouteRefusedTests(SurfaceTestCase):
     def ask(self, method, path, host):

@@ -67,7 +67,11 @@ class InquiryDisposalTests(DisposalTestCase):
 
         entry = OperatorAuditEntry.objects.filter(action="account_disposed").latest("pk")
         self.assertEqual(entry.detail["blanked"]["inquiry_connections"], ["token_encrypted"])
-        self.assertEqual(entry.detail["blanked"]["inquiry_conversations"], ["display_name"])
+        self.assertEqual(
+            entry.detail["blanked"]["inquiry_conversations"],
+            ["display_name", "contact_name", "contact_email", "visitor_hash", "thread_token"],
+        )
+        self.assertEqual(entry.detail["blanked"]["inquiry_messages"], ["all rows deleted"])
         self.assertNotIn(TOKEN, str(entry.detail))
         self.assertNotIn(EMAIL, str(entry.detail))
 
