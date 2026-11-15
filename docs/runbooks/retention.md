@@ -180,6 +180,8 @@ While `PAYMENT_METHODS_ENABLED` is off, disposal and export do not read the paym
 - The export gains `members` (every member of the account's sites with name, contacts, delivery address, verification dates and source), `member_sessions` (dates and revoke reason only) and `member_contact_audits`. It never holds a token hash or a visitor address.
 - The members are the Subscriber's buyers. Decided by Coach Ed on 2026-11-13 (Manager session, relayed by the Manager; recorded on ClickUp z8uq9memg6): a Subscriber's own export includes its Santé members (members, member_sessions, member_contact_audits), as built. Members belong to the site, so disposal and export know them.
 
+- **Order log** (ClickUp z8uq9meze0): a member's own notebook of Santé app orders (`member_order_logs`: order number, date, customer first name, city, payment, total, status). The rows name a third party, so disposal, the site erasure and `pack_remove_test_member` delete them (the count is `member_order_logs`, shown in the dry run) and the Subscriber's export lists them.
+
 While `MEMBERS_ENABLED` is off, disposal and export do not read the member tables at all, because the code is released before migration `members.0001` is applied. Turn it on in an environment only after that migration is applied there. Once it has been on, it is not turned off again without Coach Ed's ruling: a disposal run while it is off would leave members' names and contacts in place.
 
 **Membership Pack orders.** Where `PACK_ENABLED` is on (ClickUp z8uq9me9mr, Membership Package slice PK4):

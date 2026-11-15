@@ -11,7 +11,7 @@ person goes. It refuses, writing nothing, when the site or member is not found, 
 on that site, the full name does not start with "TEST " (any letter case, leading spaces ignored), or one of the member's Pack orders is on
 another site. Without --apply it prints the counts and writes nothing. With it, everything is
 written in one transaction with one `pack_test_member_removed` audit entry (ids and counts only);
-the proof files are deleted from the private store only after the commit. Running it again changes
+the member's order-log rows (`member_order_logs`, apps/members/order_log.py) are deleted and counted; the proof files are deleted from the private store only after the commit. Running it again changes
 nothing. No bulk mode.
 """
 import json

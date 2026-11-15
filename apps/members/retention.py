@@ -10,7 +10,7 @@ from apps.common import retention
 from apps.common.disposal import disposed_address
 from apps.members import services
 from apps.members.models import (
-    Member, MemberAddressEvent, MemberContactAudit, MemberOtpChallenge, MemberSession,
+    Member, MemberAddressEvent, MemberContactAudit, MemberOrderLog, MemberOtpChallenge, MemberSession,
 )
 from apps.sites.models import Site
 
@@ -18,6 +18,7 @@ MEMBERS, SESSIONS = "members", "member_sessions"
 CHALLENGES, AUDITS = "member_otp_challenges", "member_contact_audits"
 MEMBER_PERSONAL = ("full_name", "mobile", "email", "delivery_address")
 ADDRESS_EVENTS = "member_address_events"
+ORDER_LOGS = "member_order_logs"  # the member's own order notebook: a third party's first name and city
 ADDRESS_EVENT_PERSONAL = ("old", "new", "ip_advisory")  # the rows stay; these three are blanked
 
 
@@ -36,7 +37,7 @@ def blanked():
         return {}
     return {
         MEMBERS: list(MEMBER_PERSONAL), SESSIONS: ["all rows deleted"], CHALLENGES: ["all rows deleted"],
-        ADDRESS_EVENTS: list(ADDRESS_EVENT_PERSONAL),
+        ADDRESS_EVENTS: list(ADDRESS_EVENT_PERSONAL), ORDER_LOGS: ["all rows deleted"],
     }
 
 
@@ -58,16 +59,19 @@ def blank_members(sites, dry_run=False, *, ignore_switch=False, only_member=None
     sessions = MemberSession.objects.filter(member__site__in=sites)
     challenges = MemberOtpChallenge.objects.filter(site__in=sites)
     events = MemberAddressEvent.objects.filter(site__in=sites)
+    order_logs = MemberOrderLog.objects.filter(site__in=sites)
     if only_member is not None:
         members = members.filter(pk=only_member.pk)
         sessions = sessions.filter(member=only_member)
         challenges = challenges.filter(member=only_member)
         events = events.filter(member=only_member)
+        order_logs = order_logs.filter(member=only_member)
     counts = {MEMBERS: members.count(), SESSIONS: sessions.count(), CHALLENGES: challenges.count(),
-              ADDRESS_EVENTS: events.count()}
+              ADDRESS_EVENTS: events.count(), ORDER_LOGS: order_logs.count()}
     if not dry_run:
         sessions.delete()
         challenges.delete()
+        order_logs.delete()  # nothing else needs the rows, and they name a third party
         # The edit history holds the old and new address and the IP: blanked in the same
         # transaction as the member. A queryset update is the one write these append-only rows take.
         events.update(old={}, new={}, ip_advisory="")
@@ -88,6 +92,7 @@ def export_members_of(account):
     public_ids = dict(Site.objects.filter(account=account).values_list("pk", "public_id"))
     rows = Member.objects.filter(site__account=account).order_by("pk")
     sessions = MemberSession.objects.filter(member__site__account=account).select_related("member")
+    order_logs = MemberOrderLog.objects.filter(site__account=account).select_related("member")
     audits = MemberContactAudit.objects.filter(site__account=account).select_related("member")
     events = MemberAddressEvent.objects.filter(site__account=account).select_related("member")
     return {
@@ -125,6 +130,20 @@ def export_members_of(account):
                 "created_at": _iso(row.created_at),
             }
             for row in events.order_by("pk")
+        ],
+        ORDER_LOGS: [
+            {
+                "member": row.member.public_id,
+                "order_number": row.order_number,
+                "ordered_on": row.ordered_on.isoformat(),
+                "customer_first_name": row.customer_first_name,
+                "city": row.city,
+                "payment": row.payment,
+                "total": f"{row.total_centavos // 100}.{row.total_centavos % 100:02d}",
+                "status": row.status,
+                "created_at": _iso(row.created_at),
+            }
+            for row in order_logs.order_by("pk")
         ],
         SESSIONS: [
             {

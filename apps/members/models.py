@@ -316,3 +316,43 @@ class MemberNotification(models.Model):
 
     def __str__(self):
         return self.public_id
+
+
+ORDER_PAYMENTS = [("cod", "COD"), ("prepaid", "Prepaid")]
+ORDER_STATUSES = [
+    ("for_approval", "For approval"), ("for_booking", "For booking"), ("for_pickup", "For pickup"),
+    ("shipping", "Shipping"), ("delivered", "Delivered"), ("closed", "Closed/other"),
+]
+
+
+def new_order_log_id():
+    return new_public_id("mol")
+
+
+class MemberOrderLog(models.Model):
+    """One line in a member's own notebook of the Santé app orders they placed (ClickUp z8uq9meze0).
+    Display only: no web order is made from it and no money moves. Only these fields are stored,
+    never an address, phone, tracking number or note. Write it through apps/members/order_log.py."""
+
+    public_id = models.CharField(max_length=40, unique=True, default=new_order_log_id, editable=False)
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="member_order_logs")
+    member = models.ForeignKey(Member, on_delete=models.PROTECT, related_name="order_logs")
+    order_number = models.CharField(max_length=32)
+    ordered_on = models.DateField()
+    customer_first_name = models.CharField(max_length=60)
+    city = models.CharField(max_length=80)
+    payment = models.CharField(max_length=8, choices=ORDER_PAYMENTS)
+    total_centavos = models.BigIntegerField()
+    status = models.CharField(max_length=12, choices=ORDER_STATUSES)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-ordered_on", "-created_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["member", "order_number"], name="members_orderlog_member_number"),
+        ]
+        indexes = [models.Index(fields=["member", "-ordered_on"], name="members_orderlog_member_date")]
+
+    def __str__(self):
+        return self.public_id
