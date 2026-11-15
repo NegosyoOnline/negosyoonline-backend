@@ -1,0 +1,265 @@
+{
+  "coverage": "COMPLETE_SOURCE_INVENTORY",
+  "newest_comment_id": "1100430000523941",
+  "count": 43,
+  "entries": [
+    {
+      "id": "1100430000523941",
+      "date": "1794631585672",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "9ec3f91d7c0509fdcc3b9c9c081b90d95ef2c86c83423da0fd7f15c82234b0ef"
+    },
+    {
+      "id": "1100430000523147",
+      "date": "1794614972751",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "7e2e7053b1d400d4527855f99af8cc47ec68f22373737b3b760efaf73d9ddb53"
+    },
+    {
+      "id": "1100430000523044",
+      "date": "1794612666523",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "1fa50024ed3bd8c2c5a9f455709e47661c99e6abbc2edc24fe1382e16f9f574d"
+    },
+    {
+      "id": "1100430000523022",
+      "date": "1794611999348",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "f3ff58f24745fae388878d5926313540ae7fe3b376ca89e1149b038673132bcc"
+    },
+    {
+      "id": "1100430000520345",
+      "date": "1794594007990",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "4a965574909997c78ae4b6a9c2abef59904a4ee91f02cf8d949278768ca79495"
+    },
+    {
+      "id": "1100430000520085",
+      "date": "1794591494373",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "f95b3ef5934ecfeff761ec4af6fec619c5d6d008dc5cb6c3eaf47ccf4cbe5a0a"
+    },
+    {
+      "id": "1100430000519840",
+      "date": "1794588645042",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "af8ff5d437e676a21468c78f69dab65667eea7517b9a915251345a992aec4781"
+    },
+    {
+      "id": "1100430000512863",
+      "date": "1794546048179",
+      "classification": "incorporation record",
+      "sha256": "47a5995255f48926f964c2517a8798030b8dc82e106025cc43413d6758e8ba77"
+    },
+    {
+      "id": "1100430000512065",
+      "date": "1794540501164",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "2c9d033773a4a6ca89338b91ab2c224a1fd45436a1fa77c2b7cc7335ba7e042b"
+    },
+    {
+      "id": "1100430000510008",
+      "date": "1794532468245",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "b9397b7302f2695d861f428e16f9cf8549cbd5785f593a06537fe2befff759f1"
+    },
+    {
+      "id": "1100430000509990",
+      "date": "1794532378001",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "ea45cfbd6ab7cf59d5ed758f878060e61577d9f1a8967eb42b8d6a5a5919b985"
+    },
+    {
+      "id": "1100430000509948",
+      "date": "1794531847495",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "3364abd20fd5231a0de04c47b7ea48302e522b01eeeac64c92bba5a18f27d17a"
+    },
+    {
+      "id": "1100430000509929",
+      "date": "1794531632268",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "8a978fb61d3712ad6511fa67dcace2981dea7c7c6b9faf0524dea449d3351b5a"
+    },
+    {
+      "id": "1100430000509745",
+      "date": "1794529909652",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "5f87e7bc1024ca70a3016c1610caa220fc06a94b7aefcd49a818b8daeeafcd7b"
+    },
+    {
+      "id": "1100430000509659",
+      "date": "1794529096401",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "58c799401c0c3c67d3409ddea11042bb233e1c90707fdb731918f987da98b6f5"
+    },
+    {
+      "id": "1100430000509657",
+      "date": "1794529076010",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "ba4ff4a3e7513b16cf9bd97c6d0cfc8085eca3ab401004ad30110adaf3f6e5e2"
+    },
+    {
+      "id": "1100430000509378",
+      "date": "1794525264629",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "8cd662b7c8d56e37ea0295c1ebf169f6f5b41ad304930e2f22d205d1ea71506b"
+    },
+    {
+      "id": "1100430000509314",
+      "date": "1794524426368",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "e4a8de60dbf2d94d80fd4c39bab4d2375b54783f04d0efe8fdd63cc528b36af9"
+    },
+    {
+      "id": "1100430000509303",
+      "date": "1794524279103",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "13d7bb2f2f36371216fac42e2c6bfc3077cdd1cc1b53a826e0474a74bb849ffa"
+    },
+    {
+      "id": "1100430000509255",
+      "date": "1794523566603",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "c30567c9b6438a43738ef28b539861642aff11a1f99bd4c28e0f7a9be6a2b6a2"
+    },
+    {
+      "id": "1100430000509244",
+      "date": "1794523459832",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "c88a60266799e3a8f6578edb635391b1b999241b2875b4ca2a99802ea371a00d"
+    },
+    {
+      "id": "1100430000508995",
+      "date": "1794520523137",
+      "classification": "incorporation record",
+      "sha256": "e0244cf20ec03f6e5ff5997710eee5759295c86e74bfbe6fc1ebdf061a53b318"
+    },
+    {
+      "id": "1100430000508727",
+      "date": "1794517399384",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "bd98165dadd244a2e8ee803e3a27175228ec59c24dff5f2fb6d3a100fc60b1db"
+    },
+    {
+      "id": "1100430000508711",
+      "date": "1794517193625",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "eb5aa0b8b918503381f0ad0081b4e0bcbbc85dd9a13dfc3b080a7e28b4b0126f"
+    },
+    {
+      "id": "1100430000508710",
+      "date": "1794517192260",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "1a64d20d005de93d62ef1c6f4236f88b6e653263d85f0bc204359e5abdbb324a"
+    },
+    {
+      "id": "1100430000508659",
+      "date": "1794516301101",
+      "classification": "incorporation record",
+      "sha256": "01fb40dac4e4f0b8f12bc0cdee9fc556f5a718a7d47fe568965c8d0af7aef1e9"
+    },
+    {
+      "id": "1100430000508608",
+      "date": "1794515501451",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "02f87a49c40d258c09e32805ebc4c93ae80b642e239e8b108f3acc8906c0c5b1"
+    },
+    {
+      "id": "1100430000508600",
+      "date": "1794515339788",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "b48461e1b4a364a3b00dd56f9255bdacfa08e7ecc66c193ea57a90e49472065a"
+    },
+    {
+      "id": "1100430000508559",
+      "date": "1794514702283",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "c82591843fe0e47caf7df74499bbcf6a922380a528fb93e31cadadcff668005c"
+    },
+    {
+      "id": "1100430000508516",
+      "date": "1794514252482",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "20c018e5538b1df87511d2b9190b0d8c2ae29755ee64708be63dad1794434313"
+    },
+    {
+      "id": "1100430000508496",
+      "date": "1794513978735",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "21e3c958bc3731e207e083a1dbd6c53ce56b16798392b564809dbcbaa8846ac2"
+    },
+    {
+      "id": "1100430000508334",
+      "date": "1794513415038",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "cbf2d5966a65fed802bcef77ad2f4b73d209a7f014fdaac94d34eb31584eed0e"
+    },
+    {
+      "id": "1100430000508189",
+      "date": "1794511594661",
+      "classification": "closed one-time reorganization; no continuing approval",
+      "sha256": "0330129020d1c6552afd0dcf601bf30ffbcbc7563d304d8f14cb245dc1652c33"
+    },
+    {
+      "id": "1100430000508109",
+      "date": "1794510851942",
+      "classification": "closed one-time reorganization; no continuing approval",
+      "sha256": "25d11da04c022cd926f59dbb0811718752b4226c2fac8aff509930c675b03e74"
+    },
+    {
+      "id": "1100430000503471",
+      "date": "1794477432156",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "1535bbafca741f84852769905444fd40936e5c8140cd59ad0c78e151ca91ae1b"
+    },
+    {
+      "id": "1100430000503470",
+      "date": "1794477430899",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "6c94afc55507d672743fe73de55c924f3cb30c2a00ef515a7a34b9e13898b084"
+    },
+    {
+      "id": "1100430000503469",
+      "date": "1794477429524",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "097e8c0c183578c033b8c7b636425ab71bebafe933a301be02c1d8d395bc1317"
+    },
+    {
+      "id": "1100430000503468",
+      "date": "1794477428091",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "dd8546d894cb6847b8b8301b7785efb10df9eba868a8d206d0f4eca975f198bd"
+    },
+    {
+      "id": "1100430000503467",
+      "date": "1794477426763",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "15affdaf91ffa1dad8b0b08fdbb08e58a11cff628de97f5bdf5269ef41ccf59a"
+    },
+    {
+      "id": "1100430000503466",
+      "date": "1794477425326",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "b5a2313a852a268afa2f26aa22cda128060c890fa25e7c555c4bd6e3567e0680"
+    },
+    {
+      "id": "1100430000503464",
+      "date": "1794477423947",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "97522893b735a8256c2122e32347b19778a380d545d69906f51d0efccbfc85a2"
+    },
+    {
+      "id": "1100430000503463",
+      "date": "1794477422513",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "08600d70b0985ff326429f024fefcfd1fc3aa341b5ef3602be7a0b52de7a00f1"
+    },
+    {
+      "id": "1100430000503462",
+      "date": "1794477421064",
+      "classification": "source ruling; apply later amendments",
+      "sha256": "8a6c37bb65d440d785cb9cca9ceb31a914553f3ba086a6a8458577e7d6112c06"
+    }
+  ]
+}

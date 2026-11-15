@@ -1,45 +1,16 @@
 ---
-description: Ship the current backend change to staging through a PR, wait for the Railway deploy, then report whether staging deployed
+description: Route approved ready work through release train, or verify staging
 argument-hint: "[check]"
 ---
 
-Ship the current backend change to staging and report the result to Coach Ed without being asked again.
+Production excluded. No tags/production branch, migrations, seeds, variables/settings, manual redeploy/up/down, secrets or branch-protection bypass.
 
-Staging deploys automatically when a PR merges to `main`. Production is never part of this command.
+Normal mode: inspect requested change/status and follow the existing role's ready-branch/release procedure. Feature builders report branch/head/checks to Supervisor; Supervisor reviews/local-tests/routes owner packet and reports ready to Manager; only Release Builders combine/push/open the one round PR after all required local CI checks. This command creates no separate PR, merge, build or deployment approval. Manager runs its existing train. Do not unilaterally commit unrelated work. No routine owner progress/completion announcements; explicit /push-staging request may receive its requested result.
 
-## Hard limits (never do these here)
-
-- No `v*` tag, no push to the `production` branch, no migrations, no seed data, no Railway variable or repo setting changes, no `railway redeploy`/`up`/`down`.
-- Never print or commit secrets. Do not bypass branch protection.
-- Do not poll GitHub CI (no timers, loops, `gh ... --watch`, repeated status reads). The only waiting allowed is the Railway wait script below, run once in the background.
-
-## If the argument is `check`
-
-Skip to "Verify and report" using the most recent merged backend PR (`gh pr list --state merged --limit 1`).
-
-## Otherwise: ship it
-
-1. Inspect `git status` and the diff. If there is nothing to ship, say so and stop. Confirm the change is what Coach Ed asked for and contains no secrets.
-2. If on `main`, create a feature branch. Commit with a clear message ending with the required Co-Authored-By line. Push the branch.
-3. Run the targeted tests and `uv run python manage.py check --deploy` if code changed. Stop and report if they fail.
-4. Railway guard: `railway status` must show Project `negosyoonline-backend` and Environment `staging`. Anything else, stop and tell Coach Ed. Then record the newest staging deployment id as BEFORE_ID:
-   `railway deployment list -p negosyoonline-backend -e staging -s api --limit 1 --json` (the `id` of the first row).
-5. Open a ready (not draft) PR into `main` with a short summary and test plan, ending with the required Generated-with line.
-6. Bind the PR with `mcp__ccd_pr__get_status` (use `bind_pr` if it is not reported), then enable auto-merge with `mcp__ccd_pr__set_auto_merge` (squash). Coach Ed has standing permission for this on backend PRs.
-7. Start the wait in the background, as a script file and never an inline `bash -c`:
-   `bash scripts/wait_railway_deploy.sh <BEFORE_ID>` with `run_in_background: true`.
-   It returns only when Railway has a newer staging deployment that finished, so it also covers CI and the merge. Tell Coach Ed the PR link and that you are waiting on the deploy, then end the turn. You are notified when the script exits. Do not announce a result before that.
-
-## When the wait script exits (or on `check`)
-
-- Exit 0 `SUCCESS <id> <commit>`: go to "Verify and report".
-- Exit 2 (FAILED/CRASHED/REMOVED/SKIPPED): report the failure with the deployment id. Pull the failing lines with `railway logs -p negosyoonline-backend -e staging -s api -d -n 100 <id>` (read-only) and do not redeploy.
-- Exit 3 (about 20 minutes, no finished deployment): read the PR state once and report honestly that it is still in progress: CI stuck or GitHub Actions down (see githubstatus.com), merge pending, or Railway still building. Tell Coach Ed to run `/push-staging check` later. Never claim a verdict you do not have.
-
-## Verify and report
-
-1. Read the merged PR's merge commit with `gh pr view <n> --json state,mergeCommit`. If it is not merged yet, say so and stop.
-2. Confirm Railway's deployment is for that commit: in `railway deployment list -p negosyoonline-backend -e staging -s api --limit 5 --json`, the row whose `meta.commitHash` equals the merge commit must have status SUCCESS. No matching row means Railway has not deployed it: say so, never substitute the newest row.
-3. Run `scripts/verify_deploy.sh https://api-staging.negosyonline.com/healthz/ <first 12 chars of the merge commit>`. This is the proof the live app reports the commit.
-4. Read the latest `Verify staging deploy` run once with `gh run list --workflow "Verify staging deploy" --limit 1`.
-5. Report plainly: PR link, merge commit, Railway deployment id and status for that commit, the commit staging reports, and whether the verify run is green. If any of them disagree or fail, say it failed and what was observed. Never claim success without Railway SUCCESS for the merge commit and the `OK:` line.
+check mode (read-only): identify the intended merged PR/commit, not merely newest deployment. Verify:
+1. PR merged and exact merge SHA.
+2. Railway project negosyoonline-backend/environment staging/service api; matching deployment meta.commitHash is SUCCESS.
+3. scripts/verify_deploy.sh https://api-staging.negosyonline.com/healthz/ <12-character merge prefix> reports OK for that commit.
+4. Latest relevant Verify staging deploy run, read once.
+Disagreement means unverified/failed, never substitute a different commit. Capture relevant failure logs without secrets; no redeploy permission inferred.
+Use supported background deployment wait if needed, scripts/wait_railway_deploy.sh <validated BEFORE_ID>, once; failure/crash/timeout is reported honestly internally or as requested. Do not create CI polling loops/timers or rerun CI to refresh. Existing release workflow controls CI recovery. Report intended environment, PR/merge SHA, deployment ID/status, observed health SHA and outstanding checks; only claim deployed when matching SUCCESS and health OK exist.

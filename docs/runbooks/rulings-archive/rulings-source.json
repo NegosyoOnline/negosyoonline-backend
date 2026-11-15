@@ -1,0 +1,522 @@
+{
+  "task_id": "z8uq9med6x",
+  "pagination_exhausted": true,
+  "comments": [
+    {
+      "id": "1100430000523941",
+      "comment_text": "Ruling 2026-11-14: Santé members order only through the Santé Mobile App; the member dashboard is for training, media, promos, announcements and live trainings\n\nSaid by Coach Ed in the Manager session, 2026-11-14 (Manila), reviewing the meyqh local preview.\n\nHis words: \"this dashboard is intended for trainings, media library in promoting the products, special promo by the sante subscribers, announcements, and live trainings. the only order here is the membership pack it purchase. can you review again the ruling i made if they can purchase members price here? if I ruled yes, removed it. all orders, personal or dropship will be made thru Sante mobile app.\"\n\nManager's check: he had ruled yes. Task z8uq9meyqm (his spec) kept the web shop open to a signed-in member at member price, shipping to their own saved address. This ruling removes that.\n\nWhat it means:\nA signed-in Santé member cannot place a product order on the website, at member price or any price. Personal and dropship orders both go through the Santé Mobile App. Member-price checkout on the web is removed, and z8uq9meyqm is redirected to \"block member web checkout and point to the Santé Mobile App\".\nThe only purchase a member makes on the site is the Membership Pack.\nManager's reading, labelled as its own: the guest/non-member SRP storefront flow stays as separately approved. He may correct this.\n\nMember dashboard, his layout (images 7 to 13 in the Manager session):\nMenu: Dashboard, Training, Media Library, Affiliate Hub, Orders, a notification bell, then profile picture and name. The name opens a dropdown like TWCinc's: My Purchases (the Membership Pack purchase details), Account Settings, Help Center, Theme, Logout. \"My Orders\" and the separate Account, name and Logout items are removed.\nTraining: copy TWCinc University (courses, modules, lessons, progress, next live bootcamp), adapted to NegosyoOnline (ruling 1100430000520345).\nMedia Library: copy TWCinc's, with no Source filter (Santé only) and Santé's product categories.\nWider content: less left and right padding, like the TWCinc dashboard.\nHe asked whether members can have an affiliate link, with purchases through it shown in their Orders menu. SANTE answers that from the code first.\n\nSupersedes: z8uq9meyqm's \"own address + member price\" rule; z8uq9meyqh's \"exactly three cards\" Training and its menu; the \"no LMS/progress tracking\" line of meyqh's out-of-scope.\n\nA record only. It approves no migration, production or spending action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794631585672",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000523147",
+      "comment_text": "Ruling 2026-11-14: a local visual-test packet says exactly how Coach Ed gets the sign-in code (OTP) himself\n\nSaid by Coach Ed in the Manager session, 2026-11-14 (Manila), while signing in to the CAT-1 Products local preview. The packet only said to ask the manager for the code.\n\nHis words: \"in visual local test, next time, can you also include in the instruction how I can get the OTPs?\"\n\nWhat it means:\nEvery local packet's sign-in block gives him a way to get the code himself, without asking anyone. Use one of these, whichever the preview supports:\n(a) a single copy-paste Terminal command, in its own code block, that prints the latest code from the preview's log. Example: grep \"sign-in code is\" <absolute log path> | tail -1\n(b) a local mail catcher page (a localhost link) where the code email is shown.\nThe block also says the code works once, expires in 10 minutes, and can be resent after the countdown. \"Ask the manager\" may stay as a fallback only.\nCodes on local previews are test data only; never put a real member's code in a packet.\n\nAffects: supervisor brief section 8 (packet login block); manager brief section 3 (review packets). The manager writes it into the briefs under 1100430000523044 in the next docs branch.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794614972751",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000523044",
+      "comment_text": "Ruling 2026-11-14: the manager writes changes to CLAUDE.md, the briefs and the commands itself; the HQ Supervisor reviews them\n\nSaid by Coach Ed in the Manager session, 2026-11-14 (Manila).\n\nContext: the HQ Supervisor would not start the change for ruling 523022 (local visual test) on the manager's relay under 1100430000520085. Its session guard refuses any edit to CLAUDE.md, .claude/briefs/* or .claude/commands/* that comes from another session's message, a relay included. Coach Ed first asked: \"can you type it? our ruling is i will only talk to you. its your subordinate, why I will communicate to it?\" The manager recommended this ruling: the manager writes these instruction-file changes itself on a branch, the HQ Supervisor reviews the branch, and it goes through the release train.\n\nHis words: \"yes\"\n\nWhat it means:\nFor a change to CLAUDE.md, .claude/briefs/* or .claude/commands/* that a ruling of his calls for, the manager writes it itself on a docs branch cut from main, in its own worktree, docs only. The HQ Supervisor reviews the branch against the ruling and reports back; the branch goes into the next backend release round. The manager writes no code and opens no PR; the Release Builder opens the round's PR as usual.\nCoach Ed is never asked to type an OK in a Supervisor's session.\n\nSupersedes: in 1100430000520085, \"the manager never edits CLAUDE.md itself\", and its route of a Supervisor starting the change on the relayed OK. The rest of 520085 stands. Narrows, for instruction files only, the manager brief line that the manager edits no branch.\n\nFirst case: ruling 1100430000523022 (local visual test), branch docs/z8uq9med6x-local-visual-test, backend round 14.\n\nAffects: manager brief (sections 0 and 6), supervisor brief (approvals), CLAUDE.md working rules. Goes into the briefs with the 523022 branch.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794612666523",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000523022",
+      "comment_text": "Ruling 2026-11-14: Coach Ed's visual tests are done locally, before the release PR, not on staging\n\nSaid by Coach Ed in the Manager session, 2026-11-14 (Manila), after he reviewed the dash Products Inventory layout on staging and asked for changes.\n\nHis words: \"next time, i will do the visual test in local so that it will not cost us github actions. this is a ruling. on all supervisor, there will be a local visual test for me. put it in claude.md or in the briefs\"\n\nWhat it means:\nEvery Supervisor gives Coach Ed his visual test on a local preview (servers run on his Mac, links on localhost), not on staging. It happens before the branch is reported ready for the release train, so his changes are fixed on the branch without another release PR and its GitHub Actions run.\nThe packet keeps the page-by-page form (1100430000508727): for each page, the full local link first, then exactly what to test. Local previews use local test data only, never real member data from staging.\nThe manager's reading, labelled as its own: a branch with something for him to look at is reported ready only after his OK on the local test, given in the Manager session and relayed quoted and dated. The Supervisor's own local visual test in his Chrome stays, as a check before his. A staging look after merge is needed only where the local preview cannot show it (real domains, third-party callbacks, phone on the real host), and the Supervisor says why.\n\nSupersedes: the lines in the manager and supervisor briefs that keep the visual test on staging as Coach Ed's after the merge (manager brief section 4, \"The staging visual test, after the merge, stays Coach Ed's\"; section 7 \"Closing\").\n\nAffects: manager brief sections 3, 4 and 7; supervisor brief (review packet, ready-branch report); CLAUDE.md working rules (ClickUp statuses line). Not yet in the briefs; goes in with the next briefs branch (HQ).\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794611999348",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000520345",
+      "comment_text": "RULING, Coach Ed, 2026-11-14, Manager session: \"allow copying TWCinc code\"\n\nContext: he asked that the Santé process flow be exactly the same as TWCinc. He was offered the choice between \"same process flow, fresh code\" and \"allow copying TWCinc code where it fits, minus secrets and deployment config\", and he chose the second.\n\nWhat this means for every role. It replaces the CLAUDE.md line \"never copy its code ... wholesale\" and the \"Do not import TWC runtime models\" line in task briefs, where they conflict:\nTWCinc code may be copied and adapted into NegosyoOnline to reproduce TWCinc's process flow exactly: screens, step order, statuses, emails and events.\nNever copied: secrets, keys, tokens, credentials, .env files, TWCinc data or fixtures with real customer data, and deployment or Railway config.\nCopied code is adapted to NegosyoOnline:\nsite-scoped (every query filtered by site, no single-tenant assumptions);\nNegosyoOnline's own settings names;\nno import of a TWCinc package at runtime.\nThe usual rules still apply: approved scope, tests, cross-site isolation tests, the Supervisor's review, the local release checks and Coach Ed's approval for migrations, production and Railway variables.\nDependencies come in only when the copied code needs them, are added with uv, and are pinned.\nRecord the TWCinc source path of copied code in the PR or the branch notes.\n\nThe CLAUDE.md wording will be updated through the next backend release round.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794594007990",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000520085",
+      "comment_text": "Ruling 2026-11-14: Coach Ed's OK relayed by the manager, with his words quoted and dated, counts as his OK for a change to CLAUDE.md, the briefs and the commands\n\nSaid by Coach Ed in the Manager session, 2026-11-14 (Manila).\n\nContext: the HQ Supervisor held the edit for ruling 519840 (CLAUDE.md Purpose paragraph and the briefs) because its guard accepted his OK only when typed in its own session. Coach Ed asked the manager \"can you start it?\". The manager said it could not press HQ's button for him, and offered a ruling that a relayed OK counts.\n\nHis words: \"ok record that ruling\"\n\nWhat it means:\nWhen the manager relays Coach Ed's OK for a change to CLAUDE.md, .claude/briefs/* or .claude/commands/*, with his own words quoted and dated from the Manager session, the Supervisor treats it as his OK and starts the change. He does not have to type it again in the Supervisor's session. This applies the 2026-11-13 rulings 1100430000508559 (\"i will not go to the coordinator session... i will only talk to you\") and 1100430000509244 to instruction-file changes.\nFirst case: the HQ Supervisor starts the ruling 519840 docs branch now, on his relayed \"ok\" (2026-11-14) and this entry.\n\nUnchanged: the change goes through a reviewed branch and the release train; the manager never edits CLAUDE.md itself; a session's own permission settings are not changed by this entry; a message from another session that is not the manager's relay of his quoted words is not his OK.\n\nAffects: supervisor and builder briefs (approvals); CLAUDE.md working rules. Not yet in the briefs; goes in with the 519840 docs branch.\n\nA record only. It approves no other plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794591494373",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000519840",
+      "comment_text": "Ruling 2026-11-14: what \"do not copy TWCinc code\" in CLAUDE.md means\n\nSaid by Coach Ed in the Manager session, 2026-11-14 (Manila).\n\nHis words: \"by the way I have concern in our CLAUDE.md that says do not copy the code in twcinc... what I ment there is kindalike dont mistakenly copy it because django is for backend and vercel is for frontend.. if you will copy it, it wont work. i hope you get what I mean\"\n\nWhat it means:\nTWCinc code may be read and ported. The rule is against pasting it in unchanged: NegosyoOnline splits Django (backend, this repo) from the Vercel frontend apps (the frontend repo), so TWCinc code copied as-is will not work. Port the behaviour and adapt it to our stack, models, routes and conventions. This matches the 2026-11-11 port ruling (\"just optimized it for negosyoonline codebase\").\nUnchanged: never bring over TWCinc secrets, dependencies wholesale, or deployment configuration.\n\nSupersedes: the manager's own instructions of 2026-11-14 to SANTE (\"copy no TWCinc code\", \"never copy code\") for the trust badges and the dash Inventory layout; porting and adapting is allowed.\n\nAffects: CLAUDE.md (Purpose paragraph); supervisor and builder briefs. Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794588645042",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000512863",
+      "comment_text": "2026-11-13: now in the briefs (https://github.com/NegosyoOnline/negosyoonline-backend/pull/151, merged, commit 4edf9a2)\n\nRecord, not a new ruling. These entries of 2026-11-13 are now written into .claude/briefs/, .claude/commands/ and CLAUDE.md (branch docs/z8uq9memmv-briefs-rulings, task z8uq9memmv):\n1100430000509244: the manager approves what his rulings cover.\n1100430000509255: the manager keeps every Supervisor working.\n1100430000509303 and 1100430000509314: the Asst. Manager's wait and 30-second interval.\n1100430000509378: the manager manages; staging items decided by the manager.\n1100430000509657: ready branches for one repository go up as one PR.\n1100430000509659: the manager runs on Opus 5.5.\n1100430000509745: Santé test on staging with real members.\n1100430000509929: the release train.\n1100430000509948: release builders run every CI check locally first.\n1100430000509990 and 1100430000510008: one staff account, admin@negosyoonline.com.\n1100430000512065: manager merges release PRs on refused merge, staging switches, routine owner decisions.\n\nThe manager checked the merge with gh, pulled main and grepped the merged briefs for each comment id (all found); it did not re-read the merged text line by line (the HQ Supervisor reviewed the branch against these entries).\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794546048179",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000512065",
+      "comment_text": "Ruling (Coach Ed, Manager session, 2026-11-13), recorded by the manager.\n\nHis words: \"1. You have now my permissions to do merge. I allow this 2. Yes. Next time like this, you can do it 3 to 9. Yes to all\" and \"Why you didnt rule on this? Kindalike you can just rule on it\".\n\nStanding approvals, as recorded by the manager:\nRelease PRs. The manager squash-merges a release PR once every CI check is green (keeping the branch), when a Release Builder's merge is refused. Production is never covered.\nStaging feature switches. Where a ruling already approves turning a feature switch on for staging, the manager turns it on itself. First case: PACK_SHIPPING_ENABLED=1 on staging api, under 509378. Production is never covered.\nRoutine owner decisions. The manager rules on decisions that come with a recommendation, inside approved scope, and reports afterwards instead of asking first. Still asked: anything that changes payments, accounting, privacy, legal terms, credentials, production, or a design he has not seen.\n\nOne-off approvals given at the same time (items 3 to 9 of the morning batch):\nMEM-R screens: approved as shown.\nSite gold text: #8A6513 on light backgrounds.\nStorefront: the 6 contrast changes, with stars #896F28.\nThe shell-written a2 store-audit work: discarded.\nGATES ops packet: worker stop for the alert proof, restore test, and export dry run with his test sign-up. UptimeRobot and Sentry accounts on his login.\nRetention on staging: dry run first, then RETENTION_ENABLED and DOB_ERASE_ENABLED on.\nHe sets BILLING_TRANSFER_ACCOUNTS and the private Blob token on the staging worker himself.\nProvider facts: he supplies them.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794540501164",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000510008",
+      "comment_text": "Correction 2026-11-13 to comment 1100430000509990 (one staff account): the address\n\nSaid by Coach Ed in the Manager session, 2026-11-13, right after that entry. His words: \"its admin@negosyoonline.com\"\n\nThe one staff (HQ) account for the next few months is admin@negosyoonline.com. This replaces the spelling recorded in 1100430000509990; the rest of that entry stands.\n\nA record only. It approves no gated action and gives no session his sign-in codes.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794532468245",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000509990",
+      "comment_text": "Ruling 2026-11-13: for the next few months there is one staff account only, Coach Ed's admin account; staff users need no HQ page\n\nSaid by Coach Ed in the Manager session, 2026-11-13, after the HQ Supervisor found that removing the Django admin (Plan 11 PR 3, z8uq9mek62) leaves no HQ page to add or deactivate staff users (gap G1).\n\nHis words: \"Regarding this staff users, I want to rule on this because in our launching or maybe in the next few months, there will only be one staff, which is me. Okay, so the user for that is the admin at negotioonline.com if you want to ask about the login. Okay, so I want you to rule on this one because it's been asking a lot about this. So you need to take note that in the next few months, there's only one staff account, which is the admin@negotioonline.com.\"\n\nWhat it means:\nAt launch and for the next few months there is exactly one staff (HQ) account, Coach Ed's, the \"admin\" address he named (spoken as admin@negotioonline.com; the manager reads it as the admin address on the NegosyoOnline domain, spelling as he confirms it). No second staff user is planned.\nSo G1 is settled: no HQ \"Staff users\" page and no staff add/deactivate feature is built now. Removing the Django admin goes ahead; creating or locking a staff account, if ever needed, is done by the existing commands (createsuperuser, then admin_identity add / admin_identity disable), with a runbook line in PR 3.\nSupervisors do not ask again about staff-user management, multiple staff roles or staff invitations; such work is after launch unless he rules otherwise. When a session needs the HQ sign-in, it is this one account, and the sign-in code goes to Coach Ed.\n\nAffects: HQ Supervisor (Plan 11 PR 3); supervisor brief (staff accounts); any task assuming several staff users. Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build or gated action, and gives no session his password or sign-in codes.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794532378001",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000509948",
+      "comment_text": "Ruling 2026-11-13: the release builders run every CI check locally first, so a release PR is never opened to fail\n\nSaid by Coach Ed in the Manager session, 2026-11-13, right after ruling 1100430000509929 (the release train).\n\nHis words: \"So you need to take note also that in our release builder front end and back end, it must conduct a test in our local so that we are sure that when it create or open a PR, there will be no bad or disapproval of of the PR. Okay, that is very important, and we need to put it in record or in our brief or in our handovers or in our memory in order for us to continue this one, because I don't want to repeat myself in the next manager or in the next supervisors, right? So it must be engraved in their instructions. So because this will be our new workflow.\"\n\nWhat it means:\nBefore a release branch is pushed or a release PR is opened, the Release Builder (backend and frontend) runs locally every check the repository's CI runs, on the combined release branch, and all must pass. No push, no PR, until they do.\nBackend: the full suite on SQLite; the full suite on a throwaway local PostgreSQL with a local Redis (localhost only); manage.py check; makemigrations --check; every migration applied on a fresh PostgreSQL; and any other job in the CI workflow.\nFrontend: for every app the CI matrix runs (site, dash, storefronts, hq): install with the frozen lockfile, lint, tests, build, with the CI's Node and pnpm versions.\nThe release PR body lists the checks run and their results. The manager says \"go: create the PR now\" only after reading that all of them passed.\nA failure found locally drops the offending branch from the round (back to its Supervisor); it is never fixed inside the release branch. A CI failure after a green local run is investigated before any re-run.\nSupervisors still send only branches whose own local suite is green.\n\nThis is the standing release workflow. It must be carried into: the manager brief (sections 4 and 7), the supervisor and builder briefs (ready-branch reports instead of PRs), the handover-manager and handover-supervisor commands, and each Release Builder's standing instruction. Extends 1100430000509929.\n\nAffects: manager, supervisor and builder briefs; handover commands; Release Builder instructions. Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794531847495",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000509929",
+      "comment_text": "Ruling 2026-11-13: the manager runs a release train, one release builder session per repository, one combined PR per round\n\nSaid by Coach Ed in the Manager session, 2026-11-13.\n\nHis words, proposing it: \"what I'm proposing right now is we will be creating a branch for managers, of course it's local, then they will merge it in our branch, then maybe we will be creating a builder for manager where it will consolidate all the updates from the supervisors, so that we will only be dealing with one PR every time there will be a request from our supervisors to open on PR.\"\n\nHis words, after the manager laid out the plan and asked for the ruling (the manager may run one release builder that only combines reviewed branches, owns the release branch per repository, and merges release PRs on green; production excluded): \"Yes, I approve this proposal. I think we need two builders or session in order for it to merge the back end and of course for the front end. So I think we need two session for this one.\"\n\nWhat it means:\nTwo standing release sessions under the manager: \"Release Builder backend\" and \"Release Builder frontend\" (Sonnet 5.5, medium). They write no feature code. Each round they cut a fresh release branch from main, merge each Supervisor's ready branch as its own merge commit, settle only trivial conflicts (lockfile re-lock, docs keep both sides) and send any feature-logic conflict back to the owning Supervisor, run the full local checks (backend: SQLite, PostgreSQL, Redis, makemigrations --check, migrate on a fresh PostgreSQL; frontend: tests, lint, build), then push and open one PR listing each branch, task and Supervisor.\nSupervisors no longer open PRs or combine branches themselves: they report a ready branch (head SHA, local suite green, reviewed, local visual test passed where there is something to look at, ClickUp task) to the manager, who puts it in the next round.\nA CI failure drops the offending branch from the round; it is never fixed inside the release PR. The manager merges a release PR when CI is green at its head and checks staging health; each Supervisor checks its own part on staging and keeps its ClickUp statuses. Staging visual tests stay Coach Ed's.\nRounds: when two or more branches are ready or one has waited half a day; at most two a day per repository; an approved hotfix goes alone, first.\n\nSupersedes, for these two release sessions only: comment 1100430000508496 (the manager starts no builder) and the manager brief line that the manager edits no branch. Extends 1100430000509657 (batching) from one Supervisor's branches to all Supervisors'. Merge on green for release PRs is added to the manager; the Supervisors' three standing approvals are unchanged except that they no longer open PRs. Production is never covered.\n\nAffects: manager brief sections 4, 6, 7; supervisor and builder briefs (PR creation); clickup-supervisor and clickup-builder commands. Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build, migration, variable, deploy or production action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794531632268",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000509745",
+      "comment_text": "Ruling 2026-11-13: the Santé membership-pack test runs on staging with real members; staging is treated as live from the first real member\n\nSaid by Coach Ed in the Manager session, 2026-11-13, after the manager recommended building production before the Santé Facebook ads.\n\nHis words: \"It's in Sante, not Sunday ads. Okay, Sante will conduct the testing, the one that we built. The membership pack... if someone buys the membership pack, then it is a real payment, real person, real member who will be subscribing.\" Then: \"I'm suggesting that if it will cost us money, to build the production, I'm suggesting that we will be running the test in the staging then once the production is up during our launching, maybe we will just inform the closed members to log in our production site. Is that a good plan?\"\n\nWhat it means:\nProduction is still deferred (his earlier ruling stands). The Santé ads test runs on Railway staging with real buyers and real payments.\n\nThe manager's conditions, labelled as its own (reversible, protective; he may correct them):\nFrom the first real member, staging holds live data: no database wipe or reset, no test seed or test order on the Santé site, no switch turned off that members rely on, test accounts clearly named as tests. Supervisors test new work locally first; on staging only with test accounts.\nPublished Terms and Privacy apply to staging data as if it were production; no real member data is copied out of staging.\nAt production launch the staging database is moved once into production, so members keep their accounts and payments and only need to sign in at the new address. That move is a production action and needs his word then.\nReal members sign in by email code; the Google client is still in Testing (three test users).\n\nAffects: supervisor brief (staging use), manager brief section 6. Not yet in the briefs.\n\nA record only. It approves no migration, seed, variable, deploy or production action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794529909652",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000509659",
+      "comment_text": "Ruling 2026-11-13: the manager runs on Opus 5.5\n\nSaid by Coach Ed in the Manager session, 2026-11-13.\n\nHis words: \"And also, I'm switching you to Opus 5.5 so that we will be able to save tokens currently we already have consumed 45% of our allowance, so my fear is we will not be able to survive until Monday. So let's try using Opus. I think Opus can do all your work\"\n\nWhat it means:\nManager: Opus 5.5 (claude-opus-5-5), replacing Fable 5.2. The next manager after a handover runs on Opus 5.5. Supervisors stay on Opus 5.5; builders stay on Sonnet 5.5, effort medium.\n\nSupersedes: the manager line of comment 1100430000508334 and manager brief section 7 (Models) and section 8 (\"The next manager runs on Fable 5.2\").\n\nAffects: manager brief sections 7 and 8; commands/handover-manager.md. Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794529096401",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000509657",
+      "comment_text": "Ruling 2026-11-13: ready branches for the same repository go up as one PR\n\nSaid by Coach Ed in the Manager session, 2026-11-13, showing the NegosyoOnline Actions budget at $4.05 of $10.00.\n\nHis words: \"by the way after you manages, our github actions up from 2usd to 4usd. can you make a plan also that we will be able to save money this! we still not in launch and we are already paying a log on our services. I suggest on this that if there are two or more queue for the PR, tell the supervisor to the merge in one so that the PR itself is only one action.\"\n\nWhat it means:\nWhen a Supervisor has two or more branches ready for the same repository, it combines them into one integration branch and opens one PR, instead of one PR per branch. The queue counts batches, not branches. A ready batch is never held for an unready branch. Local checks must be green before any push to a PR.\n\nThe manager's reading, labelled as its own: a backend PR costs about 20 to 25 CI minutes (the PR run plus the run on main after merge), a frontend PR about 2 to 3, so batching backend branches saves the most. Each branch in a batch still needs its own plan check and, where there is something to look at, the Supervisor's local visual test.\n\nUnchanged: one open PR per repository; merge on green at the reviewed head; standing approvals.\n\nAffects: manager brief section 4; supervisor and builder briefs (PR creation). Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794529076010",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000509378",
+      "comment_text": "Ruling 2026-11-13: the manager manages; it does not bring Coach Ed staging decisions or technical problems\n\nSaid by Coach Ed in the Manager session, 2026-11-13, after the manager listed five items \"waiting on your word\" (a builder session for BILLING's frontend worktree, the Santé seed on staging, the bank account variable on staging, the home page positioning G1b, his look at the Privacy and Terms pages on staging).\n\nHis words: \"You are the manager, dont let me micro manage... if they are having technical problem help them. I dont get it why you need my word\"\n\nWhat it means:\nWhen a Supervisor has a technical problem, the manager solves it or helps solve it, and does not bring it to Coach Ed.\nThe manager decides the items of that kind itself and reports afterwards, instead of asking for his word.\n\nThe manager's reading, labelled as its own (he may correct it):\nCovered: starting a session to unblock a Supervisor (the builder is still instructed only by its Supervisor, comment 1100430000508496); staging-only, reversible actions that an approved plan or runbook already specifies (seed with dry run first, a staging variable, a staging switch); approving wording or positioning that only removes a claim his rulings make false; checking a staging page itself so a task is not held for his look. Each is reported to him after it is done.\nNot covered, still his: anything in production; spending; credentials and secrets; a new customer promise, price, plan or legal position; a change to an approved mockup; scope beyond the Santé Site Type.\n\nExtends comments 1100430000508559, 508600 and 509244. Supersedes, for staging, the lines in the manager brief section 6 and CLAUDE.md that make seed data, Railway variables and switches in a shared environment his each time.\n\nAffects: manager brief sections 3, 6 and 7; supervisor brief section 10; CLAUDE.md working rules; docs/runbooks/catalog-seed.md (\"needs Coach Ed's explicit word each time\"). Not yet in the briefs; goes in with the next briefs PR.\n\nA record only.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794525264629",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000509314",
+      "comment_text": "Ruling 2026-11-13: the Asst. Manager's send interval in the manager's handover is 30 seconds\n\nSaid by Coach Ed in the Manager session, 2026-11-13, a few minutes after comment 1100430000509303.\n\nHis words: \"let's update the interval.. make it 30secs not 10 sec\"\n\nWhat it means:\nIn the manager's automated handover the Asst. Manager sends the resume prompt once every 30 seconds, not every 10. His ruling of the same day stands for the first send: it waits 1 minute after \"HANDOVER PROMPT\" before sending at all (comment 1100430000509303).\nThis replaces the manager's own reading in 509303 that later sends are 1 minute apart: his word is 30 seconds.\n\nSeen today: about ten copies sent 10 seconds apart sat in the manager's queue and every self-clear was refused.\n\nSupersedes: the 10-second interval in comment 1100430000508710, manager brief section 8 and commands/handover-manager.md.\n\nAffects: manager brief section 8; commands/handover-manager.md; the Asst. Manager's standing instruction (told 2026-11-13). Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794524426368",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000509303",
+      "comment_text": "Ruling 2026-11-13: in the manager's handover the Asst. Manager waits 1 minute, not 10 seconds\n\nSaid by Coach Ed in the Manager session, 2026-11-13, after the manager's self-clear was refused several times because the Asst. Manager's resume prompt and Supervisor messages kept arriving in its queue.\n\nHis words: \"tell asst manager to message you after 1 minute, you still have others to reply.\n\nthis is a new ruling for the handover ok? so that you wont be able to receive message every 10 sec from your asst manager\"\n\nWhat it means:\nAfter it receives \"HANDOVER PROMPT\", the Asst. Manager waits 1 minute before its first send, so the manager can finish its replies to Supervisors and clear itself with an empty queue.\nThe manager's reading, labelled as its own: later sends are also 1 minute apart (still 60 sends at most), since a prompt every 10 seconds is what blocked the clear.\n\nSeen today, to avoid: the manager must not answer \"I'm IN\" from the old conversation; a clear is refused while any message is queued, including a Supervisor's; a Supervisor at its context limit should be handed over before the manager starts its own handover.\n\nSupersedes: the 10-second interval in comment 1100430000508710, manager brief section 8 and commands/handover-manager.md. The rest of 508710 stands.\n\nAffects: manager brief section 8; commands/handover-manager.md; the Asst. Manager's standing instruction (told 2026-11-13). Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794524279103",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000509255",
+      "comment_text": "Ruling 2026-11-13: the manager makes sure every Supervisor is working\n\nSaid by Coach Ed in the Manager session, 2026-11-13, after he found the HQ and GATES Supervisors idle, each waiting on an answer from him. He called it a marching order and said to save it in the memory.\n\nHis words:\n\"make sure all supervisors are working. you have access to all the task under them.. if there are task needed to be build, then make sure all of them are worked on.\n\nI will be checking also the task in clickup if all are already done, once there are task not yet done, its your job to tell these supervisor to work on it. time to time, visit these supervisors if they are working. if not working, check their task list in the clickup, and tell them what they need to work.\"\n\nWhat it means:\nThe manager checks each Supervisor from time to time. When one is not working, the manager reads that Supervisor's ClickUp list for tasks not done and tells it which to work on next. Waiting on Coach Ed for one item is no reason for a Supervisor to idle: it plans or builds its next task meanwhile.\nEvery task of the four lists that needs building is to be worked on. Coach Ed checks ClickUp himself for tasks not done.\n\nUnchanged: the manager starts and instructs no builder (comment 1100430000508496); it reads ClickUp and writes only on this log; one open PR per repository; what his rulings cover the manager approves, what they do not it tells him (comments 1100430000508559, 1100430000509244); gated actions in a shared environment and production still need his word.\n\nAffects: manager brief sections 1, 3 and 7; the handover-manager command (the state file carries this order with the marching instruction). Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794523566603",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000509244",
+      "comment_text": "Ruling 2026-11-13: the manager decides an approval his rulings cover, and tells him only what they do not cover\n\nSaid by Coach Ed in the Manager session, 2026-11-13, when the manager asked him to approve the GATES public-wording draft (G1).\n\nHis words: \"this approval, you already know all my rulling. can you just make a decision for this? if not part, tell.. if not, just approve it\"\n\nWhat it means:\nWhen a Supervisor's plan, packet or wording is settled by rulings of his that the manager can quote, the manager approves it itself, names the rulings it rests on, relays the decision to the Supervisor with these words quoted and dated, and reports to him afterwards. It does not put the approval question to him.\nWhat his rulings do not cover, the manager tells him, as the marching instruction (comment 1100430000508516) sets out.\nThis restates and extends comment 1100430000508559 (\"if its under my ruling, you can just approve and communicate with the coordinators\") to plan and wording approvals.\n\nThe manager's reading, labelled as its own: the gated actions in a shared environment (seed data, Railway variables, switches, credentials, deploys, any migration outside the standing approval, anything in production), brand and positioning, a change to how sessions work, and his own look at a page on staging are not made \"covered\" by this entry; each still needs his word unless a ruling of his names it.\n\nAffects: manager brief section 3 (\"Where he gives his word\") and section 6. Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. This entry approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794523459832",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508995",
+      "comment_text": "2026-11-13: now in the briefs (https://github.com/NegosyoOnline/negosyoonline-backend/pull/140, merged, commit 2e8a173)\n\nRecord, not a new ruling. These three entries of 2026-11-13 are now written into .claude/briefs/* and .claude/commands/*:\n1100430000508710: the manager's automated self-handover.\n1100430000508711: four Supervisors, one per list of \"1 MVP Launch\".\n1100430000508727: a visual test request gives the link, then exactly what to test on that page.\n\nThe manager checked the merge with gh and pulled main; it did not re-read the merged text line by line (the HQ Supervisor for z8uq9mbreu reviewed it against the three entries).\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794520523137",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508727",
+      "comment_text": "Ruling 2026-11-13: a visual test request gives the link, then exactly what to test on that page\n\nSaid by Coach Ed in the Manager session, 2026-11-13.\n\nHis words: \"record this ruling. if you want something for me to do a visual test. make it easy for me: * send the link * then detailed what are the things i need to test on that page\"\n\nWhat it means:\nEvery visual test put in front of Coach Ed (a review packet from a Supervisor, relayed by the manager) is written page by page. For each page: the full clickable link first, then the detailed list of what he tests on that page (what to click or fill in, and what he should see). No page is described without its link, and no link is given without its checks.\nUnchanged: a packet that needs sign-in still opens with the sign-in email, how to get the code, and any 2FA step. The manager checks that the links open before showing him the packet.\n\nThe manager's reading, labelled as its own: the manager may re-lay a Supervisor's packet into this form without changing its content; Supervisors write new packets in this form from now on.\n\nAffects: manager brief section 3 (review packets); supervisor brief (the review packet for the staging visual test). Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794517399384",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508711",
+      "comment_text": "Ruling 2026-11-13: four Supervisors, one per list of the \"1 MVP Launch\" folder\n\nSaid by Coach Ed in the Manager session, 2026-11-13.\n\nHis words: \"Keep the HQ Supervisor... Now that we already tested the whole workflow we can now create the 4 Supervisors: 1. HQ - Privacy, NPC, SMS, and HQ (exist) 2. SANTE - Sante Storefront and membership (exist) 3. BILLING - Billing 4. GATES - Launch Gates\"\n\nWhat it means:\nThere are four standing Supervisors, each owning one ClickUp list of the folder \"1 MVP Launch\":\nHQ: list \"3 Privacy, NPC, SMS and HQ\". The existing session \"[HQ] Supervisor z8uq9mbreu\" is kept, not archived.\nSANTE: list \"1 Santé Storefront and Membership\". The existing session \"[Sante] Supervisor z8uq9m92fv\".\nBILLING: list \"2 Billing\". New session.\nGATES: list \"4 Launch Gates\". New session.\n\nThe manager's decisions, labelled as its own (not his words): the BILLING Supervisor's main task is z8uq9m8h46 (Billing & E-Invoicing MVP Delivery, the parent of the Billing tasks). The Launch Gates list has no parent task, so the GATES Supervisor's main task is z8uq9m7ydn (Go/no-go release audit and public claims), with the whole list of seven tasks as its scope. Each new Supervisor reports its reading and proposed order to the manager before it starts any builder.\n\nUnchanged: one open PR per repository through the manager's queue; a Supervisor starts and instructs its own builders; each plan and each gated action still needs Coach Ed's word unless a ruling of his covers it; the Financial Accounting System folder has no Supervisor yet.\n\nAffects: manager brief section 7 (assigning Supervisors). Not yet in the briefs.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794517193625",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508710",
+      "comment_text": "Ruling 2026-11-13: the manager's automated handover works and is now the manager's own handover procedure\n\nSaid by Coach Ed in the Manager session, 2026-11-13, after the third test run.\n\nHis words: \"record this that the automated handover-manager is working. it must now be implemented in the future self handover\"\n\nWhat was tested (third run, 2026-11-13): the manager wrote its state file, sent the Asst. Manager (session \"Asst. Manager\", Haiku 5.5) a message whose first line is \"HANDOVER PROMPT\" followed by the resume prompt, then cleared itself. The Asst. Manager waited 10 seconds and sent the resume prompt, repeating every 10 seconds. The cleared manager received it, replied \"I'm IN\", and resumed from the state file. The first \"I'm IN\" was only queued while the Asst. Manager was mid-turn; a second one was delivered and it stopped.\n\nWhat it means:\nAt its context warning the manager hands itself over without Coach Ed pasting anything: (1) run /handover-manager to write the state file; (2) SendMessage the Asst. Manager \"HANDOVER PROMPT\" plus the resume prompt, which tells the next manager to reply \"I'm IN\" to the Asst. Manager before any other tool call; (3) clear_session \"self\" and end the turn at once, with no message queued. The Asst. Manager sends the prompt every 10 seconds until it gets \"I'm IN\" (it stops after 60 sends). The resumed manager sends \"I'm IN\" first and repeats it once if another copy of the prompt arrives.\nTwo failures seen in the earlier runs, to avoid: a clear is refused while a message is queued in the manager's session, and a clear issued before the turn ends is dropped if a new message arrives.\n\nSupersedes: manager brief section 8 \"Your own handover\" (\"give Coach Ed the resume prompt to paste after /clear\") and the last line of the handover-manager command (\"Say plainly: /clear, then paste this\"). Seed Ruling 7 where it says the manager gives Coach Ed a resume prompt. The paste by Coach Ed remains the fallback when the Asst. Manager is not running or a clear is refused.\n\nAffects: manager brief section 8; commands/handover-manager.md; CLAUDE.md is unchanged. Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794517192260",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508659",
+      "comment_text": "2026-11-13: now in the briefs (https://github.com/NegosyoOnline/negosyoonline-backend/pull/138, merged, commit 4da193b)\n\nRecord, not a new ruling. These six entries of 2026-11-13 are now written into .claude/briefs/*, .claude/commands/* and CLAUDE.md:\n1100430000508334: the model for each role.\n1100430000508496: the Supervisor alone starts and instructs its builders.\n1100430000508516: no builder message in the manager's session; the escalation chain; the marching instruction.\n1100430000508559: Coach Ed talks only to the manager; relayed word counts.\n1100430000508600: the manager runs an approved action itself.\n1100430000508608: the coordinator role is renamed Supervisor.\n\nFiles renamed in that PR: briefs/coordinator.md to supervisor.md; commands/clickup-coordinator.md to clickup-supervisor.md; commands/handover-coordinator.md to handover-supervisor.md. The manager checked the merge with gh and pulled main; it did not re-read the merged text line by line (the Supervisor for z8uq9mbreu reviewed it against the six entries).\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794516301101",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508608",
+      "comment_text": "Ruling 2026-11-13: the coordinator role is renamed Supervisor\n\nSaid by Coach Ed in the Manager session, 2026-11-13.\n\nHis words: \"by the way, before we start the other coordinator, i want to rename it as Supervisor instead of coordinator.. it is easy to understand and align in the corporate. can you update the terms now in our brief?\"\n\nWhat it means:\nThe role called \"coordinator\" is called \"Supervisor\" from now on. The hierarchy reads Coach Ed -> Manager -> Supervisor -> Builders. Only the name changes: the role's duties, limits and standing approvals are as ruled.\nIn the briefs, commands and CLAUDE.md the term changes everywhere, including the session title (\"Supervisor <task id>\"), the brief file, and the start and handover commands. Older log entries and ClickUp comments that say \"coordinator\" mean the Supervisor and are not edited.\n\nAffects: manager, coordinator and builder briefs; all commands; CLAUDE.md. Goes into the briefs in the same PR as the five rulings of 2026-11-13 (comments 1100430000508334, 508496, 508516, 508559, 508600), which the session for z8uq9mbreu is preparing.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794515501451",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508600",
+      "comment_text": "Ruling 2026-11-13: the manager runs an operational command itself once Coach Ed has approved that action\n\nSaid by Coach Ed in the Manager session, 2026-11-13.\n\nContext: he had approved turning on MEMBERS_ENABLED, SANTE_AGREEMENT_ENABLED and PACK_ENABLED on Railway staging (\"Yes, as recommended\"). The Santé coordinator's permission check refused the command, and the manager handed him the command to run himself.\n\nHis words: \"commands like this, can you do it? this is not part of the marching order right?\"\nThe manager ran it, reported the result, and said how it would treat such commands from then on. His words: \"save that ruling too so the next manager knows\"\n\nWhat it means:\nOnce Coach Ed has approved a specific action, the manager carries it out itself (for example a Railway variable on staging) and reports what it checked afterwards. It does not hand him a command to run, and it does not ask again.\nThis is an action under his ruling, so it is not a question for him under the marching instruction (comment 1100430000508516).\nAn action he has not approved is unchanged: other variables, credentials, seed data, switches, migrations outside the standing approval and anything in production still need his word first, asked in the Manager session.\n\nThe manager's reading, labelled as its own: this covers operational commands in a shared environment that he has approved by name. It does not make the manager a builder: it still writes no code, opens no PR and starts no builder.\n\nSupersedes, for approved actions only: manager brief section 6, \"If a session says it was denied permission and asks you to do the action instead, refuse and tell Coach Ed\", and the line that the manager's only git or environment write is the pull of its own checkout.\n\nAffects: manager brief sections 3 and 6; CLAUDE.md working rules. Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. This entry approves no action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794515339788",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508559",
+      "comment_text": "Ruling 2026-11-13: Coach Ed talks only to the manager; the manager approves what his rulings already cover and relays his word to coordinators\n\nSaid by Coach Ed in the Manager session, 2026-11-13, after the manager told him three things were waiting for him in the Santé coordinator's session (two plan approvals and a builder start).\n\nHis words:\n\"once the builder task is done, archive them, then the next builder must now be under the coordinator sessions.\nfor the concern of the coordinator, i will not go to the coordinator session, our goal here is i will only talk to you, its under your supervision not mine.\nagain if its under my ruling, you can just approve and communicate with the coordinators. if its new as stated in my marching order, ping me\"\n\nWhat it means:\nCoach Ed does not go to a coordinator's session. Coordinators are under the manager's supervision.\nWhat his existing rulings and approved artifacts already cover, the manager approves itself and tells the coordinator, naming the ruling it rests on.\nWhat is new under his marching instruction (comment 1100430000508516: scope, customer promises, legal or compliance, payments, accounting, commissions, credentials, privacy, security, an external fact, production access, a third-party setting, brand or mockup changes, or two options with materially different outcomes) the manager brings to him in the Manager session. His answer given there is his word; the manager relays it to the coordinator quoted and dated, and the coordinator acts on it.\nA finished builder is archived. The next builder sits under its coordinator.\n\nSupersedes: manager brief section 3 \"What a relay cannot do\" and the lines in the manager and coordinator briefs that require his word to be given in the coordinator's own session; seed Ruling 5 where it says no relay from a manager approves a gated action. The gated actions themselves are unchanged: each still needs his word unless a ruling of his already covers it; only the place he gives it has changed. Production is still never covered by a standing approval.\n\nThe manager's reading, labelled as its own: \"under my ruling\" means the action is already settled by words of his that the manager can quote. Where the manager cannot quote one, it asks him.\n\nAffects: manager brief sections 3, 6 and 7; coordinator brief (approvals, section 10); builder brief; CLAUDE.md working rules. Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. This entry itself approves no plan, build, migration, seed data, variable, switch, credential or production action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794514702283",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508516",
+      "comment_text": "Ruling 2026-11-13: no builder message in the manager's session; the escalation chain; Coach Ed's marching instruction to the manager\n\nSaid by Coach Ed in the Manager session, 2026-11-13.\n\nHis words:\n\"first, i dont want to see any builder message here in the manager's session. it must be dealt in the coordinator.\nthe coordinator will deal all the builders concerns because it must have more information, focus information on the task itself.\nif the coordinator cannot deal with the task, it will be escalated to you.\nif you cannot answer it, ask it to me.\nhere's my marching instruction to you, save this to your memory so all future managers especially when we do a handover command:\"\n\nThe marching instruction, verbatim:\n\nFrom now on, do not interrupt me with routine implementation or design questions that can be answered from the approved mockups, rulings, spec, plan, current codebase, or existing tests.\n\nMake the smallest safe decision yourself, document it, and continue when:\nthe answer is already in the codebase or approved task artifacts;\nit is a reversible implementation detail;\nit does not change customer promises, payment, accounting, access control, privacy, legal terms, external integrations, or approved visual design.\n\nAsk me only when:\nthe answer is not available from the codebase or approved artifacts;\nit changes business scope, customer-facing promises, legal/compliance position, payments, accounting, commissions, credentials, privacy, or security;\nit requires an external fact, owner decision, production access, third-party setting, brand approval, or approval to change an already approved mockup;\ntwo valid options have materially different customer, financial, or security outcomes.\n\nWhen you do ask, give one recommended answer, the concrete risk, and the exact decision needed. Batch related questions into one message.\n\nWhat it means:\nA builder's messages, questions and turn-end notes are handled by its coordinator and are not shown to Coach Ed in the manager's session. Chain: builder to coordinator; what the coordinator cannot settle to the manager; what the manager cannot settle to Coach Ed.\nThe marching instruction binds the manager and every future manager; the handover carries it.\n\"Batch related questions into one message\" replaces \"one decision at a time\" in the manager brief section 3 for related questions.\nUnchanged: the gated actions that are his each time (seed Ruling 5) still need his own word.\n\nBuilds on the ruling of the same day (comment 1100430000508496, the coordinator starts and instructs its builders).\n\nAffects: manager brief sections 3 and 7, the handover-manager command, coordinator and builder briefs. Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build or gated action.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794514252482",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508496",
+      "comment_text": "Ruling 2026-11-13: the coordinator starts and instructs its builders; the manager instructs only the coordinator\n\nSaid by Coach Ed in the Manager session, 2026-11-13, after the manager itself started three plan-only builders for the Santé coordinator and sent one of them an instruction directly.\n\nHis words: \"next time it must be built by the coordinator not you and all instructions from the builder must come from the coordinator not your.. You will just give instruction to the coordinator and the coordinator will be the one who will implement your instruction, like the creation of these 3 builders\"\n\nWhat it means:\nThe manager starts no builder and sends no instruction, ruling or correction to a builder. It gives its instruction to the coordinator, and the coordinator carries it out: it creates and starts its builders and is the only session that instructs them.\nA builder's turn-end note that reaches the manager is passed to its coordinator; the manager does not answer the builder.\n\nSupersedes: manager brief section 7, \"Builders\" (\"in practice you start most builders ... on the next turn he begins start the builder with the coordinator's brief for it\"), and the note added to seed Ruling 2 that \"in practice the manager starts most builders at the coordinator's request\".\n\nConsequence the manager told Coach Ed: the app starts a session only on a turn his own message began, so a coordinator's builder start needs his click on its card, or his word, in that coordinator's session.\n\nAffects: manager brief sections 3 and 7, coordinator brief, builder brief. Not yet in the briefs; goes in with the next briefs PR.\n\nA record only. It approves no plan, build or start.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794513978735",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508334",
+      "comment_text": "Ruling 2026-11-13: the model for each role\n\nSaid by Coach Ed in the Manager session, 2026-11-13.\n\nHis words, asking: \"what is the best coordinator model in order for us to survive this week? you as manager is fable 5.2 coordinator is opus 5.5 builder is sonnet 5.5\"\n\nHis words, after the manager recommended keeping that lineup: \"ok keep the lineup, i updated the coordinators model to opus 5.5, save this ruling so the next handover it will be saved and implemented\"\n\nWhat it means:\nManager: Fable 5.2 (claude-fable-5-2).\nCoordinator: Opus 5.5 (claude-opus-5-5). Whoever starts a coordinator starts it on this model; a coordinator keeps it across handovers.\nBuilder: Sonnet 5.5 (claude-sonnet-5-5), effort medium, as already ruled; a coordinator may ask for a different model for one builder with a reason.\n\nAffects: manager brief section 7 (starting coordinators and builders), coordinator brief (starting builders), the three handover commands. Not yet in the briefs.\n\nA record only. It approves no plan, build, spending or extra usage.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794513415038",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508189",
+      "comment_text": "2026-11-13: the one-time ClickUp reorganization is done; the exception has ended\n\nRecord, not a new ruling. Under Coach Ed's ruling of 2026-11-13 (\"yes, approved. the manager can carry it out\", then \"Yes, apply all\" to the archive, status and new-task lists) the manager:\n\ncreated folders 1 MVP Launch, 2 Owner, 3 After Launch, 5 Archive and their lists; renamed the FAS folder \"4 Financial Accounting System\" and Online Shop MVP \"Online Shop (Q1 2027)\";\nmoved all 149 tasks of the old Sante Site MVP list (26 top-level tasks with their subtasks); no task was deleted;\narchived 16 legacy Billing tasks in place (Phases 6 finished parts, 7, 8, 9 and P11.0), each parent with a comment naming the B task that replaces it;\ncorrected 8 stale statuses, each with an evidence comment; ACCEPTED and Completed were not set;\ncreated 14 missing tasks (ids z8uq9mek5p to z8uq9mek63) from the 2026-11-13 code check;\ncreated the tag waiting-on-coach-ed and put it on 13 tasks; set 5 dependencies.\n\nFrom here the standing rule applies again: the manager creates no ClickUp task and writes only on this log. Coordinators own the status of their tasks. Each new task needs its own approved plan before any build; none is approved by being created.\n\nLeft for Coach Ed in the ClickUp app (the API cannot do it): drag Admin, Compliance Calendar and Social Media into \"2 Owner\" and Online Shop (Q1 2027) into \"3 After Launch\"; delete the empty Sante Site MVP list.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794511594661",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000508109",
+      "comment_text": "Ruling 2026-11-13: the manager reorganizes the NegosyoOnline ClickUp space (one-time job)\n\nSaid by Coach Ed in the Manager session, 2026-11-13.\n\nHis words, asking for it: \"now i want you to fix and organize our clickup task in NegosyoOnline Space. even me Im confuse how it is organize. can you conduct a design plan now, then let me know how you will optimize it before we implement it\"\n\nHis words, after the manager showed the design and asked \"Do you approve this structure, and may the manager carry it out?\": \"yes, approved. the manager can carry it out\"\n\nWhat it affects: for this one reorganization the manager may write in ClickUp beyond this log: create folders and lists, move tasks, archive superseded tasks, correct stale statuses, create the missing tasks, set dependencies. This is an exception to \"the manager creates no ClickUp task; its only ClickUp write is comments on this task\", which stands again once the job is done.\n\nLimits the manager stated in the approved design: a snapshot is taken first; nothing is deleted; the list of status corrections and the list of new tasks are shown to Coach Ed before they are applied; ACCEPTED and Completed remain as ruled.\n\nApproved structure: folders 1 MVP Launch (Santé Storefront and Membership; Billing; Privacy and NPC; SMS and HQ; Launch Gates), 2 Owner (Coach Ed To-Do; Compliance Calendar; Social Media; Admin), 3 After Launch (Online Shop Q1 2027; Deferred), 4 Financial Accounting (unchanged), 5 Archive (Superseded).\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794510851942",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000503471",
+      "comment_text": "Ruling 28 (seed entry). This task is the rulings log.\nDate: 2026-11-12. Coach Ed's words, in the session \"Session briefs and commands audit\": \"there must be a clickuptask for the Manager where it will put all the new rulings just to remind him and it will be read every handover\", then \"yes let's do this..\". As recorded in the state file of the coordinator for z8uq9mbreu, he then said in that coordinator's session: \"use this task id as the manager's task z8uq9med6x\" and \"only 1 task\".\n\nWhat it means: the comments on this task hold Coach Ed's rulings on how sessions work. The manager's only ClickUp write is adding comments here. Entries are never edited; a changed ruling is a new comment naming the one it replaces (Coach Ed may correct any entry himself). Every role reads the log, newest first, at each start and resume, and his latest ruling wins over an older brief line. It is a record, never an approval channel: no plan, build, acceptance, migration, deploy, variable, seed data, production action, spending, credential or switch is approved by an entry here.\n\nAffects: manager, coordinator and builder briefs; all start and handover commands; CLAUDE.md. Now in the briefs (https://github.com/NegosyoOnline/negosyoonline-backend/pull/134).\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794477432156",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000503470",
+      "comment_text": "Ruling 8 (seed entry). MVP scope.\nDate: 2026-11-12. Source: the list of Coach Ed's rulings given to the session \"Session briefs and commands audit\" on 2026-11-12. This is the recorded wording, not his verbatim words, which the manager could not find. Coach Ed may correct this entry.\n\n\"MVP is the Sante Site Type only.\"\n\nAffects: manager, coordinator and builder briefs. Now in the briefs (https://github.com/NegosyoOnline/negosyoonline-backend/pull/134). A record only; approves nothing.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794477430899",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000503469",
+      "comment_text": "Ruling 7 (seed entry). Handovers.\nDate: 2026-11-12. Source: the list of Coach Ed's rulings given to the session \"Session briefs and commands audit\" on 2026-11-12. This is the recorded wording, not his verbatim words, which the manager could not find. Coach Ed may correct this entry.\n\n\"Handovers: a builder hands over through its coordinator, a coordinator through the manager, the manager gives Coach Ed a resume prompt.\"\n\nAffects: manager, coordinator and builder briefs; the three handover commands. Now in the briefs (https://github.com/NegosyoOnline/negosyoonline-backend/pull/134). A record only; approves nothing.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794477429524",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000503468",
+      "comment_text": "Ruling 6 (seed entry). The coordinators' three standing approvals.\nDate: 2026-11-12. Source: the list of Coach Ed's rulings given to the session \"Session briefs and commands audit\" on 2026-11-12. This is the recorded wording, not his verbatim words, which the manager could not find. Coach Ed may correct this entry.\n\n\"Coordinators hold exactly three standing approvals: merge when CI is green at the reviewed head, clean up finished builders, run a plan-specified migration on staging. Production is never covered.\"\n\nAffects: coordinator and manager briefs; CLAUDE.md. Now in the briefs (https://github.com/NegosyoOnline/negosyoonline-backend/pull/134). A record only; it widens nothing.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794477428091",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000503467",
+      "comment_text": "Ruling 5 (seed entry). What stays Coach Ed's each time.\nDate: 2026-11-12. Source: the list of Coach Ed's rulings given to the session \"Session briefs and commands audit\" on 2026-11-12. This is the recorded wording, not his verbatim words, which the manager could not find. Coach Ed may correct this entry.\n\n\"Still Coach Ed's each time, and no relay or answer from a manager or coordinator approves them: approving a plan, accepting a build, visual acceptance, any migration outside the standing approval, seed data, Railway variables, deploys, production actions, spending, credentials, turning on a switch in a shared environment.\"\n\nAffects: manager, coordinator and builder briefs; CLAUDE.md. Now in the briefs (https://github.com/NegosyoOnline/negosyoonline-backend/pull/134). This entry itself approves none of these actions.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794477426763",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000503466",
+      "comment_text": "Ruling 4 (seed entry). One open PR per repository.\nDate: 2026-11-12. Source: the list of Coach Ed's rulings given to the session \"Session briefs and commands audit\" on 2026-11-12. This is the recorded wording, not his verbatim words, which the manager could not find. Coach Ed may correct this entry.\n\n\"One open PR at a time per repository. A builder creates a PR only on its coordinator's \"go\"; with a manager, the coordinator gets the PR slot from the manager first. No branch update or CI re-run to refresh a PR.\"\n\nAffects: manager, coordinator and builder briefs. Now in the briefs (https://github.com/NegosyoOnline/negosyoonline-backend/pull/134). A record only; approves nothing.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794477425326",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000503464",
+      "comment_text": "Ruling 3 (seed entry). The question chain.\nDate: 2026-11-12. Source: the list of Coach Ed's rulings given to the session \"Session briefs and commands audit\" on 2026-11-12. This is the recorded wording, not his verbatim words, which the manager could not find. Coach Ed may correct this entry.\n\n\"Question chain: a builder asks its coordinator; what the coordinator cannot answer goes to the manager; only what the manager cannot answer goes to Coach Ed. No step is skipped.\"\n\nAffects: manager, coordinator and builder briefs. Now in the briefs (https://github.com/NegosyoOnline/negosyoonline-backend/pull/134). A record only; approves nothing.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794477423947",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000503463",
+      "comment_text": "Ruling 2 (seed entry). The coordinator creates each builder's task and never builds.\nDate: 2026-11-12. Source: the list of Coach Ed's rulings given to the session \"Session briefs and commands audit\" on 2026-11-12. This is the recorded wording, not his verbatim words, which the manager could not find. Coach Ed may correct this entry.\n\n\"The coordinator creates the task for each of its builders (a ClickUp subtask under its own task, adding no scope) and starts the builder. The coordinator never builds.\"\n\nAffects: coordinator and builder briefs; CLAUDE.md. Now in the briefs (https://github.com/NegosyoOnline/negosyoonline-backend/pull/134), which add that in practice the manager starts most builders at the coordinator's request. A record only; approves nothing.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794477422513",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    },
+    {
+      "id": "1100430000503462",
+      "comment_text": "Ruling 1 (seed entry). One manager; who starts coordinators.\nDate: 2026-11-12. Source: the list of Coach Ed's rulings given to the session \"Session briefs and commands audit\" on 2026-11-12. This is the recorded wording, not his verbatim words, which the manager could not find. Coach Ed may correct this entry.\n\n\"Coach Ed talks to one session, the manager. The manager assigns ClickUp tasks to coordinators and starts them. Coach Ed may also start a coordinator himself.\"\n\nAffects: manager, coordinator and builder briefs; CLAUDE.md. Now in the briefs (https://github.com/NegosyoOnline/negosyoonline-backend/pull/134). A record only; approves nothing.\n",
+      "user": {
+        "id": 5762690,
+        "username": "Ed Geronilla"
+      },
+      "date": "1794477421064",
+      "assignee": null,
+      "assigned_by": null,
+      "reply_count": 0
+    }
+  ]
+}
