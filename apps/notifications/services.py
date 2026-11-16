@@ -87,22 +87,28 @@ def _deliver(to, subject, body, sender_name, reply_to, html_body="", from_addres
     ).send()
 
 
-def send_email(*, to, category, subject, body, sender_name="", reply_to="", html_body="", from_address=""):
+def send_email(
+    *, to, category, subject, body, sender_name="", reply_to="", html_body="", from_address="", log_detail=True,
+):
     """`sender_name` is the name shown beside our own From address, `reply_to` the one address
     a reply goes to. Neither may hold a line break, and `reply_to` must be a valid address:
     otherwise nothing is sent and the send is recorded as failed, like any other bad header.
     `html_body`, when given, is sent as the HTML alternative of the plain-text `body`; empty,
     the email is plain text exactly as before. `from_address` replaces the address of
     DEFAULT_FROM_EMAIL for a store's own sender (see store_email.py); it must be one valid
-    address with no line break, else nothing is sent and the send is recorded as failed."""
+    address with no line break, else nothing is sent and the send is recorded as failed.
+    `log_detail=False` logs only the exception's class on a failure, never its text or traceback."""
     if is_disposed_address(to):  # a disposed contact is never emailed, and no record is kept
         logger.warning("Email refused: the recipient is a disposed account (category=%s)", category)
         raise EmailNotSent()
     message = EmailMessage.objects.create(recipient=to, category=category)
     try:
         _deliver(to, subject, body, sender_name, reply_to, html_body, from_address)
-    except Exception:
-        logger.exception("Email send failed (category=%s)", category)
+    except Exception as error:
+        if log_detail:
+            logger.exception("Email send failed (category=%s)", category)
+        else:
+            logger.error("Email send failed (category=%s, error=%s)", category, type(error).__name__)
         message.status = EmailMessage.Status.FAILED
         message.save(update_fields=["status"])
         raise EmailNotSent() from None

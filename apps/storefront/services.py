@@ -1,6 +1,8 @@
 """What the storefront surface answers. The site call only reads. The contact call sends one
-email and keeps nothing of the visitor's message."""
+email and keeps nothing of the visitor's message, except that with INQUIRY_CONTACT_INBOX_ENABLED
+on it also stores a copy in the store's Inbox (apps/inquiries/stored.py)."""
 import ipaddress
+import logging
 import unicodedata
 
 from django.core.exceptions import ValidationError
@@ -15,6 +17,8 @@ from apps.pack import policies
 from apps.sites import templates
 from apps.sites.api_public import served
 from apps.sites.models import SiteBusinessProfile
+
+logger = logging.getLogger(__name__)
 
 
 def served_sante_site(host):
@@ -117,7 +121,8 @@ def _contact_values(fields):
 
 def send_contact_message(site, fields, visitor_ip):
     """Email a visitor's "Send a Message" form to the store. Raises ApiError when it was not
-    sent. Nothing of the message is stored or logged: the email is the only copy.
+    sent. Nothing of the message is logged. It is stored only when INQUIRY_CONTACT_INBOX_ENABLED
+    is on (see `_keep_in_inbox`); otherwise the email is the only copy.
 
     `visitor_ip` is believed only because the call carried the server credential."""
     if fields.get("website"):  # the hidden field people never see: answered as sent, not sent
@@ -142,3 +147,26 @@ def send_contact_message(site, fields, visitor_ip):
         sender_name=store,
         reply_to=values["email"],
     )
+    _keep_in_inbox(site, values)
+
+
+def _keep_in_inbox(site, values):
+    """With INQUIRY_CONTACT_INBOX_ENABLED on and this site's email_enabled on, keep a copy as a stored email conversation, after
+    the email has gone. Off, or with the inquiries tables not yet there, nothing is read or
+    written. A failure here never breaks the form: only the error's class name is logged."""
+    from apps.inquiries import stored
+    from apps.inquiries.switch import contact_inbox_on, stored_tables_exist
+
+    if not contact_inbox_on():
+        return
+    try:
+        if stored_tables_exist():
+            row = stored.channel_settings(site)
+            if not (row and row.email_enabled):  # the site's own switch (Settings > Inbox)
+                return
+            stored.add_contact_message(
+                site, name=values["name"], email=values["email"], subject=values["subject"],
+                message=values["message"],
+            )
+    except Exception as error:  # noqa: BLE001 - the visitor's message has been emailed already
+        logger.error("Contact message not kept in the Inbox (%s).", type(error).__name__)

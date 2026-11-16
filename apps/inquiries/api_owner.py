@@ -7,8 +7,9 @@
     GET    .../conversations/?cursor=           -> {items, next_cursor}   (read from the provider)
     GET    .../conversations/{ref}/?cursor=     -> the thread, whether a reply may be sent, the replies sent
     POST   .../conversations/{ref}/reply/       {text, idempotency_key} -> {state, error_code, created_at}
-    GET    .../channels/                        -> {webchat_enabled, paused_until, chat_limit_reached, webchat_available}
-    PUT    .../channels/                        {webchat_enabled?, paused_until?}  (null clears the pause)
+    GET    .../channels/                        -> {webchat_enabled, email_enabled, paused_until, chat_limit_reached, webchat_available,
+                                                 contact_inbox_available}
+    PUT    .../channels/                        {webchat_enabled?, email_enabled?, paused_until?}  (null clears the pause)
     POST   .../conversations/{ref}/close/       -> {ref, status, unread}   (stored channels only)
     POST   .../conversations/{ref}/reopen/      -> {ref, status, unread}
     POST   .../conversations/{ref}/read/        -> {ref, status, unread}
@@ -44,7 +45,7 @@ from apps.common.errors import ApiError
 from apps.common.throttle import hit
 from apps.inquiries import crypto, outcomes, services, stored
 from apps.inquiries.models import InquiryConnection
-from apps.inquiries.switch import inquiries_on, stored_tables_exist, tables_exist
+from apps.inquiries.switch import contact_inbox_on, inquiries_on, stored_tables_exist, tables_exist
 from apps.sites import templates
 from apps.sites.api import _owner_site
 from apps.sites.services import site_for
@@ -90,6 +91,7 @@ class ReplyIn(Schema):
 class ChannelsIn(Schema):
     model_config = ConfigDict(extra="forbid")
     webchat_enabled: bool | None = None
+    email_enabled: bool | None = None
     paused_until: datetime | None = None
 
 
@@ -296,7 +298,8 @@ def conversation_reply(request, site_id: str, ref: str, payload: ReplyIn):
 # -- stored channels: settings, close and reopen, read -----------------------------------------
 
 def _channels_out(site):
-    return {**stored.settings_out(stored.channel_settings(site)), "webchat_available": bool(settings.INQUIRY_WEBCHAT_ENABLED)}
+    return {**stored.settings_out(stored.channel_settings(site)), "webchat_available": bool(settings.INQUIRY_WEBCHAT_ENABLED),
+            "contact_inbox_available": contact_inbox_on()}
 
 
 def _need_stored():
@@ -323,7 +326,8 @@ def channels_update(request, site_id: str, payload: ChannelsIn):
         if until <= now or until > now + stored.MAX_PAUSE:
             raise _invalid("paused_until", "Pick a time in the future, within 90 days.")
     stored.update_settings(
-        request.inquiry_site, webchat_enabled=payload.webchat_enabled, paused_until=until, set_pause=set_pause,
+        request.inquiry_site, webchat_enabled=payload.webchat_enabled, email_enabled=payload.email_enabled,
+        paused_until=until, set_pause=set_pause,
     )
     return _channels_out(request.inquiry_site)
 

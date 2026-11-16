@@ -12,6 +12,7 @@ from apps.common import retention
 from apps.inquiries.models import (
     InquiryChannelSettings, InquiryConnection, InquiryConversation, InquiryMessage, InquiryReply,
 )
+from apps.notifications.models import EmailMessage
 from apps.inquiries.switch import inquiries_on, stored_tables_exist, tables_exist
 from apps.sites.models import Site
 
@@ -67,14 +68,29 @@ def old_messages(now, dry_run):
     return count
 
 
+EMAIL_CATEGORY = "inquiry_reply"  # the category of an email reply (stored.EMAIL_CATEGORY)
+
+
+@retention.behind_switch
+def old_email_records(now, dry_run):
+    """The send records of inquiry email replies (they hold the customer's address) go on the
+    message clock, MESSAGE_RETENTION, instead of the generic 2-year rule of the notifications
+    app; whichever deletes a row first wins, so the shorter period holds."""
+    # no INQUIRIES_ENABLED gate: this rule only deletes, and the EmailMessage table always exists
+    rows = EmailMessage.objects.filter(category=EMAIL_CATEGORY, created_at__lte=now - MESSAGE_RETENTION)
+    return retention.remove(rows, dry_run)
+
+
 retention.register("inquiry_replies", old_replies)
 retention.register("inquiry_messages", old_messages)
+retention.register("inquiry_email_records", old_email_records)
 
 
 # -- account disposal (called by apps.accounts.retention) ---------------------------------------
 
 CONNECTIONS, CONVERSATIONS = "inquiry_connections", "inquiry_conversations"
 MESSAGES, CHANNELS = "inquiry_messages", "inquiry_channel_settings"
+EMAIL_RECORDS = "inquiry_email_records"
 
 
 def blanked():
@@ -84,6 +100,7 @@ def blanked():
         CONNECTIONS: ["token_encrypted"],
         CONVERSATIONS: list(PERSONAL),
         MESSAGES: ["all rows deleted"],
+        EMAIL_RECORDS: ["inquiry_reply rows to the sites' customers deleted"],
         CHANNELS: ["email_route_token", "webchat_enabled", "email_enabled", "paused_until"],
     }
 
@@ -111,13 +128,21 @@ def blank_inquiries(sites, dry_run=False):
         channels = InquiryChannelSettings.objects.filter(site__in=sites).filter(
             ~Q(email_route_token="") | Q(webchat_enabled=True) | Q(email_enabled=True) | Q(paused_until__isnull=False)
         )
-        counts.update({MESSAGES: messages.count(), CHANNELS: channels.count()})
+        # EmailMessage has no site column: find the records by the customers' addresses, before
+        # the conversations are blanked. A recipient that is also a customer of another site loses
+        # its inquiry_reply records too (errs on the side of deleting).
+        addresses = list(
+            conversations.exclude(contact_email="").values_list("contact_email", flat=True).distinct()
+        )
+        email_records = EmailMessage.objects.filter(category=EMAIL_CATEGORY, recipient__in=addresses)
+        counts.update({MESSAGES: messages.count(), CHANNELS: channels.count(), EMAIL_RECORDS: email_records.count()})
     if not any(counts.values()):
         return {}
     if not dry_run:
         connections.update(token_encrypted="", status=InquiryConnection.UNSET)
         if stored:
             messages.delete()
+            email_records.delete()
             # The visitor's secret hash and the thread token go too, so nothing can continue a
             # conversation after the site's data is gone.
             conversations.update(
