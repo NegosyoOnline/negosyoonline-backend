@@ -249,6 +249,12 @@ class ProspectVisitTests(OwnerTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual((rows[0]["kind"], rows[0]["video_percent"], rows[0]["name"]), ("order", 75, order.buyer_name))
 
+    def test_an_order_with_no_linked_visit_has_unknown_video_progress_not_zero(self):
+        bare, _ = make_order(self.site)
+        self.assertIsNone(self.rows()[0]["video_percent"])
+        self.visit(order=bare, video_percent=0)
+        self.assertEqual(self.rows()[0]["video_percent"], 0)
+
     def test_search_finds_a_visit_by_its_contact_and_an_order_row_by_no_contact(self):
         self.visit(contact_name="Maria Cart", contact_mobile="09171234567", contact_email="maria@buyer.test")
         order, _ = make_order(self.site)

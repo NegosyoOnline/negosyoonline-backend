@@ -68,7 +68,7 @@ def order_rows(site):
         rows.append({
             "kind": "order", "name": o["buyer_name"], "order_number": o["order_number"], "order_id": o["public_id"],
             "source": PAGE_SOURCE, "stage": stage, "registration_status": status, "last_activity": last,
-            "video_percent": video.get(o["pk"], 0), "mobile": "", "email": "",
+            "video_percent": video.get(o["pk"]), "mobile": "", "email": "",  # None: no linked visit, unknown
         })
     return rows
 
