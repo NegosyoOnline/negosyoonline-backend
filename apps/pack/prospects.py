@@ -1,8 +1,8 @@
 """The Subscriber's prospect list (ClickUp z8uq9mfw14, under z8uq9meyqk): the people who placed a
 Membership Pack order on one Santé site or wrote to it, newest activity first. Read-only, from rows
 that already exist; stored inquiry rows only, no provider is ever called. Every query is filtered by
-the site. A row carries a name, and: an order row the masked mobile; a visit that left a checkout
-contact unfinished (no order) the mobile and email as typed, in full; an inquiry row nothing more.
+the site. A row carries a name, and: only a visit that left a checkout contact unfinished (no order)
+carries the mobile and email as typed, in full; an order row and an inquiry row carry neither.
 Never an address, proof or date of birth. Order, visit and inquiry rows are never matched by name.
 
 Layout adapted from TWCinc partnership/views/lists.py (ProspectListDataView) and partnership/stages.py
@@ -12,8 +12,7 @@ and funnels/models.py Prospect (the visit).
 from django.db.models import Max
 
 from apps.inquiries.models import InquiryConversation
-from apps.members import contacts
-from apps.members.models import Member, MemberSession
+from apps.members.models import MemberSession
 from apps.pack.models import PackOrder, PackProofSubmission, PackVisit, SanteRegistration
 
 PAGE_SIZE = 25
@@ -53,7 +52,6 @@ def order_rows(site):
         .values_list("member_id").annotate(at=Max("created_at")))
     video = dict(
         PackVisit.objects.filter(site=site, order_id__in=pks).values_list("order_id").annotate(p=Max("video_percent")))
-    mobiles = dict(Member.objects.filter(site=site, pk__in={o["member_id"] for o in orders}).values_list("pk", "mobile"))
     rows = []
     for o in orders:
         stage, last, status = "checked_out", o["created_at"], None
@@ -67,12 +65,10 @@ def order_rows(site):
                 status, last = reg["status"], _latest(last, reg["status_entered_at"])
             if o["member_id"] in sessions:
                 stage, last = "activated", _latest(last, sessions[o["member_id"]])
-        mobile = mobiles.get(o["member_id"]) or ""
         rows.append({
             "kind": "order", "name": o["buyer_name"], "order_number": o["order_number"], "order_id": o["public_id"],
             "source": PAGE_SOURCE, "stage": stage, "registration_status": status, "last_activity": last,
-            "video_percent": video.get(o["pk"], 0), "mobile": contacts.mask("mobile", mobile) if mobile else "",
-            "email": "",
+            "video_percent": video.get(o["pk"], 0), "mobile": "", "email": "",
         })
     return rows
 

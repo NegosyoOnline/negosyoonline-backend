@@ -11,8 +11,8 @@ Any other period answers 422 `invalid_period`.
 The people who placed an order, visited the Membership Pack page or wrote to the site, newest activity
 first, 25 to a page: a name, the order number, the source, the furthest stage (new_lead, landing_page,
 start_watching, done_watching, added_to_cart, checked_out, account_setup, activated), the video progress
-and the last activity. An order shows its masked mobile; a visit with an unfinished checkout shows its
-mobile and email in full.
+and the last activity. Only a visit with an unfinished checkout (no order) shows its
+mobile and email, in full; an order or an inquiry row shows neither.
 An unknown `stage` or a `page` that is not a whole number from 1 answers 422 `invalid_stage` or `invalid_page`.
 """
 from ninja import Router

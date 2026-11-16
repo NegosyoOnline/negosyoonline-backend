@@ -226,7 +226,7 @@ class ProspectVisitTests(OwnerTestCase):
         self.assertEqual((counts["landing_page"], counts["start_watching"], counts["done_watching"],
                           counts["added_to_cart"]), (1, 1, 1, 2))
 
-    def test_an_unfinished_checkout_shows_the_full_mobile_and_email_and_an_order_keeps_it_masked(self):
+    def test_only_an_unfinished_checkout_shows_mobile_and_email_in_full(self):
         self.visit(contact_name="Maria Cart", contact_mobile="09171234567", contact_email="maria@buyer.test",
                    contact_saved_at=timezone.now())
         order, _ = make_order(self.site)
@@ -234,9 +234,12 @@ class ProspectVisitTests(OwnerTestCase):
         cart = by_name["Maria Cart"]
         self.assertEqual((cart["kind"], cart["mobile"], cart["email"]), ("visit", "09171234567", "maria@buyer.test"))
         row = next(r for r in self.rows() if r["kind"] == "order")
+        inquiry(self.site, "email", "Mail Person", timezone.now(), contact_email="leak@buyer.test")
         self.assertNotIn(order.member.mobile, str(row))
-        self.assertNotEqual(row["mobile"], "")
-        self.assertEqual(row["email"], "")
+        self.assertEqual((row["mobile"], row["email"]), ("", ""))
+        for r in self.rows():
+            if r["kind"] in ("order", "inquiry"):
+                self.assertEqual((r["mobile"], r["email"]), ("", ""), r["kind"])
         self.assertNotIn(order.member.email, self.get(self.path()).content.decode())
 
     def test_a_visit_with_an_order_is_not_a_second_row_and_lends_its_video_progress(self):
