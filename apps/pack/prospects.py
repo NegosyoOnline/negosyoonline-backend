@@ -1,9 +1,11 @@
 """The Subscriber's prospect list (ClickUp z8uq9mfw14, under z8uq9meyqk): the people who placed a
 Membership Pack order on one Santé site or wrote to it, newest activity first. Read-only, from rows
 that already exist; stored inquiry rows only, no provider is ever called. Every query is filtered by
-the site. A row carries a name, and: only a visit that left a checkout contact unfinished (no order)
-carries the mobile and email as typed, in full; an order row and an inquiry row carry neither.
-Never an address, proof or date of birth. Order, visit and inquiry rows are never matched by name.
+the site. A row carries a name, a mobile and an email, in full, where one is already stored (Coach Ed,
+2026-11-16, D2): an order the buyer's, a visit the contact captured on blur, a stored message the
+email the person gave (no phone is stored there). Never an address, proof, date of birth or Meta data.
+An order also carries what the Orders page shows (date, payment status, amount) for its summary popup.
+Order, visit and inquiry rows are never matched by name.
 
 Layout adapted from TWCinc partnership/views/lists.py (ProspectListDataView) and partnership/stages.py
 (one furthest-step stage per row, counts per stage taken before search and stage narrowing),
@@ -30,6 +32,7 @@ CHANNEL_KEYS = {
     InquiryConversation.WEBCHAT: "webchat",
     InquiryConversation.EMAIL: "email",
 }
+NO_ORDER = {"placed_at": None, "payment_status": None, "price_centavos": None, "currency": None}
 PAGE_SOURCE = "pack_page"  # the Membership Pack page: an order or a visit
 
 
@@ -39,7 +42,8 @@ def _latest(*values, default=None):
 
 def order_rows(site):
     orders = list(PackOrder.objects.filter(site=site).values(
-        "pk", "public_id", "order_number", "buyer_name", "member_id", "created_at", "verified_at"))
+        "pk", "public_id", "order_number", "buyer_name", "member_id", "created_at", "verified_at",
+        "payment_status", "price_centavos", "currency", "member__mobile", "member__email"))
     pks = [o["pk"] for o in orders]
     proofs = dict(
         PackProofSubmission.objects.filter(site=site, order_id__in=pks).values_list("order_id")
@@ -68,7 +72,9 @@ def order_rows(site):
         rows.append({
             "kind": "order", "name": o["buyer_name"], "order_number": o["order_number"], "order_id": o["public_id"],
             "source": PAGE_SOURCE, "stage": stage, "registration_status": status, "last_activity": last,
-            "video_percent": video.get(o["pk"]), "mobile": "", "email": "",  # None: no linked visit, unknown
+            "video_percent": video.get(o["pk"]),  # None: no linked visit, unknown
+            "mobile": o["member__mobile"], "email": o["member__email"], "placed_at": o["created_at"].isoformat(),
+            "payment_status": o["payment_status"], "price_centavos": o["price_centavos"], "currency": o["currency"],
         })
     return rows
 
@@ -93,7 +99,7 @@ def visit_rows(site):
             "kind": "visit", "name": v["contact_name"], "order_number": None, "order_id": None,
             "source": PAGE_SOURCE, "stage": visit_stage(v), "registration_status": None,
             "last_activity": v["last_activity_at"], "video_percent": v["video_percent"],
-            "mobile": v["contact_mobile"], "email": v["contact_email"],
+            "mobile": v["contact_mobile"], "email": v["contact_email"], **NO_ORDER,
         })
     return rows
 
@@ -101,7 +107,7 @@ def visit_rows(site):
 def inquiry_rows(site):
     rows = []
     for c in InquiryConversation.objects.filter(site=site).values(
-            "provider", "display_name", "contact_name", "last_message_at", "last_inbound_at", "created_at"):
+            "provider", "display_name", "contact_name", "contact_email", "last_message_at", "last_inbound_at", "created_at"):
         # A stored channel keeps the name in contact_name; read live, so a blanked name stays blank.
         name = c["contact_name"] if c["provider"] in InquiryConversation.STORED_PROVIDERS else c["display_name"]
         rows.append({
@@ -109,7 +115,8 @@ def inquiry_rows(site):
             "source": CHANNEL_KEYS.get(c["provider"], "facebook"), "stage": "new_lead",
             "registration_status": None,
             "last_activity": _latest(c["last_message_at"], c["last_inbound_at"], default=c["created_at"]),
-            "video_percent": None, "mobile": "", "email": "",
+            "video_percent": None, "mobile": "",  # no phone is stored on a conversation
+            "email": c["contact_email"] if c["provider"] in InquiryConversation.STORED_PROVIDERS else "", **NO_ORDER,
         })
     return rows
 
@@ -119,8 +126,7 @@ def _matches(row, q):
         return True
     if row["order_number"] is not None and q in row["order_number"].lower():
         return True
-    # Only a visit shows its contact in full, so only a visit is searched by it.
-    return row["kind"] == "visit" and (q in row["mobile"].lower() or q in row["email"])
+    return q in row["mobile"].lower() or q in row["email"].lower()
 
 
 def prospects(site, *, stage="", q="", page=1):

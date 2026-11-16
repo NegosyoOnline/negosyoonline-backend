@@ -153,19 +153,20 @@ class ProspectTests(OwnerTestCase):
         for bad in ("0", "-1", "x", "1.5"):
             self.error(self.get(self.path(f"?page={bad}")), 422, "invalid_page")
 
-    def test_only_a_name_and_the_listed_fields(self):
+    def test_only_a_name_mobile_email_and_the_listed_fields(self):
         order, _ = make_order(self.site)
         SanteRegistration.objects.create(site=self.site, member=order.member, pack_order=order, status="registered",
                                          date_of_birth="1990-01-01", desired_username="secretuser")
-        inquiry(self.site, "email", "Mail Person", timezone.now(), contact_email="leak@buyer.test")
+        inquiry(self.site, "email", "Mail Person", timezone.now(), contact_email="mail@buyer.test")
         resp = self.get(self.path())
         text = resp.content.decode()
-        for value in (order.member.mobile, order.member.email, "REF123", "BDO", "1990", "secretuser", "leak@buyer.test"):
+        # No address, proof, date of birth or Meta data; the member's mobile and email are the approved contact.
+        for value in ("REF123", "BDO", "1990", "secretuser"):
             self.assertNotIn(value, text)
-        keys = ["email", "kind", "last_activity", "mobile", "name", "order_id", "order_number", "registration_status",
-                "source", "stage", "video_percent"]
+        keys = ["email", "kind", "last_activity", "mobile", "name", "order_id", "order_number", "payment_status",
+                "placed_at", "price_centavos", "currency", "registration_status", "source", "stage", "video_percent"]
         for r in resp.json()["results"]:
-            self.assertEqual(sorted(r), keys)
+            self.assertEqual(sorted(r), sorted(keys))
 
     def test_no_provider_call(self):
         inquiry(self.site, "pancake", "Fb Person", timezone.now())
@@ -226,21 +227,24 @@ class ProspectVisitTests(OwnerTestCase):
         self.assertEqual((counts["landing_page"], counts["start_watching"], counts["done_watching"],
                           counts["added_to_cart"]), (1, 1, 1, 2))
 
-    def test_only_an_unfinished_checkout_shows_mobile_and_email_in_full(self):
+    def test_every_row_shows_the_contact_it_already_has(self):
         self.visit(contact_name="Maria Cart", contact_mobile="09171234567", contact_email="maria@buyer.test",
                    contact_saved_at=timezone.now())
         order, _ = make_order(self.site)
+        inquiry(self.site, "email", "Mail Person", timezone.now(), contact_email="mail@buyer.test")
+        inquiry(self.site, "webchat", "Chat Person", timezone.now())
+        inquiry(self.site, "pancake", "Fb Person", timezone.now(), contact_email="never@shown.test")
         by_name = {r["name"]: r for r in self.rows()}
         cart = by_name["Maria Cart"]
         self.assertEqual((cart["kind"], cart["mobile"], cart["email"]), ("visit", "09171234567", "maria@buyer.test"))
         row = next(r for r in self.rows() if r["kind"] == "order")
-        inquiry(self.site, "email", "Mail Person", timezone.now(), contact_email="leak@buyer.test")
-        self.assertNotIn(order.member.mobile, str(row))
-        self.assertEqual((row["mobile"], row["email"]), ("", ""))
-        for r in self.rows():
-            if r["kind"] in ("order", "inquiry"):
-                self.assertEqual((r["mobile"], r["email"]), ("", ""), r["kind"])
-        self.assertNotIn(order.member.email, self.get(self.path()).content.decode())
+        self.assertEqual((row["mobile"], row["email"]), (order.member.mobile, order.member.email))
+        self.assertEqual((row["payment_status"], row["price_centavos"]), (order.payment_status, C.PRICE_CENTAVOS))
+        self.assertEqual((by_name["Mail Person"]["mobile"], by_name["Mail Person"]["email"]), ("", "mail@buyer.test"))
+        self.assertEqual((by_name["Chat Person"]["mobile"], by_name["Chat Person"]["email"]), ("", ""))
+        # Only a stored channel keeps a contact; a Pancake conversation is never read for one.
+        self.assertEqual((by_name["Fb Person"]["mobile"], by_name["Fb Person"]["email"]), ("", ""))
+        self.assertNotIn("never@shown.test", self.get(self.path()).content.decode())
 
     def test_a_visit_with_an_order_is_not_a_second_row_and_lends_its_video_progress(self):
         order, _ = make_order(self.site)
@@ -255,12 +259,12 @@ class ProspectVisitTests(OwnerTestCase):
         self.visit(order=bare, video_percent=0)
         self.assertEqual(self.rows()[0]["video_percent"], 0)
 
-    def test_search_finds_a_visit_by_its_contact_and_an_order_row_by_no_contact(self):
+    def test_search_finds_a_row_by_its_mobile_or_email(self):
         self.visit(contact_name="Maria Cart", contact_mobile="09171234567", contact_email="maria@buyer.test")
         order, _ = make_order(self.site)
         self.assertEqual([r["name"] for r in self.rows("?q=0917123")], ["Maria Cart"])
         self.assertEqual([r["name"] for r in self.rows("?q=maria@buyer")], ["Maria Cart"])
-        self.assertEqual(self.rows(f"?q={order.member.email}"), [])
+        self.assertEqual([r["kind"] for r in self.rows(f"?q={order.member.email}")], ["order"])
 
     def test_another_sites_visits_never_show(self):
         ben, ben_site, _, _ = self.other_site()

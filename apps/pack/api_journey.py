@@ -12,8 +12,10 @@ The people who placed an order, visited the Membership Pack page or wrote to the
 first, 25 to a page: a name, the order number, the source, the furthest stage (new_lead, landing_page,
 start_watching, done_watching, added_to_cart, checked_out, account_setup, activated), the video progress (null
 when unknown: an inquiry, or an order with no linked visit)
-and the last activity. Only a visit with an unfinished checkout (no order) shows its
-mobile and email, in full; an order or an inquiry row shows neither.
+and the last activity. Each row also has a mobile and an email, in full, where one is already stored
+(Coach Ed, 2026-11-16, D2: an order the buyer's, a visit the contact captured, a stored message its
+email; "" otherwise). An order row adds placed_at, payment_status, price_centavos and currency (null on
+other rows), the fields the Orders page already shows, for the order summary.
 An unknown `stage` or a `page` that is not a whole number from 1 answers 422 `invalid_stage` or `invalid_page`.
 """
 from ninja import Router
