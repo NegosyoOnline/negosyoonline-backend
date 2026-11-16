@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from apps.accounts import retention as rules
 from apps.pack import retention
-from apps.pack.models import CheckoutToken, PackOrder, PackProofSubmission
+from apps.pack.models import CheckoutToken, PackOrder, PackProofSubmission, PackVisit
 from apps.pack.tests.base import PackTestCase
 
 
@@ -23,6 +23,42 @@ class PackRetentionTests(PackTestCase):
         self.assertEqual((order["number"], order["buyer_name"]), ("SMP00001", "Maria Santos"))
         self.assertNotIn("file_key", proof)
         self.assertNotIn("token", str(data))
+
+    def test_export_lists_the_sites_live_visits_with_the_exact_fields(self):
+        now = timezone.now()
+        order = PackOrder.objects.get()
+        PackVisit.objects.create(
+            site=self.site, visitor_ref="v" * 20, started_watching_at=now, video_percent=50,
+            contact_name="Maria Cart", contact_mobile="09171234567", contact_email="m@buyer.test",
+            contact_saved_at=now, order=order)
+        PackVisit.objects.create(site=self.site, visitor_ref="w" * 20)
+        PackVisit.objects.create(site=self.other_site, visitor_ref="x" * 20, contact_name="Other Site Person")
+        rows = retention.export_packs_of(self.account_row)["pack_visits"]
+        self.assertEqual(len(rows), 2)
+        cart, landed = rows
+        self.assertEqual((cart["order"], cart["stage"], landed["order"], landed["stage"]),
+                         (order.public_id, "added_to_cart", None, "landing_page"))
+        self.assertEqual(sorted(cart), sorted([
+            "site", "order", "stage", "video_percent", "landed_at", "started_watching_at", "done_watching_at",
+            "checkout_started_at", "contact_name", "contact_mobile", "contact_email", "contact_saved_at",
+            "last_activity_at", "created_at"]))
+        self.assertEqual((cart["contact_name"], cart["contact_mobile"], cart["contact_email"], cart["video_percent"]),
+                         ("Maria Cart", "09171234567", "m@buyer.test", 50))
+        text = str(rows)
+        self.assertNotIn("v" * 20, text)  # the browser token
+        self.assertNotIn("Other Site Person", text)
+        self.assertEqual(rows[0]["site"], self.site.public_id)
+
+    def test_export_has_no_deleted_or_blanked_visit_contact(self):
+        old = timezone.now() - retention.VISIT_RETENTION - timedelta(days=1)
+        PackVisit.objects.create(site=self.site, visitor_ref="a" * 20, contact_name="Gone", last_activity_at=old)
+        PackVisit.objects.create(
+            site=self.site, visitor_ref="b" * 20, contact_name="Blanked", contact_mobile="0917", order=PackOrder.objects.get(),
+            last_activity_at=old)
+        retention.old_visits(timezone.now(), False)
+        rows = retention.export_packs_of(self.account_row)["pack_visits"]
+        self.assertEqual([(r["contact_name"], r["contact_mobile"]) for r in rows], [("", "")])
+        self.assertNotIn("Gone", str(rows))
 
     def test_blanking_deletes_files_and_tokens_and_keeps_rows_and_money(self):
         counts = retention.blank_packs_of(self.account_row)

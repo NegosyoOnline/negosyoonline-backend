@@ -18,7 +18,7 @@ from django.db import transaction
 from django.db.models import Q
 
 from apps.common import private_files, retention
-from apps.pack import registration
+from apps.pack import prospects, registration
 from apps.pack import visits
 from apps.pack.models import CheckoutToken, PackOrder, PackProofSubmission, PackVisit, SanteRegistration
 from apps.sites.models import Site
@@ -102,8 +102,8 @@ def blank_packs(sites, dry_run=False, *, ignore_switch=False, keep_files=False):
 
 
 def export_packs_of(account):
-    """The pack orders and proofs of the account's sites as plain values: no file key, no token,
-    no row number. Reads only."""
+    """The pack orders, proofs, registrations and page visits of the account's sites as plain values: no file
+    key, no token, no row number. Reads only."""
     if not enabled():
         return {}
     return export_packs(Site.objects.filter(account=account))
@@ -116,6 +116,7 @@ def export_packs(sites):
     orders = PackOrder.objects.filter(site__in=sites).select_related("member").order_by("pk")
     proofs = PackProofSubmission.objects.filter(site__in=sites).select_related("order").order_by("pk")
     registrations = SanteRegistration.objects.filter(site__in=sites).select_related("member").order_by("pk")
+    visit_rows = PackVisit.objects.filter(site__in=sites).select_related("order").order_by("pk")
     return {
         REGISTRATIONS: [
             {
@@ -137,6 +138,25 @@ def export_packs(sites):
                 "policy_version": row.policy_version, "created_at": _iso(row.created_at),
             }
             for row in orders
+        ],
+        # Live visits only (a row the 90-day rule or a purge deleted is gone). Never the visitor_ref (the
+        # browser's token) or the row number; `order` is the same public id as in pack_orders, or None.
+        VISITS: [
+            {
+                "site": public_ids[row.site_id], "order": row.order.public_id if row.order else None,
+                "stage": prospects.visit_stage({
+                    "checkout_started_at": row.checkout_started_at, "contact_saved_at": row.contact_saved_at,
+                    "done_watching_at": row.done_watching_at, "started_watching_at": row.started_watching_at,
+                    "video_percent": row.video_percent,
+                }),
+                "video_percent": row.video_percent, "landed_at": _iso(row.landed_at),
+                "started_watching_at": _iso(row.started_watching_at), "done_watching_at": _iso(row.done_watching_at),
+                "checkout_started_at": _iso(row.checkout_started_at), "contact_name": row.contact_name,
+                "contact_mobile": row.contact_mobile, "contact_email": row.contact_email,
+                "contact_saved_at": _iso(row.contact_saved_at), "last_activity_at": _iso(row.last_activity_at),
+                "created_at": _iso(row.created_at),
+            }
+            for row in visit_rows
         ],
         PROOFS: [
             {
