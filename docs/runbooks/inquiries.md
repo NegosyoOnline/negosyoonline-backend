@@ -21,6 +21,8 @@ With `INQUIRY_CONTACT_INBOX_ENABLED` on, `send_contact_message` first sends the 
 - a NEW `email` conversation for every stored message. It is never merged by the typed address, because that address is only a claim. `auth_flag` is `unverified_sender`, the conversation is open and unread, `contact_name` and `display_name` come from the name, `contact_email` from the typed address and `external_id` is a server-made random `em_` ref;
 - one incoming `InquiryMessage` whose body is `Subject: <subject>`, a blank line and the message, cut to 4,000 characters.
 
+Each site also has its own switch, `email_enabled` on the channels API (`PUT .../inquiries/channels/`, Settings > Inbox, default off; `contact_inbox_available` in the same answer is the global switch): a copy is stored only when the global switch and the site's switch are both on, and the email goes either way.
+
 Nothing is stored for the honeypot, with the switch off, or while the inquiries tables are absent (`stored_tables_exist()` is false; then no inquiries table is read). A failure while storing is caught and logged by class name only; the visitor still gets "sent". Caps, through `apps/common/throttle`, per day: 200 stored messages per site and 30 per typed address per site (the key holds a SHA-256 of the lowercased address, never the address). Over a cap the email still goes and nothing is stored; it is not a failure.
 
 ## Replying by email
