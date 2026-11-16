@@ -8,8 +8,11 @@ Any other period answers 422 `invalid_period`.
 
     GET /v1/sites/{site_id}/pack/journey/prospects/?stage=&q=&page=   (ClickUp z8uq9mfw14)
 
-The people who placed an order or wrote to the site, newest activity first, 25 to a page: a name, the
-order number, the source, the furthest stage and the last activity. Nothing else about the person.
+The people who placed an order, visited the Membership Pack page or wrote to the site, newest activity
+first, 25 to a page: a name, the order number, the source, the furthest stage (new_lead, landing_page,
+start_watching, done_watching, added_to_cart, checked_out, account_setup, activated), the video progress
+and the last activity. An order shows its masked mobile; a visit with an unfinished checkout shows its
+mobile and email in full.
 An unknown `stage` or a `page` that is not a whole number from 1 answers 422 `invalid_stage` or `invalid_page`.
 """
 from ninja import Router

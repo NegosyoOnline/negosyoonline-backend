@@ -30,7 +30,7 @@ from apps.lifecycle.models import ErasureHold
 from apps.members.models import Member, MemberAddressEvent, MemberContactAudit, MemberSession
 from apps.pack import portal
 from apps.pack.models import (
-    CheckoutToken, PackOrder, PackProofSubmission, SanteRegistration, SanteRegistrationEvent,
+    CheckoutToken, PackOrder, PackProofSubmission, PackVisit, SanteRegistration, SanteRegistrationEvent,
 )
 from apps.sites.models import Site
 
@@ -114,6 +114,13 @@ def _clear_details(site_id, now, member_id=None):
         tokens = CheckoutToken.objects.filter(site_id=site_id)
     counts["checkout_tokens"] = tokens.count()
     tokens.delete()
+    # Visits of the Membership Pack page hold a typed contact (PackVisit): the site's go whole; a
+    # removed test member's go with their orders.
+    visit_rows = PackVisit.objects.filter(site_id=site_id)
+    if member_id:
+        visit_rows = visit_rows.filter(order__in=list(orders.values_list("pk", flat=True)))
+    counts["pack_visits"] = visit_rows.count()
+    visit_rows.delete()
     sessions = scoped(MemberSession.objects)
     sessions.exclude(ip_advisory="").update(ip_advisory="")
     counts["member_sessions"] = sessions.count()

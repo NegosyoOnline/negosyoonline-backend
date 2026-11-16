@@ -1,28 +1,37 @@
 """The Subscriber's prospect list (ClickUp z8uq9mfw14, under z8uq9meyqk): the people who placed a
 Membership Pack order on one Santé site or wrote to it, newest activity first. Read-only, from rows
 that already exist; stored inquiry rows only, no provider is ever called. Every query is filtered by
-the site. Each row carries a name and nothing else about the person: no email, mobile, address,
-proof or date of birth. Order rows and inquiry rows are never matched by name.
+the site. A row carries a name, and: an order row the masked mobile; a visit that left a checkout
+contact unfinished (no order) the mobile and email as typed, in full; an inquiry row nothing more.
+Never an address, proof or date of birth. Order, visit and inquiry rows are never matched by name.
 
 Layout adapted from TWCinc partnership/views/lists.py (ProspectListDataView) and partnership/stages.py
-(one furthest-step stage per row, counts per stage taken before search and stage narrowing).
+(one furthest-step stage per row, counts per stage taken before search and stage narrowing),
+and funnels/models.py Prospect (the visit).
 """
 from django.db.models import Max
 
 from apps.inquiries.models import InquiryConversation
-from apps.members.models import MemberSession
-from apps.pack.models import PackOrder, PackProofSubmission, SanteRegistration
+from apps.members import contacts
+from apps.members.models import Member, MemberSession
+from apps.pack.models import PackOrder, PackProofSubmission, PackVisit, SanteRegistration
 
 PAGE_SIZE = 25
-# Furthest step first is the order of the funnel; a row reports the last one it reached.
-ORDER_STAGES = ("order_placed", "proof_submitted", "payment_verified", "registration", "dashboard_access")
-MESSAGE_STAGE = "message"
-STAGES = ORDER_STAGES + (MESSAGE_STAGE,)
+# TWCinc's eight stages (partnership/stages.py), in funnel order. A row reports the furthest it reached.
+# Mapping here: a message to the site is New Lead; a visit is Landing Page, then Start Watching and Done
+# Watching by the video, then Add to Cart once the checkout step was opened or a contact saved; an
+# order placed (with or without a proof) is Checked Out; an approved payment is Account Setup (with
+# the registration status beside it); a member who signed in to the dashboard is Activated.
+STAGES = (
+    "new_lead", "landing_page", "start_watching", "done_watching", "added_to_cart", "checked_out",
+    "account_setup", "activated",
+)
 CHANNEL_KEYS = {
     InquiryConversation.PANCAKE: "facebook",
     InquiryConversation.WEBCHAT: "webchat",
     InquiryConversation.EMAIL: "email",
 }
+PAGE_SOURCE = "pack_page"  # the Membership Pack page: an order or a visit
 
 
 def _latest(*values, default=None):
@@ -42,22 +51,53 @@ def order_rows(site):
     sessions = dict(
         MemberSession.objects.filter(site=site, member_id__in={o["member_id"] for o in orders})
         .values_list("member_id").annotate(at=Max("created_at")))
+    video = dict(
+        PackVisit.objects.filter(site=site, order_id__in=pks).values_list("order_id").annotate(p=Max("video_percent")))
+    mobiles = dict(Member.objects.filter(site=site, pk__in={o["member_id"] for o in orders}).values_list("pk", "mobile"))
     rows = []
     for o in orders:
-        stage, last, status = "order_placed", o["created_at"], None
+        stage, last, status = "checked_out", o["created_at"], None
         if o["pk"] in proofs:
-            stage, last = "proof_submitted", _latest(last, proofs[o["pk"]])
+            last = _latest(last, proofs[o["pk"]])
         if o["verified_at"] is not None:
-            stage, last = "payment_verified", _latest(last, o["verified_at"])
+            stage, last = "account_setup", _latest(last, o["verified_at"])
             reg = registrations.get(o["pk"])
             # A registration is opened with the order; it counts as a step once the payment is approved.
             if reg is not None:
-                stage, status, last = "registration", reg["status"], _latest(last, reg["status_entered_at"])
+                status, last = reg["status"], _latest(last, reg["status_entered_at"])
             if o["member_id"] in sessions:
-                stage, last = "dashboard_access", _latest(last, sessions[o["member_id"]])
+                stage, last = "activated", _latest(last, sessions[o["member_id"]])
+        mobile = mobiles.get(o["member_id"]) or ""
         rows.append({
             "kind": "order", "name": o["buyer_name"], "order_number": o["order_number"], "order_id": o["public_id"],
-            "source": "order", "stage": stage, "registration_status": status, "last_activity": last,
+            "source": PAGE_SOURCE, "stage": stage, "registration_status": status, "last_activity": last,
+            "video_percent": video.get(o["pk"], 0), "mobile": contacts.mask("mobile", mobile) if mobile else "",
+            "email": "",
+        })
+    return rows
+
+
+def visit_stage(v):
+    if v["checkout_started_at"] is not None or v["contact_saved_at"] is not None:
+        return "added_to_cart"
+    if v["done_watching_at"] is not None:
+        return "done_watching"
+    if v["started_watching_at"] is not None or v["video_percent"] > 0:
+        return "start_watching"
+    return "landing_page"
+
+
+def visit_rows(site):
+    """Visits that have not placed an order. An unfinished checkout shows the contact as typed, in full."""
+    rows = []
+    for v in PackVisit.objects.filter(site=site, order__isnull=True).values(
+            "contact_name", "contact_mobile", "contact_email", "video_percent", "started_watching_at",
+            "done_watching_at", "checkout_started_at", "contact_saved_at", "last_activity_at"):
+        rows.append({
+            "kind": "visit", "name": v["contact_name"], "order_number": None, "order_id": None,
+            "source": PAGE_SOURCE, "stage": visit_stage(v), "registration_status": None,
+            "last_activity": v["last_activity_at"], "video_percent": v["video_percent"],
+            "mobile": v["contact_mobile"], "email": v["contact_email"],
         })
     return rows
 
@@ -70,9 +110,10 @@ def inquiry_rows(site):
         name = c["contact_name"] if c["provider"] in InquiryConversation.STORED_PROVIDERS else c["display_name"]
         rows.append({
             "kind": "inquiry", "name": name, "order_number": None, "order_id": None,
-            "source": CHANNEL_KEYS.get(c["provider"], "facebook"), "stage": MESSAGE_STAGE,
+            "source": CHANNEL_KEYS.get(c["provider"], "facebook"), "stage": "new_lead",
             "registration_status": None,
             "last_activity": _latest(c["last_message_at"], c["last_inbound_at"], default=c["created_at"]),
+            "video_percent": None, "mobile": "", "email": "",
         })
     return rows
 
@@ -80,11 +121,14 @@ def inquiry_rows(site):
 def _matches(row, q):
     if q in row["name"].lower():
         return True
-    return row["order_number"] is not None and q in row["order_number"].lower()
+    if row["order_number"] is not None and q in row["order_number"].lower():
+        return True
+    # Only a visit shows its contact in full, so only a visit is searched by it.
+    return row["kind"] == "visit" and (q in row["mobile"].lower() or q in row["email"])
 
 
 def prospects(site, *, stage="", q="", page=1):
-    rows = order_rows(site) + inquiry_rows(site)
+    rows = order_rows(site) + visit_rows(site) + inquiry_rows(site)
     stage_counts = {"all": len(rows), **{s: 0 for s in STAGES}}
     for r in rows:
         stage_counts[r["stage"]] += 1
@@ -93,7 +137,7 @@ def prospects(site, *, stage="", q="", page=1):
         rows = [r for r in rows if _matches(r, q)]
     if stage:
         rows = [r for r in rows if r["stage"] == stage]
-    rows.sort(key=lambda r: (r["last_activity"], r["order_id"] or ""), reverse=True)
+    rows.sort(key=lambda r: (r["last_activity"], r["order_id"] or "", r["kind"]), reverse=True)
     total = len(rows)
     pages = max(1, -(-total // PAGE_SIZE))
     page = min(page, pages)

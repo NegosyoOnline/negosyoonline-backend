@@ -35,6 +35,10 @@ Throttles are TWCinc's: contact 20 an hour per IP and 10 an hour per token, chec
 
 `GET /v1/sites/{site_id}/pack/journey/prospects/?stage=&q=&page=`, same gate as the journey. One row per order of the site and one per stored inquiry conversation of the site, newest activity first, 25 to a page. Each row has a name, the order number (order rows), the source, one furthest stage (`order_placed`, `proof_submitted`, `payment_verified`, `registration`, `dashboard_access`, or `message` for an inquiry) and the last activity; no email, mobile, address, proof, date of birth or Meta data. Registration and dashboard access count once the payment is approved. Inquiry rows read the stored name live (blank stays blank), never call a provider, and are never matched with order rows. `stage_counts` are taken before search and stage narrowing. Unknown `stage` or a bad `page` is 422. Code: `apps/pack/prospects.py`, `apps/pack/api_journey.py`.
 
+### Membership Pack page visits (PackVisit, ClickUp z8uq9mfw14)
+
+Storefront routes `POST /storefront/v1/visit/` (`{host, visitor_ip, ref?}` -> `{ref}`, a ref made here and kept by the browser in localStorage), `visit/event/` (`start`, `percent` 25/50/75/90/100 with the highest kept and `done_watching_at` from 90, `checkout`) and `visit/contact/` (name, mobile, email saved when a checkout field loses focus, kept only in the visit). Rate limited with `apps.common.throttle` (`VISIT_*` in `constants.py`). Order placement takes an optional `visitor_ref` and links the visit. Retention rule `pack_visits`: 90 days after the last activity the contact is blanked and a visit with no order is deleted; the day-90 site purge and account disposal delete the site's visits. Nothing goes to Meta or any third party. One migration (`0007_pack_visit`); apply on staging as any pack migration.
+
 ## Rules
 
 - **Token.** Only the SHA-256 is stored. Created by the first valid contact call, never by a read. Every use slides its expiry two hours on. Spent by placement.
