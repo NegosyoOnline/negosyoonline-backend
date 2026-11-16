@@ -28,7 +28,7 @@ from ninja.files import UploadedFile
 from apps.common import private_files, throttle
 from apps.common.errors import ApiError
 from apps.pack import (
-    access, address_zip, checkout, constants as C, dashboard, interfaces, notices, onboarding, panels, placement, policies, portal, records,
+    access, address_zip, checkout, visits, constants as C, dashboard, interfaces, notices, onboarding, panels, placement, policies, portal, records,
     registration, registration_rules, review,
 )
 from apps.members import sessions
@@ -136,6 +136,7 @@ class PlaceIn(Schema):
     fbc: str = ""
     user_agent: str = ""
     source_url: str = ""
+    visitor_ref: str = ""  # the visit this buyer came from, when the storefront has one
 
 
 class PlaceOut(Schema):
@@ -154,7 +155,7 @@ def checkout_place(request, body: Form[PlaceIn], proof: File[UploadedFile] = Non
         "consent": body.meta_consent == "1", "host": body.host, "url": body.source_url, "fbp": body.fbp,
         "fbc": body.fbc, "user_agent": body.user_agent,
     }
-    for name in ("meta_consent", "fbp", "fbc", "user_agent", "source_url"):  # not proof fields
+    for name in ("meta_consent", "fbp", "fbc", "user_agent", "source_url", "visitor_ref"):  # not proof fields
         data.pop(name)
     for name in ("sender_name", "sender_first_name", "sender_last_name"):
         if name not in request.POST:  # an absent field is not an empty one (the name rule reads presence)
@@ -163,7 +164,62 @@ def checkout_place(request, body: Form[PlaceIn], proof: File[UploadedFile] = Non
         site, token, body.token, submit_key=body.submit_key, data=data, upload=proof,
         ip=_ip(body.visitor_ip), meta=meta,
     )
+    visits.link_order(site, body.visitor_ref, placed.order)
     return {"order_number": placed.order.order_number, "replay": placed.replay}
+
+
+# -- the Membership Pack page visitor (ClickUp z8uq9mfw14) -------------------------------------------
+#
+#    POST /storefront/v1/visit/          {host, visitor_ip, ref?}               -> {ref}
+#    POST /storefront/v1/visit/event/    {host, visitor_ip, ref, event, percent?} -> {ok}
+#        event: start | percent (25, 50, 75, 90, 100) | checkout
+#    POST /storefront/v1/visit/contact/  {host, visitor_ip, ref, full_name, mobile, email} -> {ok}
+#        saved when the buyer leaves a checkout field; kept only in the visit.
+# Same gate as the checkout routes (PACK_ENABLED, a served Santé host); an unknown ref answers 404.
+
+
+class VisitIn(Schema):
+    host: str = ""
+    visitor_ip: str = ""
+    ref: str = ""
+
+
+class VisitOut(Schema):
+    ref: str
+
+
+class VisitEventIn(VisitIn):
+    event: str = ""
+    percent: int | None = None
+
+
+class VisitContactIn(VisitIn):
+    full_name: str = ""
+    mobile: str = ""
+    email: str = ""
+
+
+class OkOut(Schema):
+    ok: bool
+
+
+@router.post("/visit/", response=VisitOut)
+def visit_begin(request, body: VisitIn):
+    site = _site(body.host)
+    return {"ref": visits.begin(site, body.ref, ip=_ip(body.visitor_ip))}
+
+
+@router.post("/visit/event/", response=OkOut)
+def visit_event(request, body: VisitEventIn):
+    site = _site(body.host)
+    return {"ok": visits.note_event(site, body.ref, body.event, body.percent, ip=_ip(body.visitor_ip))}
+
+
+@router.post("/visit/contact/", response=OkOut)
+def visit_contact(request, body: VisitContactIn):
+    site = _site(body.host)
+    visits.save_contact(site, body.ref, body.full_name, body.mobile, body.email, ip=_ip(body.visitor_ip))
+    return {"ok": True}
 
 
 # -- the funnel after payment (checkout token -> its own placed order) ------------------------------

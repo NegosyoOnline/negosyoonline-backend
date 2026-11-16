@@ -167,6 +167,8 @@ OWNER_ROUTES = {
     ("DELETE", "/sites/{site_id}/payment-methods/accounts/{account_id}/"): 200,
     # pack owner
     ("GET", "/sites/{site_id}/pack/orders/"): 200,
+    ("GET", "/sites/{site_id}/pack/journey/"): 200,
+    ("GET", "/sites/{site_id}/pack/journey/prospects/"): 200,
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/"): 200,
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"): 200,
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/approve/"): 200,

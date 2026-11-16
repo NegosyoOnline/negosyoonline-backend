@@ -4,6 +4,7 @@ the site detail, the setup and the billing endpoints answer as always.
 
 The billing clock is set by each test; none reads the real one.
 """
+import re
 from unittest import mock
 
 from django.test import override_settings
@@ -17,10 +18,17 @@ from apps.meta_ads.api_owner import router as meta_router
 from apps.meta_ads.tests.base import KEY as META_KEY, PIXEL as META_PIXEL
 from apps.catalog.tests.base import catalog_call
 from apps.pack.api_owner import router as pack_router
+from apps.pack.api_journey import router as pack_journey_router
 from apps.pack.tests.owner_base import pack_call
 from apps.shop.api_owner import router as shop_router
 from apps.shop.tests.owner_base import shop_call
+from apps.inquiries.api_owner import router as inquiries_router
+from apps.media_library.api_owner import router as media_library_router
+from apps.members.api_notices import router as member_notices_router
+from apps.members.api_owner import router as member_recovery_router
 from apps.payments.api import router as payments_router
+from apps.statements.api import router as statements_router
+from apps.training.api_owner import router as training_router
 from apps.accounts.tests.base import ORIGIN
 from apps.common import private_files
 from apps.payments.tests.base import PNG, payments_call, qr_file, use_local_private_store
@@ -56,6 +64,8 @@ TURNED_OFF = [
     ("POST", "/sites/{site_id}/payment-methods/accounts/"),
     ("POST", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
     ("DELETE", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
+    ("GET", "/sites/{site_id}/pack/journey/"),
+    ("GET", "/sites/{site_id}/pack/journey/prospects/"),
     ("GET", "/sites/{site_id}/pack/orders/"),
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/"),
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"),
@@ -81,6 +91,69 @@ TURNED_OFF = [
     ("PUT", "/sites/{site_id}/meta/"),
     ("DELETE", "/sites/{site_id}/meta/token/"),
     ("POST", "/sites/{site_id}/meta/test/"),
+    # Owner help for members, content and inquiries (training); each is reached through a Santé site.
+    ("GET", "/sites/{site_id}/training/courses/"),
+    ("POST", "/sites/{site_id}/training/courses/"),
+    ("POST", "/sites/{site_id}/training/courses/reorder/"),
+    ("GET", "/sites/{site_id}/training/courses/{course_id}/"),
+    ("PATCH", "/sites/{site_id}/training/courses/{course_id}/"),
+    ("DELETE", "/sites/{site_id}/training/courses/{course_id}/"),
+    ("POST", "/sites/{site_id}/training/courses/{course_id}/image/"),
+    ("DELETE", "/sites/{site_id}/training/courses/{course_id}/image/"),
+    ("POST", "/sites/{site_id}/training/courses/{course_id}/modules/"),
+    ("POST", "/sites/{site_id}/training/courses/{course_id}/modules/reorder/"),
+    ("PATCH", "/sites/{site_id}/training/lessons/{lesson_id}/"),
+    ("DELETE", "/sites/{site_id}/training/lessons/{lesson_id}/"),
+    ("POST", "/sites/{site_id}/training/lessons/{lesson_id}/image/"),
+    ("DELETE", "/sites/{site_id}/training/lessons/{lesson_id}/image/"),
+    ("GET", "/sites/{site_id}/training/live/"),
+    ("POST", "/sites/{site_id}/training/live/"),
+    ("PATCH", "/sites/{site_id}/training/live/{live_id}/"),
+    ("DELETE", "/sites/{site_id}/training/live/{live_id}/"),
+    ("POST", "/sites/{site_id}/training/live/{live_id}/thumbnail/"),
+    ("DELETE", "/sites/{site_id}/training/live/{live_id}/thumbnail/"),
+    ("PATCH", "/sites/{site_id}/training/modules/{module_id}/"),
+    ("DELETE", "/sites/{site_id}/training/modules/{module_id}/"),
+    ("POST", "/sites/{site_id}/training/modules/{module_id}/lessons/"),
+    ("POST", "/sites/{site_id}/training/modules/{module_id}/lessons/reorder/"),
+    # Owner help for members, content and inquiries (media); each is reached through a Santé site.
+    ("GET", "/sites/{site_id}/media/"),
+    ("POST", "/sites/{site_id}/media/"),
+    ("POST", "/sites/{site_id}/media/reorder/"),
+    ("PATCH", "/sites/{site_id}/media/{asset_id}/"),
+    ("DELETE", "/sites/{site_id}/media/{asset_id}/"),
+    ("POST", "/sites/{site_id}/media/{asset_id}/image/"),
+    ("DELETE", "/sites/{site_id}/media/{asset_id}/image/"),
+    ("POST", "/sites/{site_id}/media/{asset_id}/publish/"),
+    ("POST", "/sites/{site_id}/media/{asset_id}/unpublish/"),
+    ("POST", "/sites/{site_id}/media/{asset_id}/video/attach/"),
+    ("POST", "/sites/{site_id}/media/{asset_id}/video/token/"),
+    # Owner help for members, content and inquiries (recovery); each is reached through a Santé site.
+    ("GET", "/sites/{site_id}/members/"),
+    ("GET", "/sites/{site_id}/members/by-order/"),
+    ("GET", "/sites/{site_id}/members/{member_id}/recovery/"),
+    ("POST", "/sites/{site_id}/members/{member_id}/recovery/"),
+    ("POST", "/sites/{site_id}/members/{member_id}/recovery/check/"),
+    # Owner help for members, content and inquiries (notices); each is reached through a Santé site.
+    ("GET", "/sites/{site_id}/member-notices/"),
+    ("POST", "/sites/{site_id}/member-notices/"),
+    ("PATCH", "/sites/{site_id}/member-notices/{notice_id}/"),
+    ("DELETE", "/sites/{site_id}/member-notices/{notice_id}/"),
+    ("POST", "/sites/{site_id}/member-notices/{notice_id}/image/"),
+    ("DELETE", "/sites/{site_id}/member-notices/{notice_id}/image/"),
+    # Owner help for members, content and inquiries (inquiries); each is reached through a Santé site.
+    ("GET", "/sites/{site_id}/inquiries/channels/"),
+    ("PUT", "/sites/{site_id}/inquiries/channels/"),
+    ("GET", "/sites/{site_id}/inquiries/connection/"),
+    ("PUT", "/sites/{site_id}/inquiries/connection/"),
+    ("DELETE", "/sites/{site_id}/inquiries/connection/"),
+    ("POST", "/sites/{site_id}/inquiries/connection/test/"),
+    ("GET", "/sites/{site_id}/inquiries/conversations/"),
+    ("GET", "/sites/{site_id}/inquiries/conversations/{ref}/"),
+    ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/close/"),
+    ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/read/"),
+    ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reopen/"),
+    ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reply/"),
 ]
 # These answer 201 when they work.
 CREATED = [
@@ -90,6 +163,14 @@ CREATED = [
 # A route that is let through but answers something else than 200 or 201 with the empty settings
 # used here: sending the test event needs a saved Pixel, token and code first.
 OTHER_WHEN_WORKING = {("POST", "/sites/{site_id}/meta/test/"): 409}
+# The routes of the help for members, the training, the media library, the member notices and the
+# inquiries are reached only through a Santé site and need a body, a file or a stored record to
+# do anything. They are gated before any of that is read, so a request with made-up ids and an empty
+# body proves the gate: 403 billing_only when the site is closed, anything but 403 when it is served.
+GATE_ONLY_PREFIXES = (
+    "/sites/{site_id}/training/", "/sites/{site_id}/media/", "/sites/{site_id}/members/",
+    "/sites/{site_id}/member-notices/", "/sites/{site_id}/inquiries/",
+)
 STAYS_ON = [
     ("GET", "/sites/{site_id}/"),
     ("GET", "/sites/{site_id}/billing/"),
@@ -105,6 +186,12 @@ STAYS_ON = [
     # The invoice copies (B5): billing records, like the payments, stay readable.
     ("GET", "/sites/{site_id}/billing/invoices/"),
     ("GET", "/sites/{site_id}/billing/invoices/{invoice_id}/copy/"),
+    # The billing profile and the statements (billing records) stay open to a closed site.
+    ("GET", "/sites/{site_id}/billing/profile/"),
+    ("PUT", "/sites/{site_id}/billing/profile/"),
+    ("GET", "/sites/{site_id}/billing/statements/"),
+    ("GET", "/sites/{site_id}/billing/statements/{number}/"),
+    ("GET", "/sites/{site_id}/billing/statements/{number}/pdf/"),
 ]
 MESSAGE = "This site is limited to Billing until its subscription continues."
 SANTE_BODY = {"sponsor_id": "TAKEN-1"}
@@ -114,6 +201,7 @@ SANTE_BODY = {"sponsor_id": "TAKEN-1"}
     BILLING_ENABLED=True, SANTE_SETTINGS_ENABLED=True, SANTE_CATALOG_ENABLED=True,
     PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True, PACK_SHIPPING_ENABLED=True,
     SHOP_ENABLED=True, META_EVENTS_ENABLED=True, META_CREDENTIALS_KEY=META_KEY,
+    MEMBERS_ENABLED=True, INQUIRIES_ENABLED=True, BILLING_STATEMENTS_ENABLED=True,
 )
 class BillingOnlyTestCase(SitesApiTestCase):
     def setUp(self):
@@ -137,6 +225,9 @@ class BillingOnlyTestCase(SitesApiTestCase):
 
     def call(self, method, template, client=None, site_id=None):
         path = "/v1" + template.replace("{site_id}", site_id or self.site_id)
+        if template.startswith(GATE_ONLY_PREFIXES):
+            path = re.sub(r"\{\w+\}", "x", path)  # made-up ids: the gate answers before any is read
+            return self.send(method.lower(), path, None, client=client) if method != "GET" else self.get(path, client=client)
         if "/catalog/" in path:
             return catalog_call(self, method, path, client=client)
         if "/pack/" in path:
@@ -164,6 +255,10 @@ class BillingOnlyTestCase(SitesApiTestCase):
         return self.send(method.lower(), path, body, client=client)
 
     def assert_worked(self, method, template, response):
+        if template.startswith(GATE_ONLY_PREFIXES):
+            self.assertNotIn(response.status_code, (401, 403), response.content)
+            self.assertLess(response.status_code, 500, response.content)
+            return
         expected = OTHER_WHEN_WORKING.get((method, template), 201 if (method, template) in CREATED else 200)
         self.assertEqual(response.status_code, expected, response.content)
 
@@ -333,8 +428,15 @@ class RouteInventoryTests(BillingOnlyTestCase):
             + routes_under_a_site(catalog_router)
             + routes_under_a_site(payments_router)
             + routes_under_a_site(pack_router)
+            + routes_under_a_site(pack_journey_router)
             + routes_under_a_site(shop_router)
             + routes_under_a_site(meta_router)
+            + routes_under_a_site(training_router)
+            + routes_under_a_site(media_library_router)
+            + routes_under_a_site(member_recovery_router)
+            + routes_under_a_site(member_notices_router)
+            + routes_under_a_site(inquiries_router)
+            + routes_under_a_site(statements_router)
         )
 
     def test_every_route_under_a_site_is_turned_off_or_allowed_by_name(self):

@@ -88,6 +88,11 @@ MSG_CHECK_FIELDS = "Check the highlighted fields."
 CONTACT_IP_LIMIT = ("pack-contact-ip", 20, 3600)
 CONTACT_TOKEN_LIMIT = ("pack-contact-token", 10, 3600)
 CHECK_IP_LIMIT = ("pack-check-ip", 60, 3600)
+# The Membership Pack page visitor (PackVisit): a new visit per IP, any event per IP, and per visit.
+VISIT_IP_LIMIT = ("pack-visit-ip", 60, 3600)
+VISIT_EVENT_IP_LIMIT = ("pack-visit-event-ip", 600, 3600)
+VISIT_REF_LIMIT = ("pack-visit-ref", 200, 3600)
+VISIT_CONTACT_LIMIT = ("pack-visit-contact", 60, 3600)
 
 # The checkout token slides: every use pushes its expiry two hours on (TWCinc checkout.TTL).
 TOKEN_TTL_SECONDS = 2 * 3600
