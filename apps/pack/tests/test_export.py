@@ -393,7 +393,7 @@ class OutputTests(ExportBase):
     def test_t13_the_account_export_pack_part_is_unchanged(self):
         from apps.pack import retention as pack_retention
         data = pack_retention.export_packs_of(self.account_)
-        self.assertEqual(sorted(data), ["pack_orders", "pack_proof_submissions", "sante_registrations"])
+        self.assertEqual(sorted(data), ["pack_orders", "pack_proof_submissions", "pack_visits", "sante_registrations"])
         self.assertEqual(len(data["pack_orders"]), 4)  # three orders and the second site's
         for row in data["pack_proof_submissions"]:
             self.assertNotIn("file", row)
