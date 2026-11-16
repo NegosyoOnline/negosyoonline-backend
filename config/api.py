@@ -14,6 +14,7 @@ from apps.inquiries.api_owner import router as inquiries_router
 from apps.meta_ads.api_owner import router as meta_router
 from apps.members.api_notices import router as member_notices_router
 from apps.members.api_owner import router as member_recovery_router
+from apps.pack.api_journey import router as pack_journey_router
 from apps.pack.api_owner import router as pack_owner_router
 from apps.payments.api import router as payments_router
 from apps.training.api_owner import router as training_owner_router
@@ -43,6 +44,7 @@ api.add_router("", sante_router)
 api.add_router("", catalog_router)
 api.add_router("", payments_router)
 api.add_router("", pack_owner_router)
+api.add_router("", pack_journey_router)
 api.add_router("", member_recovery_router)
 api.add_router("", member_notices_router)
 api.add_router("", training_owner_router)

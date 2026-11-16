@@ -19,13 +19,17 @@ from django.db.models import Q
 
 from apps.common import private_files, retention
 from apps.pack import registration
-from apps.pack.models import CheckoutToken, PackOrder, PackProofSubmission, SanteRegistration
+from apps.pack import visits
+from apps.pack.models import CheckoutToken, PackOrder, PackProofSubmission, PackVisit, SanteRegistration
 from apps.sites.models import Site
 
-ORDERS, PROOFS, PROOF_FILES, TOKENS, REGISTRATIONS = (
+ORDERS, PROOFS, PROOF_FILES, TOKENS, REGISTRATIONS, VISITS = (
     "pack_orders", "pack_proof_submissions", "pack_proof_files", "pack_checkout_tokens",
-    "sante_registrations",
+    "sante_registrations", "pack_visits",
 )
+# A Membership Pack page visit (PackVisit): its typed contact is blanked, and a visit with no order is
+# deleted, this long after its last activity (ClickUp z8uq9mfw14).
+VISIT_RETENTION = timedelta(days=90)
 REGISTRATION_PERSONAL = ("date_of_birth", "desired_username", "alternate_username", "sante_member_id")
 # TWCinc sweep.py: details are kept 90 days after the last status change, whatever the status.
 DETAILS_RETENTION = timedelta(days=90)
@@ -55,7 +59,7 @@ def blanked():
         return {}
     return {
         ORDERS: list(ORDER_PERSONAL), PROOFS: list(PROOF_PERSONAL), TOKENS: ["all rows deleted"],
-        REGISTRATIONS: list(REGISTRATION_PERSONAL),
+        REGISTRATIONS: list(REGISTRATION_PERSONAL), VISITS: ["all rows deleted"],
     }
 
 
@@ -80,14 +84,16 @@ def blank_packs(sites, dry_run=False, *, ignore_switch=False, keep_files=False):
     tokens = CheckoutToken.objects.filter(site__in=sites)
     keys = [] if keep_files else list(proofs.exclude(file_key="").values_list("file_key", flat=True))
     registrations = SanteRegistration.objects.filter(site__in=sites).filter(HOLDS_PERSONAL)
+    visit_rows = PackVisit.objects.filter(site__in=sites)
     counts = {
         ORDERS: orders.count(), PROOFS: proofs.count(), PROOF_FILES: len(keys), TOKENS: tokens.count(),
-        REGISTRATIONS: registrations.count(),
+        REGISTRATIONS: registrations.count(), VISITS: visit_rows.count(),
     }
     if not dry_run:
         for key in keys:
             private_files.delete(key)
         tokens.delete()
+        visit_rows.delete()
         orders.update(buyer_name="", delivery_address={})
         wiped = {"sender_name": "", "sender_account_number": "", "reference_number": "", "ip_advisory": ""}
         proofs.update(**wiped, **({} if keep_files else {"file_key": ""}))
@@ -195,5 +201,21 @@ def registration_details(now, dry_run):
     return erased
 
 
+@retention.behind_switch
+def old_visits(now, dry_run):
+    """Membership Pack page visits, 90 days after their last activity: the contact a visitor typed in the
+    checkout step is blanked, and a visit with no order is deleted. A visit with an order keeps only
+    its progress, which holds no person."""
+    if not enabled():
+        return 0
+    due = PackVisit.objects.filter(last_activity_at__lte=now - VISIT_RETENTION)
+    if dry_run:
+        return due.count()
+    blanked_n = visits.blank_contacts(due)
+    deleted = retention.remove(due.filter(order__isnull=True), dry_run)
+    return blanked_n + deleted
+
+
 retention.register("expired_checkout_tokens", expired_checkout_tokens)
+retention.register("pack_visits", old_visits)
 retention.register("pack_registration_details", registration_details)

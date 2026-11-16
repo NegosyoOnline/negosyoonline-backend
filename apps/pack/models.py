@@ -154,6 +154,34 @@ class AppendOnly(models.Model):
     def delete(self, *args, **kwargs):
         raise ImmutableRecordError(f"{type(self).__name__} rows are append-only.")
 
+class PackVisit(models.Model):
+    """One visitor of a Santé site's Membership Pack page (ClickUp z8uq9mfw14), adapted from TWCinc
+    funnels/models.py Prospect (14-89). `visitor_ref` is made by the server and held by the visitor's
+    browser in localStorage (no cookie). The row keeps how far the visitor got (landed, video
+    progress, checkout opened) and, once the visitor leaves a checkout field, the contact typed
+    there; that contact lives only here, never in a member. Nothing goes to Meta or any third party.
+    Retention: contacts are blanked, and a visit with no order deleted, 90 days after the last
+    activity (apps.pack.retention)."""
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="pack_visits")
+    visitor_ref = models.CharField(max_length=32)
+    landed_at = models.DateTimeField(default=timezone.now)
+    started_watching_at = models.DateTimeField(null=True, blank=True)
+    video_percent = models.PositiveSmallIntegerField(default=0)  # the highest of 25, 50, 75, 90, 100
+    done_watching_at = models.DateTimeField(null=True, blank=True)
+    checkout_started_at = models.DateTimeField(null=True, blank=True)
+    contact_name = models.CharField(max_length=120, blank=True)
+    contact_mobile = models.CharField(max_length=20, blank=True)
+    contact_email = models.CharField(max_length=254, blank=True)
+    contact_saved_at = models.DateTimeField(null=True, blank=True)
+    order = models.ForeignKey(PackOrder, null=True, blank=True, on_delete=models.SET_NULL, related_name="visits")
+    last_activity_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["site", "visitor_ref"], name="pack_visit_site_ref_uniq")]
+        indexes = [models.Index(fields=["site", "last_activity_at"], name="pack_visit_site_activity")]
+
 
 class PackProofSubmission(AppendOnly):
     public_id = models.CharField(max_length=40, unique=True, default=new_proof_id, editable=False)

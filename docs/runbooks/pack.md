@@ -27,6 +27,22 @@ All are `POST`, `Authorization: Bearer <STOREFRONT_SERVER_SECRET>`, `Cache-Contr
 
 Throttles are TWCinc's: contact 20 an hour per IP and 10 an hour per token, check 60 an hour per IP, answered before any judgement so a 429 reveals no membership.
 
+## Buyer journey (owner read, ClickUp z8uq9meyqk)
+
+`GET /v1/sites/{site_id}/pack/journey/?period=7d|30d|all` (default `30d`; anything else is 422 `invalid_period`). Signed-in owner of a Santé site, same gate as the other pack owner routes (404 for a foreign or non-Santé site or `PACK_ENABLED` off, 401 signed out, 403 `billing_only`). Read-only counts from existing rows (checkout tokens, orders, proofs, registrations, member sessions, Meta deliveries); nothing is stored, no buyer data is returned, and Meta figures are event counts, not people. Code: `apps/pack/journey.py`, `apps/pack/api_journey.py`.
+
+## Prospect list (owner read, ClickUp z8uq9mfw14)
+
+`GET /v1/sites/{site_id}/pack/journey/prospects/?stage=&q=&page=`, same gate as the journey (404 foreign or non-Sante site or `PACK_ENABLED` off, 401 signed out, 403 `billing_only`). Three kinds of row, newest activity first, 25 to a page: `order` (one per order of the site), `visit` (a Membership Pack page visit with no order) and `inquiry` (one per stored inquiry conversation of the site). Each row has `kind`, `name`, `order_number` (order rows), `order_id`, `source`, `stage`, `registration_status`, `last_activity`, `video_percent` (null for inquiries and for orders with no linked visit), `mobile` and `email`, and for an order row `placed_at`, `payment_status`, `price_centavos`, `currency` (null on other rows; what the Orders page shows, for the order summary popup).
+
+Eight stages, one furthest stage per row: `new_lead`, `landing_page`, `start_watching`, `done_watching`, `added_to_cart`, `checked_out`, `account_setup`, `activated`. Mapping (`apps/pack/prospects.py`): an inquiry is `new_lead`; a visit is `landing_page`, then `start_watching` (video started or any percent) and `done_watching` (90 percent or more), then `added_to_cart` once the checkout step was opened or a contact saved; an order is `checked_out`, `account_setup` once the payment is approved (with `registration_status` beside it), and `activated` once the member signed in to the dashboard. `video_percent` on an order row comes from its linked visit; it is null when the order has no linked visit (unknown, never inferred as 0), and a linked visit's real value, including 0, is kept.
+
+`mobile` and `email` are returned in full where already stored (Coach Ed, 2026-11-16, ruling D2): an order row the buyer's member mobile and email, a visit row the contact as typed, a stored (webchat or email) inquiry row its `contact_email` (no phone is stored there); `""` otherwise, and a Pancake conversation is never read for a contact. Search matches the contact on every row. Never an address, proof, date of birth or Meta data. Inquiry rows read the stored name live (blank stays blank), never call a provider, and are never matched with order rows by name. `stage_counts` (with `all`) are taken before search and stage narrowing. Unknown `stage` is 422 `invalid_stage`; a `page` that is not a whole number from 1 is 422 `invalid_page`. Code: `apps/pack/prospects.py`, `apps/pack/api_journey.py`.
+
+### Membership Pack page visits (PackVisit, ClickUp z8uq9mfw14)
+
+Storefront routes `POST /storefront/v1/visit/` (`{host, visitor_ip, ref?}` -> `{ref}`, a ref made here and kept by the browser in localStorage), `visit/event/` (`start`, `percent` 25/50/75/90/100 with the highest kept and `done_watching_at` from 90, `checkout`) and `visit/contact/` (name, mobile, email saved when a checkout field loses focus, kept only in the visit). Rate limited with `apps.common.throttle` (`VISIT_*` in `constants.py`). Order placement takes an optional `visitor_ref` and links the visit. Retention rule `pack_visits`: 90 days after the last activity the contact is blanked and a visit with no order is deleted; the day-90 site purge and account disposal delete the site's visits. Nothing goes to Meta or any third party. One migration (`0007_pack_visit`); apply on staging as any pack migration.
+
 ## Rules
 
 - **Token.** Only the SHA-256 is stored. Created by the first valid contact call, never by a read. Every use slides its expiry two hours on. Spent by placement.
