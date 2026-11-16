@@ -27,6 +27,10 @@ All are `POST`, `Authorization: Bearer <STOREFRONT_SERVER_SECRET>`, `Cache-Contr
 
 Throttles are TWCinc's: contact 20 an hour per IP and 10 an hour per token, check 60 an hour per IP, answered before any judgement so a 429 reveals no membership.
 
+## Buyer journey (owner read, ClickUp z8uq9meyqk)
+
+`GET /v1/sites/{site_id}/pack/journey/?period=7d|30d|all` (default `30d`; anything else is 422 `invalid_period`). Signed-in owner of a Santé site, same gate as the other pack owner routes (404 for a foreign or non-Santé site or `PACK_ENABLED` off, 401 signed out, 403 `billing_only`). Read-only counts from existing rows (checkout tokens, orders, proofs, registrations, member sessions, Meta deliveries); nothing is stored, no buyer data is returned, and Meta figures are event counts, not people. Code: `apps/pack/journey.py`, `apps/pack/api_journey.py`.
+
 ## Rules
 
 - **Token.** Only the SHA-256 is stored. Created by the first valid contact call, never by a read. Every use slides its expiry two hours on. Spent by placement.

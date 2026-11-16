@@ -57,6 +57,7 @@ TURNED_OFF = [
     ("POST", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
     ("DELETE", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
     ("GET", "/sites/{site_id}/pack/orders/"),
+    ("GET", "/sites/{site_id}/pack/journey/"),
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/"),
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"),
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/approve/"),
