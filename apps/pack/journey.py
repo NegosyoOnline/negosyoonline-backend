@@ -56,7 +56,7 @@ def stages(site, since):
         {"key": "proof_submitted",
          "count": _in_period(PackProofSubmission.objects.filter(site=site), "submitted_at", since)
          .values("order").distinct().count()},
-        {"key": "payment_verified", "count": _in_period(orders, "verified_at", since).count()},
+        {"key": "payment_verified", "count": _in_period(orders.filter(verified_at__isnull=False), "verified_at", since).count()},
         {"key": "onboarding", "count": registrations.count(), "breakdown": breakdown},
         {"key": "dashboard_access",
          "count": _in_period(MemberSession.objects.filter(site=site), "created_at", since)

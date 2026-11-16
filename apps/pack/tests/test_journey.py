@@ -127,6 +127,24 @@ class JourneyTests(OwnerTestCase):
             self.assertEqual(bool(body["since"]), since_set)
             self.assertEqual(sum(e["sent"] for e in body["meta"]["events"]), 0 if period == "7d" else 1)
 
+    def test_all_time_counts_only_verified_orders(self):
+        make_order(self.site)  # pending
+        make_order(self.site, status=C.REJECTED)
+        paid, _ = make_order(self.site, status=C.VERIFIED)
+        PackOrder.objects.filter(pk=paid.pk).update(verified_at=timezone.now())
+        body = self.get(self.path("?period=all")).json()
+        self.assertEqual(self.stage(body, "order_placed")["count"], 3)
+        self.assertEqual(self.stage(body, "payment_verified")["count"], 1)
+
+    def test_each_step_is_counted_on_its_own(self):
+        for _ in range(2):
+            order, _ = make_order(self.site, status=C.VERIFIED)
+            age(order, 10)
+            PackOrder.objects.filter(pk=order.pk).update(verified_at=timezone.now() - timedelta(days=2))
+        body = self.get(self.path("?period=7d")).json()
+        self.assertEqual(self.stage(body, "order_placed")["count"], 0)
+        self.assertEqual(self.stage(body, "payment_verified")["count"], 2)
+
     def test_bad_period_is_422(self):
         for value in ("90d", "", "ALL"):
             self.error(self.get(self.path(f"?period={value}")), 422, "invalid_period")
