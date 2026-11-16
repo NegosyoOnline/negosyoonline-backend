@@ -31,6 +31,10 @@ Throttles are TWCinc's: contact 20 an hour per IP and 10 an hour per token, chec
 
 `GET /v1/sites/{site_id}/pack/journey/?period=7d|30d|all` (default `30d`; anything else is 422 `invalid_period`). Signed-in owner of a Santé site, same gate as the other pack owner routes (404 for a foreign or non-Santé site or `PACK_ENABLED` off, 401 signed out, 403 `billing_only`). Read-only counts from existing rows (checkout tokens, orders, proofs, registrations, member sessions, Meta deliveries); nothing is stored, no buyer data is returned, and Meta figures are event counts, not people. Code: `apps/pack/journey.py`, `apps/pack/api_journey.py`.
 
+## Prospect list (owner read, ClickUp z8uq9mfw14)
+
+`GET /v1/sites/{site_id}/pack/journey/prospects/?stage=&q=&page=`, same gate as the journey. One row per order of the site and one per stored inquiry conversation of the site, newest activity first, 25 to a page. Each row has a name, the order number (order rows), the source, one furthest stage (`order_placed`, `proof_submitted`, `payment_verified`, `registration`, `dashboard_access`, or `message` for an inquiry) and the last activity; no email, mobile, address, proof, date of birth or Meta data. Registration and dashboard access count once the payment is approved. Inquiry rows read the stored name live (blank stays blank), never call a provider, and are never matched with order rows. `stage_counts` are taken before search and stage narrowing. Unknown `stage` or a bad `page` is 422. Code: `apps/pack/prospects.py`, `apps/pack/api_journey.py`.
+
 ## Rules
 
 - **Token.** Only the SHA-256 is stored. Created by the first valid contact call, never by a read. Every use slides its expiry two hours on. Spent by placement.
