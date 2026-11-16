@@ -181,7 +181,7 @@ class JourneyTests(OwnerTestCase):
             "onboarding": 0, "dashboard_access": 0})
         self.assertEqual(self.stage(body, "onboarding")["breakdown"], [])
         self.assertEqual(body["meta"]["events"], [])
-        ben_body = ben.get(self.path(site_id=ben_site.public_id)).json()
+        ben_body = ben.get(self.path(site_id=ben_site.public_id), secure=True).json()
         self.assertEqual(self.stage(ben_body, "order_placed")["count"], 3)
 
 

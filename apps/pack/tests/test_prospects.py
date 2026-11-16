@@ -182,7 +182,7 @@ class ProspectTests(OwnerTestCase):
         body = self.get(self.path()).json()
         self.assertEqual([r["order_number"] for r in body["results"]], [mine.order_number])
         self.assertEqual(body["stage_counts"]["all"], 1)
-        self.assertEqual(ben.get(self.path(site_id=ben_site.public_id)).json()["total"], 2)
+        self.assertEqual(ben.get(self.path(site_id=ben_site.public_id), secure=True).json()["total"], 2)
 
 
 class ProspectFailClosedTests(OwnerTestCase):
