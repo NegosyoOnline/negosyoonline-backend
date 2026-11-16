@@ -17,6 +17,7 @@ from apps.meta_ads.api_owner import router as meta_router
 from apps.meta_ads.tests.base import KEY as META_KEY, PIXEL as META_PIXEL
 from apps.catalog.tests.base import catalog_call
 from apps.pack.api_owner import router as pack_router
+from apps.pack.api_journey import router as pack_journey_router
 from apps.pack.tests.owner_base import pack_call
 from apps.shop.api_owner import router as shop_router
 from apps.shop.tests.owner_base import shop_call
@@ -56,8 +57,8 @@ TURNED_OFF = [
     ("POST", "/sites/{site_id}/payment-methods/accounts/"),
     ("POST", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
     ("DELETE", "/sites/{site_id}/payment-methods/accounts/{account_id}/"),
-    ("GET", "/sites/{site_id}/pack/orders/"),
     ("GET", "/sites/{site_id}/pack/journey/"),
+    ("GET", "/sites/{site_id}/pack/orders/"),
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/"),
     ("GET", "/sites/{site_id}/pack/orders/{order_id}/proofs/{proof_id}/"),
     ("POST", "/sites/{site_id}/pack/orders/{order_id}/approve/"),
@@ -334,6 +335,7 @@ class RouteInventoryTests(BillingOnlyTestCase):
             + routes_under_a_site(catalog_router)
             + routes_under_a_site(payments_router)
             + routes_under_a_site(pack_router)
+            + routes_under_a_site(pack_journey_router)
             + routes_under_a_site(shop_router)
             + routes_under_a_site(meta_router)
         )
