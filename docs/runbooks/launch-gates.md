@@ -62,9 +62,9 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Six-month Launch Promo | BE #89; `apps/billing/tests/test_promo.py` | Pass | BILLING |
 | Operator review in HQ Finance (confirm and reject) | BE #93; `apps/billing/tests/test_staff_finance.py`; FE #41; `docs/runbooks/billing.md` (The Finance routes) | Pass | BILLING |
 | Dash Billing page, no usage charge wording | FE #62 | Pass | BILLING |
-| Suspension and storefront closing (billing-only, ended site answers the plain 404) | BE #62, BE #66; `apps/sante/tests/test_billing_only.py`, `apps/billing/tests/test_sweep.py`. The ended-site 404 was not checked on staging (`docs/runbooks/billing.md`) | Pending | BILLING |
+| Suspension and storefront closing (billing-only, ended site answers the plain 404) | BE #62, BE #66; `apps/sante/tests/test_billing_only.py`, `apps/billing/tests/test_sweep.py`. The ended-site 404 and the Billing-only owner state were not checked on staging (`docs/runbooks/billing.md`): on 2026-11-16 no staging site is ended or Billing-only, all four are served. The tests are the proof | Pending (2026-11-16) | BILLING |
 | Billing runbook | `docs/runbooks/billing.md` | Pass | BILLING |
-| Walkthrough on staging: submit proof, operator confirms, then lapse and storefront closes, dated | None found | Not run | BILLING |
+| Walkthrough on staging: submit proof, operator confirms, then lapse and storefront closes, dated | 2026-11-16: Coach Ed walked it himself on staging, test account 6, site billing-test-a (site pk 4): R1 cancel in trial, R2 paid Launch Promo PHP 4,999 by proof, approved in HQ Finance, R3 cancel while paid. His words, relayed by the Manager: "all 3 done visual test and all approve". Staging rows read: transitions 6 (cancelled 03:33:34 UTC), 7 (reactivated 03:35:28), 8 (cancelled 03:36:06); payment 3 confirmed, `launch_promo`, 499900; cycle 1 from 2026-11-16 03:35 to 2027-05-16 07:00 UTC; email #90 `billing_payment_approved` sent once. ClickUp comment 532414 on G4. The lapse and ended-site 404 step is not part of it (see the Suspension row) | Pass (2026-11-16) | BILLING |
 
 ## Gate 4: SMS gateway
 
@@ -183,7 +183,7 @@ Before the go/no-go.
 | First scheduled Daily backup seen in the Backups tab (under 24 h old) | GATES | 2026-11-16 | Done 2026-11-14 (Daily Schedule backup 5 h old, 1.12 GB; read by GATES) |
 | Private file backup z8uq9mewtf: plan approved, build, staging selftest restore | GATES | 2026-11-18 | Declined 2026-11-14 (cost, Coach Ed); not on the go/no-go path. Plan approved (Manager, 2026-11-14), built and merged BE #161 |
 | Gate 2 Membership Package walkthrough on staging on Site 2, with a dummy order Coach Ed approves; the test member is removed afterwards, dated | SANTE | 2026-11-18 | Not run |
-| Gate 3 billing walkthrough on staging, plus the ended-site 404 | BILLING | 2026-11-18 | Not run |
+| Gate 3 billing walkthrough on staging, plus the ended-site 404 | BILLING | 2026-11-18 | Walkthrough done 2026-11-16; ended-site 404 still owed (no ended site on staging) |
 | Meta events: `META_EVENTS_ENABLED` on staging api and worker; Santé's Pixel ID, token and test event code saved in dash; dash test answers ok; Meta Events Manager Test Events shows PageView, ViewContent, InitiateCheckout, AddPaymentInfo and Purchase from one test-account run (`docs/runbooks/meta-pixel.md`) | SANTE, Coach Ed in Meta | 2026-11-19 | Not run |
 | Meta test event code cleared in the dash Meta tab after the Nov 18 journey and before the campaign starts (while it is set, real events go to Test Events and are not used for attribution); the campaign is built but not started, and its destination is exactly the staging landing URL (z8uq9meyqg) | Coach Ed; GATES checks | 2026-11-20 | Pending |
 | All test data removed from Site 2 (Santé Barley, site_1tqtmvvpn6ksqv3b8b16); SANTE runs the cleanup and its read-only check | SANTE | 2026-11-20 | Pending |

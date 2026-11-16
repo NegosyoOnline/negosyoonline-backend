@@ -6,6 +6,8 @@ that site's rows. A ref is the conversation's server-made random `external_id` (
 looked up together with the site, so another site's ref is a ref that does not exist. A reply's
 text is stored in InquiryMessage (there is no provider to hold it); the InquiryReply audit row
 keeps only its length and a code. The Pancake path (services.py) is not touched by any of this."""
+import hashlib
+import logging
 import re
 import secrets
 from datetime import datetime, timedelta
@@ -15,6 +17,8 @@ from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
+from apps.common import throttle
+from apps.common.errors import ApiError
 from apps.inquiries import outcomes
 from apps.inquiries.models import (
     InquiryChannelSettings, InquiryConversation, InquiryMessage, InquiryReply,
@@ -113,7 +117,12 @@ def has_any(site):
 
 
 def _reply_out(reply):
-    return {"state": reply.state, "error_code": reply.error_code, "created_at": reply.created_at.isoformat()}
+    out = {"state": reply.state, "error_code": reply.error_code, "created_at": reply.created_at.isoformat()}
+    specific = reply.message.error_code if reply.message_id else ""
+    if specific:  # an email reply that did not go: the specific code and its fixed text
+        out["error_code"] = specific
+        out["message"] = outcomes.EMAIL_TEXTS.get(specific, "")
+    return out
 
 
 def thread(site, ref):
@@ -125,7 +134,7 @@ def thread(site, ref):
         InquiryMessage.objects.filter(conversation=conversation).order_by("-created_at", "-pk")[:THREAD_LIMIT]
     )
     latest.reverse()
-    replies = InquiryReply.objects.filter(conversation=conversation)[:RECENT_REPLIES]
+    replies = InquiryReply.objects.filter(conversation=conversation).select_related("message")[:RECENT_REPLIES]
     is_open = conversation.status == InquiryConversation.OPEN
     return {
         "ref": conversation.external_id,
@@ -160,13 +169,18 @@ def reply(site, account, ref, text, idempotency_key):
     that is not this site's; CLOSED_CODE for a closed conversation; otherwise the audit row's state.
     For website chat the visitor's widget is the channel, so `sent` means stored for pick-up."""
     conversation = find(site, ref)
-    if conversation is None or conversation.provider != InquiryConversation.WEBCHAT:
-        return outcomes.NOT_FOUND, None  # email replies arrive with the email channel
-    existing = InquiryReply.objects.filter(site=site, idempotency_key=idempotency_key).select_related("conversation").first()
+    if conversation is None:
+        return outcomes.NOT_FOUND, None
+    existing = (
+        InquiryReply.objects.filter(site=site, idempotency_key=idempotency_key)
+        .select_related("conversation", "message").first()
+    )
     if existing:
         return _earlier(existing, ref)
     if conversation.status != InquiryConversation.OPEN:
         return CLOSED_CODE, None
+    if conversation.provider == InquiryConversation.EMAIL:
+        return _reply_email(site, account, conversation, text, idempotency_key)
     now = timezone.now()
     try:
         with transaction.atomic():
@@ -183,6 +197,124 @@ def reply(site, account, ref, text, idempotency_key):
         existing = InquiryReply.objects.select_related("conversation").get(site=site, idempotency_key=idempotency_key)
         return _earlier(existing, ref)
     return outcomes.OK, _reply_out(row)
+
+
+# -- email: replies out, and the contact form in -----------------------------------------------
+
+EMAIL_CATEGORY = "inquiry_reply"
+EMAIL_HOUR = ("inq-email-hour", 20, 60 * 60)  # inquiry emails per site per hour ...
+EMAIL_DAY = ("inq-email-day", 100, 24 * 60 * 60)  # ... and per day
+# The footer sentence of an inquiry reply. D6 placeholder wording: awaiting Coach Ed's decision.
+FOOTER_REASON = "You are receiving this because you contacted {store}."  # D6 placeholder wording
+SUBJECT = "A message from {store}"
+
+logger = logging.getLogger(__name__)
+
+
+def _one_line(value):
+    return " ".join((value or "").split())
+
+
+def _email_limited(site):
+    """True when the site is over its hourly or daily budget of inquiry emails. Keys carry the site."""
+    for scope, limit, window in (EMAIL_HOUR, EMAIL_DAY):
+        try:
+            throttle.hit(scope, site.pk, limit=limit, window=window)
+        except ApiError:
+            return True
+    return False
+
+
+def _reply_email(site, account, conversation, text, key):
+    """Reply by email on an `em_` conversation. The recipient is the conversation's own address and
+    nothing in the request; the sender is the store's own (D5). Returns (OK, reply dict): a failure
+    is the audit row's state with the specific code and its fixed text, never the mail server's words.
+    No exception text, mail-server reply or credential is stored, logged or returned."""
+    from apps.members import messaging
+    from apps.notifications.store_email import send_store_email, sender_address
+
+    to = conversation.contact_email
+    code = ""
+    if not to:
+        code = outcomes.NO_RECIPIENT
+    elif not sender_address(site):
+        code = outcomes.SENDER_NOT_READY
+    limited = not code and _email_limited(site)
+    now = timezone.now()
+    failed = code or (outcomes.RATE_LIMITED if limited else "")
+    try:
+        with transaction.atomic():
+            message = InquiryMessage.objects.create(
+                site=site, conversation=conversation, direction=InquiryMessage.OUT,
+                sender_kind=InquiryMessage.OWNER, body=text, created_at=now,
+                delivery_state="failed" if failed else "", error_code=failed,
+            )
+            row = InquiryReply.objects.create(
+                site=site, conversation=conversation, author=account, idempotency_key=key,
+                body_length=len(text), message=message,
+                state=InquiryReply.BLOCKED_RATE if limited else InquiryReply.FAILED if code else InquiryReply.SENDING,
+                error_code=(outcomes.RATE_LIMITED if limited else outcomes.EMAIL_AUDIT_CODE.get(code, "")),
+            )
+    except IntegrityError:  # the same key arrived twice at once: the first one wins
+        existing = (
+            InquiryReply.objects.select_related("conversation", "message").get(site=site, idempotency_key=key)
+        )
+        return _earlier(existing, conversation.external_id)
+    if failed:
+        return outcomes.OK, _reply_out(row)
+    store = _one_line(messaging.store_name(site))
+    try:
+        send_store_email(
+            site, to=to, category=EMAIL_CATEGORY, subject=SUBJECT.format(store=store), body=text,
+            footer_reason=FOOTER_REASON.format(store=store), branded=True, log_detail=False,
+        )
+    except Exception as error:  # noqa: BLE001 - only the class name is kept
+        logger.error("Inquiry email not sent (%s).", type(error).__name__)
+        state, specific = InquiryReply.FAILED, outcomes.EMAIL_FAILED
+        row.state, row.error_code = state, outcomes.EMAIL_AUDIT_CODE[specific]
+        row.save(update_fields=["state", "error_code"])
+        InquiryMessage.objects.filter(pk=message.pk).update(delivery_state="failed", error_code=specific)
+        row.message.delivery_state, row.message.error_code = "failed", specific
+        return outcomes.OK, _reply_out(row)
+    row.state = InquiryReply.SENT
+    row.save(update_fields=["state"])
+    InquiryMessage.objects.filter(pk=message.pk).update(delivery_state="sent")
+    InquiryConversation.objects.filter(pk=conversation.pk).update(last_message_at=now, unread=False)
+    return outcomes.OK, _reply_out(row)
+
+
+CONTACT_SITE_DAY = ("inq-contact-site", 200, 24 * 60 * 60)  # stored contact messages per site per day
+CONTACT_SENDER_DAY = ("inq-contact-sender", 30, 24 * 60 * 60)  # ... and per typed address per site
+MAX_BODY = 4000
+
+
+def add_contact_message(site, *, name, email, subject, message):
+    """Store one storefront contact-form message as a NEW email conversation, after the email to
+    the store has gone. Never merged by the typed address (it is a claim, not an identity), so the
+    conversation is flagged unverified_sender. Returns the conversation, or None over a cap (the
+    email has gone either way; going over a cap is not a failure). The sender counter keys on a
+    hash of the lowercased address, never the address."""
+    sender = hashlib.sha256(email.lower().encode()).hexdigest()
+    try:
+        throttle.hit(CONTACT_SITE_DAY[0], site.pk, limit=CONTACT_SITE_DAY[1], window=CONTACT_SITE_DAY[2])
+        throttle.hit(
+            CONTACT_SENDER_DAY[0], f"{site.pk}:{sender}", limit=CONTACT_SENDER_DAY[1], window=CONTACT_SENDER_DAY[2],
+        )
+    except ApiError:
+        return None
+    now = timezone.now()
+    with transaction.atomic():
+        conversation = InquiryConversation.objects.create(
+            site=site, provider=InquiryConversation.EMAIL, external_id=new_ref(InquiryConversation.EMAIL),
+            stores_history=True, display_name=name, contact_name=name, contact_email=email,
+            auth_flag=InquiryConversation.UNVERIFIED_SENDER, status=InquiryConversation.OPEN, unread=True,
+            last_message_at=now, last_inbound_at=now,
+        )
+        InquiryMessage.objects.create(
+            site=site, conversation=conversation, direction=InquiryMessage.IN,
+            sender_kind=InquiryMessage.CUSTOMER, body=f"Subject: {subject}\n\n{message}"[:MAX_BODY], created_at=now,
+        )
+    return conversation
 
 
 def _summary(conversation):
@@ -227,12 +359,13 @@ def settings_out(row):
     paused = bool(row and row.paused_until and row.paused_until > now)
     return {
         "webchat_enabled": bool(row and row.webchat_enabled),
+        "email_enabled": bool(row and row.email_enabled),
         "paused_until": row.paused_until.isoformat() if paused else None,
         "chat_limit_reached": bool(row and row.chat_limit_at and row.chat_limit_at > now - timedelta(hours=24)),
     }
 
 
-def update_settings(site, *, webchat_enabled=None, paused_until=None, set_pause=False):
+def update_settings(site, *, webchat_enabled=None, email_enabled=None, paused_until=None, set_pause=False):
     """Save the owner's choices. `set_pause` says paused_until was part of the request, so that
     None can clear it. Returns the row."""
     row, _ = InquiryChannelSettings.objects.get_or_create(site=site)
@@ -240,6 +373,8 @@ def update_settings(site, *, webchat_enabled=None, paused_until=None, set_pause=
         row.webchat_enabled = webchat_enabled
         if webchat_enabled:
             row.chat_limit_at = None
+    if email_enabled is not None:
+        row.email_enabled = email_enabled
     if set_pause:
         row.paused_until = paused_until
     row.save()

@@ -267,6 +267,12 @@ INQUIRIES_CREDENTIALS_KEY = os.environ.get("PAYMENT_CREDENTIALS_ENCRYPTION_KEY",
 # Off, both routes answer the 404 of an unknown site and read no table. A site's visitors can
 # also chat only while the owner has switched its chat on (InquiryChannelSettings).
 INQUIRY_WEBCHAT_ENABLED = os.environ.get("INQUIRY_WEBCHAT_ENABLED", "").strip() == "1"
+# The contact form in the Inbox (apps/inquiries/stored.py::add_contact_message): "1" makes each
+# message of the storefront "Send a Message" form also a stored email conversation in the
+# owner's Inbox, after the email to the store has gone. Only together with INQUIRIES_ENABLED and
+# STOREFRONT_ENABLED (`check --deploy` reports inquiries.E003 otherwise). Off, the form stores
+# nothing and reads no inquiries table.
+INQUIRY_CONTACT_INBOX_ENABLED = os.environ.get("INQUIRY_CONTACT_INBOX_ENABLED", "").strip() == "1"
 # The storefront surface (/storefront/v1/), called only by the storefronts server. "1" turns
 # it on, and only while STOREFRONT_SERVER_SECRET holds at least 32 characters. Off, every path
 # under it answers 404. The secret is read here and nowhere else.
