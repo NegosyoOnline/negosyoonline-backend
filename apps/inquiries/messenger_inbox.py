@@ -92,14 +92,14 @@ def _attachment_types(message):
     return ",".join(types)[:60]
 
 
-def _conversation(connection, psid, now):
+def _conversation(connection, psid, now, page_id=""):
     found = InquiryConversation.objects.filter(connection=connection, psid=psid).first()
     if found:
         return found
     try:
         with transaction.atomic():
             return InquiryConversation.objects.create(
-                site=connection.site, connection=connection, provider=PROVIDER, psid=psid,
+                site=connection.site, connection=connection, provider=PROVIDER, psid=psid, page_id=page_id,
                 external_id=_new_ref(), stores_history=True, status=InquiryConversation.OPEN,
                 last_message_at=now,
             )
@@ -132,7 +132,7 @@ def _store_event(connection, page_id, event, now):
     at = _when(event.get("timestamp"), now)
     try:
         with transaction.atomic():
-            conversation = _conversation(connection, psid, now)
+            conversation = _conversation(connection, psid, now, page_id)
             InquiryMessage.objects.create(
                 site=connection.site, conversation=conversation, external_id=mid, body=text,
                 attachment_types=attachments, created_at=at,
@@ -190,7 +190,8 @@ def reply(site, account, conversation, text, key):
     if not window_of(conversation, now)["open"]:
         blocked = outcomes.WINDOW_CLOSED
     elif connection is None or connection.site_id != site.pk or connection.status != InquiryConnection.ACTIVE \
-            or not connection.token_encrypted or not messenger.configured():
+            or not connection.token_encrypted or not messenger.configured() \
+            or conversation.page_id != connection.external_page_id:  # the connection was switched to another Page
         blocked = outcomes.TOKEN_INVALID if connection and connection.status == InquiryConnection.INVALID else outcomes.NOT_CONFIGURED
     if blocked:
         row = _audit(site, account, conversation, key, text, state=(

@@ -22,6 +22,11 @@ class Migration(migrations.Migration):
             field=models.CharField(blank=True, db_default='', max_length=64),
         ),
         migrations.AddField(
+            model_name='inquiryconversation',
+            name='page_id',
+            field=models.CharField(blank=True, db_default='', max_length=64),
+        ),
+        migrations.AddField(
             model_name='inquirymessage',
             name='attachment_types',
             field=models.CharField(blank=True, db_default='', max_length=60),

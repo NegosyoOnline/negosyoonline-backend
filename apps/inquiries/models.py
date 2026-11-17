@@ -84,6 +84,7 @@ class InquiryConversation(models.Model):
     visitor_hash = models.CharField(max_length=64, blank=True, db_default="")  # SHA-256 of the chat visitor's secret
     thread_token = models.CharField(max_length=24, blank=True, db_default="")  # the email reply-thread token (PR2)
     psid = models.CharField(max_length=64, blank=True, db_default="")  # messenger: the customer's page-scoped id; personal, blanked
+    page_id = models.CharField(max_length=64, blank=True, db_default="")  # messenger: the Page this conversation arrived on; a reply needs the connection to still be that Page
     last_inbound_at = models.DateTimeField(null=True, blank=True)
     unread = models.BooleanField(default=False, db_default=False)
     auth_flag = models.CharField(max_length=24, blank=True, choices=AUTH_FLAGS, db_default="")

@@ -485,6 +485,28 @@ class ReplyTests(MessengerTestCase):
         out = InquiryMessage.objects.get(external_id="m_out_1")
         self.assertEqual((out.direction, out.sender_kind, out.delivery_state), ("out", "owner", "sent"))
 
+    def test_after_a_page_switch_an_old_conversation_cannot_reply_with_the_new_pages_token(self):
+        self.assertEqual(self.conversation.page_id, PAGE_A)
+        self.meta.pages = [{"id": PAGE_B, "name": "Second Page", "access_token": PAGE_TOKEN}]
+        state = parse_qs(urlparse(self.get(self.base + "start/")["Location"]).query)["state"][0]
+        self.client.get("/v1/inquiries/messenger/callback/", {"state": state, "code": "AUTHCODE"})
+        self.assertEqual(self.post(self.base + "connect/", {"page_id": PAGE_B}).status_code, 200)
+        self.assertEqual(InquiryConnection.objects.get().external_page_id, PAGE_B)
+        self.meta.calls.clear()
+        response = self.reply()
+        self.assertEqual((response.json()["state"], response.json()["error_code"]), ("failed", "not_configured"))
+        self.assertEqual([c for c in self.meta.calls if c[1].endswith("/messages")], [])
+        self.assertEqual(InquiryMessage.objects.filter(direction="out").count(), 0)
+        # a conversation that arrives on the new Page replies normally, from that Page
+        fresh = self.hook(event(page=PAGE_B, psid="psid-new", mid="m_new"))
+        self.assertEqual(fresh.status_code, 200)
+        new = InquiryConversation.objects.get(psid="psid-new")
+        self.assertEqual(new.page_id, PAGE_B)
+        url = f"/v1/sites/{self.site_id}/inquiries/conversations/{new.external_id}/reply/"
+        ok = self.send("post", url, {"text": "Hello", "idempotency_key": "key-00000002"})
+        self.assertEqual(ok.json()["state"], "sent")
+        self.assertEqual(len([c for c in self.meta.calls if c[1] == f"/{PAGE_B}/messages"]), 1)
+
     def test_the_echo_of_our_own_reply_is_not_stored_twice(self):
         self.reply()
         self.hook(event(echo=True, mid="m_out_1", text="Yes, size M is in stock."))
