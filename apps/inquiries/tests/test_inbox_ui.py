@@ -1,17 +1,16 @@
 """INBOX-UI backend (task z8uq9mg7c5): the customer's name and photo (U1), delivered and seen states
 (U2), the reply window's end (U3), search and the unread count (U5). Recorded fake Meta payloads only."""
+import json
 import logging
-import sys
 import time
 from datetime import timedelta
-from types import SimpleNamespace
 from unittest import mock
 
 from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
-from apps.inquiries import messenger, messenger_inbox, profile, retention, stored, tasks
+from apps.inquiries import live, messenger, messenger_inbox, profile, retention, stored, tasks
 from apps.inquiries.models import InquiryConversation, InquiryMessage
 from apps.inquiries.tests.base import make_stored
 from apps.inquiries.tests.test_messenger import (
@@ -388,27 +387,48 @@ class DeliveryStateTests(InboxUiCase):
         self.assertEqual(states, ["seen", "seen", "sent"])
         self.assertIn(("seen", "Seen"), InquiryMessage.DELIVERY_STATES)
 
+    def published(self):
+        return [call.args[1] for call in self.send_mock.call_args_list]
+
+    def deliver_live(self, payload):
+        with mock.patch.object(live, "_send") as send:
+            self.send_mock = send
+            with self.captureOnCommitCallbacks(execute=True):
+                self.deliver(payload)
+
     def test_a_change_publishes_message_status_once_and_no_change_publishes_nothing(self):
-        live = SimpleNamespace(KIND_STATUS="status", MESSAGE_STATUS="message_status", publish=mock.Mock())
-        with mock.patch.dict(sys.modules, {"apps.inquiries.live": live}):
-            import apps.inquiries as package
-            with mock.patch.object(package, "live", live, create=True):
-                self.deliver(receipt("delivery", {"mids": ["m_out_0", "m_out_1"]}))
-                live.publish.assert_called_once_with(self.site, self.conversation.external_id, "status", event="message_status")
-                live.publish.reset_mock()
-                self.deliver(receipt("delivery", {"mids": ["m_out_0"]}))  # already delivered
-                live.publish.assert_not_called()
+        self.deliver_live(receipt("delivery", {"mids": ["m_out_0", "m_out_1"]}))
+        self.assertEqual(self.published(), [{"type": "message_status", "ref": self.conversation.external_id}])
+        self.deliver_live(receipt("delivery", {"mids": ["m_out_0"]}))  # already delivered
+        self.assertEqual(self.published(), [])
 
-    def test_a_publish_failure_never_fails_the_webhook(self):
-        live = SimpleNamespace(KIND_STATUS="status", MESSAGE_STATUS="message_status", publish=mock.Mock(side_effect=RuntimeError("x")))
-        with mock.patch.dict(sys.modules, {"apps.inquiries.live": live}):
-            import apps.inquiries as package
-            with mock.patch.object(package, "live", live, create=True):
-                with self.assertLogs("apps.inquiries.messenger_inbox", logging.WARNING) as logs:
-                    self.assertEqual(self.hook(receipt("read", {"watermark": ms(timezone.now())})).status_code, 200)
-        self.assertIn("Messenger status not published (RuntimeError)", "\n".join(logs.output))
-        self.assertEqual(self.states(), ["seen"] * 3)
+    def test_a_read_receipt_publishes_message_status(self):
+        self.deliver_live(receipt("read", {"watermark": ms(self.base_time + timedelta(seconds=90))}))
+        self.assertEqual(self.published(), [{"type": "message_status", "ref": self.conversation.external_id}])
 
+    def test_nothing_is_published_before_commit(self):
+        with mock.patch.object(live, "_send") as send:
+            self.deliver(receipt("delivery", {"mids": ["m_out_0"]}))  # no on_commit callbacks run in a test case
+            send.assert_not_called()
+
+    def test_the_event_carries_no_text_or_psid(self):
+        self.deliver_live(receipt("delivery", {"mids": ["m_out_0"]}))
+        text = json.dumps(self.published())
+        for bit in (PSID, "reply 0", "m_out_"):
+            self.assertNotIn(bit, text)
+
+    def test_a_redis_failure_never_fails_the_webhook(self):
+        with mock.patch.object(live, "_client", side_effect=ConnectionError("down")):
+            with self.captureOnCommitCallbacks(execute=True):
+                self.deliver(receipt("delivery", {"mids": ["m_out_0"]}))
+        self.assertEqual(self.states(), ["delivered", "sent", "sent"])
+
+    def test_a_publish_error_is_swallowed_with_a_fixed_warning(self):
+        with mock.patch.object(live, "publish", side_effect=RuntimeError("boom")):
+            with self.assertLogs("apps.inquiries.messenger_inbox", logging.WARNING) as logs:
+                self.assertEqual(self.hook(receipt("delivery", {"mids": ["m_out_0"]})).status_code, 200)
+        self.assertTrue(any("Messenger status not published (RuntimeError)" in line for line in logs.output))
+        self.assertEqual(self.states(), ["delivered", "sent", "sent"])
 
 class ReplyWindowTests(InboxUiCase):
     def test_closes_at_is_the_last_customer_message_plus_24_hours(self):
