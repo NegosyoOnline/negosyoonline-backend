@@ -34,48 +34,24 @@ are gone, so it refuses with "No such order".
 import json
 import logging
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import Q
 
 from apps.accounts.management.commands import _shared
 from apps.common import private_files
-from apps.members.models import (
-    Member, MemberAddressEvent, MemberContactAudit, MemberNotification, MemberOrderLog,
-    MemberOtpChallenge, MemberRecoveryCheck, MemberSecurityHold, MemberSession,
-)
+from apps.common.test_data_deletion import delete_member, environment_allows, gone as _gone, member_in_use
+from apps.members.models import Member
 from apps.meta_ads.models import MetaDelivery, MetaOrderContext
 from apps.operators import audit
 from apps.pack.models import (
-    CheckoutToken, PackAgreementAcceptance, PackBuyerNotice, PackEnrollmentAuthorization, PackOrder,
+    CheckoutToken, PackAgreementAcceptance, PackEnrollmentAuthorization, PackOrder,
     PackOrderEvent, PackProofDecision, PackProofSubmission, PackRegisteredNotice, PackVisit,
     SanteRegistration, SanteRegistrationEvent,
 )
-from apps.shop.models import ShopOrder
 from apps.sites.models import Site
-from apps.training.models import LessonProgress
 
 logger = logging.getLogger(__name__)
-
-
-def environment_allows():
-    """True on a local run (DEBUG) or on the Railway environment named "staging". Railway sets
-    RAILWAY_ENVIRONMENT_NAME itself (no variable change). Unknown or "production" refuses."""
-    name = (getattr(settings, "RAILWAY_ENVIRONMENT_NAME", "") or "").strip().lower()
-    if name == "production":
-        return False
-    return bool(settings.DEBUG) or name == "staging"
-
-
-def _gone(queryset):
-    """Delete the rows of a queryset through the plain base manager and report how many. The
-    append-only models refuse this through `objects`; this command is the only caller allowed."""
-    model = queryset.model
-    scoped = model._base_manager.filter(pk__in=queryset.values("pk"))
-    count = scoped.count()
-    scoped.delete()
-    return count
 
 
 def _delete_files(files):
@@ -186,41 +162,13 @@ class Command(BaseCommand):
         kept, deleted = [], []
         counts["members_deleted"] = 0
         for member in Member.objects.select_for_update().filter(pk__in=member_ids).order_by("pk"):
-            if self._in_use(member):
+            if member_in_use(member):
                 kept.append(member.public_id)
                 continue
             deleted.append(member.public_id)
             counts["members_deleted"] += 1
-            for name, count in self._delete_member(member).items():
+            for name, count in delete_member(member).items():
                 counts[name] = counts.get(name, 0) + count
         counts["members_kept"] = len(kept)
         return counts, kept, deleted, files
 
-    @staticmethod
-    def _in_use(member):
-        return (
-            PackOrder.objects.filter(member=member).exists()
-            or SanteRegistration.objects.filter(member=member).exists()
-            or ShopOrder.objects.filter(Q(member=member) | Q(credited_member=member)).exists()
-        )
-
-    @staticmethod
-    def _delete_member(member):
-        by_member = {"member": member}
-        audits = MemberContactAudit.objects.filter(**by_member)
-        counts = {}
-        for name, queryset in [
-            ("member_security_holds", MemberSecurityHold.objects.filter(Q(member=member) | Q(audit__in=audits))),
-            ("member_contact_audits", audits),
-            ("member_recovery_checks", MemberRecoveryCheck.objects.filter(**by_member)),
-            ("member_sessions", MemberSession.objects.filter(**by_member)),
-            ("member_otp_challenges", MemberOtpChallenge.objects.filter(**by_member)),
-            ("member_notifications", MemberNotification.objects.filter(**by_member)),
-            ("member_order_logs", MemberOrderLog.objects.filter(**by_member)),
-            ("member_address_events", MemberAddressEvent.objects.filter(**by_member)),
-            ("pack_buyer_notices", PackBuyerNotice.objects.filter(**by_member)),
-            ("lesson_progress", LessonProgress.objects.filter(**by_member)),
-        ]:
-            counts[name] = _gone(queryset)
-        _gone(Member.objects.filter(pk=member.pk))
-        return counts
