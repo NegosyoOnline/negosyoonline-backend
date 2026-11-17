@@ -285,6 +285,13 @@ MESSENGER_VERIFY_TOKEN = os.environ.get("MESSENGER_VERIFY_TOKEN", "").strip()
 # Optional: the Facebook Login for Business configuration id. When set, the login dialog sends
 # config_id instead of scope (Meta's docs: config_id replaces scope).
 META_MESSENGER_CONFIG_ID = os.environ.get("META_MESSENGER_CONFIG_ID", "").strip()
+# Facebook Page comments in the Inbox (apps/inquiries/comments.py). "1" turns it on, and only
+# together with INQUIRY_MESSENGER_ENABLED (`check --deploy` reports inquiries.E006 otherwise). Off,
+# the comments routes answer 404, feed webhook events are dropped and nothing is sent to Meta.
+INQUIRY_COMMENTS_ENABLED = os.environ.get("INQUIRY_COMMENTS_ENABLED", "").strip() == "1"
+# Optional: the second Facebook Login for Business configuration (the six permissions, used only
+# when the owner turns comments on). When unset, the dialog asks for the scopes instead.
+META_COMMENTS_CONFIG_ID = os.environ.get("META_COMMENTS_CONFIG_ID", "").strip()
 # The storefront surface (/storefront/v1/), called only by the storefronts server. "1" turns
 # it on, and only while STOREFRONT_SERVER_SECRET holds at least 32 characters. Off, every path
 # under it answers 404. The secret is read here and nowhere else.
