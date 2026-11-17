@@ -161,7 +161,8 @@ class PackVisit(models.Model):
     progress, checkout opened) and, once the visitor leaves a checkout field, the contact typed
     there; that contact lives only here, never in a member. Nothing goes to any third party except, when
     the visitor consented and the site has Meta events on, the Conversions API (apps.meta_ads): the
-    visitor_ref and the saved email and mobile, SHA-256 hashed, never raw.
+    visitor_ref and the saved email and mobile, SHA-256 hashed, never raw; an order's buyer name and
+    delivery city, province and ZIP go the same way on AddPaymentInfo and Purchase.
     Retention: contacts are blanked, and a visit with no order deleted, 90 days after the last
     activity (apps.pack.retention)."""
 

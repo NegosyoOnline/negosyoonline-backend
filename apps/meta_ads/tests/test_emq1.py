@@ -1,4 +1,6 @@
 """EMQ-1 (ClickUp z8uq9mg7gx): the richer Conversions API user_data. Meta is never called."""
+from django.utils import timezone
+
 from apps.meta_ads import events, services
 from apps.meta_ads.models import MetaDelivery
 from apps.meta_ads.tests.base import FakeMeta, configure, switched_on
@@ -134,3 +136,78 @@ class OrderExternalIdTests(PackTestCase):
         with FakeMeta(200) as meta:
             self.placed(visitor_ref=REF)
         self.assertEqual((meta.requests, MetaDelivery.objects.count()), ([], 0))
+
+
+class NormalisationTests(MetaStorefrontTestCase):
+    def test_names_places_and_zip_vectors(self):
+        sha = events.sha
+        self.assertEqual(events.split_name("Ma. Niña dela Cruz"), ("Ma.", "Niña dela Cruz"))
+        self.assertEqual(events.hashed_letters("Ma."), sha("ma"))
+        self.assertEqual(events.hashed_letters(" Niña  dela-Cruz "), sha("niñadelacruz"))
+        self.assertEqual(events.hashed_letters("NIÑA"), sha("niña"))
+        self.assertEqual(events.hashed_letters("Niña"), sha("niña"))  # decomposed ñ
+        self.assertEqual(events.hashed_letters("Metro Manila"), sha("metromanila"))
+        self.assertEqual(events.hashed_letters("Davao del Sur"), sha("davaodelsur"))
+        self.assertEqual(events.hashed_letters("Quezon City 1"), sha("quezoncity"))
+        self.assertEqual(events.hashed_zip(" 1100 "), sha("1100"))
+        self.assertEqual(events.hashed_zip("ZIP 1-100"), sha("1100"))
+        for blank in ("", "   ", "123", "-.", None):
+            self.assertEqual(events.hashed_letters(blank), "")
+        self.assertEqual(events.hashed_zip("abc"), "")
+        self.assertEqual(events.split_name("Maria"), ("Maria", ""))
+        self.assertEqual(events.split_name("  "), ("", ""))
+
+    def test_blank_fields_are_left_out_and_one_word_names_have_no_ln(self):
+        user = events.user_data(ip="1.2.3.4", full_name="Maria", city="", province=" ", zip_code="")
+        self.assertEqual(set(user) & {"fn", "ln", "ct", "st", "zp"}, {"fn"})
+        self.assertEqual(user["fn"], [events.sha("maria")])
+
+    def test_page_events_never_carry_name_or_address(self):
+        user = events.page_event(
+            "InitiateCheckout", "ic_" + "a" * 16, now=timezone.now(), url="", ip="1.2.3.4", user_agent="UA", fbp="", fbc="",
+        )["user_data"]
+        self.assertEqual(set(user) & {"fn", "ln", "ct", "st", "zp"}, set())
+
+
+@switched_on
+class OrderAddressTests(PackTestCase):
+    ADDRESS = {"line": "1 Rizal St", "barangay": "Poblacion", "city": "Quezon City", "province": "Metro Manila", "zip": "1100"}
+    KEYS = {"fn", "ln", "ct", "st", "zp"}
+
+    def setUp(self):
+        super().setUp()
+        configure(self.site)
+        with FakeMeta(200):
+            self.placed(**CONSENT)
+        self.order = PackOrder.objects.get()
+
+    def user_data(self, event_name, *, address, name="Ma. Niña dela Cruz"):
+        """The user_data of the event as it is sent: rebuilt from the order row."""
+        PackOrder.objects.filter(pk=self.order.pk).update(buyer_name=name, delivery_address=address)
+        MetaDelivery.objects.filter(event_name=event_name).delete()
+        delivery = MetaDelivery.objects.create(
+            site=self.site, event_name=event_name, event_id=f"{events.ORDER_EVENTS[event_name]}_{self.order.public_id}",
+        )
+        with FakeMeta(200) as meta, self.captureOnCommitCallbacks(execute=True):
+            services.deliver(delivery.pk)
+        return meta.events()[0]["user_data"]
+
+    def test_add_payment_info_and_purchase_carry_the_hashed_name_and_address(self):
+        sha = events.sha
+        for name in ("AddPaymentInfo", "Purchase"):
+            with self.subTest(event=name):
+                user = self.user_data(name, address=self.ADDRESS)
+                self.assertEqual(user["fn"], [sha("ma")])
+                self.assertEqual(user["ln"], [sha("niñadelacruz")])
+                self.assertEqual(user["ct"], [sha("quezoncity")])
+                self.assertEqual(user["st"], [sha("metromanila")])
+                self.assertEqual(user["zp"], [sha("1100")])
+                self.assertNotIn("Rizal", str(user))
+
+    def test_a_blank_or_missing_address_part_is_skipped(self):
+        user = self.user_data("AddPaymentInfo", address={"city": "Cebu City", "province": "", "zip": "  "})
+        self.assertEqual(set(user) & self.KEYS, {"fn", "ln", "ct"})
+        user = self.user_data("AddPaymentInfo", address={}, name="Maria")
+        self.assertEqual(set(user) & self.KEYS, {"fn"})
+        user = self.user_data("AddPaymentInfo", address={}, name="")
+        self.assertEqual(set(user) & self.KEYS, set())

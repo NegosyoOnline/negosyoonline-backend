@@ -16,7 +16,8 @@ user_data (SHA-256 hashed except the address, user agent, fbp and fbc, and only 
 external_id, and em and ph from the visit's saved checkout contact, from the visit the optional
 `visitor_ref` names, when that visit exists on this site (a bad, unknown or foreign ref is ignored,
 never an error). AddPaymentInfo and Purchase carry external_id from the visit linked to the order
-(none when there is none) and em and ph from the member.
+(none when there is none), em and ph from the member, and fn, ln, ct, st and zp from the order's
+buyer name and delivery address (city, province, ZIP).
 While META_EVENTS_ENABLED is off, and for an unknown, foreign or non-Santé host, the route
 answers the 404 of an unknown site.
 """
