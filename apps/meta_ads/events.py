@@ -8,11 +8,11 @@ from apps.pack import constants as C
 
 CONTENT_ID = "membership-pack"
 
-# PageView is browser-only (the Pixel in the page head); the server sends none (Coach Ed, 2026-11-15).
-PAGE_EVENTS = {"ViewContent": "vc", "InitiateCheckout": "ic"}
-BROWSER_ONLY = "PageView"  # a storefront that still lists it is ignored, not refused (deploy-order skew)
+# PageView is sent by the browser Pixel and the server with one shared pv_ id, deduplicated by Meta
+# (Coach Ed, 2026-11-17, ClickUp z8uq9mfzx3; supersedes the browser-only ruling of 2026-11-15).
+PAGE_EVENTS = {"PageView": "pv", "ViewContent": "vc", "InitiateCheckout": "ic"}
 ORDER_EVENTS = {"AddPaymentInfo": "api", "Purchase": "pur"}
-ID_RE = re.compile(r"^(vc|ic)_[0-9a-f]{16,32}$")
+ID_RE = re.compile(r"^(pv|vc|ic)_[0-9a-f]{16,32}$")
 FBP_RE = re.compile(r"^fb\.[0-9]\.[0-9]{10,14}\.[A-Za-z0-9_.\-]{1,150}$")
 FBC_RE = re.compile(r"^fb\.[0-9]\.[0-9]{10,14}\.[A-Za-z0-9_\-]{1,200}$")
 
