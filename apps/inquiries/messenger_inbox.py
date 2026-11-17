@@ -13,7 +13,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.inquiries import crypto, limiter, messenger, outcomes, profile
+from apps.inquiries import crypto, limiter, live, messenger, outcomes, profile
 from apps.inquiries.models import InquiryConnection, InquiryConversation, InquiryMessage, InquiryReply
 
 logger = logging.getLogger(__name__)
@@ -182,6 +182,7 @@ def _store_event(connection, page_id, event, now):
                 )
             InquiryConversation.objects.filter(pk=conversation.pk).update(**changes)
             profile.schedule(conversation.pk)  # the customer's name and photo, after commit (U1)
+            live.publish(connection.site, conversation.external_id, live.KIND_MESSAGE, changes["last_message_at"])
     except IntegrityError:  # the same mid arrived twice at once
         return DUPLICATE
     return STORED
@@ -205,13 +206,8 @@ def _watermark(value, now):
 
 
 def _publish_status(site, ref):
-    """Tell the owner's open Inbox that a message's state changed (`message_status`, after commit).
-    The live helper belongs to the live-inbox branch (apps/inquiries/live.py, z8uq9mg7ah); until that is
-    merged this does nothing."""
-    try:
-        from apps.inquiries import live
-    except ImportError:
-        return
+    """Tell the owner's open Inbox that a message's state changed (`message_status`, after commit,
+    ref only). live.publish swallows a Redis failure; the guard keeps a webhook safe regardless."""
     try:
         live.publish(site, ref, live.KIND_STATUS, event=live.MESSAGE_STATUS)
     except Exception as error:  # noqa: BLE001 - a live-push failure never fails a webhook
@@ -353,6 +349,7 @@ def reply(site, account, conversation, text, key):
     row.save(update_fields=["state", "error_code", "provider_message_ref", "message"])
     if result.ok:
         InquiryConversation.objects.filter(pk=conversation.pk).update(last_message_at=now, unread=False)
+    live.publish(site, conversation.external_id, live.KIND_MESSAGE, now if result.ok else conversation.last_message_at)
     return outcomes.OK, stored._reply_out(row)
 
 

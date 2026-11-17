@@ -19,7 +19,7 @@ from django.utils import timezone
 
 from apps.common import throttle
 from apps.common.errors import ApiError
-from apps.inquiries import outcomes, profile
+from apps.inquiries import live, outcomes, profile
 from apps.inquiries.models import (
     InquiryChannelSettings, InquiryConversation, InquiryMessage, InquiryReply,
 )
@@ -264,6 +264,7 @@ def reply(site, account, ref, text, idempotency_key):
                 body_length=len(text), state=InquiryReply.SENT, message=message,
             )
             InquiryConversation.objects.filter(pk=conversation.pk).update(last_message_at=now, unread=False)
+            live.publish(site, ref, live.KIND_MESSAGE, now)
     except IntegrityError:  # the same key arrived twice at once: the first one wins
         existing = InquiryReply.objects.select_related("conversation").get(site=site, idempotency_key=idempotency_key)
         return _earlier(existing, ref)
@@ -331,6 +332,7 @@ def _reply_email(site, account, conversation, text, key):
             InquiryReply.objects.select_related("conversation", "message").get(site=site, idempotency_key=key)
         )
         return _earlier(existing, conversation.external_id)
+    live.publish(site, conversation.external_id, live.KIND_MESSAGE, conversation.last_message_at if failed else now)
     if failed:
         return outcomes.OK, _reply_out(row)
     store = _one_line(messaging.store_name(site))
@@ -346,11 +348,13 @@ def _reply_email(site, account, conversation, text, key):
         row.save(update_fields=["state", "error_code"])
         InquiryMessage.objects.filter(pk=message.pk).update(delivery_state="failed", error_code=specific)
         row.message.delivery_state, row.message.error_code = "failed", specific
+        live.publish(site, conversation.external_id, None, event=live.MESSAGE_STATUS)
         return outcomes.OK, _reply_out(row)
     row.state = InquiryReply.SENT
     row.save(update_fields=["state"])
     InquiryMessage.objects.filter(pk=message.pk).update(delivery_state="sent")
     InquiryConversation.objects.filter(pk=conversation.pk).update(last_message_at=now, unread=False)
+    live.publish(site, conversation.external_id, None, event=live.MESSAGE_STATUS)
     return outcomes.OK, _reply_out(row)
 
 
@@ -385,6 +389,7 @@ def add_contact_message(site, *, name, email, subject, message):
             site=site, conversation=conversation, direction=InquiryMessage.IN,
             sender_kind=InquiryMessage.CUSTOMER, body=f"Subject: {subject}\n\n{message}"[:MAX_BODY], created_at=now,
         )
+        live.publish(site, conversation.external_id, live.KIND_MESSAGE, now)
     return conversation
 
 
@@ -403,6 +408,7 @@ def set_status(site, ref, status):
         try:
             with transaction.atomic():
                 conversation.save(update_fields=["status"])
+                live.publish(site, ref, live.KIND_STATUS, conversation.last_message_at)
         except IntegrityError:
             return CONFLICT_CODE, None
     return outcomes.OK, _summary(conversation)
@@ -415,6 +421,7 @@ def mark_read(site, ref):
     if conversation.unread:
         conversation.unread = False
         conversation.save(update_fields=["unread"])
+        live.publish(site, ref, live.KIND_STATUS, conversation.last_message_at)
     return outcomes.OK, _summary(conversation)
 
 
