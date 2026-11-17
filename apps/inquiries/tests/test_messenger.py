@@ -438,8 +438,8 @@ class ConnectTests(MessengerTestCase):
         self.assertEqual(logs.output[0].split(":", 2)[2], "Messenger callback: pick")
         self.meta.permissions = ["pages_show_list"]
         logs2 = run()
-        self.assertIn("Messenger callback: permission_missing (missing: pages_manage_metadata, pages_messaging)", logs2.output[0])
-        self.meta.permissions = ["pages_show_list", "pages_manage_metadata", "pages_messaging"]
+        self.assertIn("Messenger callback: permission_missing (missing: pages_manage_metadata, pages_messaging, pages_read_engagement)", logs2.output[0])
+        self.meta.permissions = ["pages_show_list", "pages_manage_metadata", "pages_messaging", "pages_read_engagement"]
         self.meta.pages = []
         logs3 = run()
         self.assertIn("Messenger callback: no_pages", logs3.output[0])
