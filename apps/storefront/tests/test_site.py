@@ -2,13 +2,13 @@
 from apps.accounts.models import Account
 from apps.billing.models import BillingCycle, Subscription, SubscriptionTransition
 from apps.billing.tests.base import make_subscription
-from apps.sites.models import Site, SiteBusinessProfile
+from apps.sites.models import Site, SiteBusinessProfile, SiteCustomHost
 from apps.storefront.tests.base import HOST, NOT_FOUND, SurfaceTestCase
 
 KEYS = {
     "id", "template", "display_name", "accent_color", "facebook_url", "instagram_url",
     "tiktok_url", "business", "distributor", "policy_links", "free_shipping_banner",
-    "meta_pixel_id",
+    "meta_pixel_id", "custom_host",
 }
 BUSINESS_KEYS = {
     "registered_name", "tin", "dti_business_number", "contact_email", "contact_mobile",
@@ -43,6 +43,17 @@ class SiteTests(SurfaceTestCase):
             complaints_contact_name="Ana R.", privacy_contact_email="privacy@example.test",
         )
 
+    def test_custom_host_is_set_only_when_asked_on_that_exact_host(self):
+        SiteCustomHost.objects.create(host="shop.example.test", site=self.site)
+
+        for host, expected in (
+            ("shop.example.test", "shop.example.test"), ("SHOP.example.test.:443", "shop.example.test"),
+            (HOST, ""),
+        ):
+            with self.subTest(host=host):
+                self.assertEqual(self.answer(host)["custom_host"], expected)
+        self.assertEqual(self.call("www.shop.example.test").status_code, 404)
+
     def test_a_filled_site_answers_exactly_these_values(self):
         self.fill()
 
@@ -59,7 +70,7 @@ class SiteTests(SurfaceTestCase):
             "distributor": {"name": "Ana Reyes", "mobile": "+639171234567", "has_photo": False},
             "policy_links": [],
             "free_shipping_banner": False,
-            "meta_pixel_id": "",
+            "meta_pixel_id": "", "custom_host": "",
         })
 
     def test_an_empty_site_answers_the_same_keys_with_empty_values(self):

@@ -14,6 +14,7 @@ from apps.notifications.services import send_email
 from apps.notifications.store_email import send_store_email
 from apps.pack import access
 from apps.pack.models import PackOrder, PackProofDecision, PackProofSubmission
+from apps.sites import custom_hosts
 
 logger = logging.getLogger(__name__)
 
@@ -81,18 +82,13 @@ def _who(member):
 
 
 def dashboard_url(site):
-    subdomain = site.subdomains.filter(state="active").order_by("pk").first()
-    if subdomain is None or not settings.SITE_PARENT_HOST:
-        return "the store's website"
-    return f"https://{subdomain.name}.{settings.SITE_PARENT_HOST}/dashboard/"
+    base = custom_hosts.public_base_url(site)
+    return f"{base}/dashboard/" if base else "the store's website"
 
 
 def host_for(site):
     """The host a buyer reaches this store on, or "" when it has none."""
-    subdomain = site.subdomains.filter(state="active").order_by("pk").first()
-    if subdomain is None or not settings.SITE_PARENT_HOST:
-        return ""
-    return f"{subdomain.name}.{settings.SITE_PARENT_HOST}"
+    return custom_hosts.public_host(site)
 
 
 def access_link(member, *, limited=True):
