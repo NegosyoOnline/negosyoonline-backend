@@ -47,3 +47,27 @@ def check_contact_inbox_dependencies(app_configs, **kwargs):
         hint="The contact form is reached through the storefront surface and its copy is stored by the inquiries app: turn both on, or turn this off.",
         id="inquiries.E003",
     )]
+
+
+@register(deploy=True)
+def check_messenger_dependencies(app_configs, **kwargs):
+    if not settings.INQUIRY_MESSENGER_ENABLED:
+        return []
+    found = []
+    if not settings.INQUIRIES_ENABLED:
+        found.append(Error(
+            "INQUIRY_MESSENGER_ENABLED is on but INQUIRIES_ENABLED is off.",
+            hint="The Messenger inbox is part of the inquiries app: turn both on, or turn Messenger off.",
+            id="inquiries.E004",
+        ))
+    missing = [
+        name for name in ("META_MESSENGER_APP_ID", "META_MESSENGER_APP_SECRET", "MESSENGER_VERIFY_TOKEN")
+        if not getattr(settings, name)
+    ]
+    if missing:
+        found.append(Error(
+            f"INQUIRY_MESSENGER_ENABLED is on but {', '.join(missing)} {'is' if len(missing) == 1 else 'are'} not set.",
+            hint="Set the variable(s) on the api service in Railway; the app secret goes straight from the Meta dashboard into Railway.",
+            id="inquiries.E005",
+        ))
+    return found

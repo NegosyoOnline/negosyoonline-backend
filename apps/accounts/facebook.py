@@ -65,8 +65,8 @@ def _get_json(url, params):
         return json.load(response)
 
 
-def _sign(message):
-    return hmac.new(settings.FACEBOOK_APP_SECRET.encode(), message.encode(), hashlib.sha256)
+def _sign(message, secret=None):
+    return hmac.new((secret or settings.FACEBOOK_APP_SECRET).encode(), message.encode(), hashlib.sha256)
 
 
 def fetch_profile(code, redirect_uri):
@@ -111,15 +111,16 @@ MAX_AGE_SECONDS = 24 * 3600
 MAX_FUTURE_SECONDS = 5 * 60
 
 
-def parse_signed_request(signed_request):
+def parse_signed_request(signed_request, secret=None):
     """The Facebook user id in a request Meta signed with our app secret.
 
-    Raises BadSignedRequest, or StaleSignedRequest when `issued_at` is over 24 hours old or more
+    `secret` is the app secret to check against (default: the sign-in app's; the Messenger app
+    passes its own). Raises BadSignedRequest, or StaleSignedRequest when `issued_at` is over 24 hours old or more
     than 5 minutes ahead. A request without `issued_at` is refused as BadSignedRequest.
     """
     try:
         signature, payload = signed_request.split(".", 1)
-        if not hmac.compare_digest(_b64decode(signature), _sign(payload).digest()):
+        if not hmac.compare_digest(_b64decode(signature), _sign(payload, secret).digest()):
             raise ValueError("signature does not match")
         data = json.loads(_b64decode(payload))
         if str(data["algorithm"]).upper() != "HMAC-SHA256" or not data["user_id"]:

@@ -202,6 +202,12 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/read/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/close/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reopen/"): 200,
+    # the direct Messenger inbox (needs INQUIRY_MESSENGER_ENABLED and the Meta app values)
+    ("GET", "/sites/{site_id}/inquiries/messenger/start/"): 302,
+    ("GET", "/sites/{site_id}/inquiries/messenger/connection/"): 200,
+    ("DELETE", "/sites/{site_id}/inquiries/messenger/connection/"): 204,
+    ("GET", "/sites/{site_id}/inquiries/messenger/pages/"): 410,  # no pick list yet
+    ("POST", "/sites/{site_id}/inquiries/messenger/connect/"): 410,
     # last: a cancelled trial is Billing-only, so every route called after it would answer 403
     ("POST", "/sites/{site_id}/billing/cancel/"): 200,
 }
@@ -260,6 +266,8 @@ def child_variants(template, own, foreign):
     BILLING_USAGE_ENABLED=True, SHOP_ENABLED=True, BILLING_INVOICE_REGISTER_ENABLED=True,
     MEMBERS_ENABLED=True, PACK_SHIPPING_ENABLED=True, BILLING_STATEMENTS_ENABLED=True,
     META_CREDENTIALS_KEY=KEY, INQUIRIES_ENABLED=True, INQUIRIES_CREDENTIALS_KEY=inquiries_base.KEY,
+    INQUIRY_MESSENGER_ENABLED=True, META_MESSENGER_APP_ID="123456", META_MESSENGER_APP_SECRET="test-secret",
+    MESSENGER_VERIFY_TOKEN="test-verify",
 )
 class TwoOwnersTestCase(SitesApiTestCase):
     """Ana (self.client, self.site) and Ben (self.ben, self.ben_site), each with a Santé site and
@@ -602,6 +610,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return {"pixel_id": PIXEL, "access_token": TOKEN, "test_event_code": CODE}
         if template.endswith("/inquiries/channels/") and method == "PUT":
             return {"webchat_enabled": True}
+        if template.endswith("/messenger/connect/"):
+            return {"page_id": "100000000000001"}
         if template.endswith("/reply/"):
             self.creates += 1
             return {"text": "Fixture reply", "idempotency_key": f"fixture-key-{self.creates:06d}"}
