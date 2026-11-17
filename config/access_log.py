@@ -6,6 +6,7 @@ line. `mask_query` replaces those values with `***`, on every path. `code` and `
 only as whole parameter names (after `?` or `&`, or at the start of a bare query string), so
 `zipcode=`, `promo_code=` and `country_state=` are left alone.
 """
+import logging
 import re
 
 MASK = "***"
@@ -45,3 +46,21 @@ class MaskingLogger(Logger):
             if key in atoms:
                 atoms[key] = mask_query(atoms[key])
         return atoms
+
+
+class MaskingFilter(logging.Filter):
+    """Logging filter for `uvicorn.access` (the ASGI path, where gunicorn's logger_class never
+    sees the request line): masks the same values in the record's arguments."""
+
+    def filter(self, record):
+        if isinstance(record.args, tuple):
+            record.args = tuple(mask_query(arg) for arg in record.args)
+        record.msg = mask_query(record.msg)
+        return True
+
+
+def install_access_filter():
+    """Attach MaskingFilter to the uvicorn access logger once."""
+    target = logging.getLogger("uvicorn.access")
+    if not any(isinstance(existing, MaskingFilter) for existing in target.filters):
+        target.addFilter(MaskingFilter())

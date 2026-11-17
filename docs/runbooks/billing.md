@@ -154,7 +154,7 @@ Each service's settings are typed into its Settings in the Railway dashboard, pr
 |---|---|---|---|
 | What it does | Serves the API | Runs queued jobs | Queues the sweep every 5 minutes |
 | Build command: "Custom Build Command" | `uv sync --frozen` | `uv sync --frozen` | `uv sync --frozen` |
-| Start command: "Custom Start Command" | `uv run gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --access-logfile - --error-logfile -` | `sh scripts/start_worker.sh` | `sh scripts/start_beat.sh` |
+| Start command: "Custom Start Command" | `uv run gunicorn config.asgi:application -k uvicorn_worker.UvicornWorker --bind 0.0.0.0:$PORT --access-logfile - --error-logfile -` | `sh scripts/start_worker.sh` | `sh scripts/start_beat.sh` |
 | Health path: "Healthcheck Path" | `/healthz/` | empty | empty |
 | Health timeout, in seconds: "Healthcheck Timeout" (shown once a path is set) | `120` | not used | not used |
 | Restart policy: "Restart Policy" | `On Failure` | `On Failure` | `On Failure` |
@@ -162,6 +162,8 @@ Each service's settings are typed into its Settings in the Railway dashboard, pr
 | Number of instances: "Regions & Replicas" | not set here | not set here | `1` |
 | Public domain | yes | none | none |
 | Config file path: "Railway Config File" (button "Add File Path") | empty | empty | empty |
+
+- `api` runs on ASGI workers since the live Inbox (z8uq9mg7ah), so the Inbox can hold server-sent events open (`GET /v1/sites/{site_id}/inquiries/stream/`; see `docs/runbooks/inquiries.md`). The Manager makes the dashboard edit at release, on staging only; production is untouched. **Rollback** (one dashboard edit, no code change; the live Inbox then falls back to polling): `uv run gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --access-logfile - --error-logfile -`.
 
 The `worker` and `beat` scripts start as root and Celery then drops to `nobody:nogroup` (`--uid=nobody --gid=nogroup`); if that user is missing, or the script is not root, it logs one line and starts without the drop. After the drop `/app` is read-only to the processes. The beat schedule file is in `/tmp`, so a restart loses only the last-run times, as before. The worker writes only to `/tmp` (pack export tempfiles). Rollback is the old commands, typed back into "Custom Start Command": `uv run celery -A config worker --loglevel=info --concurrency=2` and `uv run celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule`. Switching to the scripts is a one-time dashboard edit per environment: staging is the Manager's, production is Coach Ed's.
 

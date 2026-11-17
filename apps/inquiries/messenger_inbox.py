@@ -12,7 +12,7 @@ from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from apps.inquiries import crypto, limiter, messenger, outcomes
+from apps.inquiries import crypto, limiter, live, messenger, outcomes
 from apps.inquiries.models import InquiryConnection, InquiryConversation, InquiryMessage, InquiryReply
 
 logger = logging.getLogger(__name__)
@@ -159,6 +159,7 @@ def _store_event(connection, page_id, event, now):
                     status=InquiryConversation.OPEN,
                 )
             InquiryConversation.objects.filter(pk=conversation.pk).update(**changes)
+            live.publish(connection.site, conversation.external_id, live.KIND_MESSAGE, changes["last_message_at"])
     except IntegrityError:  # the same mid arrived twice at once
         return
 
@@ -238,6 +239,7 @@ def reply(site, account, conversation, text, key):
     row.save(update_fields=["state", "error_code", "provider_message_ref", "message"])
     if result.ok:
         InquiryConversation.objects.filter(pk=conversation.pk).update(last_message_at=now, unread=False)
+    live.publish(site, conversation.external_id, live.KIND_MESSAGE, now if result.ok else conversation.last_message_at)
     return outcomes.OK, stored._reply_out(row)
 
 

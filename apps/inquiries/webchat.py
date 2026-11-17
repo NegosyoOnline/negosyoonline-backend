@@ -26,7 +26,7 @@ from django.utils import timezone
 
 from apps.common import throttle
 from apps.common.errors import ApiError
-from apps.inquiries import stored
+from apps.inquiries import live, stored
 from apps.inquiries.models import InquiryChannelSettings, InquiryConversation, InquiryMessage
 
 PAUSED_NOTICE = "Chat is not available right now. Please use the contact form instead."
@@ -196,6 +196,7 @@ def _store(site, conversation, secret_hash, name, email, text, now):
     InquiryConversation.objects.filter(pk=conversation.pk).update(
         last_message_at=now, last_inbound_at=now, unread=True,
     )
+    live.publish(site, conversation.external_id, live.KIND_MESSAGE, now)
     return conversation
 
 
