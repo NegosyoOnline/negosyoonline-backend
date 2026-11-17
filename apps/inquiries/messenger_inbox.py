@@ -47,14 +47,26 @@ def connection_out(site, account):
     }
 
 
+def unsubscribe_row(row):
+    """Best effort: take the app off the row's Page with the row's decrypted token. Call it BEFORE the
+    row is cleared or overwritten. No token, no key or no Meta app settings: nothing is sent."""
+    if not (row.external_page_id and row.token_encrypted and row.status == InquiryConnection.ACTIVE) \
+            or not messenger.configured():
+        return
+    try:
+        token = crypto.decrypt(row.token_encrypted)
+    except crypto.TokenKeyError:
+        return
+    messenger.unsubscribe_page(row.external_page_id, token)
+
+
 def disconnect(site):
     """Unsubscribe the Page (best effort) and delete the token. The conversations and their
     messages stay (they keep their own retention); the Page is free for another site."""
     row = connection_of(site)
     if row is None:
         return
-    if row.external_page_id and row.status == InquiryConnection.ACTIVE and messenger.configured():
-        messenger.unsubscribe_page(row.external_page_id)
+    unsubscribe_row(row)
     clear_connection(row, InquiryConnection.UNSET)
 
 
@@ -270,8 +282,7 @@ def deauthorize(meta_user_id):
     """The person removed the app: every Page they connected is invalid and its token is gone."""
     rows = list(InquiryConnection.objects.filter(provider=PROVIDER, meta_user_id=meta_user_id))
     for row in rows:
-        if row.external_page_id and row.status == InquiryConnection.ACTIVE and messenger.configured():
-            messenger.unsubscribe_page(row.external_page_id)
+        # No unsubscribe here: the person already removed the app, so Meta has dropped the subscription.
         clear_connection(row, InquiryConnection.INVALID)
     return len(rows)
 
@@ -285,8 +296,7 @@ def erase_user(meta_user_id):
 
     connections = list(InquiryConnection.objects.filter(provider=PROVIDER, meta_user_id=meta_user_id))
     for row in connections:
-        if row.external_page_id and row.status == InquiryConnection.ACTIVE and messenger.configured():
-            messenger.unsubscribe_page(row.external_page_id)
+        unsubscribe_row(row)
     conversations = InquiryConversation.objects.filter(provider=PROVIDER).filter(
         models_q(connections, meta_user_id)
     )

@@ -151,7 +151,7 @@ def connect(request, site_id: str, payload: ConnectIn):
     existing = messenger_inbox.connection_of(site)
     if existing and existing.external_page_id and existing.external_page_id != page["id"] \
             and existing.status == InquiryConnection.ACTIVE:
-        messenger.unsubscribe_page(existing.external_page_id)  # best effort: the old Page leaves this site
+        messenger_inbox.unsubscribe_row(existing)  # best effort, with the old Page's own token, before it is overwritten
     try:
         row, _ = InquiryConnection.objects.get_or_create(site=site, provider=messenger_inbox.PROVIDER)
         row.status, row.token_encrypted = InquiryConnection.ACTIVE, encrypted
@@ -161,7 +161,7 @@ def connect(request, site_id: str, payload: ConnectIn):
         from django.db import IntegrityError
         if not isinstance(error, IntegrityError):
             raise
-        messenger.unsubscribe_page(page["id"])
+        # no unsubscribe: the Page's subscription now belongs to the site that won the race
         raise ApiError("page_taken", "That Page is already connected to another site.", status=409) from None
     cache.delete(messenger_inbox.pick_key(site, request.account))
     return messenger_inbox.connection_out(site, request.account)

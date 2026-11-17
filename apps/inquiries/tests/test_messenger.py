@@ -412,9 +412,28 @@ class ConnectTests(MessengerTestCase):
         response = self.send("delete", self.base + "connection/")
         self.assertEqual(response.status_code, 204)
         self.assertIn(("DELETE", f"/{PAGE_A}/subscribed_apps"), self.meta.paths())
+        delete = [c for c in self.meta.calls if c[0] == "DELETE"][0]
+        self.assertEqual(delete[4], PAGE_TOKEN)  # the Page's own token, not the app token
+        self.assertEqual(delete[2], {"appsecret_proof": messenger._proof(PAGE_TOKEN)})
+        self.assertNotIn(f"{123456}|{SECRET}", [c[4] for c in self.meta.calls])
         row = InquiryConnection.objects.get()
         self.assertEqual((row.token_encrypted, row.external_page_id, row.status), ("", "", "unset"))
         self.assertEqual(self.get(self.base + "connection/").json()["status"], "unset")
+
+    def test_disconnect_with_an_unreadable_token_skips_the_unsubscribe_and_still_clears(self):
+        row = self.connect_row()
+        InquiryConnection.objects.filter(pk=row.pk).update(token_encrypted="not-a-fernet-token")
+        self.assertEqual(self.send("delete", self.base + "connection/").status_code, 204)
+        self.assertNotIn("DELETE", [m for m, _ in self.meta.paths()])
+        self.assertEqual(InquiryConnection.objects.get().external_page_id, "")
+
+    def test_switching_pages_unsubscribes_the_old_page_with_its_own_token(self):
+        self.connect_row()
+        self.meta.pages = [{"id": PAGE_B, "name": "Second Page", "access_token": "PAGETOKEN-B-" + "z" * 30}]
+        self.pick()
+        self.assertEqual(self.post(self.base + "connect/", {"page_id": PAGE_B}).status_code, 200)
+        delete = [c for c in self.meta.calls if c[0] == "DELETE"]
+        self.assertEqual([(c[1], c[4]) for c in delete], [(f"/{PAGE_A}/subscribed_apps", PAGE_TOKEN)])
 
     def test_connection_shape_for_active_and_invalid(self):
         row = self.connect_row()
@@ -610,6 +629,7 @@ class MetaCallbackTests(MessengerTestCase):
         self.assertEqual(response.status_code, 200)
         mine = InquiryConnection.objects.get(site=self.site)
         self.assertEqual((mine.status, mine.token_encrypted), ("invalid", ""))
+        self.assertNotIn("DELETE", [m for m, _ in self.meta.paths()])  # the app is already removed
         self.assertEqual(InquiryConnection.objects.get(site=other_site).status, "active")
 
     def test_a_forged_stale_or_unconfigured_callback_is_refused(self):

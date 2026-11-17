@@ -199,9 +199,9 @@ def subscribe_page(page_id, page_token):
     return result
 
 
-def unsubscribe_page(page_id):
-    """Best effort: an app removes only its own subscription, with an app access token."""
-    return call("DELETE", f"/{page_id}/subscribed_apps", token=_app_token())
+def unsubscribe_page(page_id, page_token):
+    """Best effort: removes this app's subscription, with the Page's own token (the caller decrypts it)."""
+    return call("DELETE", f"/{page_id}/subscribed_apps", params={"appsecret_proof": _proof(page_token)}, token=page_token)
 
 
 # -- sending --------------------------------------------------------------------------------
