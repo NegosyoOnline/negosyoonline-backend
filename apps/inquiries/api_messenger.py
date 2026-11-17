@@ -149,9 +149,10 @@ def connect(request, site_id: str, payload: ConnectIn):
     if not result.ok:
         raise ApiError("provider_down", "Facebook could not be reached. Try again.", status=502)
     existing = messenger_inbox.connection_of(site)
-    if existing and existing.external_page_id and existing.external_page_id != page["id"] \
-            and existing.status == InquiryConnection.ACTIVE:
-        messenger_inbox.unsubscribe_row(existing)  # best effort, with the old Page's own token, before it is overwritten
+    # The old Page to drop once the switch is saved. `existing` is its own in-memory instance (get_or_create
+    # below returns another one), so it keeps the old Page id and token while the stored row is overwritten.
+    old_row = existing if existing and existing.external_page_id and existing.external_page_id != page["id"] \
+        and existing.status == InquiryConnection.ACTIVE else None
     try:
         row, _ = InquiryConnection.objects.get_or_create(site=site, provider=messenger_inbox.PROVIDER)
         row.status, row.token_encrypted = InquiryConnection.ACTIVE, encrypted
@@ -163,6 +164,8 @@ def connect(request, site_id: str, payload: ConnectIn):
             raise
         # no unsubscribe: the Page's subscription now belongs to the site that won the race
         raise ApiError("page_taken", "That Page is already connected to another site.", status=409) from None
+    if old_row is not None:  # only after the save won: a lost race leaves the old Page's webhooks alone
+        messenger_inbox.unsubscribe_row(old_row)  # best effort, with the old Page's own token
     cache.delete(messenger_inbox.pick_key(site, request.account))
     return messenger_inbox.connection_out(site, request.account)
 

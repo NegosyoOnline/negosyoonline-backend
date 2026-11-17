@@ -48,8 +48,8 @@ def connection_out(site, account):
 
 
 def unsubscribe_row(row):
-    """Best effort: take the app off the row's Page with the row's decrypted token. Call it BEFORE the
-    row is cleared or overwritten. No token, no key or no Meta app settings: nothing is sent."""
+    """Best effort: take the app off the row's Page with the row's decrypted token. Call it with the row
+    instance as read before the stored row is cleared or overwritten (the instance keeps the old values). No token, no key or no Meta app settings: nothing is sent."""
     if not (row.external_page_id and row.token_encrypted and row.status == InquiryConnection.ACTIVE) \
             or not messenger.configured():
         return

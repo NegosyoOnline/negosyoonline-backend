@@ -435,6 +435,31 @@ class ConnectTests(MessengerTestCase):
         delete = [c for c in self.meta.calls if c[0] == "DELETE"]
         self.assertEqual([(c[1], c[4]) for c in delete], [(f"/{PAGE_A}/subscribed_apps", PAGE_TOKEN)])
 
+    def test_the_old_page_is_unsubscribed_only_after_the_switch_is_saved(self):
+        self.connect_row()
+        self.meta.pages = [{"id": PAGE_B, "name": "Second Page", "access_token": "PAGETOKEN-B-" + "z" * 30}]
+        self.pick()
+        seen = []
+        real = messenger.unsubscribe_page
+
+        def spy(page_id, token):
+            seen.append((page_id, token, InquiryConnection.objects.get(site=self.site).external_page_id))
+            return real(page_id, token)
+
+        with mock.patch.object(messenger, "unsubscribe_page", spy):
+            self.assertEqual(self.post(self.base + "connect/", {"page_id": PAGE_B}).status_code, 200)
+        self.assertEqual(seen, [(PAGE_A, PAGE_TOKEN, PAGE_B)])  # the row already showed Page B
+
+    def test_a_lost_race_does_not_unsubscribe_the_old_page(self):
+        from django.db import IntegrityError
+        self.connect_row()
+        self.meta.pages = [{"id": PAGE_B, "name": "Second Page", "access_token": "PAGETOKEN-B-" + "z" * 30}]
+        self.pick()
+        with mock.patch.object(InquiryConnection, "save", side_effect=IntegrityError("unique")):
+            self.error(self.post(self.base + "connect/", {"page_id": PAGE_B}), 409, "page_taken")
+        self.assertEqual([c for c in self.meta.calls if c[0] == "DELETE"], [])
+        self.assertEqual(InquiryConnection.objects.get(site=self.site).external_page_id, PAGE_A)
+
     def test_connection_shape_for_active_and_invalid(self):
         row = self.connect_row()
         body = self.get(self.base + "connection/").json()
