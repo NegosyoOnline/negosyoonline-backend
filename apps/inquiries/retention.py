@@ -1,4 +1,5 @@
-"""Reply audit rows are deleted 12 months after they were written. Stored-channel messages (website
+"""(Messenger conversations are stored conversations: the same rules cover them, and the customer's
+page-scoped id is one of the personal fields.) Reply audit rows are deleted 12 months after they were written. Stored-channel messages (website
 chat) and the conversation's personal fields are deleted or blanked MESSAGE_RETENTION after the
 conversation's last message. The reply rule waits for INQUIRIES_ENABLED; the message rule only
 deletes, so it runs whatever that switch says (stored text must not outlive its period), and
@@ -21,7 +22,7 @@ REPLY_RETENTION = timedelta(days=365)
 MESSAGE_RETENTION = timedelta(days=180)
 
 # The personal fields of a stored conversation, blanked together.
-PERSONAL = ("display_name", "contact_name", "contact_email", "visitor_hash", "thread_token")
+PERSONAL = ("display_name", "contact_name", "contact_email", "visitor_hash", "thread_token", "psid")
 
 
 @retention.behind_switch
@@ -97,7 +98,7 @@ def blanked():
     """The field names a disposal blanks, for its audit entry. Reply rows hold a length and a
     code, no personal data, and stay until their own retention rule removes them."""
     return {
-        CONNECTIONS: ["token_encrypted"],
+        CONNECTIONS: ["token_encrypted", "external_page_id", "label", "meta_user_id"],
         CONVERSATIONS: list(PERSONAL),
         MESSAGES: ["all rows deleted"],
         EMAIL_RECORDS: ["inquiry_reply rows to the sites' customers deleted"],
@@ -140,6 +141,10 @@ def blank_inquiries(sites, dry_run=False):
     if not dry_run:
         connections.update(token_encrypted="", status=InquiryConnection.UNSET)
         if stored:
+            # A Messenger Page leaves the site with its token (D5 frees it for another site).
+            InquiryConnection.objects.filter(site__in=sites, provider="messenger").update(
+                external_page_id="", label="", meta_user_id="",
+            )
             messages.delete()
             email_records.delete()
             # The visitor's secret hash and the thread token go too, so nothing can continue a

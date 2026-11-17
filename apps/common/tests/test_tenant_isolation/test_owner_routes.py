@@ -17,11 +17,11 @@ from apps.common.tests.test_tenant_isolation.owner_base import (
 )
 
 NOT_FOUND = {"error": {"code": "not_found", "message": "Not found."}}
-# What the guard expects from the URLconf today (12 + 16 + 2 + 10 + 5 + 13 + 10 + 4 + 8 + 6 + 24 + 11 = 121). The
+# What the guard expects from the URLconf today (12 + 16 + 2 + 10 + 5 + 13 + 10 + 4 + 13 + 6 + 24 + 11 = 126). The
 # "sites" count includes the 5 member-recovery routes under /sites/{site_id}/members/.
 EXPECTED_COUNTS = {
     "sites": 12, "billing": 16, "sante": 2, "catalog": 10, "payments": 5, "pack_owner": 13,
-    "shop_owner": 10, "meta_ads": 4, "inquiries": 8, "member_notices": 6,
+    "shop_owner": 10, "meta_ads": 4, "inquiries": 13, "member_notices": 6,
     "training": 24, "media": 11,
 }
 
@@ -45,7 +45,7 @@ class RegistryGuardTests(TwoOwnersTestCase):
         for _, template in routes:
             counts[app_of(template)] = counts.get(app_of(template), 0) + 1
         self.assertEqual(counts, EXPECTED_COUNTS)
-        self.assertEqual(len(OWNER_ROUTES), 121)
+        self.assertEqual(len(OWNER_ROUTES), 126)
 
 
 class ForeignSiteTests(TwoOwnersTestCase):
@@ -195,7 +195,8 @@ class OwnerControlTests(TwoOwnersTestCase):
                 continue
             with self.subTest(method=method, template=template):
                 response = self.call(method, template, self.ben_site_id, self.foreign_ids(template), client=self.ben)
-                self.assertEqual(response.status_code, 200, response.content)
+                # the Messenger start (302) and pick list (410) are not 200 for anyone, Ben included
+                self.assertEqual(response.status_code, OWNER_ROUTES[(method, template)], response.content)
                 for value in (self.site_id, ana_ids["order_id"], ana_ids["account_id"], ana_shop["order_id"],
                               ana_ids["member_id"], ana_ids["invoice_id"], ana_ids["number"]):
                     self.assertNotIn(value.encode(), response.content)

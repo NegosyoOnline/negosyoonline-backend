@@ -23,11 +23,12 @@ class InquiryConnection(models.Model):
     STATUSES = [(UNSET, "Not set"), (ACTIVE, "Active"), (INVALID, "Invalid"), (DISABLED, "Disabled")]
 
     site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_connections")
-    provider = models.CharField(max_length=16)  # no choices yet: the direct Messenger inbox adds one
+    provider = models.CharField(max_length=16)  # "messenger" (the direct Messenger inbox)
     status = models.CharField(max_length=12, choices=STATUSES, default=UNSET)
     token_encrypted = models.TextField(blank=True)  # Fernet ciphertext; empty = not set
     external_page_id = models.CharField(max_length=64, blank=True)
-    label = models.CharField(max_length=60, blank=True)
+    label = models.CharField(max_length=60, blank=True)  # messenger: the Page's name
+    meta_user_id = models.CharField(max_length=64, blank=True, db_default="")  # messenger: the Facebook user who connected it
     last_test_at = models.DateTimeField(null=True, blank=True)
     last_test_outcome = models.CharField(max_length=24, blank=True)  # an outcome code, never provider text
     created_at = models.DateTimeField(default=timezone.now, editable=False)
@@ -36,6 +37,11 @@ class InquiryConnection(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["site", "provider"], name="inquiry_connection_site_provider_uniq"),
+            # D5: a Facebook Page is connected to one site at a time.
+            models.UniqueConstraint(
+                fields=["external_page_id"], condition=Q(provider="messenger") & ~Q(external_page_id=""),
+                name="inquiry_connection_messenger_page_uniq",
+            ),
         ]
 
     def __repr__(self):
@@ -55,10 +61,10 @@ class InquiryConversation(models.Model):
     from the provider on demand. For a stored channel (`stores_history`), the conversation
     itself: made by the visitor's first message, with its messages in InquiryMessage."""
 
-    WEBCHAT, EMAIL = "webchat", "email"
-    PROVIDERS = [(WEBCHAT, "Website chat"), (EMAIL, "Email")]
-    STORED_PROVIDERS = (WEBCHAT, EMAIL)
-    REF_PREFIX = {WEBCHAT: "wc_", EMAIL: "em_"}  # a stored channel's refs are recognised by prefix
+    WEBCHAT, EMAIL, MESSENGER = "webchat", "email", "messenger"
+    PROVIDERS = [(WEBCHAT, "Website chat"), (EMAIL, "Email"), (MESSENGER, "Messenger")]
+    STORED_PROVIDERS = (WEBCHAT, EMAIL, MESSENGER)
+    REF_PREFIX = {WEBCHAT: "wc_", EMAIL: "em_", MESSENGER: "fm_"}  # a stored channel's refs are recognised by prefix
     OPEN, CLOSED = "open", "closed"
     STATUSES = [(OPEN, "Open"), (CLOSED, "Closed")]
     UNVERIFIED_SENDER = "unverified_sender"
@@ -77,6 +83,8 @@ class InquiryConversation(models.Model):
     contact_email = models.EmailField(max_length=254, blank=True, db_default="")  # only if the person gave it; blanked
     visitor_hash = models.CharField(max_length=64, blank=True, db_default="")  # SHA-256 of the chat visitor's secret
     thread_token = models.CharField(max_length=24, blank=True, db_default="")  # the email reply-thread token (PR2)
+    psid = models.CharField(max_length=64, blank=True, db_default="")  # messenger: the customer's page-scoped id; personal, blanked
+    page_id = models.CharField(max_length=64, blank=True, db_default="")  # messenger: the Page this conversation arrived on; a reply needs the connection to still be that Page
     last_inbound_at = models.DateTimeField(null=True, blank=True)
     unread = models.BooleanField(default=False, db_default=False)
     auth_flag = models.CharField(max_length=24, blank=True, choices=AUTH_FLAGS, db_default="")
@@ -94,6 +102,9 @@ class InquiryConversation(models.Model):
             models.UniqueConstraint(
                 fields=["site", "visitor_hash"], condition=Q(status="open") & ~Q(visitor_hash=""),
                 name="inquiry_conversation_one_open_per_visitor",
+            ),
+            models.UniqueConstraint(
+                fields=["connection", "psid"], condition=~Q(psid=""), name="inquiry_conversation_connection_psid_uniq",
             ),
             models.UniqueConstraint(
                 fields=["thread_token"], condition=~Q(thread_token=""), name="inquiry_conversation_thread_token_uniq",
@@ -165,6 +176,7 @@ class InquiryMessage(models.Model):
     external_id = models.CharField(max_length=128, blank=True)  # the provider's message id (email, PR2)
     delivery_state = models.CharField(max_length=12, blank=True, choices=DELIVERY_STATES)  # outgoing only
     error_code = models.CharField(max_length=24, blank=True)
+    attachment_types = models.CharField(max_length=60, blank=True, db_default="")  # messenger: types only, comma-separated
     created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     class Meta:
