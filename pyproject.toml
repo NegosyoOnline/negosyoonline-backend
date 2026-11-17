@@ -14,4 +14,6 @@ dependencies = [
     "sentry-sdk>=2.20,<3",
     "reportlab>=4.2,<5",
     "boto3>=1.40,<2",
+    "uvicorn[standard]>=0.54,<0.55",
+    "uvicorn-worker>=0.4,<0.5",
 ]
