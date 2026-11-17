@@ -2,6 +2,8 @@
 every result and log, reply-window reading, and the page check on a conversation ref."""
 import logging
 import urllib.parse
+from datetime import datetime, timezone
+from unittest import mock
 
 from django.test import SimpleTestCase
 
@@ -79,6 +81,35 @@ class RequestTests(SimpleTestCase):
             self.assertEqual(parts.netloc, "pages.fm")
             self.assertNotIn(TOKEN, parts.path)
             self.assertEqual(urllib.parse.parse_qs(parts.query)["page_access_token"], [TOKEN])
+
+    def test_the_conversation_list_carries_a_30_day_since_until_window_in_unix_seconds(self):
+        now = datetime(2026, 11, 17, 8, 0, 0, tzinfo=timezone.utc)
+        with mock.patch("apps.inquiries.adapters.pancake._now", return_value=now), FakePancake() as pancake:
+            ADAPTER.test_connection(CREDS)
+            ADAPTER.list_conversations(CREDS, "30", 30)
+            ADAPTER.get_thread(CREDS, REF, None)
+            ADAPTER.send_reply(CREDS, REF, "hi")
+        listing = [r for r in pancake.requests if r.full_url.split("?")[0].endswith("/conversations")]
+        self.assertEqual(len(listing), 2)
+        for request in listing:
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)
+            for key in ("since", "until"):
+                self.assertRegex(query[key][0], r"^[0-9]+$")
+            self.assertEqual(int(query["until"][0]), int(now.timestamp()))
+            self.assertEqual(int(query["until"][0]) - int(query["since"][0]), 30 * 86400)
+        self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlsplit(listing[1].full_url).query)["current_count"], ["30"])
+        others = [r for r in pancake.requests if r not in listing]
+        self.assertEqual(len(others), 2)
+        for request in others:
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)
+            self.assertNotIn("since", query)
+            self.assertNotIn("until", query)
+
+    def test_a_since_is_required_answer_is_still_a_bad_response(self):
+        answer = {"success": False, "message": "since is required!"}
+        with FakePancake(listing=answer):
+            self.assertEqual(ADAPTER.test_connection(CREDS).code, outcomes.BAD_RESPONSE)
+            self.assertEqual(ADAPTER.list_conversations(CREDS, None, 30).code, outcomes.BAD_RESPONSE)
 
     def test_a_ref_of_another_page_is_refused_without_a_request(self):
         with FakePancake() as pancake:
