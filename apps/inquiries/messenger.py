@@ -114,16 +114,51 @@ def map_error(status, body):
     return outcomes.BAD_RESPONSE
 
 
+_TOKEN_RUN = re.compile(r"[A-Za-z0-9_\-|.%]{20,}")
+_ID_SEGMENT = re.compile(r"^\d+$")
+
+
+def _path_template(path):
+    """The path only (never params or query) with all-digit segments as `{id}`."""
+    clean = str(path).split("?", 1)[0].split("#", 1)[0]
+    return "/".join("{id}" if _ID_SEGMENT.match(part) else part for part in clean.split("/"))[:120]
+
+
+def _log_int(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) else ""
+
+
+def _log_text(value, limit):
+    if not isinstance(value, str):
+        return ""
+    return " ".join(_TOKEN_RUN.sub("***", value).split())[:limit]
+
+
+def _log_error_fields(body):
+    error = body.get("error") if isinstance(body, dict) and isinstance(body.get("error"), dict) else {}
+    return (
+        _log_int(error.get("code")), _log_int(error.get("error_subcode")),
+        _log_text(error.get("type"), 40), _log_text(error.get("fbtrace_id"), 40),
+        _log_text(error.get("message"), 200),
+    )
+
+
 def call(method, path, *, params=None, form=None, token=None):
     """Result(code, body): `ok` with the parsed body, or a fixed outcome code. Never raises."""
     try:
         status, body = _transport(method, path, params=params, form=form, token=token)
     except (OSError, ValueError) as error:
-        logger.warning("Messenger call failed (%s)", type(error).__name__)
+        logger.warning("Messenger call failed (%s) %s %s", type(error).__name__, _log_text(method, 10),
+                       _path_template(path))
         return Result(outcomes.PROVIDER_DOWN)
     if status >= 400 or "error" in body:
         code = map_error(status, body)
-        logger.warning("Messenger call refused (%s)", code)
+        error_code, subcode, error_type, fbtrace, message = _log_error_fields(body)
+        logger.warning(
+            "Messenger call refused (%s) %s %s status=%s code=%s subcode=%s type=%s fbtrace=%s msg=%s",
+            code, _log_text(method, 10), _path_template(path), _log_int(status), error_code, subcode,
+            error_type, fbtrace, message,
+        )
         return Result(code)
     return Result(outcomes.OK, body)
 
