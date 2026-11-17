@@ -305,6 +305,10 @@ Plan: `docs/superpowers/plans/2026-11-13-site-deletion-executor-z8uq9mb22v.md` (
 
 `manage.py shop_remove_test_order --site SITE --order ORDER [--actor USER]` is a dry run that prints counts and writes nothing; read it first, then add `--apply`. SITE is the site's public id, ORDER the order's public id or number (`SO00001`). It refuses unless the receiver name starts with "TEST " and the order is on that site. It blanks the order's receiver and contact fields and its proof's personal fields, deletes the proof file and the order's reviews, and keeps the order, lines, totals and events. One audit entry `shop_test_order_removed`. Run again, it changes nothing. Never on production; the real run waits for Coach Ed's word after the dry-run counts. (ClickUp z8uq9mf15g; same style as `pack_remove_test_member`.)
 
+## Deleting named TEST Pack orders (staging only)
+
+`manage.py pack_delete_test_order --site SITE --order SMP00001 [--order SMP00002 ...] [--actor USER]` is a dry run first: it runs the whole deletion, prints the counts per table and rolls back; read it, then add `--apply`. SITE is the site's public id; each ORDER is an order number or public id on that site. Unlike `pack_remove_test_member` it removes the rows (orders, proofs, decisions, events, registrations, tokens, visits, Meta contexts), and the member too unless another order, registration or shop order still uses it (then the output says the member is kept). Proof files go from the private store after the commit. Meta delivery rows stay and are only counted. One audit entry `pack_test_order_deleted` (ids and counts). If any named order is missing or on another site, it refuses all and writes nothing; run again, it says "No such order". It refuses outside local and the Railway environment named "staging", and always on "production". Never on production. (ClickUp z8uq9mfztm.)
+
 ## Turning it off
 
 Unset `RETENTION_ENABLED`. Deleted rows cannot be brought back from the application; only a database backup holds them, until that backup expires.

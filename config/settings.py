@@ -561,6 +561,9 @@ if not DEBUG:
 
 # Short commit of the running release, used by /healthz/ to prove which build is live.
 RELEASE_COMMIT = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown")[:12]
+# Railway names the environment itself (no variable to set). Only the staff test-data commands
+# that must never run on production read it (pack_delete_test_order); empty off Railway.
+RAILWAY_ENVIRONMENT_NAME = os.environ.get("RAILWAY_ENVIRONMENT_NAME", "").strip().lower()
 
 # Access denials go to the console, so Railway's logs hold them (apps/common/security_log.py).
 # Only the `security` logger is configured here; Django's own logging stays as it is.
