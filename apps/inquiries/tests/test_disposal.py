@@ -64,7 +64,7 @@ class InquiryDisposalTests(DisposalTestCase):
         from apps.operators.models import OperatorAuditEntry
 
         entry = OperatorAuditEntry.objects.filter(action="account_disposed").latest("pk")
-        self.assertEqual(entry.detail["blanked"]["inquiry_connections"], ["token_encrypted"])
+        self.assertEqual(entry.detail["blanked"]["inquiry_connections"], ["token_encrypted", "external_page_id", "label", "meta_user_id"])
         self.assertEqual(
             entry.detail["blanked"]["inquiry_conversations"],
             ["display_name", "contact_name", "contact_email", "visitor_hash", "thread_token"],

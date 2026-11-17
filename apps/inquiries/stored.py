@@ -29,10 +29,19 @@ THREAD_LIMIT = 200  # the latest messages of a thread
 RECENT_REPLIES = 20
 SNIPPET = 100
 ANONYMOUS = "Website visitor"
+MESSENGER_CUSTOMER = "Messenger customer"
 MAX_PAUSE = timedelta(days=90)
 
 CLOSED_CODE = "conversation_closed"
 CONFLICT_CODE = "conflict"
+
+
+def providers():
+    """The stored providers the owner may see now: Messenger only while its switch is on."""
+    from apps.inquiries.switch import messenger_on
+    if messenger_on():
+        return InquiryConversation.STORED_PROVIDERS
+    return tuple(p for p in InquiryConversation.STORED_PROVIDERS if p != InquiryConversation.MESSENGER)
 
 
 def is_stored_ref(ref):
@@ -48,12 +57,13 @@ def find(site, ref):
     if not is_stored_ref(ref):
         return None
     return InquiryConversation.objects.filter(
-        site=site, provider__in=InquiryConversation.STORED_PROVIDERS, external_id=ref, stores_history=True,
+        site=site, provider__in=providers(), external_id=ref, stores_history=True,
     ).first()
 
 
 def _name(conversation):
-    return conversation.contact_name or conversation.display_name or ANONYMOUS
+    fallback = MESSENGER_CUSTOMER if conversation.provider == InquiryConversation.MESSENGER else ANONYMOUS
+    return conversation.contact_name or conversation.display_name or fallback
 
 
 def _snippet(text):
@@ -88,7 +98,7 @@ def list_items(site, limit=LIST_LIMIT, after=None):
     """(items, next_cursor): the site's stored conversations, latest first, in the shape the owner's
     list uses. `after` is a previous call's next_cursor; next_cursor is None on the last page."""
     rows = InquiryConversation.objects.filter(
-        site=site, provider__in=InquiryConversation.STORED_PROVIDERS, stores_history=True,
+        site=site, provider__in=providers(), stores_history=True,
     ).order_by(F("last_message_at").desc(nulls_last=True), "-pk")
     if after:
         rows = _after(rows, after)
@@ -100,7 +110,7 @@ def list_items(site, limit=LIST_LIMIT, after=None):
         items.append({
             "ref": conversation.external_id,
             "display_name": _name(conversation),
-            "snippet": _snippet(last.body) if last else "",
+            "snippet": (_snippet(last.body) or ("[" + last.attachment_types.split(",")[0] + "]" if last.attachment_types else "")) if last else "",
             "updated_at": conversation.last_message_at.isoformat() if conversation.last_message_at else None,
             "channel": conversation.provider,
             "source": "stored",
@@ -112,7 +122,7 @@ def list_items(site, limit=LIST_LIMIT, after=None):
 
 def has_any(site):
     return InquiryConversation.objects.filter(
-        site=site, provider__in=InquiryConversation.STORED_PROVIDERS, stores_history=True,
+        site=site, provider__in=providers(), stores_history=True,
     ).exists()
 
 
@@ -136,7 +146,11 @@ def thread(site, ref):
     latest.reverse()
     replies = InquiryReply.objects.filter(conversation=conversation).select_related("message")[:RECENT_REPLIES]
     is_open = conversation.status == InquiryConversation.OPEN
-    return {
+    window = None
+    if conversation.provider == InquiryConversation.MESSENGER:
+        from apps.inquiries import messenger_inbox
+        window = messenger_inbox.window_of(conversation)
+    out = {
         "ref": conversation.external_id,
         "display_name": _name(conversation),
         "channel": conversation.provider,
@@ -147,7 +161,7 @@ def thread(site, ref):
         "messages": [
             {
                 "id": str(m.pk), "direction": m.direction, "sender_kind": m.sender_kind, "text": m.body,
-                "attachments": [], "at": m.created_at.isoformat(), "delivery_state": m.delivery_state,
+                "attachments": [t for t in m.attachment_types.split(",") if t], "at": m.created_at.isoformat(), "delivery_state": m.delivery_state,
             }
             for m in latest
         ],
@@ -156,6 +170,11 @@ def thread(site, ref):
         "next_cursor": None,
         "replies": [_reply_out(r) for r in replies],
     }
+    if window is not None:  # Messenger only: Meta's 24-hour window since the customer's last message
+        out["reply_window"] = window
+        if is_open and not window["open"]:
+            out["reply"] = {"open": False, "reason": outcomes.WINDOW_CLOSED}
+    return out
 
 
 def _earlier(existing, ref):
@@ -179,6 +198,9 @@ def reply(site, account, ref, text, idempotency_key):
         return _earlier(existing, ref)
     if conversation.status != InquiryConversation.OPEN:
         return CLOSED_CODE, None
+    if conversation.provider == InquiryConversation.MESSENGER:
+        from apps.inquiries import messenger_inbox
+        return messenger_inbox.reply(site, account, conversation, text, idempotency_key)
     if conversation.provider == InquiryConversation.EMAIL:
         return _reply_email(site, account, conversation, text, idempotency_key)
     now = timezone.now()

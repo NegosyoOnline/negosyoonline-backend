@@ -5,9 +5,6 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
-from apps.inquiries.models import (
-    InquiryChannelSettings, InquiryConnection, InquiryConversation, InquiryMessage, InquiryReply,
-)
 from apps.sites.tests.base import make_account, make_site
 
 OLD = "pancake"  # the provider value of the rows the migration deletes
@@ -16,6 +13,14 @@ OLD = "pancake"  # the provider value of the rows the migration deletes
 def migrate(*targets):
     executor = MigrationExecutor(connection)
     executor.migrate(list(targets))
+
+
+def historical(target):
+    """The models as they were at migration `target` (the current models have later columns)."""
+    state = MigrationExecutor(connection).loader.project_state([("inquiries", target)])
+    return {name: state.apps.get_model("inquiries", name) for name in (
+        "InquiryChannelSettings", "InquiryConnection", "InquiryConversation", "InquiryMessage", "InquiryReply",
+    )}
 
 
 class RemovePancakeMigrationTests(TransactionTestCase):
@@ -28,29 +33,32 @@ class RemovePancakeMigrationTests(TransactionTestCase):
         self.other = make_site(make_account("other@example.test"), name="other-store", first=False)
 
     def plant(self, site, suffix):
+        m = historical("0002_stored_channels")
+        InquiryConnection, InquiryConversation = m["InquiryConnection"], m["InquiryConversation"]
+        InquiryMessage, InquiryReply, InquiryChannelSettings = m["InquiryMessage"], m["InquiryReply"], m["InquiryChannelSettings"]
         connection_row = InquiryConnection.objects.create(
-            site=site, provider=OLD, status="active", token_encrypted="CIPHER-" + suffix, external_page_id="p-" + suffix,
+            site_id=site.pk, provider=OLD, status="active", token_encrypted="CIPHER-" + suffix, external_page_id="p-" + suffix,
         )
         old = InquiryConversation.objects.create(
-            site=site, connection=connection_row, provider=OLD, external_id="old-" + suffix, display_name="Fb Person",
+            site_id=site.pk, connection=connection_row, provider=OLD, external_id="old-" + suffix, display_name="Fb Person",
         )
         old_reply = InquiryReply.objects.create(
-            site=site, conversation=old, author=site.account, idempotency_key="old-key-" + suffix, body_length=4,
+            site_id=site.pk, conversation=old, author_id=site.account_id, idempotency_key="old-key-" + suffix, body_length=4,
         )
         chat = InquiryConversation.objects.create(
-            site=site, provider="webchat", external_id="wc_" + suffix * 24, stores_history=True, contact_name="Chat Person",
+            site_id=site.pk, provider="webchat", external_id="wc_" + suffix * 24, stores_history=True, contact_name="Chat Person",
         )
         message = InquiryMessage.objects.create(
-            site=site, conversation=chat, direction="in", sender_kind="customer", body="Hello",
+            site_id=site.pk, conversation=chat, direction="in", sender_kind="customer", body="Hello",
         )
         mail = InquiryConversation.objects.create(
-            site=site, provider="email", external_id="em_" + suffix * 24, stores_history=True, contact_email="a@b.test",
+            site_id=site.pk, provider="email", external_id="em_" + suffix * 24, stores_history=True, contact_email="a@b.test",
         )
         chat_reply = InquiryReply.objects.create(
-            site=site, conversation=chat, author=site.account, idempotency_key="chat-key-" + suffix, body_length=4,
+            site_id=site.pk, conversation=chat, author_id=site.account_id, idempotency_key="chat-key-" + suffix, body_length=4,
             message=message,
         )
-        settings_row = InquiryChannelSettings.objects.create(site=site, webchat_enabled=True)
+        settings_row = InquiryChannelSettings.objects.create(site_id=site.pk, webchat_enabled=True)
         return {
             "old": [connection_row, old, old_reply],
             "kept": [chat, mail, message, chat_reply, settings_row],
@@ -59,6 +67,9 @@ class RemovePancakeMigrationTests(TransactionTestCase):
     def test_only_the_pancake_rows_are_deleted(self):
         a, b = self.plant(self.site, "a"), self.plant(self.other, "b")
         migrate(("inquiries", "0003_remove_pancake"))
+        m = historical("0003_remove_pancake")
+        InquiryConnection, InquiryConversation = m["InquiryConnection"], m["InquiryConversation"]
+        InquiryMessage, InquiryReply = m["InquiryMessage"], m["InquiryReply"]
         for planted in (a, b):
             for row in planted["old"]:
                 self.assertFalse(type(row).objects.filter(pk=row.pk).exists(), row)
@@ -75,5 +86,11 @@ class RemovePancakeMigrationTests(TransactionTestCase):
 
     def test_it_runs_on_empty_tables_and_forward_twice_is_safe(self):
         migrate(("inquiries", "0003_remove_pancake"))
+        m = historical("0003_remove_pancake")
+        InquiryConnection, InquiryConversation = m["InquiryConnection"], m["InquiryConversation"]
+        InquiryMessage, InquiryReply = m["InquiryMessage"], m["InquiryReply"]
         self.assertEqual(InquiryConnection.objects.count(), 0)
         migrate(("inquiries", "0003_remove_pancake"))
+        m = historical("0003_remove_pancake")
+        InquiryConnection, InquiryConversation = m["InquiryConnection"], m["InquiryConversation"]
+        InquiryMessage, InquiryReply = m["InquiryMessage"], m["InquiryReply"]
