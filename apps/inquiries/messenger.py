@@ -32,10 +32,8 @@ GRAPH_VERSION = "v26.0"  # the one place the Graph API version is set
 GRAPH_URL = f"https://graph.facebook.com/{GRAPH_VERSION}"
 DIALOG_URL = f"https://www.facebook.com/{GRAPH_VERSION}/dialog/oauth"
 TIMEOUT = 10  # seconds
-# Used when no META_MESSENGER_CONFIG_ID is set. Meta's list for Messenger conversations on pages
-# the person manages (pages_show_list, pages_manage_metadata, pages_messaging, pages_read_engagement,
-# business_management).
-SCOPES = "pages_show_list,pages_manage_metadata,pages_messaging,pages_read_engagement,business_management"
+# Used when no META_MESSENGER_CONFIG_ID is set.
+SCOPES = "pages_show_list,pages_manage_metadata,pages_messaging"  # exactly the three App Review covers
 REQUIRED_PERMISSIONS = ("pages_messaging", "pages_manage_metadata", "pages_show_list")
 SUBSCRIBED_FIELDS = "messages,messaging_postbacks,message_echoes,message_deliveries,message_reads"
 MAX_TEXT = 2000

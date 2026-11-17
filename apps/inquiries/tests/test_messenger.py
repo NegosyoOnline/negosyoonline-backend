@@ -282,7 +282,7 @@ class ConnectTests(MessengerTestCase):
         self.assertIn(messenger.GRAPH_VERSION, url.path)
         self.assertEqual(query["client_id"], ["123456"])
         self.assertEqual(query["response_type"], ["code"])
-        self.assertIn("pages_messaging", query["scope"][0])
+        self.assertEqual(query["scope"], ["pages_show_list,pages_manage_metadata,pages_messaging"])
         self.assertTrue(query["redirect_uri"][0].endswith("/v1/inquiries/messenger/callback/"))
         self.assertNotIn(SECRET, url.query)
 
