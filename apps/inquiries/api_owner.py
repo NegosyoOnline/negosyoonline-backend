@@ -1,6 +1,9 @@
 """The Subscriber's customer inquiries, under /v1/sites/{site_id}/inquiries/:
 
-    GET    .../conversations/?stored_cursor=    -> {items, stored_next_cursor}
+    GET    .../conversations/?stored_cursor=&q= -> {items, stored_next_cursor, unread_total}
+                                                 (`q`: 2 to 80 characters, else 422 `invalid_query`; matches the name,
+                                                 contact email or any message text of this site's conversations)
+    GET    .../unread/                          -> {count}  (this site's unread conversations)
     GET    .../conversations/{ref}/             -> the thread, whether a reply may be sent, the replies sent
     POST   .../conversations/{ref}/reply/       {text, idempotency_key} -> {state, error_code, created_at}
     GET    .../channels/                        -> {webchat_enabled, email_enabled, paused_until, chat_limit_reached, webchat_available,
@@ -92,14 +95,27 @@ def _stored_on():
 
 
 @router.get("/sites/{site_id}/inquiries/conversations/")
-def conversations(request, site_id: str, stored_cursor: str | None = None):
+def conversations(request, site_id: str, stored_cursor: str | None = None, q: str | None = None):
     hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
     if stored_cursor and not stored.STORED_CURSOR_RE.match(stored_cursor):
         raise _invalid("stored_cursor", "That cursor does not look right.")
+    query = None
+    if q is not None:
+        query = stored.valid_query(q)
+        if query is None:
+            message = f"Search needs {stored.SEARCH_MIN} to {stored.SEARCH_MAX} characters."
+            raise ApiError("invalid_query", message, status=422, fields={"q": [message]})
     if not _stored_on():
-        return {"items": [], "stored_next_cursor": None}
-    items, next_cursor = stored.list_items(request.inquiry_site, after=stored_cursor or None)
-    return {"items": items, "stored_next_cursor": next_cursor}
+        return {"items": [], "stored_next_cursor": None, "unread_total": 0}
+    site = request.inquiry_site
+    items, next_cursor = stored.list_items(site, after=stored_cursor or None, query=query)
+    return {"items": items, "stored_next_cursor": next_cursor, "unread_total": stored.unread_count(site)}
+
+
+@router.get("/sites/{site_id}/inquiries/unread/")
+def unread(request, site_id: str):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    return {"count": stored.unread_count(request.inquiry_site) if _stored_on() else 0}
 
 
 @router.get("/sites/{site_id}/inquiries/conversations/{ref}/")
