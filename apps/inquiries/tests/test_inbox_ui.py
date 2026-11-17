@@ -580,6 +580,73 @@ class StatusFilterTests(InboxUiCase):
         self.assertEqual(response.json()["items"], [])
 
 
+class UnreadFilterTests(InboxUiCase):
+    def setUp(self):
+        super().setUp()
+        now = timezone.now()
+        self.u1 = make_stored(self.site, ref="wc_" + "1" * 24, name="Maria Santos", text="Do you deliver to Cebu?",
+                              unread=True, at=now - timedelta(minutes=5))
+        self.r1 = make_stored(self.site, ref="wc_" + "2" * 24, name="Ben Cruz", text="Cebu order done",
+                              unread=False, status=InquiryConversation.CLOSED, at=now - timedelta(minutes=4))
+        self.r2 = make_stored(self.site, ref="wc_" + "3" * 24, name="Ana Lim", text="Thanks",
+                              unread=False, at=now - timedelta(minutes=3))
+
+    def refs(self, **params):
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        response = self.get(f"{self.list_url}?{query}")
+        self.assertEqual(response.status_code, 200, response.content)
+        return [i["ref"] for i in response.json()["items"]], response.json()
+
+    def test_unread_1_keeps_only_unread(self):
+        self.assertEqual(self.refs(unread=1)[0], [self.u1.external_id])
+
+    def test_unread_0_keeps_only_read(self):
+        self.assertEqual(sorted(self.refs(unread=0)[0]), sorted([self.r1.external_id, self.r2.external_id]))
+
+    def test_missing_or_empty_is_all(self):
+        self.assertEqual(len(self.refs()[0]), 3)
+        self.assertEqual(len(self.refs(unread="")[0]), 3)
+
+    def test_any_other_value_is_422_invalid_unread(self):
+        for bad in ("true", "2", "yes", "1,0", "-1"):
+            response = self.get(f"{self.list_url}?unread={bad}")
+            self.error(response, 422, "invalid_unread")
+            self.assertIn("unread", response.json()["error"]["fields"])
+
+    def test_works_together_with_status_and_q(self):
+        self.assertEqual(self.refs(unread=0, status="closed")[0], [self.r1.external_id])
+        self.assertEqual(self.refs(unread=0, status="open")[0], [self.r2.external_id])
+        self.assertEqual(self.refs(unread=1, status="closed")[0], [])
+        self.assertEqual(self.refs(unread=0, q="cebu")[0], [self.r1.external_id])
+        self.assertEqual(self.refs(unread=1, q="cebu")[0], [self.u1.external_id])
+        self.assertEqual(self.refs(unread=1, q="thanks")[0], [])
+
+    def test_pages_with_the_same_cursor_under_a_filter(self):
+        now = timezone.now()
+        for i in range(32):
+            make_stored(self.site, ref=f"wc_{i:024d}", name=f"Pat {i}", unread=False, at=now - timedelta(seconds=i + 10))
+        first, body = self.refs(unread=0)
+        self.assertEqual(len(first), stored.LIST_LIMIT)
+        self.assertIsNotNone(body["stored_next_cursor"])
+        second, body2 = self.refs(unread=0, stored_cursor=body["stored_next_cursor"])
+        self.assertEqual((len(second), body2["stored_next_cursor"]), (4, None))
+        self.assertEqual(len(set(first + second)), 34)
+
+    def test_unread_total_is_not_filtered(self):
+        self.assertEqual(self.refs(unread=0)[1]["unread_total"], 1)
+        self.assertEqual(self.refs(unread=1)[1]["unread_total"], 1)
+
+    def test_another_sites_conversations_never_appear(self):
+        other = self.other_site()
+        make_stored(other, ref="wc_" + "9" * 24, unread=True)
+        make_stored(other, ref="wc_" + "8" * 24, unread=False)
+        self.assertNotIn("wc_" + "9" * 24, self.refs(unread=1)[0])
+        self.assertNotIn("wc_" + "8" * 24, self.refs(unread=0)[0])
+        ben = self.other_client()
+        response = ben.get(f"/v1/sites/{other.public_id}/inquiries/conversations/?unread=1", secure=True)
+        self.assertEqual([i["ref"] for i in response.json()["items"]], ["wc_" + "9" * 24])
+
+
 class UnreadTests(InboxUiCase):
     def setUp(self):
         super().setUp()
