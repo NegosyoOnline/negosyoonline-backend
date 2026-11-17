@@ -39,10 +39,14 @@ MAX_SNIPPET = 200
 # Pancake requires since/until on the conversation list, in unix seconds, UTC; 30 days is the
 # Supervisor's recorded routine decision on z8uq9md3n6.
 LIST_WINDOW_DAYS = 30
+# `page_number` is required on the conversation list (live answer 2026-11-17: 200 with
+# {"success": false, "message": "page_number is required!"} when it is missing). It is 1-based.
+MAX_PAGE = 9999
 
 INVALID_CODES = (102,)  # Pancake error_code for a bad token (seen in TWCinc)
 EXPIRED_CODES = ()  # UNCONFIRMED: no distinct expired-token code seen yet
 CURSOR_RE = re.compile(r"^[0-9]{1,6}$")
+PAGE_RE = re.compile(r"^[0-9]{1,4}$")
 REF_RE = re.compile(r"^[A-Za-z0-9_.:-]{3,128}$")
 PAGE_ID_RE = re.compile(r"^[A-Za-z0-9_]{3,64}$")
 
@@ -61,6 +65,13 @@ def _window():
     """The since/until query for the conversation list: integer unix seconds, UTC."""
     until = int(_now().timestamp())
     return {"since": until - LIST_WINDOW_DAYS * 86400, "until": until}
+
+
+def _page(cursor):
+    """The 1-based page number a list cursor stands for; anything unusable is page 1."""
+    if isinstance(cursor, str) and PAGE_RE.match(cursor) and 1 <= int(cursor) <= MAX_PAGE:
+        return int(cursor)
+    return 1
 
 
 def _read(handle):
@@ -128,7 +139,8 @@ def _text(value, limit):
 
 
 def _stamp(value):
-    """An ISO 8601 UTC string from Pancake's timestamp (UNCONFIRMED format), or None."""
+    """An ISO 8601 UTC string from Pancake's timestamp, or None. Pancake's format is confirmed
+    (live, 2026-11-17): naive ISO "YYYY-MM-DDTHH:MM:SS.ffffff", read as UTC."""
     if not isinstance(value, str):
         return None
     try:
@@ -163,16 +175,17 @@ class PancakeAdapter(ProviderAdapter):
         return self._path(creds, f"/conversations/{urllib.parse.quote(ref, safe='')}{suffix}")
 
     def test_connection(self, creds):
-        # UNCONFIRMED: that the conversation list is the cheapest valid read for a page.
-        code, _ = _call("GET", self._path(creds, "/conversations"), creds.token, _window())
+        # The cheapest valid read: one row of page 1 (page_number is required, 2026-11-17).
+        query = {"page_number": 1, "page_size": 1, **_window()}
+        code, _ = _call("GET", self._path(creds, "/conversations"), creds.token, query)
         return Result(code)
 
     def list_conversations(self, creds, cursor, limit):
-        query = {"current_count": cursor} if cursor and CURSOR_RE.match(cursor) else {}
-        query.update(_window())
-        # `since` and `until` are required here (confirmed by the live answer, 2026-11-17).
-        # UNCONFIRMED: this endpoint, the `current_count` paging on it, and the field names
-        # below (`conversations`, `id`, `snippet`, `updated_at`, `customers[].name`).
+        page = _page(cursor)
+        query = {"page_number": page, "page_size": LIST_LIMIT, **_window()}
+        # `since`, `until` and `page_number` are required here, and `page_size` is accepted
+        # (confirmed by live answers, 2026-11-17). Also confirmed live, 2026-11-17: this endpoint
+        # and the field names `conversations`, `id`, `snippet`, `updated_at`, `customers[].name`.
         code, body = _call("GET", self._path(creds, "/conversations"), creds.token, query)
         if code != outcomes.OK:
             return Result(code)
@@ -189,18 +202,18 @@ class PancakeAdapter(ProviderAdapter):
                 ref=row["id"], display_name=_text(name, MAX_NAME), snippet=_text(row.get("snippet"), MAX_SNIPPET),
                 updated_at=_stamp(row.get("updated_at")), channel=self.channel_of(row["id"]),
             ))
-        offset = int(cursor) if cursor and CURSOR_RE.match(cursor) else 0
-        more = len(rows) >= min(limit, LIST_LIMIT)
-        return Result(outcomes.OK, Page(tuple(items), str(offset + len(rows)) if more else None))
+        more = len(rows) >= LIST_LIMIT and page < MAX_PAGE  # a full page of the size we asked for
+        return Result(outcomes.OK, Page(tuple(items), str(page + 1) if more else None))
 
     def get_thread(self, creds, ref, cursor):
         path = self._conversation_path(creds, ref, "/messages")
         if path is None:
             return Result(outcomes.NOT_FOUND)
         query = {"current_count": cursor} if cursor and CURSOR_RE.match(cursor) else {}
-        # `current_count` paging is confirmed by Pancake's public reference. UNCONFIRMED: the
-        # field names `messages`, `id`, `message`, `inserted_at`, `from.id`, `from.name`,
-        # `attachments[].type`, and that `can_inbox` is at the top level (TWCinc read it there).
+        # `current_count` paging is confirmed by Pancake's public reference. Confirmed live
+        # (2026-11-17): the field names `messages`, `id`, `message`, `inserted_at`, `from.id`,
+        # `from.name`, `attachments[].type`, and `can_inbox` at the top level. `has_more` is
+        # absent from the live answer, so this next_cursor stays None; the check below is kept.
         code, body = _call("GET", path, creds.token, query)
         if code != outcomes.OK:
             return Result(code)

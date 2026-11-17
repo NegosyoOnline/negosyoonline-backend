@@ -10,7 +10,7 @@ from django.test import SimpleTestCase
 from apps.inquiries import outcomes
 from apps.inquiries.adapters import get as get_adapter
 from apps.inquiries.adapters.base import Credentials, redact
-from apps.inquiries.adapters.pancake import PancakeAdapter
+from apps.inquiries.adapters.pancake import PancakeAdapter, _stamp
 from apps.inquiries.tests.base import (
     BAD_TOKEN,
     PAGE,
@@ -97,13 +97,65 @@ class RequestTests(SimpleTestCase):
                 self.assertRegex(query[key][0], r"^[0-9]+$")
             self.assertEqual(int(query["until"][0]), int(now.timestamp()))
             self.assertEqual(int(query["until"][0]) - int(query["since"][0]), 30 * 86400)
-        self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlsplit(listing[1].full_url).query)["current_count"], ["30"])
+        self.assertEqual(urllib.parse.parse_qs(urllib.parse.urlsplit(listing[1].full_url).query)["page_number"], ["30"])
         others = [r for r in pancake.requests if r not in listing]
         self.assertEqual(len(others), 2)
         for request in others:
             query = urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)
             self.assertNotIn("since", query)
             self.assertNotIn("until", query)
+
+    def _list_query(self, cursor):
+        with FakePancake() as pancake:
+            ADAPTER.list_conversations(CREDS, cursor, 30)
+        return urllib.parse.parse_qs(urllib.parse.urlsplit(pancake.requests[0].full_url).query)
+
+    def test_the_list_pages_by_page_number_and_never_sends_current_count(self):
+        query = self._list_query(None)
+        self.assertEqual((query["page_number"], query["page_size"]), (["1"], ["30"]))
+        self.assertIn("since", query)
+        self.assertIn("until", query)
+        self.assertNotIn("current_count", query)
+        self.assertEqual(self._list_query("2")["page_number"], ["2"])
+        self.assertEqual(self._list_query("9999")["page_number"], ["9999"])
+        for bad in ("0", "", "abc", "10000", "-1", "1.5", "2&x=1"):
+            with self.subTest(cursor=bad):
+                self.assertEqual(self._list_query(bad)["page_number"], ["1"])
+
+    def test_a_full_page_gives_the_next_page_number_and_a_short_one_gives_none(self):
+        full = {"success": True, "conversations": [{"id": f"{PAGE}_{n}"} for n in range(30)]}
+        with FakePancake(listing=full):
+            self.assertEqual(ADAPTER.list_conversations(CREDS, "3", 30).value.next_cursor, "4")
+            self.assertEqual(ADAPTER.list_conversations(CREDS, None, 30).value.next_cursor, "2")
+        short = {"success": True, "conversations": [{"id": f"{PAGE}_{n}"} for n in range(29)]}
+        with FakePancake(listing=short):
+            self.assertIsNone(ADAPTER.list_conversations(CREDS, "3", 30).value.next_cursor)
+
+    def test_test_connection_asks_for_one_row_of_page_one(self):
+        with FakePancake() as pancake:
+            ADAPTER.test_connection(CREDS)
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(pancake.requests[0].full_url).query)
+        self.assertEqual((query["page_number"], query["page_size"]), (["1"], ["1"]))
+        self.assertIn("since", query)
+
+    def test_a_page_number_is_required_answer_is_a_bad_response(self):
+        with FakePancake(listing={"success": False, "message": "page_number is required!"}):
+            self.assertEqual(ADAPTER.test_connection(CREDS).code, outcomes.BAD_RESPONSE)
+            self.assertEqual(ADAPTER.list_conversations(CREDS, None, 30).code, outcomes.BAD_RESPONSE)
+
+    def test_pancakes_naive_microsecond_timestamp_is_read_as_utc(self):
+        self.assertEqual(_stamp("2026-11-17T01:23:45.123456"), "2026-11-17T01:23:45.123456+00:00")
+        payload = {"success": True, "conversations": [{"id": REF, "updated_at": "2026-11-17T01:23:45.123456"}]}
+        with FakePancake(listing=payload):
+            item = ADAPTER.list_conversations(CREDS, None, 30).value.items[0]
+        self.assertEqual(item.updated_at, "2026-11-17T01:23:45.123456+00:00")
+
+    def test_the_thread_get_carries_no_list_paging_or_window(self):
+        with FakePancake() as pancake:
+            ADAPTER.get_thread(CREDS, REF, None)
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(pancake.requests[0].full_url).query)
+        for key in ("page_number", "page_size", "since", "until"):
+            self.assertNotIn(key, query)
 
     def test_a_since_is_required_answer_is_still_a_bad_response(self):
         answer = {"success": False, "message": "since is required!"}
