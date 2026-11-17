@@ -1,6 +1,9 @@
 """The event payloads. Page events are built from what the storefronts server passes (never an
 amount: the value and currency come from the pack constants). Purchase and AddPaymentInfo are
-built only here, from the order row, the member row and the saved browser identifiers."""
+built only here, from the order row, the member row and the saved browser identifiers.
+
+user_data (hashed with SHA-256, only with the visitor's consent, a blank value left out): em and ph
+from the member on order events and from the visit's saved checkout contact on page events."""
 import hashlib
 import re
 
@@ -81,11 +84,11 @@ def build(name, event_id, *, event_time, url, user, custom=None):
     return event
 
 
-def page_event(name, event_id, *, now, url, ip, user_agent, fbp, fbc):
+def page_event(name, event_id, *, now, url, ip, user_agent, fbp, fbc, email="", mobile=""):
     custom = None if name == "PageView" else pack_data()
     return build(
         name, event_id, event_time=now.timestamp(), url=url, custom=custom,
-        user=user_data(ip=ip, user_agent=user_agent, fbp=fbp, fbc=fbc),
+        user=user_data(ip=ip, user_agent=user_agent, fbp=fbp, fbc=fbc, email=email, mobile=mobile),
     )
 
 
