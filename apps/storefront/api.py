@@ -41,7 +41,7 @@ from apps.pack.api_portal import router as portal_router
 from apps.sante import pack_api
 from apps.shop.api import router as shop_router
 from apps.shop.api_reviews import router as shop_reviews_router
-from apps.sites import seal
+from apps.sites import custom_hosts, seal
 from apps.storefront import services
 from apps.storefront.auth import server_only
 
@@ -93,6 +93,7 @@ class SiteOut(Schema):
     policy_links: list[PolicyLinkOut]
     free_shipping_banner: bool
     meta_pixel_id: str = ""
+    custom_host: str = ""
 
 
 def _site(host):
@@ -104,7 +105,11 @@ def _site(host):
 
 @api.get("/site/", response=SiteOut)
 def site(request, host: str = ""):
-    return services.site_chrome(_site(host))
+    found = _site(host)
+    return {
+        **services.site_chrome(found),
+        "custom_host": custom_hosts.custom_host_if_asked(found, host),
+    }
 
 
 @api.get("/seal/")

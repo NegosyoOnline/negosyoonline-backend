@@ -20,7 +20,7 @@ PATH = "/v1/public/sites/by-host/"
 HOST = "anas-store.negosyotest.com"
 KEYS = {
     "id", "template", "display_name", "accent_color", "facebook_url", "instagram_url",
-    "tiktok_url",
+    "tiktok_url", "custom_host",
 }
 NOT_FOUND = {"error": {"code": "not_found", "message": "Not found."}}
 
@@ -69,7 +69,7 @@ class ServedTests(ByHostTestCase):
             "id": site.public_id, "template": "sante", "display_name": "Ana's Store",
             "accent_color": "#1a7f37", "facebook_url": "https://facebook.com/anas",
             "instagram_url": "https://instagram.com/anas",
-            "tiktok_url": "https://tiktok.com/@anas",
+            "tiktok_url": "https://tiktok.com/@anas", "custom_host": "",
         })
         text = self.lookup().content.decode()
         for private in ("ana-store@example.test", "09171234567", "ana@example.test", "trial"):

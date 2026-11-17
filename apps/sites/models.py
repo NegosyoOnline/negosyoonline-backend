@@ -61,6 +61,41 @@ class Subdomain(models.Model):
         return self.name
 
 
+class SiteCustomHost(models.Model):
+    """An explicit, admin-attached public host (for example a store's own domain) for one site.
+    The host is stored normalised (see apps/sites/custom_hosts.py), is unique across all sites for
+    ever, and a site has at most one active host: its canonical public address."""
+
+    class State(models.TextChoices):
+        ACTIVE = "active"
+        RETIRED = "retired"
+
+    host = models.CharField(max_length=253, unique=True)
+    site = models.ForeignKey(Site, on_delete=models.PROTECT, related_name="custom_hosts")
+    state = models.CharField(max_length=20, choices=State.choices, default=State.ACTIVE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    retired_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(host=Lower(F("host"))), name="sites_customhost_lowercase"
+            ),
+            models.UniqueConstraint(
+                fields=["site"], condition=Q(state="active"), name="sites_one_active_customhost"
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        from apps.sites import custom_hosts
+
+        self.host = custom_hosts.validated(self.host)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.host
+
+
 class SiteBusinessProfile(models.Model):
     site = models.OneToOneField(Site, on_delete=models.PROTECT, related_name="business_profile")
     business_name = models.CharField(max_length=160, blank=True)
