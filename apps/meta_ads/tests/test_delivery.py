@@ -251,3 +251,52 @@ class SweepAndChecksTests(DeliveryTestCase):
             self.assertEqual(MetaOrderContext.objects.count(), 1)
             retention.run_all(only=["meta_order_contexts"])
         self.assertEqual(MetaOrderContext.objects.count(), 0)
+
+
+@switched_on
+@override_settings(BILLING_ENABLED=True)
+class DeliveryRetentionTests(DeliveryTestCase):
+    def aged(self, days, event_id):
+        row = self.delivery(event_id=event_id)
+        MetaDelivery.objects.filter(pk=row.pk).update(created_at=timezone.now() - timedelta(days=days))
+        return row
+
+    def run_rule(self, **kwargs):
+        return retention.run_all(only=["meta_deliveries"], **kwargs).counts["meta_deliveries"]
+
+    def test_it_deletes_rows_at_or_past_365_days_only(self):
+        old = self.aged(365, "pv_" + "b" * 16)
+        older = self.aged(400, "pv_" + "c" * 16)
+        young = self.aged(364, "pv_" + "d" * 16)
+        with override_settings(RETENTION_ENABLED=True):
+            self.assertEqual(self.run_rule(), 2)
+        self.assertEqual(list(MetaDelivery.objects.values_list("pk", flat=True)), [young.pk])
+        self.assertFalse(MetaDelivery.objects.filter(pk__in=[old.pk, older.pk]).exists())
+
+    def test_it_keeps_a_364_day_row(self):
+        self.aged(364, "pv_" + "d" * 16)
+        with override_settings(RETENTION_ENABLED=True):
+            self.assertEqual(self.run_rule(), 0)
+        self.assertEqual(MetaDelivery.objects.count(), 1)
+
+    def test_it_does_nothing_while_the_switch_is_off(self):
+        self.aged(400, "pv_" + "c" * 16)
+        with override_settings(RETENTION_ENABLED=False):
+            report = retention.run_all(only=["meta_deliveries"])
+        self.assertNotIn("meta_deliveries", report.counts)
+        self.assertIn("meta_deliveries", report.switched_off)
+        self.assertEqual(MetaDelivery.objects.count(), 1)
+
+    def test_the_dry_run_count_equals_the_run_count(self):
+        self.aged(365, "pv_" + "b" * 16)
+        self.aged(500, "pv_" + "c" * 16)
+        self.aged(10, "pv_" + "d" * 16)
+        with override_settings(RETENTION_ENABLED=True):
+            dry = self.run_rule(dry_run=True)
+            self.assertEqual(MetaDelivery.objects.count(), 3)
+            self.assertEqual(dry, self.run_rule())
+        self.assertEqual(MetaDelivery.objects.count(), 1)
+
+    def test_the_rule_is_listed_in_run_all(self):
+        with override_settings(RETENTION_ENABLED=True):
+            self.assertIn("meta_deliveries", retention.run_all(dry_run=True).counts)
