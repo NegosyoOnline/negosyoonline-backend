@@ -290,15 +290,15 @@ def deauthorize(meta_user_id):
 def erase_user(meta_user_id):
     """Meta's data deletion request for one Facebook user: their connections lose the token and the
     Page, and the Messenger messages and customer fields of those connections are deleted. Reply
-    audit rows hold no personal data and stay for their own retention. A conversation whose
-    customer id equals the user id (the user wrote to a connected Page) is erased too."""
+    audit rows hold no personal data and stay for their own retention. Only conversations of those
+    connections are erased: a customer id is page-scoped and never equals a Meta user id."""
     from apps.inquiries.retention import PERSONAL
 
     connections = list(InquiryConnection.objects.filter(provider=PROVIDER, meta_user_id=meta_user_id))
     for row in connections:
         unsubscribe_row(row)
-    conversations = InquiryConversation.objects.filter(provider=PROVIDER).filter(
-        models_q(connections, meta_user_id)
+    conversations = InquiryConversation.objects.filter(
+        provider=PROVIDER, connection__in=[c.pk for c in connections],
     )
     ids = list(conversations.values_list("pk", flat=True))
     with transaction.atomic():
@@ -311,7 +311,3 @@ def erase_user(meta_user_id):
             clear_connection(row, InquiryConnection.UNSET)
     return len(ids)
 
-
-def models_q(connections, meta_user_id):
-    from django.db.models import Q
-    return Q(connection__in=[c.pk for c in connections]) | Q(psid=meta_user_id)

@@ -677,6 +677,20 @@ class MetaCallbackTests(MessengerTestCase):
         self.assertEqual((conversation.psid, conversation.display_name, conversation.status), ("", "", "closed"))
         self.assertFalse(InquiryMessage.objects.exists())
 
+    def test_data_deletion_is_scoped_to_the_users_connections_and_unsubscribes_with_the_page_token(self):
+        self.connect_row()
+        # a customer whose page-scoped id happens to equal the Facebook user id, on someone else's Page
+        other_site = Site.objects.get(public_id=self.create_site(client=self.other_client(), subdomain="ben-store")["id"])
+        self.connect_row(site=other_site, page=PAGE_B, user="fbuser-2")
+        stranger = self.inbound(page=PAGE_B, psid="fbuser-1", mid="m_same", text="coincidence")
+        self.meta.calls.clear()
+        self.post_signed("data-deletion", signed_request("fbuser-1"))
+        stranger.refresh_from_db()
+        self.assertEqual(stranger.psid, "fbuser-1")
+        self.assertEqual(InquiryMessage.objects.filter(site=other_site).count(), 1)
+        delete = [c for c in self.meta.calls if c[0] == "DELETE"]
+        self.assertEqual([(c[1], c[4]) for c in delete], [(f"/{PAGE_A}/subscribed_apps", PAGE_TOKEN)])
+
     def test_the_same_answer_for_an_unknown_user(self):
         self.assertEqual(self.post_signed("data-deletion", signed_request("nobody")).status_code, 200)
 
