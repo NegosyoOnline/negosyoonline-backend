@@ -515,6 +515,71 @@ class SearchTests(InboxUiCase):
             self.assertEqual(self.get(f"{self.list_url}?q=maria").status_code, 429)
 
 
+class StatusFilterTests(InboxUiCase):
+    def setUp(self):
+        super().setUp()
+        now = timezone.now()
+        self.open1 = make_stored(self.site, ref="wc_" + "1" * 24, name="Maria Santos", text="Do you deliver to Cebu?",
+                                 at=now - timedelta(minutes=5))
+        self.closed1 = make_stored(self.site, ref="wc_" + "2" * 24, name="Ben Cruz", text="Cebu order done",
+                                   status=InquiryConversation.CLOSED, at=now - timedelta(minutes=4))
+        self.open2 = self.inbound(text="Hello from messenger")
+
+    def refs(self, **params):
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        response = self.get(f"{self.list_url}?{query}")
+        self.assertEqual(response.status_code, 200, response.content)
+        return [i["ref"] for i in response.json()["items"]], response.json()
+
+    def test_open_keeps_only_open_conversations(self):
+        refs, _ = self.refs(status="open")
+        self.assertEqual(sorted(refs), sorted([self.open1.external_id, self.open2.external_id]))
+
+    def test_closed_keeps_only_closed_conversations(self):
+        self.assertEqual(self.refs(status="closed")[0], [self.closed1.external_id])
+
+    def test_missing_or_empty_status_is_all(self):
+        self.assertEqual(len(self.refs()[0]), 3)
+        self.assertEqual(len(self.refs(status="")[0]), 3)
+
+    def test_any_other_value_is_422_invalid_status(self):
+        for bad in ("all", "Open", "x", "open,closed"):
+            response = self.get(f"{self.list_url}?status={bad}")
+            self.error(response, 422, "invalid_status")
+            self.assertIn("status", response.json()["error"]["fields"])
+
+    def test_works_together_with_q(self):
+        self.assertEqual(self.refs(status="open", q="cebu")[0], [self.open1.external_id])
+        self.assertEqual(self.refs(status="closed", q="cebu")[0], [self.closed1.external_id])
+        self.assertEqual(self.refs(status="closed", q="messenger")[0], [])
+
+    def test_pages_with_the_same_cursor_under_a_filter(self):
+        now = timezone.now()
+        for i in range(32):
+            make_stored(self.site, ref=f"wc_{i:024d}", name=f"Pat {i}", status=InquiryConversation.CLOSED,
+                        at=now - timedelta(seconds=i + 10))
+        first, body = self.refs(status="closed")
+        self.assertEqual(len(first), stored.LIST_LIMIT)
+        self.assertIsNotNone(body["stored_next_cursor"])
+        second, body2 = self.refs(status="closed", stored_cursor=body["stored_next_cursor"])
+        self.assertEqual((len(second), body2["stored_next_cursor"]), (3, None))
+        self.assertEqual(len(set(first + second)), 33)
+
+    def test_unread_total_is_not_filtered(self):
+        _, body = self.refs(status="closed")
+        self.assertEqual(body["unread_total"], 3)
+
+    def test_another_sites_conversations_never_appear(self):
+        other = self.other_site()
+        make_stored(other, ref="wc_" + "9" * 24, status=InquiryConversation.CLOSED)
+        self.assertNotIn("wc_" + "9" * 24, self.refs(status="closed")[0])
+        ben = self.other_client()
+        response = ben.get(f"/v1/sites/{other.public_id}/inquiries/conversations/?status=closed", secure=True)
+        self.assertEqual([i["ref"] for i in response.json()["items"]], ["wc_" + "9" * 24])
+        response = ben.get(f"/v1/sites/{other.public_id}/inquiries/conversations/?status=open", secure=True)
+        self.assertEqual(response.json()["items"], [])
+
+
 class UnreadTests(InboxUiCase):
     def setUp(self):
         super().setUp()

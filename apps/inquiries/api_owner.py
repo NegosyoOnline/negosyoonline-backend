@@ -1,8 +1,10 @@
 """The Subscriber's customer inquiries, under /v1/sites/{site_id}/inquiries/:
 
-    GET    .../conversations/?stored_cursor=&q= -> {items, stored_next_cursor, unread_total}
+    GET    .../conversations/?stored_cursor=&q=&status= -> {items, stored_next_cursor, unread_total}
                                                  (`q`: 2 to 80 characters, else 422 `invalid_query`; matches the name,
                                                  contact email or any message text of this site's conversations)
+                                                 (`status`: `open` or `closed` keeps only those; missing or empty is all,
+                                                 anything else 422 `invalid_status`; `unread_total` is never filtered)
     GET    .../unread/                          -> {count}  (this site's unread conversations)
     GET    .../conversations/{ref}/             -> the thread, whether a reply may be sent, the replies sent
     POST   .../conversations/{ref}/reply/       {text, idempotency_key} -> {state, error_code, created_at}
@@ -95,7 +97,8 @@ def _stored_on():
 
 
 @router.get("/sites/{site_id}/inquiries/conversations/")
-def conversations(request, site_id: str, stored_cursor: str | None = None, q: str | None = None):
+def conversations(request, site_id: str, stored_cursor: str | None = None, q: str | None = None,
+                  status: str | None = None):
     hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
     if stored_cursor and not stored.STORED_CURSOR_RE.match(stored_cursor):
         raise _invalid("stored_cursor", "That cursor does not look right.")
@@ -105,10 +108,13 @@ def conversations(request, site_id: str, stored_cursor: str | None = None, q: st
         if query is None:
             message = f"Search needs {stored.SEARCH_MIN} to {stored.SEARCH_MAX} characters."
             raise ApiError("invalid_query", message, status=422, fields={"q": [message]})
+    if status not in (None, "", "open", "closed"):
+        message = "Status must be open or closed."
+        raise ApiError("invalid_status", message, status=422, fields={"status": [message]})
     if not _stored_on():
         return {"items": [], "stored_next_cursor": None, "unread_total": 0}
     site = request.inquiry_site
-    items, next_cursor = stored.list_items(site, after=stored_cursor or None, query=query)
+    items, next_cursor = stored.list_items(site, after=stored_cursor or None, query=query, status=status or None)
     return {"items": items, "stored_next_cursor": next_cursor, "unread_total": stored.unread_count(site)}
 
 

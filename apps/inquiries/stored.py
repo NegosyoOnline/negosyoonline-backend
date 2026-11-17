@@ -128,13 +128,16 @@ def unread_count(site):
     ).count()
 
 
-def list_items(site, limit=LIST_LIMIT, after=None, query=None):
+def list_items(site, limit=LIST_LIMIT, after=None, query=None, status=None):
     """(items, next_cursor): the site's stored conversations, latest first, in the shape the owner's
     list uses. `after` is a previous call's next_cursor; next_cursor is None on the last page.
-    `query` (already validated, see valid_query) keeps only the conversations that match it."""
+    `query` (already validated, see valid_query) keeps only the conversations that match it;
+    `status` (open or closed, already validated) keeps only those."""
     rows = InquiryConversation.objects.filter(
         site=site, provider__in=providers(), stores_history=True,
     ).order_by(F("last_message_at").desc(nulls_last=True), "-pk")
+    if status:
+        rows = rows.filter(status=status)
     if query:
         rows = _matching(rows, query)
     if after:
