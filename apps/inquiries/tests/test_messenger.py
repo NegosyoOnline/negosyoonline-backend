@@ -115,7 +115,7 @@ class MessengerTestCase(SitesApiTestCase):
     def hook(self, payload, header=None, raw=None):
         body = raw if raw is not None else json.dumps(payload).encode()
         extra = {} if header is False else {"HTTP_X_HUB_SIGNATURE_256": header or sign(body)}
-        return self.client.post("/v1/webhooks/messenger/", data=body, content_type="application/json", **extra)
+        return self.client.post("/v1/webhooks/messenger/", data=body, content_type="application/json", secure=True, **extra)
 
     def inbound(self, **kw):
         response = self.hook(event(**kw))
@@ -149,7 +149,7 @@ class SettingsAndChecksTests(MessengerTestCase):
 class WebhookTests(MessengerTestCase):
     def verify(self, **q):
         params = {"hub.mode": "subscribe", "hub.verify_token": "verify-me", "hub.challenge": "1158201444", **q}
-        return self.client.get("/v1/webhooks/messenger/", params)
+        return self.client.get("/v1/webhooks/messenger/", params, secure=True)
 
     def test_verify_echoes_the_challenge(self):
         response = self.verify()
@@ -266,7 +266,7 @@ class ConnectTests(MessengerTestCase):
         return response["Location"]
 
     def callback(self, state, **extra):
-        return self.client.get("/v1/inquiries/messenger/callback/", {"state": state, "code": "AUTHCODE", **extra})
+        return self.client.get("/v1/inquiries/messenger/callback/", {"state": state, "code": "AUTHCODE", **extra}, secure=True)
 
     def state(self):
         return parse_qs(urlparse(self.start()).query)["state"][0]
@@ -384,9 +384,9 @@ class ConnectTests(MessengerTestCase):
         other = self.other_client()  # another signed-in account follows the same link
         state = self.state()
         self.meta.calls.clear()
-        response = other.get("/v1/inquiries/messenger/callback/", {"state": state, "code": "AUTHCODE"})
+        response = other.get("/v1/inquiries/messenger/callback/", {"state": state, "code": "AUTHCODE"}, secure=True)
         self.assertEqual(response["Location"], bad)
-        signed_out = self.client_class().get("/v1/inquiries/messenger/callback/", {"state": state, "code": "AUTHCODE"})
+        signed_out = self.client_class().get("/v1/inquiries/messenger/callback/", {"state": state, "code": "AUTHCODE"}, secure=True)
         self.assertEqual(signed_out["Location"], bad)
         self.assertEqual(self.meta.calls, [])  # no code exchange
         self.assertFalse(self.get(self.base + "connection/").json()["pick_pending"])
@@ -533,7 +533,7 @@ class ReplyTests(MessengerTestCase):
         self.assertEqual(self.conversation.page_id, PAGE_A)
         self.meta.pages = [{"id": PAGE_B, "name": "Second Page", "access_token": PAGE_TOKEN}]
         state = parse_qs(urlparse(self.get(self.base + "start/")["Location"]).query)["state"][0]
-        self.client.get("/v1/inquiries/messenger/callback/", {"state": state, "code": "AUTHCODE"})
+        self.client.get("/v1/inquiries/messenger/callback/", {"state": state, "code": "AUTHCODE"}, secure=True)
         self.assertEqual(self.post(self.base + "connect/", {"page_id": PAGE_B}).status_code, 200)
         self.assertEqual(InquiryConnection.objects.get().external_page_id, PAGE_B)
         self.meta.calls.clear()
@@ -644,7 +644,7 @@ class ReplyTests(MessengerTestCase):
 
 class MetaCallbackTests(MessengerTestCase):
     def post_signed(self, path, value):
-        return self.client.post(f"/v1/webhooks/messenger/{path}/", {"signed_request": value})
+        return self.client.post(f"/v1/webhooks/messenger/{path}/", {"signed_request": value}, secure=True)
 
     def test_deauthorize_marks_the_users_connection_invalid_and_deletes_the_token(self):
         self.connect_row()
@@ -687,9 +687,9 @@ class MetaCallbackTests(MessengerTestCase):
         mine = InquiryConnection.objects.get(site=self.site)
         self.assertEqual((mine.token_encrypted, mine.external_page_id, mine.meta_user_id), ("", "", ""))
         self.assertEqual(InquiryMessage.objects.filter(site=other_site).count(), 1)  # another user's data stays
-        status = self.client.get(urlparse(body["url"]).path)
+        status = self.client.get(urlparse(body["url"]).path, secure=True)
         self.assertEqual((status.status_code, status.json()), (200, {"status": "completed"}))
-        self.assertEqual(self.client.get("/v1/webhooks/messenger/data-deletion/forged/").status_code, 404)
+        self.assertEqual(self.client.get("/v1/webhooks/messenger/data-deletion/forged/", secure=True).status_code, 404)
 
     def test_data_deletion_keeps_a_conversation_a_reply_audit_row_points_at_but_blanks_it(self):
         self.connect_row()
