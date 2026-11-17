@@ -25,7 +25,6 @@ import json
 import logging
 import re
 import secrets
-import time
 
 from django.conf import settings
 from django.core import signing
@@ -217,36 +216,33 @@ def callback(request, code: str = "", state: str = "", error: str = ""):
     if not cache.delete(_nonce_key(nonce)):  # one use
         return _reply("state_invalid", "nonce_used")
 
-    def finish(outcome, detail=""):
-        return _reply(outcome, detail)
-
     try:
         site_for(account, site.public_id, template=templates.SANTE)
     except ApiError:
-        return finish("state_invalid", "site")
+        return _reply("state_invalid", "site")
     if error or not code:
-        return finish("cancelled")
+        return _reply("cancelled")
     token = messenger.exchange_code(code, _redirect_uri(request))
     if not token.ok:
-        return finish("provider_down")
+        return _reply("provider_down")
     granted = messenger.granted_permissions(token.value)
     if not granted.ok:
-        return finish("provider_down")
+        return _reply("provider_down")
     missing = sorted(set(messenger.REQUIRED_PERMISSIONS) - set(granted.value))
     if missing:
-        return finish("permission_missing", "missing: " + ", ".join(missing))
+        return _reply("permission_missing", "missing: " + ", ".join(missing))
     who = messenger.user_id(token.value)
     pages = messenger.list_pages(token.value)
     if not who.ok or not pages.ok:
-        return finish("provider_down")
+        return _reply("provider_down")
     if not pages.value:
-        return finish("no_pages")
+        return _reply("no_pages")
     try:
         kept = [{"id": p["id"], "name": p["name"], "token": crypto.encrypt(p["access_token"])} for p in pages.value]
     except crypto.TokenKeyError:
-        return finish("provider_down")
+        return _reply("provider_down")
     cache.set(messenger_inbox.pick_key(site, account), {"pages": kept, "user_id": who.value}, messenger_inbox.PICK_SECONDS)
-    return finish("pick")
+    return _reply("pick")
 
 
 # -- the webhook ------------------------------------------------------------------------------
