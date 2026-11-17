@@ -9,6 +9,7 @@ from django.utils import timezone
 from apps.inquiries.models import InquiryConversation
 from apps.members.models import Member, MemberSession
 from apps.pack import constants as C
+from apps.pack import prospects
 from apps.pack.models import PackOrder, PackProofSubmission, PackVisit, SanteRegistration
 from apps.pack.tests.owner_base import OwnerTestCase, make_order
 from apps.sites.models import Site
@@ -113,7 +114,7 @@ class ProspectTests(OwnerTestCase):
         for r in rows:
             self.assertEqual((r["stage"], r["order_id"], r["order_number"]), ("new_lead", None, None))
 
-    def test_inquiry_provider_without_a_channel_key_is_skipped(self):
+    def test_webchat_email_and_messenger_inquiries_are_listed_newest_first(self):
         t = timezone.now() - timedelta(days=1)
         inquiry(self.site, InquiryConversation.WEBCHAT, "Chat Person", t)
         inquiry(self.site, InquiryConversation.EMAIL, "Mail Person", t - timedelta(hours=1))
@@ -122,8 +123,19 @@ class ProspectTests(OwnerTestCase):
         self.assertEqual(response.status_code, 200)
         rows = [r for r in response.json()["results"] if r["kind"] == "inquiry"]
         self.assertEqual([(r["name"], r["source"]) for r in rows], [
-            ("Chat Person", "webchat"), ("Mail Person", "email")])
-        self.assertNotIn("Messenger Person", [r["name"] for r in response.json()["results"]])
+            ("Chat Person", "webchat"), ("Mail Person", "email"), ("Messenger Person", "messenger")])
+        self.assertEqual(rows[2]["stage"], "new_lead")
+
+    def test_inquiry_provider_absent_from_channel_keys_is_skipped(self):
+        t = timezone.now() - timedelta(days=1)
+        inquiry(self.site, InquiryConversation.WEBCHAT, "Chat Person", t)
+        inquiry(self.site, InquiryConversation.MESSENGER, "Messenger Person", t - timedelta(hours=1))
+        keys = {k: v for k, v in prospects.CHANNEL_KEYS.items() if k != InquiryConversation.MESSENGER}
+        with mock.patch.dict(prospects.CHANNEL_KEYS, keys, clear=True):
+            response = self.get(self.path())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([r["name"] for r in response.json()["results"] if r["kind"] == "inquiry"],
+                         ["Chat Person"])
 
     def test_inquiry_and_order_are_never_matched_by_name(self):
         order, _ = make_order(self.site)
