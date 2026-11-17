@@ -71,6 +71,7 @@ Code: `apps/inquiries/messenger.py` (every Graph call, one network function), `m
 - Error mapping (Meta's error-code table): 190 -> `token_invalid` (connection marked invalid, owner must reconnect); 10 with subcode 2534022/2018278/2018065 -> `window_closed`; other 10, 200-299 -> `forbidden_page`; 4, 9, 17, 32, 613, HTTP 429 -> `rate_limited`; 551, 100/2018001, 10/2018108 -> `not_found` (customer unreachable); 1, 2, HTTP 5xx, no answer -> `provider_down`; anything else -> `bad_response`. No Meta body, URL or token is logged or returned.
 - Callbacks: deauthorize (signed_request) clears the token and marks that user's connections invalid. Data deletion (signed_request) clears the connection and deletes the Messenger messages and customer fields of that user's connections, returns `{url, confirmation_code}`, and `GET .../data-deletion/{code}/` answers `{"status":"completed"}`. Both need the app secret set and work with the switch off.
 - Retention: Messenger conversations are stored conversations: messages and the customer's page-scoped id are deleted/blanked 180 days after the last message, and site/account disposal blanks the token, Page id and customer fields.
+- Logging: the Messenger verify token (`hub.verify_token`) is masked as `***` in the gunicorn access log by `gunicorn.conf.py` (`config/access_log.py`); the Railway start command is unchanged.
 
 ## Testing it locally
 
