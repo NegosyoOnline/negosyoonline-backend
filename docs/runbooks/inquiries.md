@@ -1,6 +1,6 @@
 # Customer inquiries: switches, email replies and the contact form
 
-The Inbox of a Santé store (`apps/inquiries`). This runbook covers the outbound email half (G3 PR2a). Website chat is in `docs/runbooks/storefront.md`; the Pancake connection is in the code docstrings of `apps/inquiries`. **Inbound email waits on D2** (Coach Ed's decision on the receiving domain): there is no webhook, no `c-`/`s-` routing address and no bounce state yet, and nothing here needs a Railway variable beyond the switches.
+The Inbox of a Santé store (`apps/inquiries`). This runbook covers the outbound email half (G3 PR2a). Website chat is in `docs/runbooks/storefront.md`; the owner routes are in the docstring of `apps/inquiries/api_owner.py`. There is no provider connection: the Pancake integration was removed (task z8uq9mg1n9, migration `inquiries.0003_remove_pancake`), and the `InquiryConnection` table is kept, empty, for the direct Messenger inbox that comes next. **Inbound email waits on D2** (Coach Ed's decision on the receiving domain): there is no webhook, no `c-`/`s-` routing address and no bounce state yet, and nothing here needs a Railway variable beyond the switches.
 
 ## The three switches
 

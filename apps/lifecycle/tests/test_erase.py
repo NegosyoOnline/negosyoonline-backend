@@ -23,6 +23,7 @@ from apps.operators.models import OperatorAuditEntry
 from apps.inbox.models import Contact, ContactGroup, Conversation, ConversationMessage, DoNotText
 from apps.inquiries import retention as inquiries_retention
 from apps.inquiries.models import InquiryConnection, InquiryConversation
+from apps.inquiries.tests.base import make_stored
 from apps.pack import purge
 from apps.pack.models import CheckoutToken, PackOrder, PackProofSubmission, SanteRegistration
 from apps.payments.models import SitePaymentAccount
@@ -128,18 +129,17 @@ class PerTableTests(RunTestCase):
         self.assertEqual(item.counts["sites"], 1)
 
 
-def plant_inquiries(site, token="PANCAKE-CIPHER", name="Zuleika Customer"):
+def plant_inquiries(site, token="ERASE-CIPHER", name="Zuleika Customer"):
+    """A connection row holding a token, and a stored (website chat) conversation of a named customer."""
     connection = InquiryConnection.objects.create(
-        site=site, status=InquiryConnection.ACTIVE, token_encrypted=token, external_page_id="page-1",
+        site=site, provider="direct", status=InquiryConnection.ACTIVE, token_encrypted=token, external_page_id="page-1",
     )
-    conversation = InquiryConversation.objects.create(
-        site=site, connection=connection, provider="pancake", external_id="conv-1", display_name=name,
-    )
+    conversation = make_stored(site, name=name)
     return connection, conversation
 
 
 class InquiriesErasureTests(RunTestCase):
-    """The Pancake token and the customer names go with an erased site (z8uq9md3n6)."""
+    """The connection token and the customer names go with an erased site (z8uq9md3n6)."""
 
     def setUp(self):
         super().setUp()
@@ -181,7 +181,7 @@ class InquiriesErasureTests(RunTestCase):
         for table, fields in inquiries_retention.blanked().items():
             self.assertEqual(entry.detail["blanked"][table], fields)
         text = json.dumps(entry.detail)
-        for value in ("PANCAKE-CIPHER", "Zuleika Customer"):
+        for value in ("ERASE-CIPHER", "Zuleika Customer"):
             self.assertNotIn(value, text)
 
     def test_it_blanks_whatever_the_inquiries_switch_says(self):

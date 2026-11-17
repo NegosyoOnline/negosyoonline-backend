@@ -1,4 +1,4 @@
-"""Account and site disposal blank the provider token and the customer names; reply rows follow
+"""Account and site disposal blank the connection token and the customer names; reply rows follow
 their own retention rule; the deploy check and the tables guard hold."""
 from datetime import timedelta
 from unittest import mock
@@ -12,7 +12,7 @@ from apps.accounts.tests.disposal_base import EMAIL, DisposalTestCase
 from apps.common import retention
 from apps.inquiries import retention as inquiry_retention
 from apps.inquiries.models import InquiryConnection, InquiryConversation, InquiryReply
-from apps.inquiries.tests.base import KEY, REF, TOKEN, configure, switched_on
+from apps.inquiries.tests.base import KEY, TOKEN, make_connection, make_stored, switched_on
 from apps.inquiries.switch import tables_exist
 from apps.sites.models import Site
 
@@ -27,10 +27,8 @@ class InquiryDisposalTests(DisposalTestCase):
         self.mine = Site.objects.get(account=self.account)
         self.theirs = Site.objects.get(account=self.other)
         for site in (self.mine, self.theirs):
-            connection = configure(site)
-            conversation = InquiryConversation.objects.create(
-                site=site, connection=connection, provider="pancake", external_id=REF, display_name="Maria Santos",
-            )
+            make_connection(site)
+            conversation = make_stored(site)
             InquiryReply.objects.create(
                 site=site, conversation=conversation, author=site.account, idempotency_key="key-12345678", body_length=5,
             )
@@ -93,7 +91,7 @@ class ReplyRetentionTests(DisposalTestCase):
     def setUp(self):
         super().setUp()
         site = Site.objects.get(account=self.account)
-        conversation = InquiryConversation.objects.create(site=site, provider="pancake", external_id=REF)
+        conversation = make_stored(site)
         self.old = InquiryReply.objects.create(
             site=site, conversation=conversation, author=self.account, idempotency_key="key-old-0001", body_length=3,
         )

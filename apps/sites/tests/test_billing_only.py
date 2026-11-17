@@ -144,10 +144,6 @@ TURNED_OFF = [
     # Owner help for members, content and inquiries (inquiries); each is reached through a Santé site.
     ("GET", "/sites/{site_id}/inquiries/channels/"),
     ("PUT", "/sites/{site_id}/inquiries/channels/"),
-    ("GET", "/sites/{site_id}/inquiries/connection/"),
-    ("PUT", "/sites/{site_id}/inquiries/connection/"),
-    ("DELETE", "/sites/{site_id}/inquiries/connection/"),
-    ("POST", "/sites/{site_id}/inquiries/connection/test/"),
     ("GET", "/sites/{site_id}/inquiries/conversations/"),
     ("GET", "/sites/{site_id}/inquiries/conversations/{ref}/"),
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/close/"),
