@@ -4,8 +4,8 @@ from datetime import timedelta
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.sites import retention
-from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
+from apps.sites import custom_hosts, retention
+from apps.sites.models import Onboarding, Site, SiteBusinessProfile, SiteCustomHost, Subdomain
 from apps.sites.tests.base import make_account, make_site
 
 PERSONAL = {
@@ -25,13 +25,13 @@ PROFILE = {
     "complaints_contact_name": "Ana R.",
     "privacy_contact_email": "privacy@example.test",
 }
-COUNTS = {"sites": 2, "business_profiles": 2, "web_addresses_retired": 2}
+COUNTS = {"sites": 2, "business_profiles": 2, "web_addresses_retired": 2, "custom_hosts_retired": 0}
 
 
 def rows():
     return {
         model._meta.label: list(model.objects.order_by("pk").values())
-        for model in (Site, SiteBusinessProfile, Subdomain, Onboarding)
+        for model in (Site, SiteBusinessProfile, Subdomain, SiteCustomHost, Onboarding)
     }
 
 
@@ -107,7 +107,8 @@ class BlankSitesTests(SiteRetentionTestCase):
         bare = make_account("cora@example.test")
         self.assertEqual(
             retention.blank_sites_of(bare, self.now),
-            {"sites": 0, "business_profiles": 0, "web_addresses_retired": 0},
+            {"sites": 0, "business_profiles": 0,
+             "web_addresses_retired": 0, "custom_hosts_retired": 0},
         )
         self.assertFalse(Onboarding.objects.filter(account=bare).exists())
 
@@ -116,6 +117,49 @@ class BlankSitesTests(SiteRetentionTestCase):
             retention.BLANKED,
             {"site": [*PERSONAL, "display_name"], "site_business_profile": list(PROFILE)},
         )
+
+
+class BlankSitesCustomHostTests(SiteRetentionTestCase):
+    def setUp(self):
+        super().setUp()
+        self.host = SiteCustomHost.objects.create(host="shop.example.test", site=self.first)
+        self.theirs_host = SiteCustomHost.objects.create(host="bens.example.test", site=self.theirs)
+
+    def test_blanking_retires_the_active_custom_host(self):
+        counts = retention.blank_sites_of(self.account, self.now)
+        self.assertEqual(counts, {**COUNTS, "custom_hosts_retired": 1})
+        self.host.refresh_from_db()
+        self.assertEqual((self.host.state, self.host.retired_at), ("retired", self.now))
+
+    def test_the_dry_run_counts_it_and_writes_nothing(self):
+        before = rows()
+        counts = retention.blank_sites_of(self.account, self.now, dry_run=True)
+        self.assertEqual(counts, {**COUNTS, "custom_hosts_retired": 1})
+        self.assertEqual(rows(), before)
+
+    def test_another_accounts_site_keeps_its_host(self):
+        retention.blank_sites_of(self.account, self.now)
+        self.theirs_host.refresh_from_db()
+        self.assertEqual((self.theirs_host.state, self.theirs_host.retired_at), ("active", None))
+
+    def test_a_site_without_a_custom_host_counts_zero(self):
+        counts = retention.blank_sites(Site.objects.filter(pk=self.second.pk), self.now)
+        self.assertEqual(counts["custom_hosts_retired"], 0)
+
+    def test_a_retired_host_is_not_counted_or_touched(self):
+        earlier = self.now - timedelta(days=3)
+        SiteCustomHost.objects.filter(pk=self.host.pk).update(state="retired", retired_at=earlier)
+        counts = retention.blank_sites_of(self.account, self.now)
+        self.assertEqual(counts["custom_hosts_retired"], 0)
+        self.host.refresh_from_db()
+        self.assertEqual(self.host.retired_at, earlier)
+
+    def test_afterwards_the_host_does_not_resolve_and_is_not_the_public_host(self):
+        self.assertEqual(custom_hosts.public_host(self.first), "shop.example.test")
+        retention.blank_sites_of(self.account, self.now)
+        self.assertIsNone(custom_hosts.active_row_for_host("shop.example.test"))
+        self.assertNotEqual(custom_hosts.public_host(Site.objects.get(pk=self.first.pk)), "shop.example.test")
+        self.assertIsNone(custom_hosts.active_host(Site.objects.get(pk=self.first.pk)))
 
 
 class ExportSitesTests(SiteRetentionTestCase):
