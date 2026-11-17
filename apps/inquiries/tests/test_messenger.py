@@ -807,3 +807,101 @@ class RetentionTests(MessengerTestCase):
         conversation.refresh_from_db()
         self.assertEqual(conversation.psid, "")
         self.assertFalse(InquiryMessage.objects.exists())
+
+
+class WebhookSummaryTests(MessengerTestCase):
+    """One warning summary line per POST: fixed codes and counts only (task z8uq9mg76y)."""
+    LOGGER = "apps.inquiries.messenger_inbox"
+    ZERO_KINDS = dict(message=0, echo=0, delivery=0, read=0, postback=0, pass_thread_control=0, take_thread_control=0, other=0)
+
+    def line(self, payload, **expect):
+        with self.assertLogs(self.LOGGER, "WARNING") as logs:
+            self.assertEqual(self.hook(payload).status_code, 200)
+        warnings = [r for r in logs.records if r.levelname == "WARNING"]
+        self.assertEqual(len(warnings), 1)
+        out = "\n".join(logs.output)
+        for secret in (PSID, "m_1", "m_2", PAGE_A, PAGE_B, "Do you have size M?", "secret.jpg", PAGE_TOKEN):
+            self.assertNotIn(secret, out)
+        return warnings[0].getMessage()
+
+    def fmt(self, entries=(1, 0, 0, 0), kinds=None, stored=0, dropped=(0, 0, 0, 0)):
+        k = {**self.ZERO_KINDS, **(kinds or {})}
+        return (
+            "Messenger webhook summary entries=messaging:%d,standby:%d,changes:%d,other:%d events=%s stored=%d "
+            "dropped=no_connection:%d,not_addressed:%d,empty:%d,duplicate:%d"
+            % (*entries, ",".join(f"{a}:{b}" for a, b in k.items()), stored, *dropped)
+        )
+
+    def test_stored_message(self):
+        self.connect_row()
+        self.assertEqual(self.line(event()), self.fmt(kinds={"message": 1}, stored=1))
+        self.assertEqual(InquiryMessage.objects.count(), 1)
+
+    def test_echo(self):
+        self.connect_row()
+        self.assertEqual(self.line(event(echo=True)), self.fmt(kinds={"echo": 1}, stored=1))
+
+    def test_delivery_and_read(self):
+        self.connect_row()
+        payload = {"object": "page", "entry": [{"id": PAGE_A, "time": 1, "messaging": [
+            {"sender": {"id": PSID}, "recipient": {"id": PAGE_A}, "delivery": {"mids": ["m_1"]}},
+            {"sender": {"id": PSID}, "recipient": {"id": PAGE_A}, "read": {"watermark": 1}},
+            {"sender": {"id": PSID}, "recipient": {"id": PAGE_A}, "postback": {"payload": "x"}},
+        ]}]}
+        self.assertEqual(self.line(payload), self.fmt(kinds={"delivery": 1, "read": 1, "postback": 1}))
+        self.assertEqual(InquiryMessage.objects.count(), 0)
+
+    def test_standby_is_counted_never_stored_and_calls_nothing(self):
+        self.connect_row()
+        payload = event()
+        payload["entry"][0]["standby"] = payload["entry"][0].pop("messaging")
+        payload["entry"][0]["standby"].append({"sender": {"id": PSID}, "recipient": {"id": PAGE_A}, "take_thread_control": {"x": 1}})
+        before = len(self.meta.calls) if hasattr(self.meta, "calls") else 0
+        self.assertEqual(self.line(payload), self.fmt(entries=(0, 1, 0, 0), kinds={"message": 1, "take_thread_control": 1}))
+        self.assertEqual((InquiryMessage.objects.count(), InquiryConversation.objects.count()), (0, 0))
+        self.assertEqual(len(self.meta.calls) if hasattr(self.meta, "calls") else 0, before)
+
+    def test_no_connection(self):
+        self.assertEqual(self.line(event()), self.fmt(kinds={"message": 1}, dropped=(1, 0, 0, 0)))
+        empty = {"object": "page", "entry": [{"id": PAGE_B, "changes": [{"field": "x"}], "other_key": 1}]}
+        self.assertEqual(self.line(empty), self.fmt(entries=(0, 0, 1, 1), dropped=(1, 0, 0, 0)))
+
+    def test_not_addressed(self):
+        self.connect_row()
+        payload = event()
+        payload["entry"][0]["messaging"][0]["recipient"]["id"] = PAGE_B
+        self.assertEqual(self.line(payload), self.fmt(kinds={"message": 1}, dropped=(0, 1, 0, 0)))
+
+    def test_empty(self):
+        self.connect_row()
+        self.assertEqual(self.line(event(text=None)), self.fmt(kinds={"message": 1}, dropped=(0, 0, 1, 0)))
+
+    def test_duplicate(self):
+        self.connect_row()
+        self.line(event())
+        self.assertEqual(self.line(event()), self.fmt(kinds={"message": 1}, dropped=(0, 0, 0, 1)))
+
+    def test_mixed_payload(self):
+        self.connect_row()
+        good = event()["entry"][0]["messaging"]
+        late = event(mid="m_2")["entry"][0]["messaging"]
+        payload = {"object": "page", "entry": [
+            {"id": PAGE_A, "time": 1, "messaging": good + late + [{"sender": {"id": PSID}, "recipient": {"id": PAGE_A}, "read": {}}],
+             "standby": event(mid="m_3")["entry"][0]["messaging"]},
+            {"id": PAGE_B, "time": 1, "messaging": event(page=PAGE_B)["entry"][0]["messaging"]},
+        ]}
+        self.assertEqual(
+            self.line(payload),
+            self.fmt(entries=(2, 1, 0, 0), kinds={"message": 4, "read": 1}, stored=2, dropped=(1, 0, 0, 0)),
+        )
+
+    def test_error_line_stays_and_is_the_class_only(self):
+        self.connect_row()
+        with mock.patch.object(messenger_inbox, "_store_event", side_effect=ValueError("m_1 secret text")):
+            with self.assertLogs(self.LOGGER, "ERROR") as logs:
+                self.hook(event())
+        self.assertEqual([r.getMessage() for r in logs.records], ["Messenger event not stored (ValueError)"])
+
+    def test_non_page_object_logs_nothing(self):
+        with self.assertNoLogs(self.LOGGER, "WARNING"):
+            self.hook({"object": "user", "entry": []})

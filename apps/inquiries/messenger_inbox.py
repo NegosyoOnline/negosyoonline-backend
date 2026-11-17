@@ -124,10 +124,29 @@ def _new_ref():
     return stored.new_ref(PROVIDER)
 
 
+STORED, NOT_ADDRESSED, EMPTY, DUPLICATE = "stored", "not_addressed", "empty", "duplicate"
+ENTRY_KEYS = ("messaging", "standby", "changes", "other")
+EVENT_KINDS = ("message", "echo", "delivery", "read", "postback", "pass_thread_control", "take_thread_control", "other")
+DROPS = ("no_connection", NOT_ADDRESSED, EMPTY, DUPLICATE)
+
+
+def _kind(event):
+    """The fixed kind code of one webhook event (never any of its content)."""
+    message = event.get("message")
+    if isinstance(message, dict):
+        return "echo" if message.get("is_echo") else "message"
+    for kind in ("delivery", "read", "postback", "pass_thread_control", "take_thread_control"):
+        if kind in event:
+            return kind
+    return "other"
+
+
 def _store_event(connection, page_id, event, now):
+    """Store one messaging event. Returns STORED, a drop reason (NOT_ADDRESSED, EMPTY, DUPLICATE), or
+    None for an event that carries no message (postbacks, deliveries and reads)."""
     message = event.get("message")
     if not isinstance(message, dict):
-        return  # postbacks, deliveries and reads carry no message
+        return None
     mid = str(message.get("mid") or "")[:128]
     sender = str((event.get("sender") or {}).get("id") or "")[:64]
     recipient = str((event.get("recipient") or {}).get("id") or "")[:64]
@@ -137,10 +156,12 @@ def _store_event(connection, page_id, event, now):
     psid, valid = (recipient, sender == page_id) if echo else (sender, recipient == page_id)
     text = str(message.get("text") or "")[:MAX_BODY]
     attachments = _attachment_types(message)
-    if not (mid and psid and valid) or not (text or attachments):
-        return
+    if not (mid and psid and valid):
+        return NOT_ADDRESSED
+    if not (text or attachments):
+        return EMPTY
     if InquiryMessage.objects.filter(site=connection.site, external_id=mid).exists():
-        return  # Meta retries: the message id is the idempotency key
+        return DUPLICATE  # Meta retries: the message id is the idempotency key
     at = _when(event.get("timestamp"), now)
     try:
         with transaction.atomic():
@@ -160,32 +181,60 @@ def _store_event(connection, page_id, event, now):
                 )
             InquiryConversation.objects.filter(pk=conversation.pk).update(**changes)
     except IntegrityError:  # the same mid arrived twice at once
-        return
+        return DUPLICATE
+    return STORED
+
+
+def _events_of(entry, key):
+    events = entry.get(key)
+    return [e for e in events if isinstance(e, dict)] if isinstance(events, list) else []
 
 
 def receive(payload):
-    """Store the events of one signed webhook POST. `payload` is the parsed JSON. Unknown Pages and
-    malformed events are dropped; only fixed codes and class names are logged."""
+    """Store the messaging events of one signed webhook POST. `payload` is the parsed JSON. Unknown
+    Pages and malformed events are dropped. Standby events (another app holds the thread) are counted
+    and never stored; nothing is sent to Meta. One warning summary line per POST carries fixed codes
+    and counts only (no id, page id, customer id, message id or text); a failure logs its class name."""
     if not isinstance(payload, dict) or payload.get("object") != "page":
         return
     now = timezone.now()
-    for entry in payload.get("entry") or []:
+    entries = dict.fromkeys(ENTRY_KEYS, 0)
+    kinds = dict.fromkeys(EVENT_KINDS, 0)
+    dropped = dict.fromkeys(DROPS, 0)
+    stored = 0
+    raw_entries = payload.get("entry")
+    for entry in raw_entries if isinstance(raw_entries, list) else []:
         if not isinstance(entry, dict):
             continue
+        for key in entry:
+            if key in ("id", "time"):
+                continue
+            entries[key if key in ("messaging", "standby", "changes") else "other"] += 1
+        messaging, standby = _events_of(entry, "messaging"), _events_of(entry, "standby")
+        for event in messaging + standby:
+            kinds[_kind(event)] += 1
         page_id = str(entry.get("id") or "")[:64]
         connections = list(InquiryConnection.objects.filter(
             provider=PROVIDER, external_page_id=page_id, status=InquiryConnection.ACTIVE,
         ).select_related("site")[:2]) if page_id else []
         if len(connections) != 1:
-            logger.info("Messenger event dropped (no_connection)")
+            dropped["no_connection"] += len(messaging) + len(standby) or 1
             continue
-        for event in entry.get("messaging") or []:
-            if not isinstance(event, dict):
-                continue
+        for event in messaging:
             try:
-                _store_event(connections[0], page_id, event, now)
+                result = _store_event(connections[0], page_id, event, now)
             except Exception as error:  # noqa: BLE001 - one bad event must not lose the others
                 logger.error("Messenger event not stored (%s)", type(error).__name__)
+                continue
+            if result == STORED:
+                stored += 1
+            elif result in dropped:
+                dropped[result] += 1
+    logger.warning(
+        "Messenger webhook summary entries=%s events=%s stored=%d dropped=%s",
+        ",".join(f"{k}:{v}" for k, v in entries.items()), ",".join(f"{k}:{v}" for k, v in kinds.items()),
+        stored, ",".join(f"{k}:{v}" for k, v in dropped.items()),
+    )
 
 
 # -- the reply --------------------------------------------------------------------------------
