@@ -48,6 +48,20 @@ class RefusedLogTests(SimpleTestCase):
         self.assertNotIn(FAKE_TOKEN, log)
         self.assertIn("Invalid token *** here", log)
 
+    def test_permission_name_in_message_shown(self):
+        msg = "(#100) This endpoint requires the 'pages_read_engagement' permission or the 'Page Public Content Access' feature"
+        _, log = refused(400, {"code": 100, "message": msg})
+        self.assertIn("requires the 'pages_read_engagement' permission", log)
+        self.assertIn("'Page Public Content Access'", log)
+        self.assertNotIn("***", log)
+        self.assertIn("code=100", log)
+
+    def test_token_like_runs_still_masked_next_to_a_permission_name(self):
+        for token in (FAKE_TOKEN, "A" * 25, "a" * 10 + "1" + "b" * 10, "abc.def-ghi" * 3, "a%b" * 10, "ab|cd" * 6):
+            _, log = refused(400, {"code": 100, "message": f"needs 'pages_read_engagement' got {token} ok"})
+            self.assertNotIn(token, log)
+            self.assertIn("needs 'pages_read_engagement' got *** ok", log)
+
     def test_message_truncated(self):
         _, log = refused(400, {"code": 100, "message": "word " * 100})
         msg = log.split("msg=", 1)[1]

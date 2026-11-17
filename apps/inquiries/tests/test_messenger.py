@@ -64,7 +64,7 @@ class FakeMeta:
         self.calls = []
         self.send_error = None  # a (status, body) to answer the Send API with
         self.subscribe_error = None
-        self.permissions = ["pages_show_list", "pages_manage_metadata", "pages_messaging"]
+        self.permissions = ["pages_show_list", "pages_manage_metadata", "pages_messaging", "pages_read_engagement"]
         self.pages = [{"id": PAGE_A, "name": "Ana Store Page", "access_token": PAGE_TOKEN}]
         self.sent = 0
 
@@ -284,7 +284,7 @@ class ConnectTests(MessengerTestCase):
         self.assertIn(messenger.GRAPH_VERSION, url.path)
         self.assertEqual(query["client_id"], ["123456"])
         self.assertEqual(query["response_type"], ["code"])
-        self.assertEqual(query["scope"], ["pages_show_list,pages_manage_metadata,pages_messaging"])
+        self.assertEqual(query["scope"], ["pages_show_list,pages_manage_metadata,pages_messaging,pages_read_engagement"])
         self.assertTrue(query["redirect_uri"][0].endswith("/v1/inquiries/messenger/callback/"))
         self.assertNotIn(SECRET, url.query)
 
@@ -402,12 +402,53 @@ class ConnectTests(MessengerTestCase):
         self.meta.permissions = ["pages_show_list"]
         self.assertEqual(code(), "permission_missing")
         self.meta.permissions = ["pages_show_list", "pages_manage_metadata", "pages_messaging"]
+        self.assertEqual(code(), "permission_missing")  # the old three alone are no longer enough
+        self.meta.permissions = ["pages_show_list", "pages_manage_metadata", "pages_messaging", "pages_read_engagement"]
         self.meta.pages = []
         self.assertEqual(code(), "no_pages")
         self.meta.pages = [{"id": PAGE_A, "name": "P", "access_token": PAGE_TOKEN}]
         self.meta.calls.clear()
         with mock.patch.object(messenger, "_transport", side_effect=OSError("down")):
             self.assertEqual(code(), "provider_down")
+
+    def error_url(self, code):
+        return f"https://dash.test/settings/inbox/?messenger=error&code={code}"
+
+    def test_a_signed_out_crawler_is_logged_as_a_crawler_without_its_user_agent(self):
+        state = self.state()
+        agent = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
+        with self.assertLogs("apps.inquiries.api_messenger", level="INFO") as logs:
+            response = self.client_class().get(
+                "/v1/inquiries/messenger/callback/", {"state": state, "code": "AUTHCODE"},
+                secure=True, HTTP_USER_AGENT=agent,
+            )
+        self.assertEqual(response["Location"], self.error_url("state_invalid"))
+        self.assertIn("Messenger callback: state_invalid (signed_out, crawler)", logs.output[0])
+        self.assertNotIn("externalhit", logs.output[0])
+        # the crawler burned nothing: the owner's own browser still completes the connection
+        self.assertEqual(self.callback(state)["Location"], "https://dash.test/settings/inbox/?messenger=pick")
+
+    def test_the_callback_logs_its_outcome_without_secrets(self):
+        def run(**extra):
+            with self.assertLogs("apps.inquiries.api_messenger", level="INFO") as logs:
+                self.callback(self.state(), **extra)
+            return logs
+        state_text = self.state()
+        logs = run()
+        self.assertEqual(logs.output[0].split(":", 2)[2], "Messenger callback: pick")
+        self.meta.permissions = ["pages_show_list"]
+        logs2 = run()
+        self.assertIn("Messenger callback: permission_missing (missing: pages_manage_metadata, pages_messaging, pages_read_engagement)", logs2.output[0])
+        self.meta.permissions = ["pages_show_list", "pages_manage_metadata", "pages_messaging", "pages_read_engagement"]
+        self.meta.pages = []
+        logs3 = run()
+        self.assertIn("Messenger callback: no_pages", logs3.output[0])
+        with self.assertLogs("apps.inquiries.api_messenger", level="INFO") as logs4:
+            self.client_class().get("/v1/inquiries/messenger/callback/", {"state": state_text, "code": "AUTHCODE"}, secure=True)
+        self.assertIn("Messenger callback: state_invalid (signed_out)", logs4.output[0])
+        for text in logs.output + logs2.output + logs3.output + logs4.output:
+            for secret in ("AUTHCODE", state_text, USER_TOKEN, PAGE_TOKEN, "Ana Store Page"):
+                self.assertNotIn(secret, text)
 
     def test_disconnect_unsubscribes_and_deletes_the_token(self):
         self.connect_row()

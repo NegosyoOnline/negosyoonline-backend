@@ -177,6 +177,25 @@ def _back(code=None):
     return HttpResponseRedirect(f"{settings.DASHBOARD_URL}{DONE_PATH}{query}")
 
 
+def _log(outcome, detail=""):
+    """One line per callback: the outcome word only, never the code, state, tokens or Page data.
+    LOGGING in settings.py configures only the `security` logger, so INFO from this module is dropped
+    on Railway; failures go out as warnings, which the root handler prints, and a pick as info."""
+    text = f"{outcome} ({detail})" if detail else outcome
+    (logger.info if outcome == "pick" else logger.warning)("Messenger callback: %s", text)
+
+
+def _reply(outcome, detail=""):
+    """Log, then redirect. `pick` is the success outcome (no error code in the URL)."""
+    _log(outcome, detail)
+    return _back(None if outcome == "pick" else outcome)
+
+
+def _crawler(request):
+    agent = request.META.get("HTTP_USER_AGENT", "").lower()
+    return "facebookexternalhit" in agent or "facebot" in agent
+
+
 @public.get("/inquiries/messenger/callback/", response={302: None})
 def callback(request, code: str = "", state: str = "", error: str = ""):
     if not messenger_on() or not messenger.configured():
@@ -185,41 +204,45 @@ def callback(request, code: str = "", state: str = "", error: str = ""):
         data = signing.loads(state, salt=STATE_SALT, max_age=STATE_SECONDS)
         # Bound to the browser that started it: a state link sent to someone else must not work.
         browser = signed_in(request)
-        if browser is None or browser.pk != data["a"]:
-            return _back("state_invalid")
+        if browser is None:
+            return _reply("state_invalid", "signed_out, crawler" if _crawler(request) else "signed_out")
+        if browser.pk != data["a"]:
+            return _reply("state_invalid", "foreign_browser")
         account = Account.objects.get(pk=data["a"])
         site = Site.objects.get(pk=data["s"])
-        nonce_ok = cache.delete(_nonce_key(data["n"]))  # one use
+        nonce = data["n"]
     except (signing.BadSignature, Account.DoesNotExist, Site.DoesNotExist, KeyError, TypeError):
-        return _back("state_invalid")
-    if not nonce_ok:
-        return _back("state_invalid")
+        return _reply("state_invalid", "bad_state")
+    if not cache.delete(_nonce_key(nonce)):  # one use
+        return _reply("state_invalid", "nonce_used")
+
     try:
         site_for(account, site.public_id, template=templates.SANTE)
     except ApiError:
-        return _back("state_invalid")
+        return _reply("state_invalid", "site")
     if error or not code:
-        return _back("cancelled")
+        return _reply("cancelled")
     token = messenger.exchange_code(code, _redirect_uri(request))
     if not token.ok:
-        return _back("provider_down")
+        return _reply("provider_down")
     granted = messenger.granted_permissions(token.value)
     if not granted.ok:
-        return _back("provider_down")
-    if not set(messenger.REQUIRED_PERMISSIONS) <= granted.value:
-        return _back("permission_missing")
+        return _reply("provider_down")
+    missing = sorted(set(messenger.REQUIRED_PERMISSIONS) - set(granted.value))
+    if missing:
+        return _reply("permission_missing", "missing: " + ", ".join(missing))
     who = messenger.user_id(token.value)
     pages = messenger.list_pages(token.value)
     if not who.ok or not pages.ok:
-        return _back("provider_down")
+        return _reply("provider_down")
     if not pages.value:
-        return _back("no_pages")
+        return _reply("no_pages")
     try:
         kept = [{"id": p["id"], "name": p["name"], "token": crypto.encrypt(p["access_token"])} for p in pages.value]
     except crypto.TokenKeyError:
-        return _back("provider_down")
+        return _reply("provider_down")
     cache.set(messenger_inbox.pick_key(site, account), {"pages": kept, "user_id": who.value}, messenger_inbox.PICK_SECONDS)
-    return _back()
+    return _reply("pick")
 
 
 # -- the webhook ------------------------------------------------------------------------------
