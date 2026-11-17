@@ -56,7 +56,7 @@ No exception text, mail-server reply or credential is stored, logged or returned
 
 ## Messenger (the direct Page inbox, task z8uq9mg1qd)
 
-Code: `apps/inquiries/messenger.py` (every Graph call, one network function), `messenger_inbox.py` (storage, reply, callbacks), `api_messenger.py` (routes). Migration `inquiries.0004_messenger` (provider choice, `psid`, `attachment_types`, `meta_user_id`, one-Page-per-site constraint, `token_invalid` code). Run it on staging before turning the switch on; until it is applied the stored channels answer as if their tables were missing.
+Code: `apps/inquiries/messenger.py` (every Graph call, one network function), `messenger_inbox.py` (storage, reply, callbacks), `api_messenger.py` (routes). Migration `inquiries.0004_messenger` (provider choice, `psid`, `attachment_types`, `meta_user_id`, one-Page-per-site constraint, `token_invalid` code). `psid` and `page_id` are on `InquiryConversation` (`page_id` is the Page the conversation arrived on; a reply is refused as `not_configured` once the site's connection points at another Page). **Release order: run `0004` immediately after the api deploy.** `stored_tables_exist()` gates website chat and the contact inbox on `0004`'s columns, so until it is applied (even with the Messenger switch off) the stored channels answer as if their tables were missing. Run it on staging before turning the switch on.
 
 **Graph API version.** Pinned in one constant, `messenger.GRAPH_VERSION` (now `v26.0`, the latest on Meta's versions page, 2026-11-17). Change it there only, after reading Meta's changelog.
 
