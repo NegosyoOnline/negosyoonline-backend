@@ -10,9 +10,10 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
 
-from apps.inquiries import crypto, limiter, live, messenger, outcomes
+from apps.inquiries import crypto, limiter, live, messenger, outcomes, profile
 from apps.inquiries.models import InquiryConnection, InquiryConversation, InquiryMessage, InquiryReply
 
 logger = logging.getLogger(__name__)
@@ -180,10 +181,67 @@ def _store_event(connection, page_id, event, now):
                     status=InquiryConversation.OPEN,
                 )
             InquiryConversation.objects.filter(pk=conversation.pk).update(**changes)
+            profile.schedule(conversation.pk)  # the customer's name and photo, after commit (U1)
             live.publish(connection.site, conversation.external_id, live.KIND_MESSAGE, changes["last_message_at"])
     except IntegrityError:  # the same mid arrived twice at once
         return DUPLICATE
     return STORED
+
+
+# -- delivery and read receipts (U2) ----------------------------------------------------------
+
+# An outgoing Messenger message only moves forward: sent -> delivered -> seen. `failed` and the rest never change.
+STATE_BELOW = {"delivered": ("sent",), "seen": ("sent", "delivered")}
+MAX_MIDS = 100
+
+
+def _watermark(value, now):
+    """The receipt's watermark as a time, or None when it is missing or not a number. Never in the future."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
+    try:
+        return min(datetime.fromtimestamp(int(value) / 1000, tz=dt_timezone.utc), now)
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _publish_status(site, ref):
+    """Tell the owner's open Inbox that a message's state changed (`message_status`, after commit,
+    ref only). live.publish swallows a Redis failure; the guard keeps a webhook safe regardless."""
+    try:
+        live.publish(site, ref, live.KIND_STATUS, event=live.MESSAGE_STATUS)
+    except Exception as error:  # noqa: BLE001 - a live-push failure never fails a webhook
+        logger.warning("Messenger status not published (%s)", type(error).__name__)
+
+
+def _status_event(connection, page_id, event, now):
+    """Apply one `delivery` or `read` event to the Page's own outgoing messages in that customer's
+    conversation. Returns how many messages moved forward; other events and unknown customers: 0."""
+    sender = str((event.get("sender") or {}).get("id") or "")[:64]
+    recipient = str((event.get("recipient") or {}).get("id") or "")[:64]
+    delivery, read = event.get("delivery"), event.get("read")
+    if not sender or recipient != page_id or not (isinstance(delivery, dict) or isinstance(read, dict)):
+        return 0
+    conversation = InquiryConversation.objects.filter(connection=connection, psid=sender).first()
+    if conversation is None:
+        return 0
+    target = "seen" if isinstance(read, dict) else "delivered"
+    receipt = read if isinstance(read, dict) else delivery
+    mids = receipt.get("mids") if target == "delivered" else None
+    mids = [str(m)[:128] for m in mids[:MAX_MIDS] if isinstance(m, str) and m] if isinstance(mids, list) else []
+    watermark = _watermark(receipt.get("watermark"), now)
+    match = Q(pk__in=[])
+    if mids:
+        match |= Q(external_id__in=mids)
+    if watermark is not None:
+        match |= Q(created_at__lte=watermark)
+    moved = InquiryMessage.objects.filter(
+        match, conversation=conversation, site=connection.site, direction=InquiryMessage.OUT,
+        delivery_state__in=STATE_BELOW[target],
+    ).update(delivery_state=target)
+    if moved:
+        _publish_status(connection.site, conversation.external_id)
+    return moved
 
 
 def _events_of(entry, key):
@@ -223,6 +281,9 @@ def receive(payload):
             continue
         for event in messaging:
             try:
+                if "delivery" in event or "read" in event:
+                    _status_event(connections[0], page_id, event, now)
+                    continue
                 result = _store_event(connections[0], page_id, event, now)
             except Exception as error:  # noqa: BLE001 - one bad event must not lose the others
                 logger.error("Messenger event not stored (%s)", type(error).__name__)
@@ -335,6 +396,8 @@ def deauthorize(meta_user_id):
     for row in rows:
         # No unsubscribe here: the person already removed the app, so Meta has dropped the subscription.
         clear_connection(row, InquiryConnection.INVALID)
+    profile.forget(InquiryConversation.objects.filter(
+        provider=PROVIDER, connection__in=[r.pk for r in rows]).values_list("pk", flat=True))
     return len(rows)
 
 
@@ -360,5 +423,6 @@ def erase_user(meta_user_id):
         )
         for row in connections:
             clear_connection(row, InquiryConnection.UNSET)
+    profile.forget(ids)  # the cached photos go with the rest
     return len(ids)
 

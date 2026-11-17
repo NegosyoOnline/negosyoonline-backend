@@ -66,7 +66,7 @@ def _proof(token):
     return hmac.new(app_secret().encode(), token.encode(), hashlib.sha256).hexdigest()
 
 
-def _transport(method, path, *, params=None, form=None, token=None):
+def _transport(method, path, *, params=None, form=None, token=None, timeout=TIMEOUT):
     """The one network call: (http_status, parsed JSON or {}). Never raises for an HTTP error status;
     raises OSError for no answer. The token goes in the Authorization header."""
     url = f"{GRAPH_URL}{path}"
@@ -77,7 +77,7 @@ def _transport(method, path, *, params=None, form=None, token=None):
     if token:
         request.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # noqa: S310 - fixed https host
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - fixed https host
             status, raw = response.status, response.read()
     except urllib.error.HTTPError as error:
         status, raw = error.code, error.read()
@@ -145,16 +145,27 @@ def _log_error_fields(body):
     )
 
 
-def call(method, path, *, params=None, form=None, token=None):
-    """Result(code, body): `ok` with the parsed body, or a fixed outcome code. Never raises."""
+def call(method, path, *, params=None, form=None, token=None, timeout=None, private=None):
+    """Result(code, body): `ok` with the parsed body, or a fixed outcome code. Never raises.
+    `timeout` (seconds) replaces the default for this call. `private` is a fixed label for a path
+    that holds a customer id: it is logged instead of the path, and a refusal logs codes only
+    (Graph's message and trace id can quote the id)."""
+    extra = {"timeout": timeout} if timeout is not None else {}
+    shown = private or _path_template(path)
     try:
-        status, body = _transport(method, path, params=params, form=form, token=token)
+        status, body = _transport(method, path, params=params, form=form, token=token, **extra)
     except (OSError, ValueError) as error:
-        logger.warning("Messenger call failed (%s) %s %s", type(error).__name__, _log_text(method, 10),
-                       _path_template(path))
+        logger.warning("Messenger call failed (%s) %s %s", type(error).__name__, _log_text(method, 10), shown)
         return Result(outcomes.PROVIDER_DOWN)
     if status >= 400 or "error" in body:
         code = map_error(status, body)
+        if private:
+            error_code, subcode, *_ = _log_error_fields(body)
+            logger.warning(
+                "Messenger call refused (%s) %s %s status=%s code=%s subcode=%s",
+                code, _log_text(method, 10), shown, _log_int(status), error_code, subcode,
+            )
+            return Result(code)
         error_code, subcode, error_type, fbtrace, message = _log_error_fields(body)
         logger.warning(
             "Messenger call refused (%s) %s %s status=%s code=%s subcode=%s type=%s fbtrace=%s msg=%s",
@@ -293,6 +304,21 @@ def subscribe_page(page_id, page_token):
 def unsubscribe_page(page_id, page_token):
     """Best effort: removes this app's subscription, with the Page's own token (the caller decrypts it)."""
     return call("DELETE", f"/{page_id}/subscribed_apps", params={"appsecret_proof": _proof(page_token)}, token=page_token)
+
+
+# -- the customer's profile ------------------------------------------------------------------
+
+PROFILE_TIMEOUT = 3  # seconds: a slow Graph answer is given up, never waited for
+
+
+def profile(psid, page_token):
+    """Result(ok, {"first_name", "last_name", "profile_pic"}) for a customer of the Page, read with the
+    Page's own token. The customer id is in the path, so the call logs a fixed label and codes only."""
+    return call(
+        "GET", f"/{urllib.parse.quote(str(psid), safe='')}",
+        params={"fields": "first_name,last_name,profile_pic", "appsecret_proof": _proof(page_token)},
+        token=page_token, timeout=PROFILE_TIMEOUT, private="/{psid}",
+    )
 
 
 # -- sending --------------------------------------------------------------------------------

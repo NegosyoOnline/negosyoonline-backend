@@ -10,6 +10,7 @@ from apps.inquiries import live, stored
 from apps.inquiries.models import InquiryConversation
 from apps.inquiries.tests.base import REPLY_TEXT, WC_REF, switched_on
 from apps.inquiries.tests.test_stored import StoredOwnerTestCase
+from apps.inquiries.tests import test_email_out
 from apps.inquiries.tests.test_webchat import ChatTestCase
 
 
@@ -113,3 +114,29 @@ class ChatSendPublishTests(ChatTestCase):
         self.assertEqual((payload["type"], payload["kind"]), ("conversation_updated", "message"))
         self.assertNotIn("Private words", json.dumps(payload))
         self.assertNotIn("Maria", json.dumps(payload))
+
+
+@switched_on
+class EmailReplyStatusPublishTests(test_email_out.EmailOutTestCase):
+    """An email reply moves sent/failed after its message is stored: that is a `message_status`."""
+
+    def statuses(self, send):
+        return [c.args[1] for c in send.call_args_list if c.args[1]["type"] == "message_status"]
+
+    def test_a_sent_email_reply_publishes_message_status_with_the_ref_only(self):
+        with mock.patch.object(live, "_send") as send, self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.reply().status_code, 200)
+        self.assertEqual(self.statuses(send), [{"type": "message_status", "ref": test_email_out.EM_A}])
+        self.assertNotIn(REPLY_TEXT, json.dumps([c.args[1] for c in send.call_args_list]))
+        self.assertNotIn("maria@visitor.test", json.dumps([c.args[1] for c in send.call_args_list]))
+
+    def test_a_failed_email_send_publishes_message_status(self):
+        with mock.patch("apps.notifications.store_email.send_store_email", side_effect=RuntimeError("smtp")), \
+                mock.patch.object(live, "_send") as send, self.captureOnCommitCallbacks(execute=True):
+            self.reply()
+        self.assertEqual(self.statuses(send), [{"type": "message_status", "ref": test_email_out.EM_A}])
+
+    def test_nothing_is_published_before_commit(self):
+        with mock.patch.object(live, "_send") as send:
+            self.reply()
+        send.assert_not_called()

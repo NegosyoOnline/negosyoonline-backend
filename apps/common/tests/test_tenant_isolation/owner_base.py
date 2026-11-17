@@ -198,6 +198,7 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/inquiries/conversations/{ref}/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reply/"): 200,
     ("GET", "/sites/{site_id}/inquiries/channels/"): 200,
+    ("GET", "/sites/{site_id}/inquiries/unread/"): 200,
     ("PUT", "/sites/{site_id}/inquiries/channels/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/read/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/close/"): 200,

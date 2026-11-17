@@ -10,6 +10,7 @@ from datetime import timedelta
 from django.db.models import Q
 
 from apps.common import retention
+from apps.inquiries import profile
 from apps.inquiries.models import (
     InquiryChannelSettings, InquiryConnection, InquiryConversation, InquiryMessage, InquiryReply,
 )
@@ -62,6 +63,7 @@ def old_messages(now, dry_run):
     if dry_run or not conversations:
         return count
     messages.delete()
+    profile.forget(conversations)  # a Messenger customer's cached photo goes with their messages
     InquiryConversation.objects.filter(pk__in=conversations, replies__isnull=True).delete()
     InquiryConversation.objects.filter(pk__in=conversations).update(
         status=InquiryConversation.CLOSED, unread=False, **{field: "" for field in PERSONAL},
@@ -145,6 +147,7 @@ def blank_inquiries(sites, dry_run=False):
             InquiryConnection.objects.filter(site__in=sites, provider="messenger").update(
                 external_page_id="", label="", meta_user_id="",
             )
+            profile.forget(conversations.filter(provider="messenger").values_list("pk", flat=True))
             messages.delete()
             email_records.delete()
             # The visitor's secret hash and the thread token go too, so nothing can continue a

@@ -166,6 +166,7 @@ class InquiryMessage(models.Model):
     SENDER_KINDS = [(CUSTOMER, "Customer"), (OWNER, "Store owner")]
     DELIVERY_STATES = [
         ("", "None"), ("sent", "Sent"), ("failed", "Failed"), ("delivered", "Delivered"), ("bounced", "Bounced"),
+        ("seen", "Seen"),
     ]
 
     site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_messages")

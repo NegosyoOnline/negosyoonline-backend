@@ -14,17 +14,18 @@ from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q
+from django.db.models import Exists, F, OuterRef, Q
 from django.utils import timezone
 
 from apps.common import throttle
 from apps.common.errors import ApiError
-from apps.inquiries import live, outcomes
+from apps.inquiries import live, outcomes, profile
 from apps.inquiries.models import (
     InquiryChannelSettings, InquiryConversation, InquiryMessage, InquiryReply,
 )
 
 LIST_LIMIT = 30
+SEARCH_MIN, SEARCH_MAX = 2, 80  # characters of a search text
 THREAD_LIMIT = 200  # the latest messages of a thread
 RECENT_REPLIES = 20
 SNIPPET = 100
@@ -102,16 +103,51 @@ def _attachment_line(attachment_types):
     return "[Photo]" if first in ("image", "photo") else "[Attachment]"
 
 
-def list_items(site, limit=LIST_LIMIT, after=None):
+def valid_query(text):
+    """The search text trimmed, or None when it is not 2 to 80 characters."""
+    text = (text or "").strip()
+    return text if SEARCH_MIN <= len(text) <= SEARCH_MAX else None
+
+
+def _matching(rows, text):
+    """The rows whose name, contact name, contact email or any message text contains `text`, ignoring
+    case. `rows` is already this site's; the message test is tied to the same conversation and site."""
+    in_message = InquiryMessage.objects.filter(
+        conversation=OuterRef("pk"), site=OuterRef("site"), body__icontains=text,
+    )
+    return rows.filter(
+        Q(display_name__icontains=text) | Q(contact_name__icontains=text) | Q(contact_email__icontains=text)
+        | Exists(in_message)
+    )
+
+
+def unread_count(site):
+    """How many of the site's visible stored conversations are unread (one count on the site's rows)."""
+    return InquiryConversation.objects.filter(
+        site=site, provider__in=providers(), stores_history=True, unread=True,
+    ).count()
+
+
+def list_items(site, limit=LIST_LIMIT, after=None, query=None, status=None, unread=None):
     """(items, next_cursor): the site's stored conversations, latest first, in the shape the owner's
-    list uses. `after` is a previous call's next_cursor; next_cursor is None on the last page."""
+    list uses. `after` is a previous call's next_cursor; next_cursor is None on the last page.
+    `query` (already validated, see valid_query) keeps only the conversations that match it;
+    `status` (open or closed, already validated) keeps only those;
+    `unread` (True or False, None for all) keeps only the unread or only the read."""
     rows = InquiryConversation.objects.filter(
         site=site, provider__in=providers(), stores_history=True,
     ).order_by(F("last_message_at").desc(nulls_last=True), "-pk")
+    if status:
+        rows = rows.filter(status=status)
+    if unread is not None:
+        rows = rows.filter(unread=unread)
+    if query:
+        rows = _matching(rows, query)
     if after:
         rows = _after(rows, after)
     rows = list(rows[: limit + 1])
     more, rows = len(rows) > limit, rows[:limit]
+    photos = profile.avatar_urls(c.pk for c in rows if c.provider == InquiryConversation.MESSENGER)
     items = []
     for conversation in rows:
         last = InquiryMessage.objects.filter(conversation=conversation).order_by("-created_at", "-pk").first()
@@ -124,6 +160,7 @@ def list_items(site, limit=LIST_LIMIT, after=None):
             "source": "stored",
             "status": conversation.status,
             "unread": conversation.unread,
+            "avatar_url": photos.get(conversation.pk),
         })
     return items, (cursor_of(rows[-1]) if more else None)
 
@@ -161,6 +198,10 @@ def thread(site, ref):
     out = {
         "ref": conversation.external_id,
         "display_name": _name(conversation),
+        "avatar_url": (
+            profile.avatar_urls([conversation.pk])[conversation.pk]
+            if conversation.provider == InquiryConversation.MESSENGER else None
+        ),
         "channel": conversation.provider,
         "source": "stored",
         "status": conversation.status,
