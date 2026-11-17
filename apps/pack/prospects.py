@@ -30,6 +30,7 @@ STAGES = (
 CHANNEL_KEYS = {
     InquiryConversation.WEBCHAT: "webchat",
     InquiryConversation.EMAIL: "email",
+    InquiryConversation.MESSENGER: "messenger",
 }
 NO_ORDER = {"placed_at": None, "payment_status": None, "price_centavos": None, "currency": None}
 PAGE_SOURCE = "pack_page"  # the Membership Pack page: an order or a visit
