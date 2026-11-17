@@ -1,6 +1,7 @@
 """An explicit custom host: lookup, availability rules, normalisation, uniqueness, canonical URL
 and the site_custom_domain command. Subdomain behaviour stays covered by test_api_public."""
 from io import StringIO
+from unittest import mock
 
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
@@ -14,6 +15,7 @@ from apps.sites import custom_hosts
 from apps.sites.models import Site, SiteCustomHost
 from apps.sites.tests.base import make_account, make_site
 from apps.sites.tests.test_api_public import HOST, ByHostTestCase
+from apps.storefront.tests.base import SurfaceTestCase
 
 CUSTOM = "shop.example.test"
 
@@ -80,6 +82,63 @@ class LookupTests(ByHostTestCase):
         attach(sub.site, "live4.example.test")
         self.assert_not_found(self.lookup("live4more.example.test"))
         self.assert_not_found(self.lookup("example.test"))
+
+
+class TableNotReadyTests(ByHostTestCase):
+    """A deploy that runs before sites.0004 must not break store lookups."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(setattr, custom_hosts, "_table_exists", custom_hosts._table_exists)
+        custom_hosts._table_exists = False
+        patcher = mock.patch.object(custom_hosts, "_table_ready", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_subdomain_serves_and_a_custom_host_answers_404(self):
+        sub = make_subscription()
+        attach(sub.site)  # the table exists in the test database; only the guard says it is not ready
+        body = self.assert_served(self.lookup())
+        self.assertEqual((body["id"], body["custom_host"]), (sub.site.public_id, ""))
+        self.assert_not_found(self.lookup(CUSTOM))
+
+    def test_canonical_host_falls_back_to_the_subdomain(self):
+        site = make_subscription().site
+        attach(site)
+        self.assertIsNone(custom_hosts.active_host(site))
+        self.assertIsNone(custom_hosts.active_row_for_host(CUSTOM))
+        self.assertEqual(custom_hosts.custom_host_if_asked(site, CUSTOM), "")
+        self.assertEqual(custom_hosts.public_host(site), HOST)
+        self.assertEqual(custom_hosts.public_base_url(site), f"https://{HOST}")
+
+
+class StorefrontTableNotReadyTests(SurfaceTestCase):
+    def test_the_storefront_site_answer_serves_the_subdomain_only(self):
+        site = make_subscription().site
+        attach(site)
+        with mock.patch.object(custom_hosts, "_table_ready", return_value=False):
+            served = self.call()
+            custom = self.call(CUSTOM)
+        self.assertEqual(served.status_code, 200, served.content)
+        self.assertEqual(served.json()["custom_host"], "")
+        self.assertEqual(custom.status_code, 404, custom.content)
+
+
+class TableReadyTests(TestCase):
+    def setUp(self):
+        self.addCleanup(setattr, custom_hosts, "_table_exists", custom_hosts._table_exists)
+        custom_hosts._table_exists = False
+
+    def test_true_is_cached_and_a_missing_table_is_checked_again(self):
+        with mock.patch.object(custom_hosts.connection.introspection, "table_names") as names:
+            names.return_value = []
+            self.assertFalse(custom_hosts._table_ready())
+            self.assertFalse(custom_hosts._table_ready())
+            self.assertEqual(names.call_count, 2)
+            names.return_value = [SiteCustomHost._meta.db_table]
+            self.assertTrue(custom_hosts._table_ready())
+            self.assertTrue(custom_hosts._table_ready())
+            self.assertEqual(names.call_count, 3)
 
 
 class RuleTests(TestCase):

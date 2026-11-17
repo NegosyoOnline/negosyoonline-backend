@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import connection
 
 from apps.sites.models import SiteCustomHost
 
@@ -69,10 +70,25 @@ def validated(raw):
     return raw.lower().removesuffix(".")
 
 
+_table_exists = False
+
+
+def _table_ready():
+    """True once the SiteCustomHost table exists, so a deploy that runs before sites.0004 cannot
+    break store lookups. Only a True answer is cached (per process); while the table is missing it
+    is checked again on each call. Database errors are not caught."""
+    global _table_exists
+    if _table_exists:
+        return True
+    if SiteCustomHost._meta.db_table in connection.introspection.table_names():
+        _table_exists = True
+    return _table_exists
+
+
 def active_row_for_host(host):
     """The active custom-host row a request host names, with its site, or None."""
     name = key(host)
-    if not name:
+    if not name or not _table_ready():
         return None
     return (
         SiteCustomHost.objects.filter(
@@ -85,6 +101,8 @@ def active_row_for_host(host):
 
 
 def active_host(site):
+    if not _table_ready():
+        return None
     row = site.custom_hosts.filter(state=SiteCustomHost.State.ACTIVE).first()
     return None if row is None else row.host
 
