@@ -1,10 +1,12 @@
 """What account disposal and account export do to an account's sites.
 
 Called only by apps.accounts.retention. This is not store disposal: a site has no order,
-customer or media row yet. The rows stay; only their personal fields go.
+customer or media row yet. The rows stay; only their personal fields go, and the site's web
+address and custom host are retired.
 """
 from apps.common import private_files
-from apps.sites.models import Onboarding, Site, SiteBusinessProfile, Subdomain
+from apps.sites import custom_hosts
+from apps.sites.models import Onboarding, Site, SiteBusinessProfile, SiteCustomHost, Subdomain
 
 SITE_PERSONAL = ("contact_email", "contact_mobile", "facebook_url", "instagram_url", "tiktok_url")
 PROFILE_PERSONAL = (
@@ -29,14 +31,21 @@ def _iso(moment):
 
 def blank_sites_of(account, now, dry_run=False):
     """Blank the personal fields of every site of the account, close each site and retire its
-    web address. Returns the counts; a dry run only counts. Call it inside a transaction."""
+    web address and its custom host. Returns the counts; a dry run only counts. Call it inside a transaction."""
     return blank_sites(Site.objects.filter(account=account), now, dry_run)
 
 
 def blank_sites(sites, now, dry_run=False):
-    """The same for the sites in `sites` (a Site queryset), whatever their accounts."""
+    """The same for the sites in `sites` (a Site queryset), whatever their accounts. Active
+    custom hosts (SiteCustomHost) are retired with the web addresses, under the same lock; where
+    the table does not exist yet (before sites.0004) there is nothing to retire and the count is 0."""
     profiles = SiteBusinessProfile.objects.filter(site__in=sites)
     active_names = Subdomain.objects.filter(site__in=sites, state=Subdomain.State.ACTIVE)
+    hosts = (
+        SiteCustomHost.objects.filter(site__in=sites, state=SiteCustomHost.State.ACTIVE)
+        if custom_hosts._table_ready()
+        else SiteCustomHost.objects.none()
+    )
     if not dry_run:
         # The lock every site write of this account takes. No row is made for it here.
         list(Onboarding.objects.select_for_update().filter(account__in=sites.values("account")))
@@ -44,10 +53,12 @@ def blank_sites(sites, now, dry_run=False):
         "sites": sites.count(),
         "business_profiles": profiles.count(),
         "web_addresses_retired": active_names.count(),
+        "custom_hosts_retired": hosts.count(),
     }
     if dry_run:
         return counts
     active_names.update(state=Subdomain.State.RETIRED, retired_at=now)
+    hosts.update(state=SiteCustomHost.State.RETIRED, retired_at=now)
     for key in list(profiles.exclude(seal_key="").values_list("seal_key", flat=True)):
         private_files.delete(key)  # a file that cannot be deleted undoes the disposal, as for payments
     profiles.update(seal_key="", **{name: "" for name in PROFILE_PERSONAL})

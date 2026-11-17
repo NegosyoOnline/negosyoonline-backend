@@ -37,7 +37,7 @@ All values are **read from the provider at the time**; never typed from memory o
 - **Zone as seen on 2026-11-17:** an apex `A` record (proxied), a wildcard `*` `CNAME` to a Railway app (proxied), and Railway `_acme-challenge` / `_railway-verify` records. `www` is covered by that wildcard today; an explicit `www` record overrides the wildcard for `www` only. The wildcard and the Railway verification records stay untouched. Changing the apex and adding `www` are the approved B3 items and are **on hold** until Coach Ed confirms the current apex and `www` use. Values beyond these are read from the provider at the time.
 - **Preserve mail and other records:** before changing anything, export the zone and list every existing `MX`, `TXT` (SPF `v=spf1`, DKIM selectors, DMARC `_dmarc`), `CAA` and other record; changes touch only the apex and `www` address records (and the Vercel verification record). If the apex currently has records of the same type, Vercel's required replacement is a decision for the change list, not for this sheet.
 - **HTTPS:** after DNS resolves, Vercel issues the certificate. Verify on both names: `curl -sI https://live4moreonline.store/` (200 or the intended redirect, valid certificate) and `curl -sI https://www.live4moreonline.store/` (308 to the apex). Do not turn on HSTS `includeSubDomains` or preload for the domain.
-- **Application configuration:** none on the backend or Vercel for the domain itself (no `ALLOWED_HOSTS`/CSRF/CORS/variable change). The only backend step is attaching the host to the site (section 4) after the migration is applied. Frontend behaviour (apex canonical, `www` redirect, `/` opens the membership landing) is in the frontend change of this task.
+- **Application configuration:** none on the backend or Vercel for the domain itself (no `ALLOWED_HOSTS`/CSRF/CORS/variable change). The only backend step is attaching the host to the site (section 4) after the migration is applied. Frontend behaviour (apex canonical, `www` redirect) is in the frontend change of this task. On the custom domain `/` shows the store's normal shop home, the same as the platform address (Coach Ed ruling 1100430000559325, 2026-11-18); the membership landing is at `/funnel/membership-pack/landing-page/`.
 
 ## 4. Attaching the host (staging, only after Coach Ed approves)
 
@@ -71,7 +71,7 @@ All values are **read from the provider at the time**; never typed from memory o
 
 Use test buyers and the approved bank-transfer-with-proof procedure in `docs/runbooks/pack.md` and `docs/runbooks/launch-gates.md`: a test proof file, a test amount, no real charge and no real customer record.
 
-1. Landing: `https://live4moreonline.store/` opens the membership landing; `https://www.live4moreonline.store/` redirects once to the apex; no loop.
+1. Home and landing: `https://live4moreonline.store/` shows the store's normal shop home, the same as the platform address (Coach Ed ruling 1100430000559325, 2026-11-18); the membership landing opens at `https://live4moreonline.store/funnel/membership-pack/landing-page/`; `https://www.live4moreonline.store/` redirects once (308) to the apex; no loop.
 2. Registration / sign-in on the custom host (cookie is host-only; sign in again if you were signed in on the platform address).
 3. Checkout: contact step, then place the order with a test proof.
 4. Confirmation: the buyer's email arrives; its links point at `live4moreonline.store`.
