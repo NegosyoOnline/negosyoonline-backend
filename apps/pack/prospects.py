@@ -28,7 +28,6 @@ STAGES = (
     "account_setup", "activated",
 )
 CHANNEL_KEYS = {
-    InquiryConversation.PANCAKE: "facebook",
     InquiryConversation.WEBCHAT: "webchat",
     InquiryConversation.EMAIL: "email",
 }
@@ -106,17 +105,16 @@ def visit_rows(site):
 
 def inquiry_rows(site):
     rows = []
-    for c in InquiryConversation.objects.filter(site=site).values(
-            "provider", "display_name", "contact_name", "contact_email", "last_message_at", "last_inbound_at", "created_at"):
+    for c in InquiryConversation.objects.filter(site=site, provider__in=InquiryConversation.STORED_PROVIDERS).values(
+            "provider", "contact_name", "contact_email", "last_message_at", "last_inbound_at", "created_at"):
         # A stored channel keeps the name in contact_name; read live, so a blanked name stays blank.
-        name = c["contact_name"] if c["provider"] in InquiryConversation.STORED_PROVIDERS else c["display_name"]
         rows.append({
-            "kind": "inquiry", "name": name, "order_number": None, "order_id": None,
-            "source": CHANNEL_KEYS.get(c["provider"], "facebook"), "stage": "new_lead",
+            "kind": "inquiry", "name": c["contact_name"], "order_number": None, "order_id": None,
+            "source": CHANNEL_KEYS[c["provider"]], "stage": "new_lead",
             "registration_status": None,
             "last_activity": _latest(c["last_message_at"], c["last_inbound_at"], default=c["created_at"]),
             "video_percent": None, "mobile": "",  # no phone is stored on a conversation
-            "email": c["contact_email"] if c["provider"] in InquiryConversation.STORED_PROVIDERS else "", **NO_ORDER,
+            "email": c["contact_email"], **NO_ORDER,
         })
     return rows
 

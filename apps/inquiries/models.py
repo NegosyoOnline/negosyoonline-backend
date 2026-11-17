@@ -1,10 +1,11 @@
-"""Inquiry tables: a site's provider connection, a handle for each conversation, and one audit
-row per outgoing reply attempt.
+"""Inquiry tables: a site's provider connection, the conversations, and one audit row per outgoing
+reply attempt.
 
-For a provider channel (Pancake) no table holds an inbound message, a reply's text, a token in
-the clear or a URL with a query: the provider stays the source of the conversation history. A
-stored channel (website chat) has no provider to hold its history, so InquiryMessage keeps the
-text, for MESSAGE_RETENTION (apps/inquiries/retention.py). The reply audit row never holds text."""
+For a provider channel (none is connected yet) no table holds an inbound message, a reply's text, a
+token in the clear or a URL with a query: the provider stays the source of the conversation
+history. A stored channel (website chat, the contact form as email) has no provider to hold its
+history, so InquiryMessage keeps the text, for MESSAGE_RETENTION (apps/inquiries/retention.py).
+The reply audit row never holds text."""
 import secrets
 
 from django.db import models
@@ -18,13 +19,11 @@ class InquiryConnection(models.Model):
     """One row per site and provider: the page id and the encrypted page token. The ciphertext
     is never serialised, logged or printed."""
 
-    PANCAKE = "pancake"
-    PROVIDERS = [(PANCAKE, "Pancake")]
     UNSET, ACTIVE, INVALID, DISABLED = "unset", "active", "invalid", "disabled"
     STATUSES = [(UNSET, "Not set"), (ACTIVE, "Active"), (INVALID, "Invalid"), (DISABLED, "Disabled")]
 
     site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_connections")
-    provider = models.CharField(max_length=16, choices=PROVIDERS, default=PANCAKE)
+    provider = models.CharField(max_length=16)  # no choices yet: the direct Messenger inbox adds one
     status = models.CharField(max_length=12, choices=STATUSES, default=UNSET)
     token_encrypted = models.TextField(blank=True)  # Fernet ciphertext; empty = not set
     external_page_id = models.CharField(max_length=64, blank=True)
@@ -56,10 +55,10 @@ class InquiryConversation(models.Model):
     from the provider on demand. For a stored channel (`stores_history`), the conversation
     itself: made by the visitor's first message, with its messages in InquiryMessage."""
 
-    PANCAKE, WEBCHAT, EMAIL = "pancake", "webchat", "email"
-    PROVIDERS = [(PANCAKE, "Pancake"), (WEBCHAT, "Website chat"), (EMAIL, "Email")]
+    WEBCHAT, EMAIL = "webchat", "email"
+    PROVIDERS = [(WEBCHAT, "Website chat"), (EMAIL, "Email")]
     STORED_PROVIDERS = (WEBCHAT, EMAIL)
-    REF_PREFIX = {WEBCHAT: "wc_", EMAIL: "em_"}  # a stored channel's refs never collide with Pancake's
+    REF_PREFIX = {WEBCHAT: "wc_", EMAIL: "em_"}  # a stored channel's refs are recognised by prefix
     OPEN, CLOSED = "open", "closed"
     STATUSES = [(OPEN, "Open"), (CLOSED, "Closed")]
     UNVERIFIED_SENDER = "unverified_sender"

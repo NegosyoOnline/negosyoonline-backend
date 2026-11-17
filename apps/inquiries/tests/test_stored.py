@@ -17,7 +17,7 @@ from apps.inquiries.models import (
 )
 from apps.inquiries.switch import stored_tables_exist
 from apps.inquiries.tests.base import (
-    LIST_OK, REF, REPLY_TEXT, WC_REF, FakePancake, chat_on, make_stored, no_limiter, switched_on,
+    REPLY_TEXT, WC_REF, chat_on, make_stored, switched_on,
 )
 from apps.sites.models import Site
 from apps.sites.tests.api_base import SitesApiTestCase
@@ -30,7 +30,6 @@ class StoredOwnerTestCase(SitesApiTestCase):
     def setUp(self):
         super().setUp()
         cache.clear()
-        no_limiter(self)
         self.site_id = self.create_site()["id"]
         self.site = Site.objects.get(public_id=self.site_id)
         self.base = f"/v1/sites/{self.site_id}/inquiries/"
@@ -49,25 +48,13 @@ class StoredOwnerTestCase(SitesApiTestCase):
 
 
 class ListAndThreadTests(StoredOwnerTestCase):
-    def test_the_list_holds_stored_conversations_without_a_pancake_connection(self):
+    def test_the_list_holds_stored_conversations(self):
         body = self.get(self.base + "conversations/").json()
         (item,) = body["items"]
         self.assertEqual((item["ref"], item["channel"], item["source"]), (WC_REF, "webchat", "stored"))
         self.assertEqual(item["display_name"], "Maria Santos")
         self.assertTrue(item["unread"])
-        self.assertEqual(body["sources"], {"pancake": "not_configured", "stored": "ok"})
-
-    def test_the_list_merges_with_pancake_by_time_and_flags_each_source(self):
-        from apps.inquiries.tests.base import configure
-
-        configure(self.site)
-        InquiryConversation.objects.filter(pk=self.conv.pk).update(last_message_at=timezone.now())
-        with FakePancake():
-            body = self.get(self.base + "conversations/").json()
-        refs = [i["ref"] for i in body["items"]]
-        self.assertEqual(refs[0], WC_REF)
-        self.assertEqual(len(refs), 3)
-        self.assertEqual(body["sources"], {"pancake": "ok", "stored": "ok"})
+        self.assertEqual(set(body), {"items", "stored_next_cursor"})  # no provider source, no provider cursor
 
     def test_stored_conversations_past_the_first_page_are_reached_by_the_stored_cursor(self):
         from apps.inquiries.stored import LIST_LIMIT
@@ -79,13 +66,11 @@ class ListAndThreadTests(StoredOwnerTestCase):
         total = InquiryConversation.objects.filter(site=self.site).count()
         first = self.get(self.base + "conversations/").json()
         self.assertEqual(len(first["items"]), LIST_LIMIT)
-        self.assertIsNone(first["next_cursor"])  # the Pancake cursor contract is untouched
         self.assertTrue(first["stored_next_cursor"])
         seen = [i["ref"] for i in first["items"]]
         cursor = first["stored_next_cursor"]
         while cursor:
             page = self.get(self.base + "conversations/?stored_cursor=" + cursor).json()
-            self.assertIsNone(page["next_cursor"])
             seen += [i["ref"] for i in page["items"]]
             cursor = page["stored_next_cursor"]
         self.assertEqual(len(seen), total)
@@ -102,20 +87,6 @@ class ListAndThreadTests(StoredOwnerTestCase):
         page = self.get(self.base + "conversations/?stored_cursor=n_999999999").json()
         self.assertEqual(page["items"], [])
         self.assertNotIn(BEN_WC_REF, str(page))
-
-    def test_pancake_down_keeps_the_stored_list(self):
-        from apps.inquiries.tests.base import configure, http_error
-
-        configure(self.site)
-        with FakePancake(listing=http_error(503)):
-            body = self.get(self.base + "conversations/").json()
-        self.assertEqual([i["ref"] for i in body["items"]], [WC_REF])
-        self.assertEqual(body["sources"]["pancake"], "provider_down")
-
-    def test_without_stored_conversations_an_unconnected_pancake_still_answers_as_before(self):
-        InquiryMessage.objects.filter(site=self.site).delete()
-        InquiryConversation.objects.filter(site=self.site).delete()
-        self.error(self.get(self.base + "conversations/"), 409, "not_connected")
 
     def test_the_thread_shows_the_messages_and_marks_nothing_read(self):
         body = self.get(self.base + f"conversations/{WC_REF}/").json()
@@ -176,7 +147,7 @@ class ReplyTests(StoredOwnerTestCase):
         self.error(self.reply(ref=WC_REF, base=self.ben_base, client=self.ben), 404, "not_found")
         self.assertFalse(InquiryMessage.objects.filter(direction="out").exists())
 
-    def test_text_rules_are_those_of_pancake_replies(self):
+    def test_text_rules(self):
         self.error(self.reply(text="   "), 422, "invalid")
         self.error(self.reply(text="x" * 2001), 422, "invalid")
         self.error(self.reply(key="short"), 422, "invalid")
@@ -201,8 +172,10 @@ class StatusAndReadTests(StoredOwnerTestCase):
         self.ben_conv.refresh_from_db()
         self.assertEqual((self.ben_conv.status, self.ben_conv.unread), ("open", True))
 
-    def test_a_pancake_ref_is_not_a_stored_conversation(self):
-        self.error(self.send("post", self.base + f"conversations/{REF}/close/"), 404, "not_found")
+    def test_a_ref_that_is_not_a_stored_ref_is_not_found(self):
+        self.error(self.send("post", self.base + "conversations/1000000000001_7000000000001/close/"), 404, "not_found")
+        self.error(self.get(self.base + "conversations/1000000000001_7000000000001/"), 404, "not_found")
+        self.error(self.reply(ref="1000000000001_7000000000001"), 404, "not_found")
 
 
 class ChannelsTests(StoredOwnerTestCase):
@@ -274,17 +247,12 @@ class SwitchTests(StoredOwnerTestCase):
                 self.error(response, 404, "not_found")
         self.assertFalse(InquiryReply.objects.exists())
 
-    def test_before_inquiries_0002_the_stored_routes_are_404_and_pancake_lists_as_before(self):
-        from apps.inquiries.tests.base import configure
-
-        configure(self.site)
+    def test_before_inquiries_0002_the_stored_routes_are_404_and_the_list_is_empty(self):
         with mock.patch("apps.inquiries.api_owner.stored_tables_exist", return_value=False):
             for response in self.walk():
                 self.error(response, 404, "not_found")
-            with FakePancake():
-                body = self.get(self.base + "conversations/").json()
-        self.assertEqual(len(body["items"]), len(LIST_OK["conversations"]))
-        self.assertNotIn("sources", body)
+            body = self.get(self.base + "conversations/").json()
+        self.assertEqual(body, {"items": [], "stored_next_cursor": None})
 
 
 class DeployCheckTests(TestCase):
@@ -419,7 +387,7 @@ class StoredRetentionTests(DisposalTestCase):
 
     def test_before_inquiries_0002_disposal_still_blanks_the_names_and_reads_no_new_table(self):
         make = InquiryConversation.objects.create(
-            site=self.mine, provider="pancake", external_id="p_1", display_name="Maria Santos",
+            site=self.mine, provider="webchat", external_id="wc_1", display_name="Maria Santos",
         )
         with mock.patch("apps.inquiries.retention.stored_tables_exist", return_value=False):
             counts = inquiry_retention.blank_inquiries_of(self.account)

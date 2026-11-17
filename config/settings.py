@@ -253,12 +253,11 @@ SHOP_SHIPPING_POLICY = os.environ.get("SHOP_SHIPPING_POLICY", "").strip().lower(
 # per-site credential key (a Fernet key); no new variable.
 META_EVENTS_ENABLED = os.environ.get("META_EVENTS_ENABLED", "").strip() == "1"
 META_CREDENTIALS_KEY = os.environ.get("PAYMENT_CREDENTIALS_ENCRYPTION_KEY", "").strip()
-# Customer inquiries (apps/inquiries): the Subscriber's per-site provider connection (Pancake,
-# Facebook Messenger only) and the inbox routes. "1" turns it on. Off, every route answers the
-# 404 of an unknown site, no inquiries table is read or written and nothing is sent to a
-# provider. Needs the key below (see apps/inquiries/checks.py). The page token is stored
-# encrypted under INQUIRIES_CREDENTIALS_KEY, which reads the platform's existing per-site
-# credential key (a Fernet key); no new variable.
+# Customer inquiries (apps/inquiries): the Subscriber's inbox routes (the stored channels: website
+# chat and the contact form as email). "1" turns it on. Off, every route answers the 404 of an
+# unknown site and no inquiries table is read or written. Needs the key below (see
+# apps/inquiries/checks.py). A connection token is stored encrypted under INQUIRIES_CREDENTIALS_KEY,
+# which reads the platform's existing per-site credential key (a Fernet key); no new variable.
 INQUIRIES_ENABLED = os.environ.get("INQUIRIES_ENABLED", "").strip() == "1"
 INQUIRIES_CREDENTIALS_KEY = os.environ.get("PAYMENT_CREDENTIALS_ENCRYPTION_KEY", "").strip()
 # Website chat (apps/inquiries/webchat.py): the two chat routes of the storefront surface

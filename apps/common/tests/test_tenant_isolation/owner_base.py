@@ -42,8 +42,6 @@ from apps.statements.tests.base import make_book, make_item, make_staff
 from apps.statements.tests.test_owner_api import PDF_BYTES, PROFILE, issue_for
 from apps.common import private_files
 
-BEN_PAGE = "5000000000005"
-BEN_REF = f"{BEN_PAGE}_7000000000001"
 BEN_WC_REF = "wc_" + "f0e1d2c3b4a5" * 2  # Ben's website-chat conversation
 MISSING_SITE = "site_00000000000000000000"
 MISSING_CHILD = {
@@ -62,7 +60,7 @@ MISSING_CHILD = {
     "invoice_id": "mbi_00000000000000000000000000",
     "review_id": "review_00000000000000000000",
     "number": "NOBS-2026-000000",
-    "ref": "999999_7000000000000",  # a conversation ref of no page of ours
+    "ref": "wc_000000000000000000000000",  # a conversation ref of no site of ours
 }
 PLACEHOLDERS = tuple("{%s}" % name for name in MISSING_CHILD)
 
@@ -195,10 +193,7 @@ OWNER_ROUTES = {
     ("PUT", "/sites/{site_id}/meta/"): 200,
     ("POST", "/sites/{site_id}/meta/test/"): 200,
     ("DELETE", "/sites/{site_id}/meta/token/"): 200,
-    # inquiries (the order matters: the connection is saved and tested, read, then disconnected)
-    ("GET", "/sites/{site_id}/inquiries/connection/"): 200,
-    ("PUT", "/sites/{site_id}/inquiries/connection/"): 200,
-    ("POST", "/sites/{site_id}/inquiries/connection/test/"): 200,
+    # inquiries (the stored channels: website chat and the contact form as email)
     ("GET", "/sites/{site_id}/inquiries/conversations/"): 200,
     ("GET", "/sites/{site_id}/inquiries/conversations/{ref}/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reply/"): 200,
@@ -207,7 +202,6 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/read/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/close/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reopen/"): 200,
-    ("DELETE", "/sites/{site_id}/inquiries/connection/"): 200,
     # last: a cancelled trial is Billing-only, so every route called after it would answer 403
     ("POST", "/sites/{site_id}/billing/cancel/"): 200,
 }
@@ -284,9 +278,6 @@ class TwoOwnersTestCase(SitesApiTestCase):
         self.addCleanup(self.media_store.__exit__, None, None, None)
         self.meta = FakeMeta().__enter__()
         self.addCleanup(self.meta.__exit__, None, None, None)
-        self.pancake = inquiries_base.FakePancake().__enter__()
-        self.addCleanup(self.pancake.__exit__, None, None, None)
-        inquiries_base.no_limiter(self)
         usage_on = mock.patch.object(plan, "STORAGE_METERED", True)  # usage is shown only when metered
         usage_on.start()
         self.addCleanup(usage_on.stop)
@@ -323,15 +314,12 @@ class TwoOwnersTestCase(SitesApiTestCase):
         self.ben_ids = self.make_children(self.ben_site, payment=True, reg_status="in_registration")
         self.ben_shop_ids = self.make_children(self.ben_site, shop=True)
         configure(self.ben_site)
-        inquiries_base.configure(self.site)
-        inquiries_base.configure(self.ben_site, page=BEN_PAGE)
         self.ana_chat = inquiries_base.make_stored(self.site)
         self.ben_chat = inquiries_base.make_stored(self.ben_site, ref=BEN_WC_REF, name="Ben's Visitor")
         for ids in (self.ben_ids, self.ben_shop_ids):
-            ids["ref"] = BEN_REF
+            ids["ref"] = BEN_WC_REF
         mail.outbox.clear()
         self.meta.requests.clear()
-        self.pancake.requests.clear()
 
     # children ---------------------------------------------------------------
     def make_invoice_copy(self, site):
@@ -449,10 +437,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
         if "/media/" in template:  # made anew: the delete uses it up, and a video route needs a video
             ids.update(self.make_media(self.site, video="/video/" in template))
         if "{ref}" in template:
-            # the stored-channel routes need a website-chat conversation of Ana's, the others a Pancake ref
-            ids["ref"] = (
-                inquiries_base.WC_REF if template.endswith(("/read/", "/close/", "/reopen/")) else inquiries_base.REF
-            )
+            ids["ref"] = inquiries_base.WC_REF  # Ana's website-chat conversation
         if "{invoice_id}" in template:
             ids["invoice_id"] = self.invoice_ids[self.site.pk]
         if "{number}" in template:
@@ -468,7 +453,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
     def foreign_ids(self, template):
         """Ben's children for the placeholders this route has (a shop route gets his shop order)."""
         ids = self.ben_shop_ids if "/shop/" in template else self.ben_ids
-        if template.endswith(("/read/", "/close/", "/reopen/")):  # a stored-channel route: Ben's website chat
+        if "{ref}" in template:  # an inquiries route: Ben's website chat
             return {**ids, "ref": BEN_WC_REF}
         return ids
 
@@ -617,8 +602,6 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return {"pixel_id": PIXEL, "access_token": TOKEN, "test_event_code": CODE}
         if template.endswith("/inquiries/channels/") and method == "PUT":
             return {"webchat_enabled": True}
-        if "/inquiries/" in template and method == "PUT":
-            return {"page_id": inquiries_base.PAGE, "access_token": inquiries_base.TOKEN}
         if template.endswith("/reply/"):
             self.creates += 1
             return {"text": "Fixture reply", "idempotency_key": f"fixture-key-{self.creates:06d}"}
@@ -634,7 +617,6 @@ class TwoOwnersTestCase(SitesApiTestCase):
             "media_library_store": (sorted(self.media_store.files), list(self.media_store.deleted)),
             "outbox": [(m.to, m.subject) for m in mail.outbox],
             "meta_requests": len(self.meta.requests),
-            "inquiry_requests": len(self.pancake.requests),
         }
 
     def assertUnchanged(self, before, message):
