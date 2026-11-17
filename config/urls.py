@@ -19,6 +19,7 @@ from django.http import JsonResponse
 from django.urls import include, path, re_path
 
 from apps.health.views import readyz
+from apps.inquiries.stream import stream as inquiries_stream
 from apps.notifications import gateway
 from apps.storefront import api as storefront
 from config.api import api, api_not_found
@@ -37,6 +38,8 @@ urlpatterns = [
     path("gateway/v1/received", gateway.received),
     # The storefronts server's calls. Outside /v1/, so they are not in the published API.
     path("storefront/v1/", include(storefront.urlpatterns, namespace=storefront.namespace)),
+    # Live Inbox push (server-sent events); a plain async view, ahead of the ninja include.
+    path("v1/sites/<str:site_id>/inquiries/stream/", inquiries_stream),
     path("v1/", api.urls),
     re_path(r"^v1/", api_not_found),
 ]

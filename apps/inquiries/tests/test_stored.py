@@ -54,7 +54,7 @@ class ListAndThreadTests(StoredOwnerTestCase):
         self.assertEqual((item["ref"], item["channel"], item["source"]), (WC_REF, "webchat", "stored"))
         self.assertEqual(item["display_name"], "Maria Santos")
         self.assertTrue(item["unread"])
-        self.assertEqual(set(body), {"items", "stored_next_cursor"})  # no provider source, no provider cursor
+        self.assertEqual(set(body), {"items", "stored_next_cursor", "unread_total"})  # no provider source, no provider cursor
 
     def test_stored_conversations_past_the_first_page_are_reached_by_the_stored_cursor(self):
         from apps.inquiries.stored import LIST_LIMIT
@@ -252,7 +252,7 @@ class SwitchTests(StoredOwnerTestCase):
             for response in self.walk():
                 self.error(response, 404, "not_found")
             body = self.get(self.base + "conversations/").json()
-        self.assertEqual(body, {"items": [], "stored_next_cursor": None})
+        self.assertEqual(body, {"items": [], "stored_next_cursor": None, "unread_total": 0})
 
 
 class DeployCheckTests(TestCase):

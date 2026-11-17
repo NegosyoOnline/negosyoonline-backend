@@ -2,7 +2,8 @@
 
     GET /v1/public/sites/by-host/?host=anas-store.negosyoonline.com
 
-The host is untrusted. Only its first label is ever used, as a lookup value. A site is served
+The host is untrusted. It is matched exactly against an explicit custom host, else only its first
+label under the parent host is used, as a lookup value. A site is served
 only when its name is active, it is not removed, it is not on operator hold and its
 subscription says it is served at this moment. Everything else answers the same 404, whatever
 the reason: unknown fails closed.
@@ -13,7 +14,7 @@ from ninja import Router, Schema
 
 from apps.billing import services as billing
 from apps.common.errors import error_body
-from apps.sites import subdomains
+from apps.sites import custom_hosts, subdomains
 from apps.sites.models import Subdomain
 
 router = Router(tags=["public"])
@@ -31,6 +32,7 @@ class PublicSiteOut(Schema):
     facebook_url: str
     instagram_url: str
     tiktok_url: str
+    custom_host: str = ""
 
 
 def site_label(host):
@@ -53,7 +55,12 @@ def site_label(host):
 
 def site_for_host(host):
     """The site whose active name this host is, or None: not removed, not on operator hold.
-    Nothing about its billing position: `served` adds that."""
+    Nothing about its billing position: `served` adds that. An explicit custom host is matched
+    first, exactly; a host under SITE_PARENT_HOST can never be one, so the subdomain path below is
+    unchanged."""
+    custom = custom_hosts.active_row_for_host(host)
+    if custom is not None:
+        return custom.site
     label = site_label(host)
     if label is None:
         return None
@@ -102,4 +109,5 @@ def site_by_host(request, response: HttpResponse, host: str = ""):
         "facebook_url": site.facebook_url,
         "instagram_url": site.instagram_url,
         "tiktok_url": site.tiktok_url,
+        "custom_host": custom_hosts.custom_host_if_asked(site, host),
     }
