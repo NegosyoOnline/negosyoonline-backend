@@ -78,6 +78,8 @@ class FakeMeta:
             return 200, {"id": "fbuser-1"}
         if path == "/me/accounts":
             return 200, {"data": self.pages}
+        if path == "/debug_token":  # the Login for Business fallback; no granted Pages here
+            return 200, {"data": {"granular_scopes": []}}
         if path.endswith("/subscribed_apps"):
             if method == "POST" and self.subscribe_error:
                 return self.subscribe_error
