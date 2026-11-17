@@ -95,7 +95,7 @@ class RemovedRoutesTests(InquiryOwnerTestCase):
     def test_a_provider_cursor_is_ignored_and_a_provider_ref_is_not_found(self):
         response = self.get(self.base + "conversations/?cursor=abc")
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(set(response.json()), {"items", "stored_next_cursor"})
+        self.assertEqual(set(response.json()), {"items", "stored_next_cursor", "unread_total"})
         self.error(self.get(self.base + "conversations/1000000000001_7000000000001/"), 404, "not_found")
 
     def test_a_connection_row_changes_nothing_on_the_routes(self):

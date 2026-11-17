@@ -14,17 +14,18 @@ from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q
+from django.db.models import Exists, F, OuterRef, Q
 from django.utils import timezone
 
 from apps.common import throttle
 from apps.common.errors import ApiError
-from apps.inquiries import outcomes
+from apps.inquiries import live, outcomes, profile
 from apps.inquiries.models import (
     InquiryChannelSettings, InquiryConversation, InquiryMessage, InquiryReply,
 )
 
 LIST_LIMIT = 30
+SEARCH_MIN, SEARCH_MAX = 2, 80  # characters of a search text
 THREAD_LIMIT = 200  # the latest messages of a thread
 RECENT_REPLIES = 20
 SNIPPET = 100
@@ -94,28 +95,72 @@ def _after(rows, cursor):
     )
 
 
-def list_items(site, limit=LIST_LIMIT, after=None):
+def _attachment_line(attachment_types):
+    """The list snippet for an attachment-only message, the words the dash thread uses."""
+    first = (attachment_types or "").split(",")[0].strip().lower()
+    if not first:
+        return ""
+    return "[Photo]" if first in ("image", "photo") else "[Attachment]"
+
+
+def valid_query(text):
+    """The search text trimmed, or None when it is not 2 to 80 characters."""
+    text = (text or "").strip()
+    return text if SEARCH_MIN <= len(text) <= SEARCH_MAX else None
+
+
+def _matching(rows, text):
+    """The rows whose name, contact name, contact email or any message text contains `text`, ignoring
+    case. `rows` is already this site's; the message test is tied to the same conversation and site."""
+    in_message = InquiryMessage.objects.filter(
+        conversation=OuterRef("pk"), site=OuterRef("site"), body__icontains=text,
+    )
+    return rows.filter(
+        Q(display_name__icontains=text) | Q(contact_name__icontains=text) | Q(contact_email__icontains=text)
+        | Exists(in_message)
+    )
+
+
+def unread_count(site):
+    """How many of the site's visible stored conversations are unread (one count on the site's rows)."""
+    return InquiryConversation.objects.filter(
+        site=site, provider__in=providers(), stores_history=True, unread=True,
+    ).count()
+
+
+def list_items(site, limit=LIST_LIMIT, after=None, query=None, status=None, unread=None):
     """(items, next_cursor): the site's stored conversations, latest first, in the shape the owner's
-    list uses. `after` is a previous call's next_cursor; next_cursor is None on the last page."""
+    list uses. `after` is a previous call's next_cursor; next_cursor is None on the last page.
+    `query` (already validated, see valid_query) keeps only the conversations that match it;
+    `status` (open or closed, already validated) keeps only those;
+    `unread` (True or False, None for all) keeps only the unread or only the read."""
     rows = InquiryConversation.objects.filter(
         site=site, provider__in=providers(), stores_history=True,
     ).order_by(F("last_message_at").desc(nulls_last=True), "-pk")
+    if status:
+        rows = rows.filter(status=status)
+    if unread is not None:
+        rows = rows.filter(unread=unread)
+    if query:
+        rows = _matching(rows, query)
     if after:
         rows = _after(rows, after)
     rows = list(rows[: limit + 1])
     more, rows = len(rows) > limit, rows[:limit]
+    photos = profile.avatar_urls(c.pk for c in rows if c.provider == InquiryConversation.MESSENGER)
     items = []
     for conversation in rows:
         last = InquiryMessage.objects.filter(conversation=conversation).order_by("-created_at", "-pk").first()
         items.append({
             "ref": conversation.external_id,
             "display_name": _name(conversation),
-            "snippet": (_snippet(last.body) or ("[" + last.attachment_types.split(",")[0] + "]" if last.attachment_types else "")) if last else "",
+            "snippet": (_snippet(last.body) or _attachment_line(last.attachment_types)) if last else "",
             "updated_at": conversation.last_message_at.isoformat() if conversation.last_message_at else None,
             "channel": conversation.provider,
             "source": "stored",
             "status": conversation.status,
             "unread": conversation.unread,
+            "avatar_url": photos.get(conversation.pk),
         })
     return items, (cursor_of(rows[-1]) if more else None)
 
@@ -153,6 +198,10 @@ def thread(site, ref):
     out = {
         "ref": conversation.external_id,
         "display_name": _name(conversation),
+        "avatar_url": (
+            profile.avatar_urls([conversation.pk])[conversation.pk]
+            if conversation.provider == InquiryConversation.MESSENGER else None
+        ),
         "channel": conversation.provider,
         "source": "stored",
         "status": conversation.status,
@@ -215,6 +264,7 @@ def reply(site, account, ref, text, idempotency_key):
                 body_length=len(text), state=InquiryReply.SENT, message=message,
             )
             InquiryConversation.objects.filter(pk=conversation.pk).update(last_message_at=now, unread=False)
+            live.publish(site, ref, live.KIND_MESSAGE, now)
     except IntegrityError:  # the same key arrived twice at once: the first one wins
         existing = InquiryReply.objects.select_related("conversation").get(site=site, idempotency_key=idempotency_key)
         return _earlier(existing, ref)
@@ -282,6 +332,7 @@ def _reply_email(site, account, conversation, text, key):
             InquiryReply.objects.select_related("conversation", "message").get(site=site, idempotency_key=key)
         )
         return _earlier(existing, conversation.external_id)
+    live.publish(site, conversation.external_id, live.KIND_MESSAGE, conversation.last_message_at if failed else now)
     if failed:
         return outcomes.OK, _reply_out(row)
     store = _one_line(messaging.store_name(site))
@@ -297,11 +348,13 @@ def _reply_email(site, account, conversation, text, key):
         row.save(update_fields=["state", "error_code"])
         InquiryMessage.objects.filter(pk=message.pk).update(delivery_state="failed", error_code=specific)
         row.message.delivery_state, row.message.error_code = "failed", specific
+        live.publish(site, conversation.external_id, None, event=live.MESSAGE_STATUS)
         return outcomes.OK, _reply_out(row)
     row.state = InquiryReply.SENT
     row.save(update_fields=["state"])
     InquiryMessage.objects.filter(pk=message.pk).update(delivery_state="sent")
     InquiryConversation.objects.filter(pk=conversation.pk).update(last_message_at=now, unread=False)
+    live.publish(site, conversation.external_id, None, event=live.MESSAGE_STATUS)
     return outcomes.OK, _reply_out(row)
 
 
@@ -336,6 +389,7 @@ def add_contact_message(site, *, name, email, subject, message):
             site=site, conversation=conversation, direction=InquiryMessage.IN,
             sender_kind=InquiryMessage.CUSTOMER, body=f"Subject: {subject}\n\n{message}"[:MAX_BODY], created_at=now,
         )
+        live.publish(site, conversation.external_id, live.KIND_MESSAGE, now)
     return conversation
 
 
@@ -354,6 +408,7 @@ def set_status(site, ref, status):
         try:
             with transaction.atomic():
                 conversation.save(update_fields=["status"])
+                live.publish(site, ref, live.KIND_STATUS, conversation.last_message_at)
         except IntegrityError:
             return CONFLICT_CODE, None
     return outcomes.OK, _summary(conversation)
@@ -366,6 +421,7 @@ def mark_read(site, ref):
     if conversation.unread:
         conversation.unread = False
         conversation.save(update_fields=["unread"])
+        live.publish(site, ref, live.KIND_STATUS, conversation.last_message_at)
     return outcomes.OK, _summary(conversation)
 
 

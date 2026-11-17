@@ -109,3 +109,44 @@ class MaskingLoggerTests(SimpleTestCase):
         self.assertEqual(atoms["r"], f"GET {path}?code=***&state=*** HTTP/1.1")
         self.assertNotIn("AQDabc", repr(atoms))
         self.assertNotIn("xyz123", repr(atoms))
+
+
+class UvicornAccessFilterTests(SimpleTestCase):
+    """Under ASGI the request line is logged by `uvicorn.access`, not gunicorn's logger class."""
+
+    def record(self, path):
+        import logging
+        return logging.LogRecord(
+            "uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d',
+            ("127.0.0.1:5000", "GET", path, "1.1", 200), None,
+        )
+
+    def test_the_filter_masks_verify_token_code_and_state_in_the_logged_line(self):
+        from config.access_log import MaskingFilter
+
+        for path, masked in (
+            ("/v1/webhooks/messenger/?hub.mode=subscribe&hub.verify_token=DUMMY123&hub.challenge=1",
+             "/v1/webhooks/messenger/?hub.mode=subscribe&hub.verify_token=***&hub.challenge=1"),
+            ("/v1/inquiries/messenger/callback/?code=AQDabc&state=xyz123", "/v1/inquiries/messenger/callback/?code=***&state=***"),
+            ("/v1/stores/?zipcode=1234&promo_code=A", "/v1/stores/?zipcode=1234&promo_code=A"),
+        ):
+            record = self.record(path)
+            self.assertTrue(MaskingFilter().filter(record))
+            line = record.getMessage()
+            self.assertEqual(line, f'127.0.0.1:5000 - "GET {masked} HTTP/1.1" 200')
+            for secret in ("DUMMY123", "AQDabc", "xyz123"):
+                self.assertNotIn(secret, line)
+
+    def test_install_attaches_it_once_to_the_uvicorn_access_logger(self):
+        import logging
+        from config.access_log import MaskingFilter, install_access_filter
+
+        target = logging.getLogger("uvicorn.access")
+        before = [f for f in target.filters if isinstance(f, MaskingFilter)]
+        install_access_filter()
+        install_access_filter()
+        after = [f for f in target.filters if isinstance(f, MaskingFilter)]
+        self.assertEqual(len(after), max(len(before), 1))
+        for f in after:
+            if f not in before:
+                target.removeFilter(f)
