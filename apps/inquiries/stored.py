@@ -5,7 +5,7 @@ Every function takes the Site the router already resolved for the signed-in owne
 that site's rows. A ref is the conversation's server-made random `external_id` (`wc_...`); it is
 looked up together with the site, so another site's ref is a ref that does not exist. A reply's
 text is stored in InquiryMessage (there is no provider to hold it); the InquiryReply audit row
-keeps only its length and a code. The Pancake path (services.py) is not touched by any of this."""
+keeps only its length and a code. There is no provider path."""
 import hashlib
 import logging
 import re
@@ -85,8 +85,8 @@ def _after(rows, cursor):
 
 
 def list_items(site, limit=LIST_LIMIT, after=None):
-    """(items, next_cursor): the site's stored conversations, latest first, in the shape of the
-    Pancake list items. `after` is a previous call's next_cursor; next_cursor is None on the last page."""
+    """(items, next_cursor): the site's stored conversations, latest first, in the shape the owner's
+    list uses. `after` is a previous call's next_cursor; next_cursor is None on the last page."""
     rows = InquiryConversation.objects.filter(
         site=site, provider__in=InquiryConversation.STORED_PROVIDERS, stores_history=True,
     ).order_by(F("last_message_at").desc(nulls_last=True), "-pk")

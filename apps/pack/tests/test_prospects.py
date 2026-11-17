@@ -26,10 +26,9 @@ def session(site, member, at=None):
 
 def inquiry(site, provider, name="", at=None, **extra):
     _n[0] += 1
-    field = "contact_name" if provider in InquiryConversation.STORED_PROVIDERS else "display_name"
     return InquiryConversation.objects.create(
-        site=site, provider=provider, external_id=f"x{_n[0]}", stores_history=provider != "pancake",
-        last_message_at=at, **{field: name}, **extra)
+        site=site, provider=provider, external_id=f"x{_n[0]}", stores_history=True,
+        last_message_at=at, contact_name=name, **extra)
 
 
 class ProspectTests(OwnerTestCase):
@@ -106,12 +105,11 @@ class ProspectTests(OwnerTestCase):
         t = timezone.now() - timedelta(days=1)
         inquiry(self.site, "webchat", "Chat Person", t)
         inquiry(self.site, "email", "Mail Person", t - timedelta(hours=1))
-        inquiry(self.site, "pancake", "Fb Person", t - timedelta(hours=2))
         blank = inquiry(self.site, "webchat", "Gone Name", t - timedelta(hours=3))
         InquiryConversation.objects.filter(pk=blank.pk).update(contact_name="", display_name="Old Name")
         rows = [r for r in self.rows() if r["kind"] == "inquiry"]
         self.assertEqual([(r["name"], r["source"]) for r in rows], [
-            ("Chat Person", "webchat"), ("Mail Person", "email"), ("Fb Person", "facebook"), ("", "webchat")])
+            ("Chat Person", "webchat"), ("Mail Person", "email"), ("", "webchat")])
         for r in rows:
             self.assertEqual((r["stage"], r["order_id"], r["order_number"]), ("new_lead", None, None))
 
@@ -169,7 +167,7 @@ class ProspectTests(OwnerTestCase):
             self.assertEqual(sorted(r), sorted(keys))
 
     def test_no_provider_call(self):
-        inquiry(self.site, "pancake", "Fb Person", timezone.now())
+        inquiry(self.site, "email", "Mail Person", timezone.now())
         inquiry(self.site, "webchat", "Chat Person", timezone.now())
         with mock.patch("socket.socket.connect", side_effect=AssertionError("network used")), \
                 mock.patch("urllib.request.urlopen", side_effect=AssertionError("network used")):
@@ -233,7 +231,6 @@ class ProspectVisitTests(OwnerTestCase):
         order, _ = make_order(self.site)
         inquiry(self.site, "email", "Mail Person", timezone.now(), contact_email="mail@buyer.test")
         inquiry(self.site, "webchat", "Chat Person", timezone.now())
-        inquiry(self.site, "pancake", "Fb Person", timezone.now(), contact_email="never@shown.test")
         by_name = {r["name"]: r for r in self.rows()}
         cart = by_name["Maria Cart"]
         self.assertEqual((cart["kind"], cart["mobile"], cart["email"]), ("visit", "09171234567", "maria@buyer.test"))
@@ -242,9 +239,6 @@ class ProspectVisitTests(OwnerTestCase):
         self.assertEqual((row["payment_status"], row["price_centavos"]), (order.payment_status, C.PRICE_CENTAVOS))
         self.assertEqual((by_name["Mail Person"]["mobile"], by_name["Mail Person"]["email"]), ("", "mail@buyer.test"))
         self.assertEqual((by_name["Chat Person"]["mobile"], by_name["Chat Person"]["email"]), ("", ""))
-        # Only a stored channel keeps a contact; a Pancake conversation is never read for one.
-        self.assertEqual((by_name["Fb Person"]["mobile"], by_name["Fb Person"]["email"]), ("", ""))
-        self.assertNotIn("never@shown.test", self.get(self.path()).content.decode())
 
     def test_a_visit_with_an_order_is_not_a_second_row_and_lends_its_video_progress(self):
         order, _ = make_order(self.site)

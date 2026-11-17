@@ -2,7 +2,7 @@
 chat) and the conversation's personal fields are deleted or blanked MESSAGE_RETENTION after the
 conversation's last message. The reply rule waits for INQUIRIES_ENABLED; the message rule only
 deletes, so it runs whatever that switch says (stored text must not outlive its period), and
-both wait for RETENTION_ENABLED and for the tables to exist. Account and site disposal and site erasure blank the provider token, the customer names
+both wait for RETENTION_ENABLED and for the tables to exist. Account and site disposal and site erasure blank the connection token, the customer names
 and everything personal a stored channel holds."""
 from datetime import timedelta
 
@@ -106,8 +106,7 @@ def blanked():
 
 
 def blank_inquiries_of(account, dry_run=False):
-    """Blank the provider token of the account's sites, the customer names on their conversation
-    handles and everything personal their stored channels hold. Runs whatever the switch says,
+    """Blank the connection token of the account's sites, the customer names on their conversations and everything personal their stored channels hold. Runs whatever the switch says,
     because the rows may predate it being turned off; answers empty when the tables are not there
     yet or the account has none. Call it inside a transaction."""
     return blank_inquiries(Site.objects.filter(account=account), dry_run)

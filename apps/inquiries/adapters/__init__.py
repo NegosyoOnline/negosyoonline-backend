@@ -1,7 +1,7 @@
-"""The adapter registry. An unknown provider fails closed: `get` answers None."""
-from apps.inquiries.adapters.pancake import PancakeAdapter
+"""The adapter registry. No provider adapter is registered yet; the contract is in adapters/base.py.
+An unknown provider fails closed: `get` answers None."""
 
-ADAPTERS = {PancakeAdapter.provider: PancakeAdapter()}
+ADAPTERS = {}
 
 
 def get(provider):

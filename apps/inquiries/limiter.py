@@ -1,11 +1,10 @@
 """The outbound rate control per connection, shared by every web worker through the cache.
 
 Time is cut into slots of 1/RATE seconds and each slot admits one call, so a connection sends
-at most RATE calls a second and never more than RATE + 1 in any one second (Pancake's limit is
-5 calls per page per second, UNCONFIRMED, so RATE is 4). A caller whose slot is taken waits for
-a later one, but never longer than MAX_WAIT seconds: after that it is refused and the owner is
-told to retry. The key carries the connection's primary key, so one site never uses another's
-permits."""
+at most RATE calls a second and never more than RATE + 1 in any one second (RATE is 4). A caller
+whose slot is taken waits for a later one, but never longer than MAX_WAIT seconds: after that it is
+refused and the owner is told to retry. The key carries the connection's primary key, so one site
+never uses another's permits."""
 import time
 
 from django.core.cache import cache
