@@ -6,10 +6,11 @@ from datetime import timedelta
 from django.conf import settings
 
 from apps.common import retention
-from apps.meta_ads.models import MetaOrderContext, MetaSettings
+from apps.meta_ads.models import MetaDelivery, MetaOrderContext, MetaSettings
 from apps.sites.models import Site
 
 CONTEXT_RETENTION = timedelta(days=30)
+DELIVERY_RETENTION = timedelta(days=365)  # Coach Ed's ruling D1, 2026-11-14
 
 
 @retention.behind_switch
@@ -20,6 +21,14 @@ def order_contexts(now, dry_run):
 
 
 retention.register("meta_order_contexts", order_contexts)
+
+
+@retention.behind_switch
+def deliveries(now, dry_run):
+    return retention.remove(MetaDelivery.objects.filter(created_at__lte=now - DELIVERY_RETENTION), dry_run)
+
+
+retention.register("meta_deliveries", deliveries)
 
 
 # -- account disposal (called by apps.accounts.retention) ---------------------------------------
