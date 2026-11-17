@@ -94,6 +94,14 @@ def _after(rows, cursor):
     )
 
 
+def _attachment_line(attachment_types):
+    """The list snippet for an attachment-only message, the words the dash thread uses."""
+    first = (attachment_types or "").split(",")[0].strip().lower()
+    if not first:
+        return ""
+    return "[Photo]" if first in ("image", "photo") else "[Attachment]"
+
+
 def list_items(site, limit=LIST_LIMIT, after=None):
     """(items, next_cursor): the site's stored conversations, latest first, in the shape the owner's
     list uses. `after` is a previous call's next_cursor; next_cursor is None on the last page."""
@@ -110,7 +118,7 @@ def list_items(site, limit=LIST_LIMIT, after=None):
         items.append({
             "ref": conversation.external_id,
             "display_name": _name(conversation),
-            "snippet": (_snippet(last.body) or ("[" + last.attachment_types.split(",")[0] + "]" if last.attachment_types else "")) if last else "",
+            "snippet": (_snippet(last.body) or _attachment_line(last.attachment_types)) if last else "",
             "updated_at": conversation.last_message_at.isoformat() if conversation.last_message_at else None,
             "channel": conversation.provider,
             "source": "stored",
