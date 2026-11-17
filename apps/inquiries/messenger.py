@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -37,6 +38,8 @@ SCOPES = "pages_show_list,pages_manage_metadata,pages_messaging"  # exactly the 
 REQUIRED_PERMISSIONS = ("pages_messaging", "pages_manage_metadata", "pages_show_list")
 SUBSCRIBED_FIELDS = "messages,messaging_postbacks,message_echoes,message_deliveries,message_reads"
 MAX_TEXT = 2000
+MAX_GRANTED_PAGES = 100  # cap on Page ids taken from debug_token's granular scopes
+PAGE_ID_RE = re.compile(r"^[0-9]{1,64}$")
 
 
 def app_secret():
@@ -187,6 +190,57 @@ def list_pages(user_token):
         after = ((result.value.get("paging") or {}).get("cursors") or {}).get("after")
         if not after or not (result.value.get("paging") or {}).get("next"):
             break
+    if pages:
+        return Result(outcomes.OK, pages)
+    return _granted_pages(user_token)
+
+
+def _granted_target_ids(user_token):
+    """Result(ok, [Page ids]) the person ticked in the Login for Business picker, read from
+    debug_token's granular scopes (pages_messaging, else pages_show_list). Deduped, in order, capped,
+    digits only. debug_token takes both tokens as query parameters (that is how Graph defines it); this
+    URL is never logged, and `call` logs only a fixed outcome code."""
+    result = call("GET", "/debug_token", params={"input_token": user_token, "access_token": _app_token()})
+    if not result.ok:
+        return result
+    data = result.value.get("data")
+    scopes = data.get("granular_scopes") if isinstance(data, dict) else None
+    if not isinstance(scopes, list):
+        return Result(outcomes.OK, [])
+    by_scope = {}
+    for entry in scopes:
+        if isinstance(entry, dict) and isinstance(entry.get("target_ids"), list):
+            by_scope.setdefault(entry.get("scope"), []).extend(entry["target_ids"])
+    ids = []
+    for scope in ("pages_messaging", "pages_show_list"):
+        for raw in by_scope.get(scope, []):
+            page_id = str(raw) if isinstance(raw, (str, int)) and not isinstance(raw, bool) else ""
+            if PAGE_ID_RE.match(page_id) and page_id not in ids:
+                ids.append(page_id)
+        if ids:
+            break
+    return Result(outcomes.OK, ids[:MAX_GRANTED_PAGES])
+
+
+def _granted_pages(user_token):
+    """Fallback for Pages owned by a business portfolio, which /me/accounts leaves out under Login for
+    Business without business_management (not requested, never to be added). Reads each granted Page
+    directly. Any failure (debug_token or one Page read) fails the whole call with that error's mapped
+    code, so a partial list is never shown as the full one."""
+    ids = _granted_target_ids(user_token)
+    if not ids.ok:
+        return ids
+    pages = []
+    for page_id in ids.value:
+        result = call("GET", f"/{page_id}", params={"fields": "id,name,access_token", "appsecret_proof": _proof(user_token)}, token=user_token)
+        if not result.ok:
+            return result
+        row = result.value
+        if row.get("id") and row.get("access_token"):
+            pages.append({
+                "id": str(row["id"])[:64], "name": str(row.get("name", ""))[:60],
+                "access_token": str(row["access_token"]),
+            })
     return Result(outcomes.OK, pages)
 
 
