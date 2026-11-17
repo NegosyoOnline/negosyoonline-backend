@@ -34,6 +34,7 @@ from ninja import Router, Schema
 from pydantic import ConfigDict
 
 from apps.accounts import facebook
+from apps.accounts.api import signed_in
 from apps.accounts.models import Account
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
@@ -179,6 +180,10 @@ def callback(request, code: str = "", state: str = "", error: str = ""):
         raise _not_found()
     try:
         data = signing.loads(state, salt=STATE_SALT, max_age=STATE_SECONDS)
+        # Bound to the browser that started it: a state link sent to someone else must not work.
+        browser = signed_in(request)
+        if browser is None or browser.pk != data["a"]:
+            return _back("state_invalid")
         account = Account.objects.get(pk=data["a"])
         site = Site.objects.get(pk=data["s"])
         nonce_ok = cache.delete(_nonce_key(data["n"]))  # one use

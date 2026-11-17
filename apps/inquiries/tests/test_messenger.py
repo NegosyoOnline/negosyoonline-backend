@@ -379,6 +379,20 @@ class ConnectTests(MessengerTestCase):
         self.assertEqual(self.callback(state)["Location"], "https://dash.test/settings/inbox/?messenger=pick")
         self.assertEqual(self.callback(state)["Location"], bad)  # one use
 
+    def test_the_callback_is_bound_to_the_browser_that_started_it(self):
+        bad = "https://dash.test/settings/inbox/?messenger=error&code=state_invalid"
+        other = self.other_client()  # another signed-in account follows the same link
+        state = self.state()
+        self.meta.calls.clear()
+        response = other.get("/v1/inquiries/messenger/callback/", {"state": state, "code": "AUTHCODE"})
+        self.assertEqual(response["Location"], bad)
+        signed_out = self.client_class().get("/v1/inquiries/messenger/callback/", {"state": state, "code": "AUTHCODE"})
+        self.assertEqual(signed_out["Location"], bad)
+        self.assertEqual(self.meta.calls, [])  # no code exchange
+        self.assertFalse(self.get(self.base + "connection/").json()["pick_pending"])
+        # the wrong browsers did not use up the state: the owner's own browser still works
+        self.assertEqual(self.callback(state)["Location"], "https://dash.test/settings/inbox/?messenger=pick")
+
     def test_the_callback_failure_codes(self):
         def code(**extra):
             return parse_qs(urlparse(self.callback(self.state(), **extra)["Location"]).query).get("code", [""])[0]
