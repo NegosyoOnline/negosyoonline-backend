@@ -1,8 +1,17 @@
 """The event payloads. Page events are built from what the storefronts server passes (never an
 amount: the value and currency come from the pack constants). Purchase and AddPaymentInfo are
-built only here, from the order row, the member row and the saved browser identifiers."""
+built only here, from the order row, the member row and the saved browser identifiers.
+
+user_data (hashed with SHA-256, only with the visitor's consent, a blank value left out): em and ph
+from the member on order events and from the visit's saved checkout contact on page events;
+external_id, the hash of the anonymous visit ref, on all five events (page events: the ref the
+storefronts server passes, when that visit exists on the site; order events: the visit linked to
+the order, none when there is none); fn, ln, ct, st and zp, from the order's buyer name (first word
+= fn, the rest = ln) and delivery address city, province and ZIP, on AddPaymentInfo and Purchase
+only (names, city and province lower case, letters only, no spaces; ZIP digits)."""
 import hashlib
 import re
+import unicodedata
 
 from apps.pack import constants as C
 
@@ -43,7 +52,37 @@ def hashed_mobile(mobile):
     return sha(digits) if digits else ""
 
 
-def user_data(*, ip="", user_agent="", fbp="", fbc="", email="", mobile=""):
+def _letters(value):
+    """Meta's name and place rule: lower case, letters only (ñ and other letters stay), no spaces."""
+    text = unicodedata.normalize("NFC", value or "").lower()
+    return "".join(ch for ch in text if ch.isalpha())
+
+
+def hashed_letters(value):
+    text = _letters(value)
+    return sha(text) if text else ""
+
+
+def hashed_zip(value):
+    digits = re.sub(r"\D", "", value or "")
+    return sha(digits) if digits else ""
+
+
+def split_name(full_name):
+    """The first word is the first name, the rest the last name: "Maria Santos dela Cruz" gives
+    ("Maria", "Santos dela Cruz")."""
+    parts = (full_name or "").split()
+    return (parts[0], " ".join(parts[1:])) if parts else ("", "")
+
+
+def hashed_external_id(visitor_ref):
+    return sha(visitor_ref) if visitor_ref else ""
+
+
+def user_data(
+    *, ip="", user_agent="", fbp="", fbc="", email="", mobile="", visitor_ref="",
+    full_name="", city="", province="", zip_code="",
+):
     data = {}
     if ip:
         data["client_ip_address"] = ip
@@ -59,6 +98,15 @@ def user_data(*, ip="", user_agent="", fbp="", fbc="", email="", mobile=""):
         data["ph"] = [hashed_mobile(mobile)]
     if email or mobile:
         data["country"] = [sha("ph")]
+    if hashed_external_id(visitor_ref):
+        data["external_id"] = [hashed_external_id(visitor_ref)]
+    first, last = split_name(full_name)
+    for key, value, fn in (
+        ("fn", first, hashed_letters), ("ln", last, hashed_letters), ("ct", city, hashed_letters),
+        ("st", province, hashed_letters), ("zp", zip_code, hashed_zip),
+    ):
+        if fn(value):
+            data[key] = [fn(value)]
     return data
 
 
@@ -81,21 +129,26 @@ def build(name, event_id, *, event_time, url, user, custom=None):
     return event
 
 
-def page_event(name, event_id, *, now, url, ip, user_agent, fbp, fbc):
+def page_event(name, event_id, *, now, url, ip, user_agent, fbp, fbc, visitor_ref="", email="", mobile=""):
     custom = None if name == "PageView" else pack_data()
     return build(
         name, event_id, event_time=now.timestamp(), url=url, custom=custom,
-        user=user_data(ip=ip, user_agent=user_agent, fbp=fbp, fbc=fbc),
+        user=user_data(
+            ip=ip, user_agent=user_agent, fbp=fbp, fbc=fbc, visitor_ref=visitor_ref, email=email, mobile=mobile,
+        ),
     )
 
 
-def order_event(delivery, order, context):
+def order_event(delivery, order, context, visitor_ref=""):
     """The AddPaymentInfo or Purchase of an order, or None when there is nothing to send it with
     (no saved browser identifiers or no client address). Nothing is read from a request."""
     member = order.member
+    address = order.delivery_address if isinstance(order.delivery_address, dict) else {}
     user = user_data(
         ip=context.client_ip or "", user_agent=context.user_agent, fbp=context.fbp, fbc=context.fbc,
-        email=member.email, mobile=member.mobile,
+        email=member.email, mobile=member.mobile, visitor_ref=visitor_ref, full_name=order.buyer_name,
+        city=str(address.get("city") or ""), province=str(address.get("province") or ""),
+        zip_code=str(address.get("zip") or ""),
     )
     if "client_ip_address" not in user or "client_user_agent" not in user:
         return None

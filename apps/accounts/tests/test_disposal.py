@@ -42,6 +42,7 @@ COUNTS = {
     "sites": 1,
     "business_profiles": 1,
     "web_addresses_retired": 1,
+    "custom_hosts_retired": 0,
     "email_send_records": 1,
     "earlier_address_send_records": 0,
 }

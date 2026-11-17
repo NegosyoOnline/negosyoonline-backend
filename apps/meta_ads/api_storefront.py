@@ -2,7 +2,7 @@
 apps/storefront/api.py):
 
     POST /storefront/v1/meta/events/  {host, events: [{name, id}], url, fbp, fbc, ip, user_agent,
-        consent} -> {status}: "queued" or "ignored"
+        visitor_ref?, consent} -> {status}: "queued" or "ignored"
     POST /storefront/v1/meta/purchase/  {host, visitor_ip, token, consent} -> {status, event_id,
         first, value, currency, content_ids}: the buyer opened the onboarding verify page. Django
         resolves the order from the checkout token (site-scoped) and queues Purchase once per
@@ -11,10 +11,18 @@ apps/storefront/api.py):
 Only PageView, ViewContent and InitiateCheckout are accepted here; AddPaymentInfo and Purchase
 are built inside Django from an order and are refused by name. No value, currency or custom
 data is read from the caller. Nothing is stored or sent for a visitor without `consent: true`.
+
+user_data (SHA-256 hashed except the address, user agent, fbp and fbc, and only with consent):
+external_id, and em and ph from the visit's saved checkout contact, from the visit the optional
+`visitor_ref` names, when that visit exists on this site (a bad, unknown or foreign ref is ignored,
+never an error). AddPaymentInfo and Purchase carry external_id from the visit linked to the order
+(none when there is none), em and ph from the member, and fn, ln, ct, st and zp from the order's
+buyer name and delivery address (city, province, ZIP).
 While META_EVENTS_ENABLED is off, and for an unknown, foreign or non-Santé host, the route
 answers the 404 of an unknown site.
 """
 import ipaddress
+from typing import Any
 
 from django.conf import settings
 from ninja import Router, Schema
@@ -44,6 +52,7 @@ class EventsIn(Schema):
     fbc: str = ""
     ip: str = ""
     user_agent: str = ""
+    visitor_ref: Any = ""  # anything but a valid ref is ignored, never an error
     consent: bool = False
 
 
@@ -77,7 +86,7 @@ def meta_events(request, body: EventsIn):
     ids = services.clean_ids(body.fbp, body.fbc, body.user_agent)
     queued = services.queue_page_events(
         site, items, ip=ip, user_agent=ids["user_agent"], fbp=ids["fbp"], fbc=ids["fbc"],
-        url=services.clean_url(body.url, body.host),
+        url=services.clean_url(body.url, body.host), visitor_ref=body.visitor_ref,
     )
     return {"status": "queued" if queued else "ignored"}
 
