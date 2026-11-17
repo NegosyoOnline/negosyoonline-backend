@@ -153,7 +153,7 @@ def checkout_place(request, body: Form[PlaceIn], proof: File[UploadedFile] = Non
     data = body.dict()
     meta = {
         "consent": body.meta_consent == "1", "host": body.host, "url": body.source_url, "fbp": body.fbp,
-        "fbc": body.fbc, "user_agent": body.user_agent,
+        "fbc": body.fbc, "user_agent": body.user_agent, "visitor_ref": body.visitor_ref,
     }
     for name in ("meta_consent", "fbp", "fbc", "user_agent", "source_url", "visitor_ref"):  # not proof fields
         data.pop(name)

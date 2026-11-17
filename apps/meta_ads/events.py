@@ -3,7 +3,10 @@ amount: the value and currency come from the pack constants). Purchase and AddPa
 built only here, from the order row, the member row and the saved browser identifiers.
 
 user_data (hashed with SHA-256, only with the visitor's consent, a blank value left out): em and ph
-from the member on order events and from the visit's saved checkout contact on page events."""
+from the member on order events and from the visit's saved checkout contact on page events;
+external_id, the hash of the anonymous visit ref, on all five events (page events: the ref the
+storefronts server passes, when that visit exists on the site; order events: the visit linked to
+the order, none when there is none)."""
 import hashlib
 import re
 
@@ -46,7 +49,11 @@ def hashed_mobile(mobile):
     return sha(digits) if digits else ""
 
 
-def user_data(*, ip="", user_agent="", fbp="", fbc="", email="", mobile=""):
+def hashed_external_id(visitor_ref):
+    return sha(visitor_ref) if visitor_ref else ""
+
+
+def user_data(*, ip="", user_agent="", fbp="", fbc="", email="", mobile="", visitor_ref=""):
     data = {}
     if ip:
         data["client_ip_address"] = ip
@@ -62,6 +69,8 @@ def user_data(*, ip="", user_agent="", fbp="", fbc="", email="", mobile=""):
         data["ph"] = [hashed_mobile(mobile)]
     if email or mobile:
         data["country"] = [sha("ph")]
+    if hashed_external_id(visitor_ref):
+        data["external_id"] = [hashed_external_id(visitor_ref)]
     return data
 
 
@@ -84,21 +93,23 @@ def build(name, event_id, *, event_time, url, user, custom=None):
     return event
 
 
-def page_event(name, event_id, *, now, url, ip, user_agent, fbp, fbc, email="", mobile=""):
+def page_event(name, event_id, *, now, url, ip, user_agent, fbp, fbc, visitor_ref="", email="", mobile=""):
     custom = None if name == "PageView" else pack_data()
     return build(
         name, event_id, event_time=now.timestamp(), url=url, custom=custom,
-        user=user_data(ip=ip, user_agent=user_agent, fbp=fbp, fbc=fbc, email=email, mobile=mobile),
+        user=user_data(
+            ip=ip, user_agent=user_agent, fbp=fbp, fbc=fbc, visitor_ref=visitor_ref, email=email, mobile=mobile,
+        ),
     )
 
 
-def order_event(delivery, order, context):
+def order_event(delivery, order, context, visitor_ref=""):
     """The AddPaymentInfo or Purchase of an order, or None when there is nothing to send it with
     (no saved browser identifiers or no client address). Nothing is read from a request."""
     member = order.member
     user = user_data(
         ip=context.client_ip or "", user_agent=context.user_agent, fbp=context.fbp, fbc=context.fbc,
-        email=member.email, mobile=member.mobile,
+        email=member.email, mobile=member.mobile, visitor_ref=visitor_ref,
     )
     if "client_ip_address" not in user or "client_user_agent" not in user:
         return None

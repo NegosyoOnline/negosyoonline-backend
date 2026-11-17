@@ -140,6 +140,7 @@ def queue_page_events(site, items, *, ip, user_agent, fbp, fbc, url, visitor_ref
             continue
         event = events.page_event(
             name, event_id, now=now, url=url, ip=ip, user_agent=user_agent, fbp=fbp, fbc=fbc,
+            visitor_ref=visit.visitor_ref if visit else "",
             email=visit.contact_email if visit else "", mobile=visit.contact_mobile if visit else "",
         )
         transaction.on_commit(lambda pk=delivery.pk, ev=event: _dispatch_page(pk, ev), robust=True)
@@ -180,6 +181,10 @@ def after_placement(order, meta, ip):
     """Called inside the placing transaction: save the context, queue AddPaymentInfo."""
     def run():
         if capture_order_context(order, meta, ip) is not None:
+            from apps.pack import visits
+
+            # Linked now, before the event is queued, so external_id is there whenever it is sent.
+            visits.link_order(order.site, meta.get("visitor_ref"), order)
             _queue_order_event(order, "AddPaymentInfo", events.ORDER_EVENTS["AddPaymentInfo"])
 
     if enabled():
@@ -229,7 +234,10 @@ def _order_event(delivery):
     context = MetaOrderContext.objects.filter(order=order).first() if order else None
     if order is None or context is None:
         return None
-    return events.order_event(delivery, order, context)
+    from apps.pack.models import PackVisit
+
+    visit = PackVisit.objects.filter(site_id=delivery.site_id, order=order).order_by("pk").first()
+    return events.order_event(delivery, order, context, visitor_ref=visit.visitor_ref if visit else "")
 
 
 def deliver(delivery_id, event=None):

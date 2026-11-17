@@ -12,10 +12,11 @@ Only PageView, ViewContent and InitiateCheckout are accepted here; AddPaymentInf
 are built inside Django from an order and are refused by name. No value, currency or custom
 data is read from the caller. Nothing is stored or sent for a visitor without `consent: true`.
 
-user_data (SHA-256 hashed except the address, user agent, fbp and fbc, and only with consent): em and
-ph from the saved checkout contact of the visit the optional `visitor_ref` names, when that visit
-exists on this site (a bad, unknown or foreign ref is ignored, never an error). AddPaymentInfo and
-Purchase carry em and ph from the member.
+user_data (SHA-256 hashed except the address, user agent, fbp and fbc, and only with consent):
+external_id, and em and ph from the visit's saved checkout contact, from the visit the optional
+`visitor_ref` names, when that visit exists on this site (a bad, unknown or foreign ref is ignored,
+never an error). AddPaymentInfo and Purchase carry external_id from the visit linked to the order
+(none when there is none) and em and ph from the member.
 While META_EVENTS_ENABLED is off, and for an unknown, foreign or non-Santé host, the route
 answers the 404 of an unknown site.
 """

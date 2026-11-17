@@ -4,7 +4,7 @@ prospect, video progress with the 90 percent mark, checkout contact) and funnels
 
 The storefront asks for a visit and gets a server-made ref; its browser keeps the ref in localStorage.
 Every row is site-scoped, every write is rate limited, nothing is sent to a third party except, with the visitor's consent and Meta events on, the hashed
-saved contact to Meta's Conversions API (apps.meta_ads.events).
+ref and saved contact to Meta's Conversions API (apps.meta_ads.events).
 A contact is saved when the visitor leaves a checkout field and is held only here: it is not a member,
 it takes no part in the duplicate check, and retention blanks it (apps.pack.retention).
 """
