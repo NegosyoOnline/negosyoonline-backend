@@ -8,8 +8,7 @@ apps/storefront/api.py):
         resolves the order from the checkout token (site-scoped) and queues Purchase once per
         order; `first` is true only on the call that created it, so the browser fires only then.
 
-Only ViewContent and InitiateCheckout are sent from here (PageView is browser-only: a listed PageView is dropped
-without a row or an error); AddPaymentInfo and Purchase
+Only PageView, ViewContent and InitiateCheckout are accepted here; AddPaymentInfo and Purchase
 are built inside Django from an order and are refused by name. No value, currency or custom
 data is read from the caller. Nothing is stored or sent for a visitor without `consent: true`.
 While META_EVENTS_ENABLED is off, and for an unknown, foreign or non-Santé host, the route
@@ -64,15 +63,13 @@ def meta_events(request, body: EventsIn):
     site = served_sante_site(body.host) if settings.META_EVENTS_ENABLED else None
     if site is None:
         raise ApiError("not_found", "Not found.", status=404)
-    # PageView is browser-only: dropped here with no row and no send, never an error.
-    sent = [e for e in body.events if e.name != events.BROWSER_ONLY]
-    if len(body.events) > MAX_EVENTS or any(e.name not in events.PAGE_EVENTS for e in sent):
+    if len(body.events) > MAX_EVENTS or any(e.name not in events.PAGE_EVENTS for e in body.events):
         raise ApiError("event_refused", "That event cannot be sent from here.", status=422)
     ip = _ip(body.ip)
     throttle.hit(IP_LIMIT[0], ip or "unknown", limit=IP_LIMIT[1], window=IP_LIMIT[2])
     throttle.hit(SITE_LIMIT[0], site.pk, limit=SITE_LIMIT[1], window=SITE_LIMIT[2])
     items = [
-        (e.name, e.id) for e in sent
+        (e.name, e.id) for e in body.events
         if events.ID_RE.match(e.id) and e.id.startswith(events.PAGE_EVENTS[e.name] + "_")
     ]
     if not body.consent or not items:

@@ -55,17 +55,35 @@ class EventsRouteTests(MetaStorefrontTestCase):
         self.assertEqual(absent.json(), {"status": "ignored"})
         self.assertEqual((meta.requests, MetaDelivery.objects.count()), ([], 0))
 
-    def test_a_page_view_is_never_queued_or_sent_from_the_server(self):
-        """PageView is browser-only (Coach Ed, 2026-11-15): the route drops it without a row, a send or an
-        error, so a storefront that still lists it (deploy-order skew) keeps its other events."""
+    def test_a_page_view_with_a_pv_id_is_queued_and_sent_like_the_other_page_events(self):
         with FakeMeta(200) as meta, self.captureOnCommitCallbacks(execute=True):
-            alone = self.events(("PageView", PV))
-            mixed = self.events(("PageView", PV), ("ViewContent", VC))
-        self.assertEqual((alone.status_code, alone.json()), (200, {"status": "ignored"}))
+            response = self.events(("PageView", PV), ("ViewContent", VC), ("InitiateCheckout", IC))
+        self.assertEqual(response.json(), {"status": "queued"})
+        self.assertEqual(
+            sorted(MetaDelivery.objects.values_list("event_name", "event_id")),
+            sorted([("PageView", PV), ("ViewContent", VC), ("InitiateCheckout", IC)]),
+        )
+        page_view = next(e for e in meta.events() if e["event_name"] == "PageView")
+        self.assertEqual(page_view["event_id"], PV)
+        self.assertNotIn("custom_data", page_view)
+
+    def test_a_malformed_page_view_id_is_dropped_and_never_an_error(self):
+        with FakeMeta(200) as meta, self.captureOnCommitCallbacks(execute=True):
+            response = self.events(("PageView", "pv_zz"), ("PageView", "pv_" + "A" * 16), ("PageView", VC))
+            mixed = self.events(("PageView", "pv_zz"), ("ViewContent", VC))
+        self.assertEqual((response.status_code, response.json()), (200, {"status": "ignored"}))
         self.assertEqual(mixed.json(), {"status": "queued"})
-        self.assertEqual([e["event_name"] for e in meta.events()], ["ViewContent"])
         self.assertEqual(list(MetaDelivery.objects.values_list("event_name", flat=True)), ["ViewContent"])
-        self.assertFalse(MetaDelivery.objects.filter(event_name="PageView").exists())
+        self.assertEqual([e["event_name"] for e in meta.events()], ["ViewContent"])
+
+    def test_the_same_page_view_id_twice_makes_one_row_and_one_send(self):
+        with FakeMeta(200) as meta, self.captureOnCommitCallbacks(execute=True):
+            first = self.events(("PageView", PV))
+            again = self.events(("PageView", PV))
+        self.assertEqual(first.json(), {"status": "queued"})
+        self.assertEqual(again.json(), {"status": "ignored"})
+        self.assertEqual(MetaDelivery.objects.filter(site=self.site, event_name="PageView", event_id=PV).count(), 1)
+        self.assertEqual(len(meta.events()), 1)
 
     def test_purchase_and_add_payment_info_are_refused_by_name(self):
         for name in ("Purchase", "AddPaymentInfo", "Lead", "AddToCart", ""):

@@ -48,6 +48,7 @@ ACTIONS = {
     "pack_test_member_removed": KEPT,
     "shop_test_order_removed": KEPT,
     "pack_test_order_deleted": KEPT,
+    "shop_test_order_deleted": KEPT,
     "billing_exempt_set": KEPT,
     "billing_payment_confirmed": KEPT,
     "billing_payment_rejected": KEPT,
