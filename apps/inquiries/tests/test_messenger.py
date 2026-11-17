@@ -13,7 +13,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
-from apps.inquiries import crypto, messenger, messenger_inbox, retention
+from apps.inquiries import crypto, messenger, messenger_inbox, retention, stored
 from apps.inquiries.models import InquiryConnection, InquiryConversation, InquiryMessage, InquiryReply
 from apps.inquiries.tests.base import KEY, switched_on
 from apps.sites.models import Site
@@ -215,6 +215,24 @@ class WebhookTests(MessengerTestCase):
         self.assertNotIn("secret.jpg", str(list(InquiryMessage.objects.values())))
         thread = self.get(f"/v1/sites/{self.site_id}/inquiries/conversations/{conversation.external_id}/").json()
         self.assertEqual(thread["messages"][0]["attachments"], ["image", "video"])
+
+    def snippet_after(self, **kw):
+        self.connect_row()
+        self.inbound(**kw)
+        items, _ = stored.list_items(self.site)
+        return items[0]["snippet"]
+
+    def test_the_list_snippet_of_an_image_only_message_is_photo(self):
+        self.assertEqual(self.snippet_after(text=None, attachments=["image"]), "[Photo]")
+
+    def test_the_list_snippet_of_another_attachment_type_is_attachment(self):
+        self.assertEqual(self.snippet_after(text=None, attachments=["file"]), "[Attachment]")
+        self.assertEqual(stored._attachment_line("video,image"), "[Attachment]")
+        self.assertEqual(stored._attachment_line("photo"), "[Photo]")
+        self.assertEqual(stored._attachment_line(""), "")
+
+    def test_the_list_snippet_prefers_the_text_over_attachments(self):
+        self.assertEqual(self.snippet_after(text="Here it is", attachments=["image"]), "Here it is")
 
     def test_events_without_a_message_and_foreign_objects_are_ignored(self):
         self.connect_row()
