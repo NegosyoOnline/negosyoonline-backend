@@ -36,6 +36,9 @@ LIST_LIMIT = 30
 MAX_TEXT = 2000
 MAX_NAME = 120
 MAX_SNIPPET = 200
+# Pancake requires since/until on the conversation list, in unix seconds, UTC; 30 days is the
+# Supervisor's recorded routine decision on z8uq9md3n6.
+LIST_WINDOW_DAYS = 30
 
 INVALID_CODES = (102,)  # Pancake error_code for a bad token (seen in TWCinc)
 EXPIRED_CODES = ()  # UNCONFIRMED: no distinct expired-token code seen yet
@@ -47,6 +50,17 @@ PAGE_ID_RE = re.compile(r"^[A-Za-z0-9_]{3,64}$")
 def _open(request, timeout):
     """The single place the network is touched, so tests replace it."""
     return urllib.request.urlopen(request, timeout=timeout)  # noqa: S310 - a fixed https address
+
+
+def _now():
+    """The current moment, aware UTC; tests replace it."""
+    return datetime.now(timezone.utc)
+
+
+def _window():
+    """The since/until query for the conversation list: integer unix seconds, UTC."""
+    until = int(_now().timestamp())
+    return {"since": until - LIST_WINDOW_DAYS * 86400, "until": until}
 
 
 def _read(handle):
@@ -150,11 +164,13 @@ class PancakeAdapter(ProviderAdapter):
 
     def test_connection(self, creds):
         # UNCONFIRMED: that the conversation list is the cheapest valid read for a page.
-        code, _ = _call("GET", self._path(creds, "/conversations"), creds.token)
+        code, _ = _call("GET", self._path(creds, "/conversations"), creds.token, _window())
         return Result(code)
 
     def list_conversations(self, creds, cursor, limit):
         query = {"current_count": cursor} if cursor and CURSOR_RE.match(cursor) else {}
+        query.update(_window())
+        # `since` and `until` are required here (confirmed by the live answer, 2026-11-17).
         # UNCONFIRMED: this endpoint, the `current_count` paging on it, and the field names
         # below (`conversations`, `id`, `snippet`, `updated_at`, `customers[].name`).
         code, body = _call("GET", self._path(creds, "/conversations"), creds.token, query)
