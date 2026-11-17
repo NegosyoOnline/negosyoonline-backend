@@ -64,7 +64,7 @@ class FakeMeta:
         self.calls = []
         self.send_error = None  # a (status, body) to answer the Send API with
         self.subscribe_error = None
-        self.permissions = ["pages_show_list", "pages_manage_metadata", "pages_messaging"]
+        self.permissions = ["pages_show_list", "pages_manage_metadata", "pages_messaging", "pages_read_engagement"]
         self.pages = [{"id": PAGE_A, "name": "Ana Store Page", "access_token": PAGE_TOKEN}]
         self.sent = 0
 
@@ -284,7 +284,7 @@ class ConnectTests(MessengerTestCase):
         self.assertIn(messenger.GRAPH_VERSION, url.path)
         self.assertEqual(query["client_id"], ["123456"])
         self.assertEqual(query["response_type"], ["code"])
-        self.assertEqual(query["scope"], ["pages_show_list,pages_manage_metadata,pages_messaging"])
+        self.assertEqual(query["scope"], ["pages_show_list,pages_manage_metadata,pages_messaging,pages_read_engagement"])
         self.assertTrue(query["redirect_uri"][0].endswith("/v1/inquiries/messenger/callback/"))
         self.assertNotIn(SECRET, url.query)
 
@@ -402,6 +402,8 @@ class ConnectTests(MessengerTestCase):
         self.meta.permissions = ["pages_show_list"]
         self.assertEqual(code(), "permission_missing")
         self.meta.permissions = ["pages_show_list", "pages_manage_metadata", "pages_messaging"]
+        self.assertEqual(code(), "permission_missing")  # the old three alone are no longer enough
+        self.meta.permissions = ["pages_show_list", "pages_manage_metadata", "pages_messaging", "pages_read_engagement"]
         self.meta.pages = []
         self.assertEqual(code(), "no_pages")
         self.meta.pages = [{"id": PAGE_A, "name": "P", "access_token": PAGE_TOKEN}]

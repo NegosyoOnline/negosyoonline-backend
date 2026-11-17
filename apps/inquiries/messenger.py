@@ -34,8 +34,8 @@ GRAPH_URL = f"https://graph.facebook.com/{GRAPH_VERSION}"
 DIALOG_URL = f"https://www.facebook.com/{GRAPH_VERSION}/dialog/oauth"
 TIMEOUT = 10  # seconds
 # Used when no META_MESSENGER_CONFIG_ID is set.
-SCOPES = "pages_show_list,pages_manage_metadata,pages_messaging"  # exactly the three App Review covers
-REQUIRED_PERMISSIONS = ("pages_messaging", "pages_manage_metadata", "pages_show_list")
+SCOPES = "pages_show_list,pages_manage_metadata,pages_messaging,pages_read_engagement"  # exactly the four App Review covers
+REQUIRED_PERMISSIONS = ("pages_messaging", "pages_manage_metadata", "pages_show_list", "pages_read_engagement")
 SUBSCRIBED_FIELDS = "messages,messaging_postbacks,message_echoes,message_deliveries,message_reads"
 MAX_TEXT = 2000
 MAX_GRANTED_PAGES = 100  # cap on Page ids taken from debug_token's granular scopes
@@ -115,6 +115,7 @@ def map_error(status, body):
 
 
 _TOKEN_RUN = re.compile(r"[A-Za-z0-9_\-|.%]{20,}")
+_PLAIN_NAME = re.compile(r"[a-z_]+")  # a permission-style name (pages_read_engagement) is not a token
 _ID_SEGMENT = re.compile(r"^\d+$")
 
 
@@ -131,7 +132,8 @@ def _log_int(value):
 def _log_text(value, limit):
     if not isinstance(value, str):
         return ""
-    return " ".join(_TOKEN_RUN.sub("***", value).split())[:limit]
+    masked = _TOKEN_RUN.sub(lambda m: m.group(0) if _PLAIN_NAME.fullmatch(m.group(0)) else "***", value)
+    return " ".join(masked.split())[:limit]
 
 
 def _log_error_fields(body):
