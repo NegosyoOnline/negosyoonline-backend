@@ -9,6 +9,7 @@ the effective date is set once on launch day: while POLICY_EFFECTIVE_DATE is Non
 The TIN is an internal tax identifier and is never part of the data."""
 from django.conf import settings
 
+from apps.sites import custom_hosts
 from apps.sites.models import SiteBusinessProfile
 
 POLICY_VERSION = "1"
@@ -42,10 +43,7 @@ SHIPPING_FIELDS = (*SHIPPING_REQUIRED, "shipping_other_areas_estimate")
 
 
 def host_for(site):
-    subdomain = site.subdomains.filter(state="active").order_by("pk").first()
-    if subdomain is None or not settings.SITE_PARENT_HOST:
-        return ""
-    return f"{subdomain.name}.{settings.SITE_PARENT_HOST}"
+    return custom_hosts.public_host(site)
 
 
 def _profile(site):
