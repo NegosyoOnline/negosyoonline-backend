@@ -272,6 +272,19 @@ INQUIRY_WEBCHAT_ENABLED = os.environ.get("INQUIRY_WEBCHAT_ENABLED", "").strip() 
 # STOREFRONT_ENABLED (`check --deploy` reports inquiries.E003 otherwise). Off, the form stores
 # nothing and reads no inquiries table.
 INQUIRY_CONTACT_INBOX_ENABLED = os.environ.get("INQUIRY_CONTACT_INBOX_ENABLED", "").strip() == "1"
+# Direct Messenger inbox (apps/inquiries/messenger.py): the owner connects a Facebook Page and its
+# customers' Messenger messages arrive in the Inbox. "1" turns it on, and only together with
+# INQUIRIES_ENABLED (`check --deploy` reports inquiries.E004/E005 otherwise). Off, the owner's
+# Messenger routes answer 404 and incoming events are dropped; the webhook verify GET and the two
+# Meta callbacks (deauthorize, data deletion) still answer when their own values are set. The app
+# secret goes straight into Railway; it is never printed or committed.
+INQUIRY_MESSENGER_ENABLED = os.environ.get("INQUIRY_MESSENGER_ENABLED", "").strip() == "1"
+META_MESSENGER_APP_ID = os.environ.get("META_MESSENGER_APP_ID", "").strip()
+META_MESSENGER_APP_SECRET = os.environ.get("META_MESSENGER_APP_SECRET", "").strip()
+MESSENGER_VERIFY_TOKEN = os.environ.get("MESSENGER_VERIFY_TOKEN", "").strip()
+# Optional: the Facebook Login for Business configuration id. When set, the login dialog sends
+# config_id instead of scope (Meta's docs: config_id replaces scope).
+META_MESSENGER_CONFIG_ID = os.environ.get("META_MESSENGER_CONFIG_ID", "").strip()
 # The storefront surface (/storefront/v1/), called only by the storefronts server. "1" turns
 # it on, and only while STOREFRONT_SERVER_SECRET holds at least 32 characters. Off, every path
 # under it answers 404. The secret is read here and nowhere else.

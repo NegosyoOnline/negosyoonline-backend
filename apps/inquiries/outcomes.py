@@ -10,13 +10,14 @@ BAD_RESPONSE = "bad_response"
 WINDOW_CLOSED = "window_closed"
 BLOCKED_SITE = "blocked_site"
 NOT_CONFIGURED = "not_configured"
+TOKEN_INVALID = "token_invalid"  # the Messenger page token no longer works: reconnect
 
 CODES = (
     OK, INVALID_CREDENTIALS, EXPIRED_CREDENTIALS, FORBIDDEN_PAGE, NOT_FOUND, RATE_LIMITED,
-    PROVIDER_DOWN, BAD_RESPONSE, WINDOW_CLOSED, BLOCKED_SITE, NOT_CONFIGURED,
+    PROVIDER_DOWN, BAD_RESPONSE, WINDOW_CLOSED, BLOCKED_SITE, NOT_CONFIGURED, TOKEN_INVALID,
 )
 # The codes that mean the saved token no longer works: the connection is marked invalid.
-CREDENTIAL_FAILURES = (INVALID_CREDENTIALS, EXPIRED_CREDENTIALS)
+CREDENTIAL_FAILURES = (INVALID_CREDENTIALS, EXPIRED_CREDENTIALS, TOKEN_INVALID)
 
 # The email channel's own codes. They are NOT in CODES (that tuple is the choices of
 # InquiryReply.error_code, and changing it needs a migration). The audit row keeps the code in
