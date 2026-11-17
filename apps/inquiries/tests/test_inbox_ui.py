@@ -44,6 +44,14 @@ class ProfileMeta(FakeMeta):
 class InboxUiCase(MessengerTestCase):
     def setUp(self):
         super().setUp()
+        cache.clear()  # a Redis cache outlives a test and primary keys repeat: no stale photo or retry flag
+        self.addCleanup(cache.clear)
+        # With REDIS_URL set (the CI PostgreSQL job) Celery is not eager and `.delay` would queue to a
+        # broker: run the task in-process, as it does with no REDIS_URL.
+        delay = mock.patch.object(
+            tasks.fetch_messenger_profile, "delay", side_effect=lambda *a, **k: tasks.fetch_messenger_profile(*a, **k))
+        delay.start()
+        self.addCleanup(delay.stop)
         self.meta = ProfileMeta()
         patch = mock.patch.object(messenger, "_transport", self.meta)
         patch.start()
