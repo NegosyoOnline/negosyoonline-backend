@@ -113,6 +113,18 @@ class ProspectTests(OwnerTestCase):
         for r in rows:
             self.assertEqual((r["stage"], r["order_id"], r["order_number"]), ("new_lead", None, None))
 
+    def test_inquiry_provider_without_a_channel_key_is_skipped(self):
+        t = timezone.now() - timedelta(days=1)
+        inquiry(self.site, InquiryConversation.WEBCHAT, "Chat Person", t)
+        inquiry(self.site, InquiryConversation.EMAIL, "Mail Person", t - timedelta(hours=1))
+        inquiry(self.site, InquiryConversation.MESSENGER, "Messenger Person", t - timedelta(hours=2))
+        response = self.get(self.path())
+        self.assertEqual(response.status_code, 200)
+        rows = [r for r in response.json()["results"] if r["kind"] == "inquiry"]
+        self.assertEqual([(r["name"], r["source"]) for r in rows], [
+            ("Chat Person", "webchat"), ("Mail Person", "email")])
+        self.assertNotIn("Messenger Person", [r["name"] for r in response.json()["results"]])
+
     def test_inquiry_and_order_are_never_matched_by_name(self):
         order, _ = make_order(self.site)
         inquiry(self.site, "webchat", order.buyer_name, timezone.now())

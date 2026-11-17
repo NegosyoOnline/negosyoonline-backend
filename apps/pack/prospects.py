@@ -105,7 +105,7 @@ def visit_rows(site):
 
 def inquiry_rows(site):
     rows = []
-    for c in InquiryConversation.objects.filter(site=site, provider__in=InquiryConversation.STORED_PROVIDERS).values(
+    for c in InquiryConversation.objects.filter(site=site, provider__in=tuple(CHANNEL_KEYS)).values(
             "provider", "contact_name", "contact_email", "last_message_at", "last_inbound_at", "created_at"):
         # A stored channel keeps the name in contact_name; read live, so a blanked name stays blank.
         rows.append({
