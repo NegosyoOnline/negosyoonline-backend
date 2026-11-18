@@ -119,10 +119,13 @@ class MemberPanelTests(MemberSurfaceCase):
         token, _, order = self.placed_xendit()
         self.webhook(order)
         self.assertEqual(self.onboarding_state(token)["payment_method_label"], "Pay online (Xendit)")
+        self.assertIs(self.onboarding_state(token)["payment_verified"], True)
 
     def test_the_onboarding_state_names_the_transfer_method_for_a_bank_order(self):
         token, _ = self.placed()
-        self.assertEqual(self.onboarding_state(token)["payment_method_label"], "Bank or e-wallet transfer")
+        state = self.onboarding_state(token)
+        self.assertEqual(state["payment_method_label"], "Bank or e-wallet transfer")
+        self.assertIs(state["payment_verified"], False)
 
 
 class OwnerSurfaceTests(XenditPackCase):

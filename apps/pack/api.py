@@ -339,6 +339,7 @@ class StateOut(Schema):
     details_erased: bool
     registration_held: dict | None = None
     payment_method_label: str = ""
+    payment_verified: bool = False
     expires_at: str
 
 
@@ -374,7 +375,8 @@ def _state(site, token, order, member, *, with_held=False):
         "address": {"country": "Philippines", "receiver_name": member.full_name, "receiver_mobile": member.mobile,
                     **(order.delivery_address or {})},
         "details_erased": panels.details_erased(reg), "registration_held": held,
-        "payment_method_label": panels.method_label(order), "expires_at": token.expires_at.isoformat(),
+        "payment_method_label": panels.method_label(order),
+        "payment_verified": order.payment_status == C.VERIFIED, "expires_at": token.expires_at.isoformat(),
     }
 
 
