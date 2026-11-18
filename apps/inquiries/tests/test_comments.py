@@ -427,6 +427,57 @@ class ActionTests(CommentsTestCase):
         self.assertEqual((body["state"], body["error_code"]), ("blocked_rate", "rate_limited"))
         self.assertEqual(self.meta.replied, 0)
 
+    def test_the_owners_public_reply_is_stored_and_shown_after_a_reload(self):
+        InquiryConnection.objects.filter(site=self.site).update(label="Ana Store Page")
+        self.assertEqual(self.reply().json()["state"], "sent")
+        row = InquiryComment.objects.get(external_id="111000111_9001")
+        self.assertEqual((row.is_page, row.text, row.unread, row.parent_external_id, row.post, row.author_name, row.author_psid),
+                         (True, "Hi Maria, 120 pesos!", False, COMMENT, self.comment.post, "Ana Store Page", ""))
+        replies = self.get(self.url).json()["replies"]
+        self.assertEqual([(r["kind"], r["author_name"], r["is_page"], r["text"]) for r in replies],
+                         [("comment", "Ana Store Page", True, "Hi Maria, 120 pesos!")])
+
+    def test_the_webhook_echo_of_the_stored_reply_is_a_duplicate(self):
+        self.reply()
+        counts = comments.receive(
+            InquiryConnection.objects.get(site=self.site), PAGE_A,
+            feed(comment_id="111000111_9001", author=PAGE_A, parent_id=COMMENT, message="Hi Maria, 120 pesos!")
+            ["entry"][0]["changes"], timezone.now())
+        self.assertEqual((counts[comments.DUPLICATE], counts[comments.STORED]), (1, 0))
+        self.assertEqual(InquiryComment.objects.filter(external_id="111000111_9001").count(), 1)
+
+    def test_a_reply_without_a_valid_meta_id_stores_no_comment(self):
+        with mock.patch.object(messenger, "reply_comment", return_value=messenger.Result("ok", "bad id!")):
+            self.assertEqual(self.reply().json()["state"], "sent")
+        self.assertEqual(InquiryComment.objects.count(), 1)
+
+    def test_a_private_message_is_kept_and_shown_in_time_order(self):
+        self.reply()
+        self.assertEqual(self.private().json()["state"], "sent")
+        action = InquiryCommentAction.objects.get(kind="private")
+        self.assertEqual(action.text, "Hello! Here are the details.")
+        self.assertEqual(InquiryCommentAction.objects.get(kind="public").text, "")
+        replies = self.get(self.url).json()["replies"]
+        self.assertEqual([(r["kind"], r["ref"] == "", r["is_page"], r["text"]) for r in replies],
+                         [("comment", False, True, "Hi Maria, 120 pesos!"), ("private", True, True, "Hello! Here are the details.")])
+        self.assertEqual(sorted(r["created_at"] for r in replies), [r["created_at"] for r in replies])
+
+    def test_a_failed_private_message_stores_no_text(self):
+        self.meta.send_error = (400, {"error": {"code": 10, "error_subcode": 2018278}})
+        self.assertEqual(self.private().json()["state"], "failed")
+        self.assertEqual(InquiryCommentAction.objects.get().text, "")
+        self.assertEqual(self.get(self.url).json()["replies"], [])
+
+    def test_removing_the_comment_blanks_the_private_text(self):
+        self.private()
+        self.feed_in(verb="remove")
+        self.assertEqual(InquiryCommentAction.objects.get().text, "")
+
+    def test_disposal_and_erasure_delete_the_private_text_with_the_comment(self):
+        self.private()
+        retention.blank_inquiries(Site.objects.filter(pk=self.site.pk))
+        self.assertFalse(InquiryCommentAction.objects.exists())
+
     def test_private_reply_goes_to_the_send_api_with_the_comment_id(self):
         response = self.private()
         self.assertEqual(response.status_code, 200, response.content)

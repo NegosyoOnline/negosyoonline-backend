@@ -89,12 +89,16 @@ of the site and is never filtered.
 
 ```json
 {
-  "replies": [{"ref": "cm_...", "author_name": "Ana Store Page", "is_page": true, "text": "...", "created_at": "..."}],
+  "replies": [{"ref": "cm_...", "kind": "comment|private", "author_name": "Ana Store Page", "is_page": true, "text": "...", "created_at": "..."}],
   "actions": [{"kind": "public|private|hide", "source": "manual", "state": "sent|failed|sending", "error_code": "", "created_at": "..."}]
 }
 ```
 `replies` are stored comments directly under this one (oldest first, at most 50), the Page's own
-included. `actions` are the latest 20 outgoing attempts (outcome only, never text).
+included, merged with the owner's sent private messages (`kind: "private"`, `ref: ""`, `is_page: true`,
+`author_name` the Page name) in time order. The owner's public reply is stored as a Page comment
+(`kind: "comment"`) as soon as Meta returns its id, so it stays after a reload. Private message
+text is kept with the action row until the comment is removed or erased. `actions` are the latest 20
+outgoing attempts (outcome only, never text).
 
 ### POST `{ref}/read/`
 No body. `200` the Comment item with `unread: false`.

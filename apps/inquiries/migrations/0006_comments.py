@@ -73,6 +73,7 @@ class Migration(migrations.Migration):
                 ('meta_id', models.CharField(blank=True, max_length=128)),
                 ('idempotency_key', models.CharField(blank=True, max_length=64)),
                 ('body_length', models.PositiveSmallIntegerField(default=0)),
+                ('text', models.TextField(blank=True, max_length=1000)),
                 ('created_at', models.DateTimeField(default=django.utils.timezone.now, editable=False)),
                 ('author', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='inquiry_comment_actions', to='accounts.account')),
                 ('comment', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='actions', to='inquiries.inquirycomment')),

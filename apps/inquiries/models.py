@@ -309,7 +309,9 @@ class InquiryComment(models.Model):
 
 class InquiryCommentAction(models.Model):
     """One outgoing action on a comment (public reply, private reply, hide). Holds the outcome code
-    and Meta's id of the result only: never the text, Meta's body, a token or a URL."""
+    and Meta's id of the result, never Meta's body, a token or a URL. `text` is the private message
+    the owner sent (only when it ended SENT; a public reply is stored as a comment instead); it is
+    personal, blanked when the comment is removed and deleted with the comment."""
 
     PUBLIC, PRIVATE, HIDE = "public", "private", "hide"
     KINDS = [(PUBLIC, "Public reply"), (PRIVATE, "Private reply"), (HIDE, "Hide")]
@@ -334,6 +336,7 @@ class InquiryCommentAction(models.Model):
     meta_id = models.CharField(max_length=128, blank=True)  # Meta's id of the reply comment or message
     idempotency_key = models.CharField(max_length=64, blank=True)
     body_length = models.PositiveSmallIntegerField(default=0)
+    text = models.TextField(max_length=1000, blank=True)  # the sent private message; personal, blanked on removal
     created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     class Meta:

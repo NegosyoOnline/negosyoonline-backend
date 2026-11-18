@@ -150,6 +150,7 @@ def _remove(comment):
     InquiryComment.objects.filter(pk=comment.pk).update(
         removed=True, text="", author_name="", author_psid="", unread=False,
     )
+    InquiryCommentAction.objects.filter(comment=comment).update(text="")  # the owner's private message text
     cancel_queued(comment)
 
 
@@ -345,11 +346,25 @@ def detail(site, ref):
     children = InquiryComment.objects.filter(
         site=site, post=comment.post, parent_external_id=comment.external_id, removed=False,
     ).order_by("created_at", "pk")[:REPLIES_LIMIT]
-    out["replies"] = [
-        {"ref": c.ref, "author_name": c.author_name or ANONYMOUS, "is_page": c.is_page, "text": c.text,
-         "created_at": c.created_at.isoformat()}
+    items = [
+        (c.created_at, {"ref": c.ref, "kind": "comment", "author_name": c.author_name or ANONYMOUS,
+                        "is_page": c.is_page, "text": c.text, "created_at": c.created_at.isoformat()})
         for c in children
     ]
+    sent = InquiryCommentAction.objects.filter(
+        site=site, comment=comment, kind=InquiryCommentAction.PRIVATE, state=InquiryCommentAction.SENT,
+    ).exclude(text="")
+    label = ""
+    connection = InquiryConnection.objects.filter(site=site, provider=messenger.PROVIDER).first()
+    if connection is not None:
+        label = connection.label or ""
+    items += [
+        (a.created_at, {"ref": "", "kind": "private", "author_name": label, "is_page": True, "text": a.text,
+                        "created_at": a.created_at.isoformat()})
+        for a in sent
+    ]
+    items.sort(key=lambda pair: pair[0])
+    out["replies"] = [item for _, item in items[:REPLIES_LIMIT]]
     out["actions"] = [action_out(a) for a in InquiryCommentAction.objects.filter(site=site, comment=comment)[:ACTIONS_LIMIT]]
     return out
 
@@ -403,6 +418,21 @@ def _claim(site, account, comment, kind, key, length):
         raise Refusal("already_sent") from None  # the one-private-reply constraint
 
 
+def _store_page_reply(connection, comment, meta_id, text, now):
+    """The Page's own public reply, stored at once so the thread shows it after a reload. The webhook
+    echo of the same id then counts as a duplicate (or, if it came first, this insert is skipped)."""
+    try:
+        with transaction.atomic():
+            InquiryComment.objects.create(
+                site=comment.site, connection=connection, post=comment.post, external_id=meta_id,
+                parent_external_id=comment.external_id, is_page=True, author_psid="",
+                author_name=(connection.label or "")[:120], text=text[:MAX_TEXT], unread=False,
+                created_at=now, received_at=now,
+            )
+    except IntegrityError:
+        pass
+
+
 def _perform(site, account, ref, kind, key, text):
     comment = find(site, ref, removed=True)
     if comment is None:
@@ -448,6 +478,10 @@ def _perform(site, account, ref, kind, key, text):
                    InquiryCommentAction.PRIVATE: {"private_reply_at": now, "unread": False},
                    InquiryCommentAction.HIDE: {"is_hidden": True}}[kind]
         InquiryComment.objects.filter(pk=comment.pk).update(**changes)
+        if kind == InquiryCommentAction.PRIVATE:
+            row.text = text[:MAX_PRIVATE]
+        elif kind == InquiryCommentAction.PUBLIC and ID_RE.match(row.meta_id):
+            _store_page_reply(connection, comment, row.meta_id, text, now)
     else:
         row.state = InquiryCommentAction.BLOCKED_RATE if result.code == outcomes.RATE_LIMITED else InquiryCommentAction.FAILED
         row.error_code = result.code
@@ -455,7 +489,7 @@ def _perform(site, account, ref, kind, key, text):
             InquiryConnection.objects.filter(pk=connection.pk).update(
                 status=InquiryConnection.INVALID, last_test_at=now, last_test_outcome=result.code,
             )
-    row.save(update_fields=["state", "error_code", "meta_id"])
+    row.save(update_fields=["state", "error_code", "meta_id", "text"])
     return _result(row, comment)
 
 
