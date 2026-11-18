@@ -47,7 +47,7 @@ from apps.sites import templates
 from apps.sites.api import _owner_site
 from apps.sites.services import site_for
 
-WRITE_LIMIT, READ_LIMIT, REPLY_LIMIT, WINDOW = 20, 600, 120, 3600  # per account per hour
+WRITE_LIMIT, READ_LIMIT, REPLY_LIMIT, WINDOW = 20, 1200, 120, 3600  # per account per hour
 MAX_REPLY = 2000
 REF_RE = re.compile(r"^[A-Za-z0-9_.:-]{3,128}$")
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")

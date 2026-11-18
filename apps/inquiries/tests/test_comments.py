@@ -10,7 +10,8 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
-from apps.inquiries import comments, messenger, messenger_inbox, retention
+from apps.common.throttle import hit
+from apps.inquiries import api_owner, comments, messenger, messenger_inbox, retention
 from apps.inquiries.models import (
     InquiryComment, InquiryCommentAction, InquiryCommentSettings, InquiryConnection, InquiryConversation,
     InquiryMessage, InquiryPost,
@@ -218,6 +219,51 @@ class FeedWebhookTests(CommentsTestCase):
         payload["entry"][0]["changes"].insert(0, "junk")
         self.assertEqual(self.hook(payload).status_code, 200)
         self.assertEqual(InquiryComment.objects.count(), 1)
+
+
+class ReadThrottleTests(CommentsTestCase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.ready()
+        self.comment = self.feed_in()
+        self.conversations = f"/v1/sites/{self.site_id}/inquiries/conversations/"
+        self.detail_url = self.base + self.comment.ref + "/"
+
+    def preload(self, scope, count):
+        for _ in range(count):
+            hit(scope, self.account.pk, limit=api_owner.READ_LIMIT, window=api_owner.WINDOW)
+
+    def test_the_read_limit_is_1200_an_hour(self):
+        self.assertEqual((api_owner.READ_LIMIT, api_owner.WINDOW), (1200, 3600))
+
+    def test_comment_reads_and_conversation_reads_count_separately(self):
+        self.preload("inq-comment-read", api_owner.READ_LIMIT)
+        self.assertEqual(self.get(self.base).status_code, 429)
+        self.assertEqual(self.get(self.conversations).status_code, 200)
+        cache.clear()
+        self.preload("inq-read", api_owner.READ_LIMIT)
+        self.assertEqual(self.get(self.conversations).status_code, 429)
+        self.assertEqual(self.get(self.base).status_code, 200)
+
+    def test_each_scope_answers_429_on_request_1201(self):
+        for scope, url in (("inq-read", self.conversations), ("inq-comment-read", self.base)):
+            cache.clear()
+            self.preload(scope, api_owner.READ_LIMIT - 1)
+            self.assertEqual(self.get(url).status_code, 200)  # request 1200
+            self.assertEqual(self.get(url).status_code, 429)  # request 1201
+
+    def test_the_three_comment_reads_share_the_comment_scope(self):
+        self.preload("inq-comment-read", api_owner.READ_LIMIT)
+        for url in (self.base, self.base + "status/", self.detail_url):
+            self.assertEqual(self.get(url).status_code, 429)
+
+    def test_a_simulated_hour_of_polling_is_not_throttled(self):
+        for _ in range(240):
+            self.assertEqual(self.get(self.conversations).status_code, 200)
+            self.assertEqual(self.get(self.base).status_code, 200)
+        for _ in range(100):
+            self.assertEqual(self.get(self.detail_url).status_code, 200)
 
 
 class ListAndDetailTests(CommentsTestCase):

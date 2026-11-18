@@ -82,14 +82,14 @@ def _choice(value, allowed, field):
 
 @router.get("/sites/{site_id}/inquiries/comments/status/")
 def status(request, site_id: str):
-    hit("inq-read", request.account.pk, limit=api_owner.READ_LIMIT, window=api_owner.WINDOW)
+    hit("inq-comment-read", request.account.pk, limit=api_owner.READ_LIMIT, window=api_owner.WINDOW)
     return comments.status_out(request.inquiry_site)
 
 
 @router.get("/sites/{site_id}/inquiries/comments/")
 def comment_list(request, site_id: str, scope: str | None = None, answered: str | None = None,
                  unread: str | None = None, q: str | None = None, cursor: str | None = None):
-    hit("inq-read", request.account.pk, limit=api_owner.READ_LIMIT, window=api_owner.WINDOW)
+    hit("inq-comment-read", request.account.pk, limit=api_owner.READ_LIMIT, window=api_owner.WINDOW)
     scope = _choice(scope or "all", ("all", "post", "ad"), "scope")
     answered = _choice(answered or "all", ("all", "answered", "unanswered"), "answered")
     unread = _choice(unread or "", ("", "1", "0"), "unread")
@@ -112,7 +112,7 @@ def comment_list(request, site_id: str, scope: str | None = None, answered: str 
 
 @router.get("/sites/{site_id}/inquiries/comments/{ref}/")
 def comment_detail(request, site_id: str, ref: str):
-    hit("inq-read", request.account.pk, limit=api_owner.READ_LIMIT, window=api_owner.WINDOW)
+    hit("inq-comment-read", request.account.pk, limit=api_owner.READ_LIMIT, window=api_owner.WINDOW)
     return _done(lambda: comments.detail(request.inquiry_site, ref))
 
 
