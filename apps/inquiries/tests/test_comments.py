@@ -277,7 +277,7 @@ class ListAndDetailTests(CommentsTestCase):
         self.assertEqual((body["next_cursor"], body["unread_total"]), (None, 1))
         item = body["items"][0]
         self.assertEqual(set(item), {"ref", "author_name", "text", "created_at", "unread", "answered", "hidden",
-                                     "is_reply", "post", "public_reply", "private_reply", "hide"})
+                                     "is_reply", "post", "public_reply", "private_reply", "hide", "auto_reply"})
         self.assertEqual(item["post"], {"id": POST, "is_ad": False, "permalink": f"https://www.facebook.com/{POST}", "caption": "Mangoes"})
         self.assertEqual(item["public_reply"], {"available": True, "reason": "", "replied_at": None})
         self.assertTrue(item["private_reply"]["available"])

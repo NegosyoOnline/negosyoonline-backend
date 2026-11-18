@@ -315,13 +315,14 @@ class InquiryCommentAction(models.Model):
 
     PUBLIC, PRIVATE, HIDE = "public", "private", "hide"
     KINDS = [(PUBLIC, "Public reply"), (PRIVATE, "Private reply"), (HIDE, "Hide")]
-    MANUAL, RULE = "manual", "rule"  # rule: automation, a later task
+    MANUAL, RULE = "manual", "rule"  # rule: the automatic reply of a comment rule (comment_automation.py)
     SOURCES = [(MANUAL, "Manual"), (RULE, "Rule")]
-    QUEUED, SENDING, SENT, FAILED, BLOCKED_RATE, CANCELLED = (
-        "queued", "sending", "sent", "failed", "blocked_rate", "cancelled")
+    QUEUED, SENDING, SENT, FAILED, BLOCKED_RATE, CANCELLED, LIMIT = (
+        "queued", "sending", "sent", "failed", "blocked_rate", "cancelled", "limit")
     STATES = [
         (QUEUED, "Queued"), (SENDING, "Sending"), (SENT, "Sent"), (FAILED, "Failed"),
         (BLOCKED_RATE, "Blocked, rate limit"), (CANCELLED, "Cancelled"),
+        (LIMIT, "Not auto-answered (limit)"),
     ]
 
     site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_comment_actions")
@@ -360,5 +361,82 @@ class InquiryCommentAction(models.Model):
 
     def __repr__(self):
         return f"<InquiryCommentAction site={self.site_id} pk={self.pk} {self.kind} {self.state}>"
+
+    __str__ = __repr__
+
+
+def rule_ref():
+    """The server-made id of an auto-reply rule, the only id the browser sees."""
+    return "cr_" + secrets.token_hex(12)
+
+
+class InquiryCommentRule(models.Model):
+    """One auto-reply rule of a site (task z8uq9mg9pj). Texts are the owner's own spintax templates
+    (validated in comment_rules.py). `post_ids` are Meta post ids of this site's InquiryPost rows."""
+
+    ANY, KEYWORDS = "any", "keywords"
+    TRIGGERS = [(ANY, "Any comment"), (KEYWORDS, "Keywords")]
+    ALL, SELECTED = "all", "selected"
+    SCOPES = [(ALL, "All posts"), (SELECTED, "Selected posts")]
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_comment_rules")
+    ref = models.CharField(max_length=32, default=rule_ref)
+    enabled = models.BooleanField(default=True)
+    trigger = models.CharField(max_length=8, choices=TRIGGERS, default=ANY)
+    keywords = models.JSONField(default=list, blank=True)
+    scope = models.CharField(max_length=8, choices=SCOPES, default=ALL)
+    post_ids = models.JSONField(default=list, blank=True)
+    public_text = models.TextField(max_length=2000)
+    private_text = models.TextField(max_length=4000, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["site", "ref"], name="inquiry_comment_rule_site_ref_uniq"),
+        ]
+
+    def __repr__(self):
+        return f"<InquiryCommentRule site={self.site_id} pk={self.pk}>"
+
+    __str__ = __repr__
+
+
+class InquiryCommentAutomation(models.Model):
+    """The site's auto-reply master switch and back-off state. A table of its own (like
+    InquiryCommentSettings) so that code released before its migration still reads the others."""
+
+    NONE, RATE_LIMIT, REPEATED = "", "rate_limit", "repeated_limits"
+
+    site = models.OneToOneField("sites.Site", on_delete=models.PROTECT, related_name="inquiry_comment_automation")
+    enabled = models.BooleanField(default=False)  # the owner's choice; never turned on by the system
+    paused_until = models.DateTimeField(null=True, blank=True)
+    pause_reason = models.CharField(max_length=16, blank=True)  # "" | rate_limit | repeated_limits
+    strikes_date = models.DateField(null=True, blank=True)  # the Manila day the strikes are counted in
+    strikes = models.PositiveSmallIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __repr__(self):
+        return f"<InquiryCommentAutomation site={self.site_id}>"
+
+    __str__ = __repr__
+
+
+class InquiryAutoReply(models.Model):
+    """What an automatic action adds to its InquiryCommentAction row (a table of its own, so the
+    comment tables keep their columns): the rule, the spintax variant used, when it may be sent and
+    why a cap refused it. Holds no text and nothing personal."""
+
+    action = models.OneToOneField(InquiryCommentAction, on_delete=models.CASCADE, related_name="auto")
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_auto_replies")
+    rule = models.ForeignKey(InquiryCommentRule, null=True, blank=True, on_delete=models.SET_NULL, related_name="auto_replies")
+    variant_hash = models.CharField(max_length=16, blank=True)  # which variant (before {name}) was sent
+    send_after = models.DateTimeField(null=True, blank=True)
+    chosen_at = models.DateTimeField(null=True, blank=True)  # when the variant was picked (order for "not twice in a row")
+    skip_reason = models.CharField(max_length=16, blank=True)  # "" | hour_cap | day_cap
+
+    def __repr__(self):
+        return f"<InquiryAutoReply site={self.site_id} action={self.action_id}>"
 
     __str__ = __repr__

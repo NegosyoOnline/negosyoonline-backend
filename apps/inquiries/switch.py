@@ -74,3 +74,23 @@ def stored_tables_exist():
     that reads the message or channel-settings tables, or the columns they added, asks this first."""
     names = connection.introspection.table_names()
     return CONNECTION_TABLE in names and all(table in names for table in STORED_TABLES) and _messenger_columns_exist()
+
+
+AUTOMATION_TABLES = ("inquiries_inquirycommentrule", "inquiries_inquirycommentautomation", "inquiries_inquiryautoreply")
+_AUTOMATION_SEEN = False
+
+
+def automation_tables_exist():
+    """True once inquiries.0007 (the comment auto-reply tables) is applied. A positive answer is
+    remembered for the life of the process."""
+    global _AUTOMATION_SEEN
+    if _AUTOMATION_SEEN:
+        return True
+    names = connection.introspection.table_names()
+    _AUTOMATION_SEEN = all(table in names for table in AUTOMATION_TABLES)
+    return _AUTOMATION_SEEN
+
+
+def automation_on():
+    """INQUIRY_COMMENT_AUTOMATION_ENABLED: comment auto-replies. Only while comments are on too."""
+    return bool(settings.INQUIRY_COMMENT_AUTOMATION_ENABLED and comments_on())

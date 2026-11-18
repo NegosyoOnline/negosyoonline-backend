@@ -15,7 +15,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.inquiries import crypto, limiter, messenger, outcomes
+from apps.inquiries import comment_automation, crypto, limiter, messenger, outcomes
 from apps.inquiries.models import (
     InquiryComment, InquiryCommentAction, InquiryCommentSettings, InquiryConnection, InquiryPost,
 )
@@ -198,7 +198,7 @@ def _store(connection, page_id, value, now):
     try:
         with transaction.atomic():
             post = _post(connection, post_id, value.get("post"))
-            InquiryComment.objects.create(
+            created = InquiryComment.objects.create(
                 site=site, connection=connection, post=post, external_id=comment_id, parent_external_id=parent,
                 author_psid="" if is_page else author_id, author_name=name, is_page=is_page, text=text,
                 unread=not is_page, created_at=at, received_at=now,
@@ -209,6 +209,8 @@ def _store(connection, page_id, value, now):
                 ).update(public_reply_at=at)
     except IntegrityError:  # the same comment arrived twice at once
         return DUPLICATE
+    if not is_page:
+        comment_automation.schedule(created.pk)  # a Celery task evaluates the auto-reply rules (C2)
     return STORED
 
 
@@ -300,6 +302,7 @@ def item_out(comment, base_reason, now=None):
             "expires_at": None if own else (comment.created_at + PRIVATE_WINDOW).isoformat(),
         },
         "hide": {"available": not hide, "reason": hide},
+        "auto_reply": comment_automation.auto_reply_of(comment),
     }
 
 
@@ -326,6 +329,7 @@ def list_items(site, *, scope="all", answered="all", unread=None, query=None, cu
     more, rows = len(rows) > limit, rows[:limit]
     _, reason = readiness(site)
     now = timezone.now()
+    comment_automation.prefetch(rows)
     return [item_out(c, reason, now) for c in rows], (cursor_of(rows[-1]) if more else None)
 
 
@@ -371,7 +375,8 @@ def detail(site, ref):
 
 def action_out(action):
     return {"kind": action.kind, "source": action.source, "state": action.state,
-            "error_code": action.error_code, "created_at": action.created_at.isoformat()}
+            "error_code": action.error_code, "created_at": action.created_at.isoformat(),
+            "skip_reason": comment_automation.skip_reason_of(action)}
 
 
 def mark_read(site, ref):
@@ -485,6 +490,7 @@ def _perform(site, account, ref, kind, key, text):
     else:
         row.state = InquiryCommentAction.BLOCKED_RATE if result.code == outcomes.RATE_LIMITED else InquiryCommentAction.FAILED
         row.error_code = result.code
+        comment_automation.note_manual(site, result.code)  # a Meta rate-limit/spam error pauses auto-replies (C2)
         if result.code in outcomes.CREDENTIAL_FAILURES:
             InquiryConnection.objects.filter(pk=connection.pk).update(
                 status=InquiryConnection.INVALID, last_test_at=now, last_test_outcome=result.code,

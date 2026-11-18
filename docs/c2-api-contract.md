@@ -118,9 +118,9 @@ Keywords sent with trigger `any`, and post ids sent with scope `all`, are ignore
 | `needs_reenable` | Auto-replies were switched off after Facebook slowed us down 3 times today. Turn them back on when you are ready. | null | false; `enabled` is false | `PUT automation/ {"enabled": true}` |
 
 Triggers: a Meta rate-limit (codes 4, 9, 17, 32, 613, HTTP 429) or spam-block (code 368) error on an
-**automatic** send is one strike and pauses 1 hour; the third strike in the same Manila day sets `enabled=false`
-and shows `needs_reenable`. A manual reply never causes a strike. While paused, new comments are not queued
-(no marker), and replies already queued are cancelled, not retried.
+**automatic or a manual** send is one strike and pauses automation for 1 hour; the third strike in the same Manila day
+sets `enabled=false` and shows `needs_reenable`. The pause itself never blocks manual replies. While paused, new
+comments are not queued (no marker), and replies already queued are cancelled, not retried.
 
 ## 5. What C3 sees on a comment (Comments view)
 

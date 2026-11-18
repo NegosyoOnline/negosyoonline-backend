@@ -17,11 +17,11 @@ from apps.common.tests.test_tenant_isolation.owner_base import (
 )
 
 NOT_FOUND = {"error": {"code": "not_found", "message": "Not found."}}
-# What the guard expects from the URLconf today (12 + 16 + 2 + 10 + 5 + 13 + 10 + 4 + 21 + 6 + 24 + 11 = 134). The
+# What the guard expects from the URLconf today (12 + 16 + 2 + 10 + 5 + 13 + 10 + 4 + 29 + 6 + 24 + 11 = 142). The
 # "sites" count includes the 5 member-recovery routes under /sites/{site_id}/members/.
 EXPECTED_COUNTS = {
     "sites": 12, "billing": 16, "sante": 2, "catalog": 10, "payments": 5, "pack_owner": 13,
-    "shop_owner": 10, "meta_ads": 4, "inquiries": 21, "member_notices": 6,
+    "shop_owner": 10, "meta_ads": 4, "inquiries": 29, "member_notices": 6,
     "training": 24, "media": 11,
 }
 
@@ -45,7 +45,7 @@ class RegistryGuardTests(TwoOwnersTestCase):
         for _, template in routes:
             counts[app_of(template)] = counts.get(app_of(template), 0) + 1
         self.assertEqual(counts, EXPECTED_COUNTS)
-        self.assertEqual(len(OWNER_ROUTES), 134)
+        self.assertEqual(len(OWNER_ROUTES), 142)
 
 
 class ForeignSiteTests(TwoOwnersTestCase):
@@ -85,6 +85,7 @@ class ForeignChildTests(TwoOwnersTestCase):
 
     def test_the_routes_with_a_child_id_are_the_ones_expected(self):
         self.assertEqual(sorted(self.child_routes()), [
+            ("DELETE", "/sites/{site_id}/inquiries/comment-rules/{ref}/"),
             ("DELETE", "/sites/{site_id}/media/{asset_id}/"),
             ("DELETE", "/sites/{site_id}/media/{asset_id}/image/"),
             ("DELETE", "/sites/{site_id}/member-notices/{notice_id}/"),
@@ -102,6 +103,7 @@ class ForeignChildTests(TwoOwnersTestCase):
             ("GET", "/sites/{site_id}/billing/payments/{payment_id}/proof/"),
             ("GET", "/sites/{site_id}/billing/statements/{number}/"),
             ("GET", "/sites/{site_id}/billing/statements/{number}/pdf/"),
+            ("GET", "/sites/{site_id}/inquiries/comment-rules/{ref}/"),
             ("GET", "/sites/{site_id}/inquiries/comments/{ref}/"),
             ("GET", "/sites/{site_id}/inquiries/conversations/{ref}/"),
             ("GET", "/sites/{site_id}/members/{member_id}/recovery/"),
@@ -153,6 +155,7 @@ class ForeignChildTests(TwoOwnersTestCase):
             ("POST", "/sites/{site_id}/training/live/{live_id}/thumbnail/"),
             ("POST", "/sites/{site_id}/training/modules/{module_id}/lessons/"),
             ("POST", "/sites/{site_id}/training/modules/{module_id}/lessons/reorder/"),
+            ("PUT", "/sites/{site_id}/inquiries/comment-rules/{ref}/"),
         ])
 
     def test_a_foreign_child_under_my_own_site_is_the_same_404_as_a_missing_child(self):
