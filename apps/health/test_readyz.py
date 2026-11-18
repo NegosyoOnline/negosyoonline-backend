@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from apps.common import sentry
 from apps.health import tasks, views
+from apps.meta_ads.models import MetaDelivery
 from apps.notifications.models import EmailMessage, SmsMessage
 
 
@@ -27,7 +28,7 @@ class ReadyzTests(TestCase):
         self.assertJSONEqual(
             response.content,
             {"ok": True, "db": True, "cache": True, "beat": True, "sms_queue": True, "email": True,
-             "files_backup": True},
+             "files_backup": True, "meta_queue": True},
         )
 
     def test_db_failure_is_503(self):
@@ -108,6 +109,52 @@ class ReadyzTests(TestCase):
     def test_sms_queue_not_counted_when_gateway_off(self):
         self._queued(timedelta(minutes=30))
         self.assertTrue(self.get().json()["sms_queue"])
+
+    def _meta(self, outcome, age, n=1):
+        from apps.billing.tests.base import make_account, make_site
+
+        existing = MetaDelivery.objects.first()
+        site = existing.site if existing else make_site(make_account("ana@example.test"), name="anas-store")
+        for i in range(n):
+            row = MetaDelivery.objects.create(
+                site=site, event_name="Purchase", event_id=f"{outcome}-{age}-{i}", outcome=outcome,
+            )
+            MetaDelivery.objects.filter(pk=row.pk).update(created_at=timezone.now() - age)
+
+    @override_settings(META_EVENTS_ENABLED=True)
+    def test_meta_queue_no_rows_is_true(self):
+        body = self.get().json()
+        self.assertIn("meta_queue", body)
+        self.assertTrue(body["meta_queue"])
+
+    @override_settings(META_EVENTS_ENABLED=True)
+    def test_meta_queue_fresh_queued_row_is_true(self):
+        self._meta(MetaDelivery.QUEUED, timedelta(minutes=views.READYZ_META_QUEUE_MINUTES) - timedelta(minutes=1))
+        self.assertTrue(self.get().json()["meta_queue"])
+
+    @override_settings(META_EVENTS_ENABLED=True)
+    def test_meta_queue_old_queued_row_fails_and_is_503(self):
+        self._meta(MetaDelivery.QUEUED, timedelta(minutes=views.READYZ_META_QUEUE_MINUTES) + timedelta(minutes=1))
+        response = self.get()
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.json()["meta_queue"])
+
+    @override_settings(META_EVENTS_ENABLED=True)
+    def test_meta_queue_old_retrying_row_fails(self):
+        self._meta(MetaDelivery.RETRYING, timedelta(minutes=views.READYZ_META_QUEUE_MINUTES) + timedelta(minutes=1))
+        self.assertFalse(self.get().json()["meta_queue"])
+
+    @override_settings(META_EVENTS_ENABLED=True)
+    def test_meta_queue_old_finished_rows_are_true(self):
+        old = timedelta(minutes=views.READYZ_META_QUEUE_MINUTES) + timedelta(hours=1)
+        for outcome in (MetaDelivery.SENT, MetaDelivery.FAILED, MetaDelivery.EXPIRED):
+            self._meta(outcome, old)
+        self.assertTrue(self.get().json()["meta_queue"])
+
+    @override_settings(META_EVENTS_ENABLED=False)
+    def test_meta_queue_true_when_meta_disabled(self):
+        self._meta(MetaDelivery.QUEUED, timedelta(minutes=views.READYZ_META_QUEUE_MINUTES) + timedelta(hours=1))
+        self.assertTrue(self.get().json()["meta_queue"])
 
     def _emails(self, status, count, age=timedelta(minutes=1)):
         for _ in range(count):
