@@ -101,6 +101,27 @@ def blank_packs(sites, dry_run=False, *, ignore_switch=False, keep_files=False):
     return counts
 
 
+
+def _order_row(row, public_ids):
+    """An order as plain values. A Xendit order also carries how it was paid and Xendit's own ids
+    (our reference, the invoice id) and times; never the invoice page link, and no key or token
+    exists on an order at all."""
+    item = {
+        "site": public_ids[row.site_id], "id": row.public_id, "number": row.order_number,
+        "member": row.member.public_id, "buyer_name": row.buyer_name,
+        "delivery_address": row.delivery_address, "price_centavos": row.price_centavos,
+        "currency": row.currency, "status": row.payment_status,
+        "benefits_active_at": _iso(row.benefits_active_at), "verified_at": _iso(row.verified_at),
+        "policy_version": row.policy_version, "created_at": _iso(row.created_at),
+    }
+    if row.payment_method == "xendit":
+        item.update({
+            "payment_method": row.payment_method, "xendit_external_id": row.xendit_external_id,
+            "xendit_invoice_id": row.xendit_invoice_id, "xendit_expires_at": _iso(row.xendit_expires_at),
+            "paid_at": _iso(row.paid_at),
+        })
+    return item
+
 def export_packs_of(account):
     """The pack orders, proofs, registrations and page visits of the account's sites as plain values: no file
     key, no token, no row number. Reads only."""
@@ -128,17 +149,7 @@ def export_packs(sites):
             }
             for row in registrations
         ],
-        ORDERS: [
-            {
-                "site": public_ids[row.site_id], "id": row.public_id, "number": row.order_number,
-                "member": row.member.public_id, "buyer_name": row.buyer_name,
-                "delivery_address": row.delivery_address, "price_centavos": row.price_centavos,
-                "currency": row.currency, "status": row.payment_status,
-                "benefits_active_at": _iso(row.benefits_active_at), "verified_at": _iso(row.verified_at),
-                "policy_version": row.policy_version, "created_at": _iso(row.created_at),
-            }
-            for row in orders
-        ],
+        ORDERS: [_order_row(row, public_ids) for row in orders],
         # Live visits only (a row the 90-day rule or a purge deleted is gone). Never the visitor_ref (the
         # browser's token) or the row number; `order` is the same public id as in pack_orders, or None.
         VISITS: [

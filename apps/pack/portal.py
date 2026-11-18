@@ -212,7 +212,7 @@ def card(member, order):
         "created_at": order.created_at.isoformat(),
         "total_centavos": order.price_centavos,
         "total_text": f"{order.price_centavos / 100:,.2f}",
-        "payment_method_label": panels.METHOD_LABEL,
+        **panels.payment_facts(order),
         "payment_status": order.payment_status,
         "payment_label": dict(C.PAYMENT_STATUSES)[order.payment_status],
         "verified_at": _date(order.verified_at),

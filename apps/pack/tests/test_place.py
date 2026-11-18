@@ -23,7 +23,7 @@ from apps.pack.tests.base import (
 class PlaceTests(PackTestCase):
     def test_a_good_order_is_placed_pending_review_with_benefits_on(self):
         token, body = self.placed()
-        self.assertEqual(body, {"order_number": "SMP00001", "replay": False})
+        self.assertEqual(body, {"order_number": "SMP00001", "replay": False, "pay_url": None})
         order = PackOrder.objects.get()
         self.assertEqual(order.payment_status, C.PENDING_REVIEW)
         self.assertEqual(order.price_centavos, C.PRICE_CENTAVOS)
@@ -76,7 +76,7 @@ class PlaceTests(PackTestCase):
         token, first = self.placed()
         files = self.proof_files()
         replay = self.place(token)
-        self.assertEqual(replay.json(), {"order_number": first["order_number"], "replay": True})
+        self.assertEqual(replay.json(), {"order_number": first["order_number"], "replay": True, "pay_url": None})
         self.assertEqual(PackOrder.objects.count(), 1)
         self.assertEqual(self.proof_files(), files)
         self.assertEqual(len(mail.outbox), 2)

@@ -149,7 +149,11 @@ def _decision_email(decision_pk, texts, category):
     """The buyer's email for a decision, to the address typed at checkout, verified or not. The
     rejection names no reason: it shows after sign-in."""
     decision = PackProofDecision.objects.select_related("order__site", "order__member").get(pk=decision_pk)
-    order, member = decision.order, decision.order.member
+    return _order_email(decision.order, texts, category)
+
+
+def _order_email(order, texts, category):
+    member = order.member
     if not member.email:
         return None
     subject, body = texts
@@ -169,6 +173,13 @@ def proof_rejected(decision_pk):
 
 def payment_verified(decision_pk):
     return _decision_email(decision_pk, VERIFIED, "pack_verified")
+
+
+def payment_verified_order(order_pk):
+    """The same "payment verified" email (wording and category unchanged) for an order Xendit
+    confirmed, which has no review decision. Email only."""
+    order = PackOrder.objects.select_related("site", "member").get(pk=order_pk)
+    return _order_email(order, VERIFIED, "pack_verified")
 
 
 def _shipment_email(order_pk, texts, category, extra):
