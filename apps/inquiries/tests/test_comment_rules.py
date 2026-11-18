@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from apps.common.errors import ApiError
 from apps.inquiries import comment_automation as auto
+from apps.inquiries import comment_media
 from apps.inquiries import comment_limits as limits
 from apps.inquiries import comment_rules as rules
 from apps.inquiries import messenger, tasks
@@ -402,6 +403,10 @@ class MasterAndQueueCancelTests(RulesTestCase):
 class EvaluateTests(RulesTestCase):
     def setUp(self):
         super().setUp()
+        # The photo and post-text reads (comment_media) also use on_commit; these tests count only C2's callback.
+        patcher = mock.patch.object(comment_media, "schedule")
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.ready()
         self.master()
 
