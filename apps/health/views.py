@@ -29,6 +29,10 @@ SMS_QUEUE_MAX_AGE = timedelta(minutes=15)
 # down, a lost task) trips it.
 READYZ_META_QUEUE_MINUTES = 30
 READYZ_EMAIL_SAMPLE = 20  # newest email rows read by check_email
+# xendit_queue: an order may stay `awaiting_xendit` until apps.pack.xendit's window sweep expires it
+# (_past_window: READ_GRACE after the invoice expiry, INVOICELESS_EXPIRY + READ_GRACE after placement
+# with none), plus one reconcile tick and a margin for a slow or retried tick. Runbook xendit.md, Reconcile.
+XENDIT_RECONCILE_MARGIN = timedelta(minutes=15)  # on top of one tick; the tick is the beat entry "payments-xendit-reconcile"
 READYZ_LIMIT = (30, 60)  # attempts per IP per window (seconds)
 
 
@@ -121,6 +125,25 @@ def check_meta_queue():
         return False
 
 
+def check_xendit_queue():
+    """False when a Membership Pack order is still `awaiting_xendit` after the sweep should have
+    expired it: past the sweep window by one reconcile interval plus XENDIT_RECONCILE_MARGIN. True
+    while XENDIT_ENABLED is off. One query."""
+    if not settings.XENDIT_ENABLED:
+        return True
+    from apps.pack import constants as C, xendit
+    from apps.pack.models import PackOrder
+
+    try:
+        tick = timedelta(seconds=settings.CELERY_BEAT_SCHEDULE["payments-xendit-reconcile"]["schedule"])
+        cutoff = timezone.now() - tick - XENDIT_RECONCILE_MARGIN
+        return not PackOrder.objects.filter(payment_status=C.AWAITING_XENDIT).filter(
+            xendit._past_window(cutoff)
+        ).exists()
+    except Exception:
+        return False
+
+
 def check_email():
     """False when the newest emails inside the window are all failures: at least the threshold
     failed and none sent. One query by primary key (no index on created_at or status needed)."""
@@ -167,6 +190,7 @@ def readyz(request):
         "email": check_email(),
         "files_backup": check_files_backup(),
         "meta_queue": check_meta_queue(),
+        "xendit_queue": check_xendit_queue(),
     }
     ok = all(checks.values())
     return JsonResponse({"ok": ok, **checks}, status=200 if ok else 503)

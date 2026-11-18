@@ -61,6 +61,8 @@ A Santé site only: a site of another template cannot save a key (404) and reads
 
 Reads each awaiting order older than 15 minutes with its site's key and applies it as the webhook does. A 401 sets `key_failed_at` and emails the owner once; Xendit then is not offered until a new key is saved. An order with no invoice two hours after placement gets one last lookup, then expires. The window sweep expires an order one hour after its invoice expired (or three hours after placement with none), with or without a key; a late authenticated PAID still applies.
 
+`/readyz/` field `xendit_queue` goes false when an order stays awaiting past this window, so the uptime check alerts.
+
 ## Retention
 
 Account disposal wipes the key and token ciphertext (the row and its webhook key stay). Exports carry whether a key is saved, its mode and failure time, the order's provider ids and times; never a key, token, ciphertext, webhook key or invoice link. `XenditEvent` holds no personal data (ids, a body hash, an outcome) and is kept as the receipt.

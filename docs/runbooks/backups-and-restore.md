@@ -123,7 +123,7 @@ SmsMessage.objects.filter(status__in=("queued", "dispatched")).values("public_id
 
 ## 4. Readiness and the heartbeat
 
-`GET /readyz/` (`apps/health/views.py`), unauthenticated, beside `/healthz/`, which is unchanged (liveness only). It answers 200 or 503 with booleans only, for example `{"ok": true, "db": true, "cache": true, "beat": true, "sms_queue": true, "email": true, "files_backup": true, "meta_queue": true}`: no versions, counts, hosts or errors.
+`GET /readyz/` (`apps/health/views.py`), unauthenticated, beside `/healthz/`, which is unchanged (liveness only). It answers 200 or 503 with booleans only, for example `{"ok": true, "db": true, "cache": true, "beat": true, "sms_queue": true, "email": true, "files_backup": true, "meta_queue": true, "xendit_queue": true}`: no versions, counts, hosts or errors.
 
 | Field | True when |
 |---|---|
@@ -134,6 +134,7 @@ SmsMessage.objects.filter(status__in=("queued", "dispatched")).values("public_id
 | `email` | not (at least `READYZ_EMAIL_FAILURES` of the newest emails sent in the last `READYZ_EMAIL_WINDOW_MINUTES` failed and none sent). Defaults 3 failures and 30 minutes, both environment variables read in `config/settings.py`; change them in Railway without a code change. It reads the newest 20 `EmailMessage` rows by primary key (one query), ignores `pending`, and is true when there are no recent rows. The body says only `true` or `false`, never an address. |
 | `files_backup` | True while `FILE_BACKUP_ENABLED` is off (the field then builds and calls no client); it stays true on staging because the switch is off and the backup is not in use. Switched on, true while the last fully good backup run (no failure, no anomaly, every source file copied) is younger than `FILE_BACKUP_STALE_HOURS` (default 36). One cache read (`file_backup:last_ok`), no database query. Redis is not backed up, so after a Redis loss the field is false until the next daily run (at most a day; a false alarm, not a miss). A false field turns `/readyz/` into 503, which the uptime check emails. |
 | `meta_queue` | no Meta Conversions delivery (`MetaDelivery`) has been `queued` or `retrying` for more than 30 minutes (`READYZ_META_QUEUE_MINUTES` in `apps/health/views.py`, well above the normal span of about 12 minutes). Always true while `META_EVENTS_ENABLED` is off. One `.exists()` query. |
+| `xendit_queue` | no Membership Pack order is still `awaiting_xendit` after the sweep should have expired it (invoice expiry plus 1 hour, or 3 hours after placement with no invoice, plus one 15-minute reconcile tick and a 15-minute margin). True while `XENDIT_ENABLED` is off. One query. |
 
 It is limited to 30 calls a minute per client address (answers 429 `{"ok": false}`), using the last `X-Forwarded-For` entry. No migration, no variable, no new service.
 
