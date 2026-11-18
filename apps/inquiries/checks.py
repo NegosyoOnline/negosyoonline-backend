@@ -71,3 +71,16 @@ def check_messenger_dependencies(app_configs, **kwargs):
             id="inquiries.E005",
         ))
     return found
+
+
+@register(deploy=True)
+def check_comments_dependencies(app_configs, **kwargs):
+    if not settings.INQUIRY_COMMENTS_ENABLED:
+        return []
+    if settings.INQUIRY_MESSENGER_ENABLED and settings.INQUIRIES_ENABLED:
+        return []
+    return [Error(
+        "INQUIRY_COMMENTS_ENABLED is on but the Messenger inbox is not (INQUIRY_MESSENGER_ENABLED and INQUIRIES_ENABLED).",
+        hint="Comments arrive through the Messenger Page connection: turn the Messenger inbox on, or turn comments off.",
+        id="inquiries.E006",
+    )]

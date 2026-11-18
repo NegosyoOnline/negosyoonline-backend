@@ -13,8 +13,9 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.inquiries import crypto, limiter, live, messenger, outcomes, profile
+from apps.inquiries import comments, crypto, limiter, live, messenger, outcomes, profile
 from apps.inquiries.models import InquiryConnection, InquiryConversation, InquiryMessage, InquiryReply
+from apps.inquiries.switch import comment_tables_exist, comments_on
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,13 @@ def connection_out(site, account):
         "page_name": (row.label or None) if shown else None,
         "connected_at": row.updated_at.isoformat() if shown else None,
         "pick_pending": cache.get(pick_key(site, account)) is not None,
+        "comments_ready": comments_ready(site),
     }
+
+
+def comments_ready(site):
+    """True when comments are on and the site's Page was connected with the comments permissions."""
+    return comments_on() and comment_tables_exist() and comments.readiness(site)[1] == ""
 
 
 def unsubscribe_row(row):
@@ -75,6 +82,9 @@ def clear_connection(row, status):
     row.token_encrypted, row.status = "", status
     row.external_page_id = row.label = row.meta_user_id = ""
     row.save(update_fields=["token_encrypted", "status", "external_page_id", "label", "meta_user_id", "updated_at"])
+    if comment_tables_exist():  # the Page is gone: its feed subscription no longer counts
+        from apps.inquiries.models import InquiryCommentSettings
+        InquiryCommentSettings.objects.filter(site_id=row.site_id).update(feed_subscribed=False, page_id="")
 
 
 # -- incoming events --------------------------------------------------------------------------
@@ -279,6 +289,12 @@ def receive(payload):
         if len(connections) != 1:
             dropped["no_connection"] += len(messaging) + len(standby) or 1
             continue
+        changes = _events_of(entry, "changes")
+        if changes and comments_on() and comment_tables_exist():
+            try:
+                comments.receive(connections[0], page_id, changes, now)
+            except Exception as error:  # noqa: BLE001 - comments never fail the messaging events
+                logger.error("Comment changes not stored (%s)", type(error).__name__)
         for event in messaging:
             try:
                 if "delivery" in event or "read" in event:
@@ -416,6 +432,10 @@ def erase_user(meta_user_id):
     )
     ids = list(conversations.values_list("pk", flat=True))
     with transaction.atomic():
+        if comment_tables_exist():  # the comments on the user's Pages go with their messages
+            from apps.inquiries.models import InquiryComment, InquiryPost
+            InquiryComment.objects.filter(connection__in=[c.pk for c in connections]).delete()
+            InquiryPost.objects.filter(connection__in=[c.pk for c in connections]).delete()
         InquiryMessage.objects.filter(conversation_id__in=ids).delete()
         InquiryConversation.objects.filter(pk__in=ids, replies__isnull=True).delete()
         InquiryConversation.objects.filter(pk__in=ids).update(

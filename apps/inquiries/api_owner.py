@@ -1,12 +1,15 @@
 """The Subscriber's customer inquiries, under /v1/sites/{site_id}/inquiries/:
 
-    GET    .../conversations/?stored_cursor=&q=&status=&unread= -> {items, stored_next_cursor, unread_total}
+    GET    .../conversations/?stored_cursor=&q=&status=&unread=&answered= -> {items, stored_next_cursor, unread_total}
                                                  (`q`: 2 to 80 characters, else 422 `invalid_query`; matches the name,
                                                  contact email or any message text of this site's conversations)
                                                  (`status`: `open` or `closed` keeps only those; missing or empty is all,
                                                  anything else 422 `invalid_status`; `unread_total` is never filtered)
                                                  (`unread`: `1` keeps only unread, `0` only read; missing or empty is all,
                                                  anything else 422 `invalid_unread`; combines with `q` and `status`)
+                                                 (`answered`: `answered` or `unanswered` filters, `all` or empty is all, else 422
+                                                 `invalid_answered`; every item has `answered`: latest message is the store's and
+                                                 not failed or bounced)
     GET    .../unread/                          -> {count}  (this site's unread conversations)
     GET    .../conversations/{ref}/             -> the thread, whether a reply may be sent, the replies sent
     POST   .../conversations/{ref}/reply/       {text, idempotency_key} -> {state, error_code, created_at}
@@ -47,7 +50,7 @@ from apps.sites import templates
 from apps.sites.api import _owner_site
 from apps.sites.services import site_for
 
-WRITE_LIMIT, READ_LIMIT, REPLY_LIMIT, WINDOW = 20, 600, 120, 3600  # per account per hour
+WRITE_LIMIT, READ_LIMIT, REPLY_LIMIT, WINDOW = 20, 1200, 120, 3600  # per account per hour
 MAX_REPLY = 2000
 REF_RE = re.compile(r"^[A-Za-z0-9_.:-]{3,128}$")
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
@@ -100,7 +103,8 @@ def _stored_on():
 
 @router.get("/sites/{site_id}/inquiries/conversations/")
 def conversations(request, site_id: str, stored_cursor: str | None = None, q: str | None = None,
-                  status: str | None = None, unread: str | None = None):
+                  status: str | None = None, unread: str | None = None,
+                  answered: str | None = None):
     hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
     if stored_cursor and not stored.STORED_CURSOR_RE.match(stored_cursor):
         raise _invalid("stored_cursor", "That cursor does not look right.")
@@ -116,11 +120,15 @@ def conversations(request, site_id: str, stored_cursor: str | None = None, q: st
     if unread not in (None, "", "1", "0"):
         message = "Unread must be 1 or 0."
         raise ApiError("invalid_unread", message, status=422, fields={"unread": [message]})
+    if answered not in (None, "", "all", "answered", "unanswered"):
+        message = "Answered must be all, answered or unanswered."
+        raise ApiError("invalid_answered", message, status=422, fields={"answered": [message]})
     if not _stored_on():
         return {"items": [], "stored_next_cursor": None, "unread_total": 0}
     site = request.inquiry_site
     items, next_cursor = stored.list_items(site, after=stored_cursor or None, query=query, status=status or None,
-                                           unread=None if not unread else unread == "1")
+                                           unread=None if not unread else unread == "1",
+                                           answered=None if answered in (None, "", "all") else answered == "answered")
     return {"items": items, "stored_next_cursor": next_cursor, "unread_total": stored.unread_count(site)}
 
 

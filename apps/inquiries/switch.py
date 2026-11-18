@@ -31,6 +31,22 @@ def messenger_on():
     return bool(settings.INQUIRY_MESSENGER_ENABLED and settings.INQUIRIES_ENABLED)
 
 
+def comments_on():
+    """INQUIRY_COMMENTS_ENABLED: Facebook Page comments. Only while the Messenger inbox is on too."""
+    return bool(settings.INQUIRY_COMMENTS_ENABLED and messenger_on())
+
+
+COMMENT_TABLES = ("inquiries_inquirypost", "inquiries_inquirycomment", "inquiries_inquirycommentaction",
+                  "inquiries_inquirycommentsettings")
+
+
+def comment_tables_exist():
+    """True once inquiries.0006 (the comment tables) is applied. The code is released before its
+    migration, so everything that touches those tables, even to delete, asks this first."""
+    names = connection.introspection.table_names()
+    return CONNECTION_TABLE in names and all(table in names for table in COMMENT_TABLES)
+
+
 def tables_exist():
     """True once inquiries.0001 is applied to this database. The code is released before its
     tables are created, so everything that must work with the switch off asks this first."""

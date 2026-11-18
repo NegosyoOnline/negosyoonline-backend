@@ -524,7 +524,7 @@ class ConnectTests(MessengerTestCase):
     def test_connection_shape_for_active_and_invalid(self):
         row = self.connect_row()
         body = self.get(self.base + "connection/").json()
-        self.assertEqual(set(body), {"status", "page_id", "page_name", "connected_at", "pick_pending"})
+        self.assertEqual(set(body), {"status", "page_id", "page_name", "connected_at", "pick_pending", "comments_ready"})
         self.assertEqual((body["status"], body["page_id"], body["page_name"]), ("active", PAGE_A, "Ana Store Page"))
         row.status = "invalid"
         row.save()

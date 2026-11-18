@@ -21,6 +21,7 @@ from apps.invoices import services as invoice_services
 from apps.invoices.tests.test_scans import MemoryScanStore
 from apps.members import recovery
 from apps.members.models import Member, MemberNotice
+from apps.inquiries.models import InquiryComment, InquiryConnection, InquiryPost
 from apps.inquiries.tests import base as inquiries_base
 from apps.meta_ads.tests.base import CODE, KEY, PIXEL, TOKEN, FakeMeta, configure
 from apps.pack import constants as PACK
@@ -209,6 +210,15 @@ OWNER_ROUTES = {
     ("DELETE", "/sites/{site_id}/inquiries/messenger/connection/"): 204,
     ("GET", "/sites/{site_id}/inquiries/messenger/pages/"): 410,  # no pick list yet
     ("POST", "/sites/{site_id}/inquiries/messenger/connect/"): 410,
+    # Facebook comments (needs INQUIRY_COMMENTS_ENABLED too). The fixture Page has no token, so a send
+    # is refused as 409 `reconnect` before any call to Meta.
+    ("GET", "/sites/{site_id}/inquiries/comments/"): 200,
+    ("GET", "/sites/{site_id}/inquiries/comments/status/"): 200,
+    ("GET", "/sites/{site_id}/inquiries/comments/{ref}/"): 200,
+    ("POST", "/sites/{site_id}/inquiries/comments/{ref}/read/"): 200,
+    ("POST", "/sites/{site_id}/inquiries/comments/{ref}/reply/"): 409,
+    ("POST", "/sites/{site_id}/inquiries/comments/{ref}/private-reply/"): 409,
+    ("POST", "/sites/{site_id}/inquiries/comments/{ref}/hide/"): 409,
     # last: a cancelled trial is Billing-only, so every route called after it would answer 403
     ("POST", "/sites/{site_id}/billing/cancel/"): 200,
 }
@@ -268,7 +278,7 @@ def child_variants(template, own, foreign):
     MEMBERS_ENABLED=True, PACK_SHIPPING_ENABLED=True, BILLING_STATEMENTS_ENABLED=True,
     META_CREDENTIALS_KEY=KEY, INQUIRIES_ENABLED=True, INQUIRIES_CREDENTIALS_KEY=inquiries_base.KEY,
     INQUIRY_MESSENGER_ENABLED=True, META_MESSENGER_APP_ID="123456", META_MESSENGER_APP_SECRET="test-secret",
-    MESSENGER_VERIFY_TOKEN="test-verify",
+    MESSENGER_VERIFY_TOKEN="test-verify", INQUIRY_COMMENTS_ENABLED=True,
 )
 class TwoOwnersTestCase(SitesApiTestCase):
     """Ana (self.client, self.site) and Ben (self.ben, self.ben_site), each with a Santé site and
@@ -325,12 +335,24 @@ class TwoOwnersTestCase(SitesApiTestCase):
         configure(self.ben_site)
         self.ana_chat = inquiries_base.make_stored(self.site)
         self.ben_chat = inquiries_base.make_stored(self.ben_site, ref=BEN_WC_REF, name="Ben's Visitor")
+        self.ana_comment = self.make_comment(self.site, "100000000000001")
+        self.ben_comment = self.make_comment(self.ben_site, "100000000000002")
         for ids in (self.ben_ids, self.ben_shop_ids):
             ids["ref"] = BEN_WC_REF
         mail.outbox.clear()
         self.meta.requests.clear()
 
     # children ---------------------------------------------------------------
+    def make_comment(self, site, page_id):
+        """A Facebook comment of this site on a Page with no token (so a send is refused, never made)."""
+        connection = InquiryConnection.objects.create(
+            site=site, provider="messenger", status="active", external_page_id=page_id)
+        post = InquiryPost.objects.create(site=site, connection=connection, external_id=f"{page_id}_1")
+        return InquiryComment.objects.create(
+            site=site, connection=connection, post=post, external_id=f"{page_id}_2", parent_external_id=post.external_id,
+            author_name="Fixture commenter", text="Fixture comment",
+        )
+
     def make_invoice_copy(self, site):
         """A paid sale of this site with a verified invoice scan: the id of its register item. The item is
         written directly, so the subscription itself is not touched."""
@@ -446,7 +468,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
         if "/media/" in template:  # made anew: the delete uses it up, and a video route needs a video
             ids.update(self.make_media(self.site, video="/video/" in template))
         if "{ref}" in template:
-            ids["ref"] = inquiries_base.WC_REF  # Ana's website-chat conversation
+            # Ana's website-chat conversation, or her Facebook comment on a comments route
+            ids["ref"] = self.ana_comment.ref if "/comments/" in template else inquiries_base.WC_REF
         if "{invoice_id}" in template:
             ids["invoice_id"] = self.invoice_ids[self.site.pk]
         if "{number}" in template:
@@ -462,8 +485,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
     def foreign_ids(self, template):
         """Ben's children for the placeholders this route has (a shop route gets his shop order)."""
         ids = self.ben_shop_ids if "/shop/" in template else self.ben_ids
-        if "{ref}" in template:  # an inquiries route: Ben's website chat
-            return {**ids, "ref": BEN_WC_REF}
+        if "{ref}" in template:  # an inquiries route: Ben's website chat, or his Facebook comment
+            return {**ids, "ref": self.ben_comment.ref if "/comments/" in template else BEN_WC_REF}
         return ids
 
     # calling a route --------------------------------------------------------
@@ -613,7 +636,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return {"webchat_enabled": True}
         if template.endswith("/messenger/connect/"):
             return {"page_id": "100000000000001"}
-        if template.endswith("/reply/"):
+        if template.endswith(("/reply/", "/private-reply/")):
             self.creates += 1
             return {"text": "Fixture reply", "idempotency_key": f"fixture-key-{self.creates:06d}"}
         return None

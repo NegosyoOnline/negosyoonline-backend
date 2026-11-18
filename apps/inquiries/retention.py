@@ -12,15 +12,17 @@ from django.db.models import Q
 from apps.common import retention
 from apps.inquiries import profile
 from apps.inquiries.models import (
-    InquiryChannelSettings, InquiryConnection, InquiryConversation, InquiryMessage, InquiryReply,
+    InquiryChannelSettings, InquiryComment, InquiryCommentSettings, InquiryConnection, InquiryConversation,
+    InquiryMessage, InquiryPost, InquiryReply,
 )
 from apps.notifications.models import EmailMessage
-from apps.inquiries.switch import inquiries_on, stored_tables_exist, tables_exist
+from apps.inquiries.switch import comment_tables_exist, inquiries_on, stored_tables_exist, tables_exist
 from apps.sites.models import Site
 
 REPLY_RETENTION = timedelta(days=365)
 # Code only: the Privacy wording for it (D1) is still open. Counted from the last message.
 MESSAGE_RETENTION = timedelta(days=180)
+COMMENT_RETENTION = timedelta(days=180)  # counted from the comment's time (Meta's created_time)
 
 # The personal fields of a stored conversation, blanked together.
 PERSONAL = ("display_name", "contact_name", "contact_email", "visitor_hash", "thread_token", "psid")
@@ -71,6 +73,24 @@ def old_messages(now, dry_run):
     return count
 
 
+@retention.behind_switch
+def old_comments(now, dry_run):
+    """Delete Facebook comments 180 days after they were made (with their action rows), then the
+    posts that no longer have a comment. No INQUIRIES_ENABLED gate: this rule only deletes."""
+    if not comment_tables_exist():
+        return 0
+    cutoff = now - COMMENT_RETENTION
+    comments = InquiryComment.objects.filter(created_at__lte=cutoff)
+    # posts left with no comment once the old ones are gone (and old enough themselves)
+    posts = InquiryPost.objects.filter(created_at__lte=cutoff).exclude(comments__created_at__gt=cutoff)
+    count = comments.count() + posts.count()
+    if dry_run:
+        return count
+    comments.delete()
+    posts.delete()
+    return count
+
+
 EMAIL_CATEGORY = "inquiry_reply"  # the category of an email reply (stored.EMAIL_CATEGORY)
 
 
@@ -87,6 +107,7 @@ def old_email_records(now, dry_run):
 retention.register("inquiry_replies", old_replies)
 retention.register("inquiry_messages", old_messages)
 retention.register("inquiry_email_records", old_email_records)
+retention.register("inquiry_comments", old_comments)
 
 
 # -- account disposal (called by apps.accounts.retention) ---------------------------------------
@@ -94,6 +115,7 @@ retention.register("inquiry_email_records", old_email_records)
 CONNECTIONS, CONVERSATIONS = "inquiry_connections", "inquiry_conversations"
 MESSAGES, CHANNELS = "inquiry_messages", "inquiry_channel_settings"
 EMAIL_RECORDS = "inquiry_email_records"
+COMMENTS = "inquiry_comments"
 
 
 def blanked():
@@ -104,6 +126,7 @@ def blanked():
         CONVERSATIONS: list(PERSONAL),
         MESSAGES: ["all rows deleted"],
         EMAIL_RECORDS: ["inquiry_reply rows to the sites' customers deleted"],
+        COMMENTS: ["all comment, post and comment-action rows deleted"],
         CHANNELS: ["email_route_token", "webchat_enabled", "email_enabled", "paused_until"],
     }
 
@@ -138,9 +161,19 @@ def blank_inquiries(sites, dry_run=False):
         )
         email_records = EmailMessage.objects.filter(category=EMAIL_CATEGORY, recipient__in=addresses)
         counts.update({MESSAGES: messages.count(), CHANNELS: channels.count(), EMAIL_RECORDS: email_records.count()})
+    comment_rows = None
+    if comment_tables_exist():
+        comment_rows = InquiryComment.objects.filter(site__in=sites)
+        found = comment_rows.count()
+        if found:  # a site with no comments keeps the report's shape as it was
+            counts[COMMENTS] = found
     if not any(counts.values()):
         return {}
     if not dry_run:
+        if comment_rows is not None:
+            comment_rows.delete()
+            InquiryPost.objects.filter(site__in=sites).delete()
+            InquiryCommentSettings.objects.filter(site__in=sites).update(feed_subscribed=False, page_id="")
         connections.update(token_encrypted="", status=InquiryConnection.UNSET)
         if stored:
             # A Messenger Page leaves the site with its token (D5 frees it for another site).
