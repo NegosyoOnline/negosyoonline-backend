@@ -15,7 +15,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.inquiries import crypto, limiter, messenger, outcomes
+from apps.inquiries import comment_media, crypto, limiter, messenger, outcomes
 from apps.inquiries.models import (
     InquiryComment, InquiryCommentAction, InquiryCommentSettings, InquiryConnection, InquiryPost,
 )
@@ -152,6 +152,7 @@ def _remove(comment):
     )
     InquiryCommentAction.objects.filter(comment=comment).update(text="")  # the owner's private message text
     cancel_queued(comment)
+    comment_media.forget([comment.pk])  # the cached photo of a removed comment goes at once
 
 
 def _store(connection, page_id, value, now):
@@ -198,7 +199,7 @@ def _store(connection, page_id, value, now):
     try:
         with transaction.atomic():
             post = _post(connection, post_id, value.get("post"))
-            InquiryComment.objects.create(
+            created = InquiryComment.objects.create(
                 site=site, connection=connection, post=post, external_id=comment_id, parent_external_id=parent,
                 author_psid="" if is_page else author_id, author_name=name, is_page=is_page, text=text,
                 unread=not is_page, created_at=at, received_at=now,
@@ -207,6 +208,7 @@ def _store(connection, page_id, value, now):
                 InquiryComment.objects.filter(
                     site=site, external_id=parent, public_reply_at__isnull=True,
                 ).update(public_reply_at=at)
+            comment_media.schedule(created, post)  # the photo, and the post text when missing, after commit
     except IntegrityError:  # the same comment arrived twice at once
         return DUPLICATE
     return STORED
@@ -275,7 +277,7 @@ def _reasons(comment, base, now):
     return base, private, hide
 
 
-def item_out(comment, base_reason, now=None):
+def item_out(comment, base_reason, now=None, avatar_url=None):
     now = now or timezone.now()
     public, private, hide = _reasons(comment, base_reason, now)
     post = comment.post
@@ -283,6 +285,7 @@ def item_out(comment, base_reason, now=None):
     return {
         "ref": comment.ref,
         "author_name": comment.author_name or ANONYMOUS,
+        "avatar_url": avatar_url,
         "text": comment.text,
         "created_at": comment.created_at.isoformat(),
         "unread": comment.unread,
@@ -326,7 +329,8 @@ def list_items(site, *, scope="all", answered="all", unread=None, query=None, cu
     more, rows = len(rows) > limit, rows[:limit]
     _, reason = readiness(site)
     now = timezone.now()
-    return [item_out(c, reason, now) for c in rows], (cursor_of(rows[-1]) if more else None)
+    photos = comment_media.avatar_urls(c.pk for c in rows)
+    return [item_out(c, reason, now, photos[c.pk]) for c in rows], (cursor_of(rows[-1]) if more else None)
 
 
 def find(site, ref, *, removed=False):
@@ -342,7 +346,7 @@ def detail(site, ref):
     if comment is None:
         return None
     _, reason = readiness(site)
-    out = item_out(comment, reason)
+    out = item_out(comment, reason, avatar_url=comment_media.avatar_urls([comment.pk])[comment.pk])
     children = InquiryComment.objects.filter(
         site=site, post=comment.post, parent_external_id=comment.external_id, removed=False,
     ).order_by("created_at", "pk")[:REPLIES_LIMIT]
@@ -382,7 +386,7 @@ def mark_read(site, ref):
         InquiryComment.objects.filter(pk=comment.pk).update(unread=False)
         comment.unread = False
     _, reason = readiness(site)
-    return item_out(comment, reason)
+    return item_out(comment, reason, avatar_url=comment_media.avatar_urls([comment.pk])[comment.pk])
 
 
 # -- the owner's actions ------------------------------------------------------------------------
@@ -398,7 +402,7 @@ def _result(action, comment):
     _, reason = readiness(comment.site)
     return {
         "state": action.state, "error_code": action.error_code, "created_at": action.created_at.isoformat(),
-        "comment": item_out(comment, reason),
+        "comment": item_out(comment, reason, avatar_url=comment_media.avatar_urls([comment.pk])[comment.pk]),
     }
 
 

@@ -46,7 +46,7 @@ class CommentMeta(FakeMeta):
         self.comment_error = None
         self.replied = 0
 
-    def __call__(self, method, path, *, params=None, form=None, token=None):
+    def __call__(self, method, path, *, params=None, form=None, token=None, timeout=None):
         if path.endswith("/comments") or (method == "POST" and path.count("/") == 1 and "_" in path):
             self.calls.append((method, path, params or {}, form or {}, token))
             if self.comment_error:
@@ -276,7 +276,7 @@ class ListAndDetailTests(CommentsTestCase):
         body = self.get(self.base).json()
         self.assertEqual((body["next_cursor"], body["unread_total"]), (None, 1))
         item = body["items"][0]
-        self.assertEqual(set(item), {"ref", "author_name", "text", "created_at", "unread", "answered", "hidden",
+        self.assertEqual(set(item), {"ref", "author_name", "avatar_url", "text", "created_at", "unread", "answered", "hidden",
                                      "is_reply", "post", "public_reply", "private_reply", "hide"})
         self.assertEqual(item["post"], {"id": POST, "is_ad": False, "permalink": f"https://www.facebook.com/{POST}", "caption": "Mangoes"})
         self.assertEqual(item["public_reply"], {"available": True, "reason": "", "replied_at": None})

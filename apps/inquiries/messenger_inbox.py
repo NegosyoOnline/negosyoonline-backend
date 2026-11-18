@@ -13,7 +13,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.inquiries import comments, crypto, limiter, live, messenger, outcomes, profile
+from apps.inquiries import comment_media, comments, crypto, limiter, live, messenger, outcomes, profile
 from apps.inquiries.models import InquiryConnection, InquiryConversation, InquiryMessage, InquiryReply
 from apps.inquiries.switch import comment_tables_exist, comments_on
 
@@ -83,7 +83,8 @@ def clear_connection(row, status):
     row.external_page_id = row.label = row.meta_user_id = ""
     row.save(update_fields=["token_encrypted", "status", "external_page_id", "label", "meta_user_id", "updated_at"])
     if comment_tables_exist():  # the Page is gone: its feed subscription no longer counts
-        from apps.inquiries.models import InquiryCommentSettings
+        from apps.inquiries.models import InquiryComment, InquiryCommentSettings
+        comment_media.forget(list(InquiryComment.objects.filter(connection=row).values_list("pk", flat=True)))
         InquiryCommentSettings.objects.filter(site_id=row.site_id).update(feed_subscribed=False, page_id="")
 
 
@@ -434,7 +435,9 @@ def erase_user(meta_user_id):
     with transaction.atomic():
         if comment_tables_exist():  # the comments on the user's Pages go with their messages
             from apps.inquiries.models import InquiryComment, InquiryPost
-            InquiryComment.objects.filter(connection__in=[c.pk for c in connections]).delete()
+            doomed = InquiryComment.objects.filter(connection__in=[c.pk for c in connections])
+            comment_media.forget(list(doomed.values_list("pk", flat=True)))  # the cached photos go too
+            doomed.delete()
             InquiryPost.objects.filter(connection__in=[c.pk for c in connections]).delete()
         InquiryMessage.objects.filter(conversation_id__in=ids).delete()
         InquiryConversation.objects.filter(pk__in=ids, replies__isnull=True).delete()
