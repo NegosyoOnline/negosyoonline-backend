@@ -21,7 +21,7 @@ from apps.sante.tests.base import retemplate
 from apps.storefront.tests.base import HOST, NOT_FOUND, SurfaceTestCase
 
 PACK = "/storefront/v1/pack/"
-KEYS = {"price_centavos", "currency", "available", "agreement", "payment_accounts"}
+KEYS = {"price_centavos", "currency", "methods", "available", "agreement", "payment_accounts"}
 
 
 @override_settings(SANTE_AGREEMENT_ENABLED=True)

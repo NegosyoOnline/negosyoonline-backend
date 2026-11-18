@@ -12,9 +12,9 @@ after the 404 check.
 Both checks run in the router's sign-in step, which comes before the body is read: a body
 sent to a site that is not the caller's is never looked at.
 
-Xendit is hidden (Coach Ed, 2026-11-11): there is no route for its key, the read shows it as
-not set up and off, and the PATCH refuses to switch it on. An account is named by its public
-id.
+Xendit (Coach Ed, 2026-11-18): the owner's key routes are in api_xendit.py. While Xendit is not
+offered (platform switch XENDIT_ENABLED off, or a site that is not a Santé site) the read shows it
+as not set up and off, and the PATCH refuses to switch it on. An account is named by its public id.
 """
 from ninja import Router, Schema
 from pydantic import ConfigDict, StrictBool
@@ -56,13 +56,19 @@ class MethodsPatch(StrictSchema):
     xendit_enabled: StrictBool | None = None
 
 
+def _api_base(request):
+    """The API's own address as this request reached it (the host is validated by ALLOWED_HOSTS):
+    the webhook URL the owner sets in Xendit is built from it."""
+    return request.build_absolute_uri("/")
+
+
 def _count_write(request):
     hit("payment-methods-write", request.account.pk, limit=WRITE_LIMIT, window=WRITE_WINDOW)
 
 
 @router.get("/sites/{site_id}/payment-methods/")
 def payment_methods_detail(request, site_id: str):
-    return services.settings_out(request.payment_site)
+    return services.settings_out(request.payment_site, _api_base(request))
 
 
 @router.patch("/sites/{site_id}/payment-methods/")
@@ -74,7 +80,7 @@ def payment_methods_update(request, site_id: str, payload: MethodsPatch):
     services.set_enabled(
         request.account, site, direct=payload.direct_enabled, xendit=payload.xendit_enabled
     )
-    return services.settings_out(site)
+    return services.settings_out(site, _api_base(request))
 
 
 @router.post("/sites/{site_id}/payment-methods/accounts/", response={201: dict})

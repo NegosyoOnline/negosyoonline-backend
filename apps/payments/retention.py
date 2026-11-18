@@ -5,11 +5,12 @@ here answers empty and reads no payment table.
 """
 from apps.common import private_files
 from apps.payments import services
-from apps.payments.models import SitePaymentAccount, SitePaymentSettings
+from apps.payments.models import SitePaymentAccount, SitePaymentSettings, SiteXenditCredential
 from apps.sites.models import Site
 
 ACCOUNTS, SETTINGS = "site_payment_accounts", "site_payment_settings"
 QR_FILES = "site_payment_qr_files"
+XENDIT_KEYS = "site_xendit_credentials"
 ACCOUNT_PERSONAL = ("account_name", "account_number", "qr_file_key")
 
 
@@ -43,8 +44,14 @@ def blank_payments(sites, now, dry_run=False, *, ignore_switch=False):
         return {}
     accounts = SitePaymentAccount.objects.filter(site__in=sites)
     keys = list(accounts.exclude(qr_file_key="").values_list("qr_file_key", flat=True))
+    credentials = SiteXenditCredential.objects.filter(site__in=sites)
+    holding = credentials.exclude(api_key_ciphertext="", webhook_token_ciphertext="")
     counts = {ACCOUNTS: accounts.count(), QR_FILES: len(keys)}
+    if credentials.exists():
+        counts[XENDIT_KEYS] = holding.count()
     if not dry_run:
+        # The owner's own Xendit key and token are wiped on disposal; the row and its webhook key stay.
+        holding.update(api_key_ciphertext="", webhook_token_ciphertext="", key_mode="")
         for key in keys:
             private_files.delete(key)
         accounts.filter(removed_at__isnull=True).update(removed_at=now)
@@ -53,11 +60,23 @@ def blank_payments(sites, now, dry_run=False, *, ignore_switch=False):
 
 
 def export_payments_of(account):
-    """The payment rows of the account's sites as plain values. Reads only."""
+    """The payment rows of the account's sites as plain values. Reads only. The Xendit parts appear
+    only where a site has them: `xendit_enabled` on a settings row that switched it on, and the
+    `site_xendit_credentials` list when a key row exists. Never the key, the token or their ciphertext."""
     if not services.enabled():
         return {}
     public_ids = dict(Site.objects.filter(account=account).values_list("pk", "public_id"))
-    return {
+    settings_rows = []
+    for row in SitePaymentSettings.objects.filter(site__account=account).order_by("pk"):
+        item = {
+            "site": public_ids[row.site_id],
+            "direct_enabled": row.direct_enabled,
+            "updated_at": _iso(row.updated_at),
+        }
+        if row.xendit_enabled:
+            item["xendit_enabled"] = True
+        settings_rows.append(item)
+    out = {
         ACCOUNTS: [
             {
                 "site": public_ids[row.site_id],
@@ -73,12 +92,15 @@ def export_payments_of(account):
             }
             for row in SitePaymentAccount.objects.filter(site__account=account).order_by("pk")
         ],
-        SETTINGS: [
-            {
-                "site": public_ids[row.site_id],
-                "direct_enabled": row.direct_enabled,
-                "updated_at": _iso(row.updated_at),
-            }
-            for row in SitePaymentSettings.objects.filter(site__account=account).order_by("pk")
-        ],
+        SETTINGS: settings_rows,
     }
+    credentials = list(SiteXenditCredential.objects.filter(site__account=account).order_by("pk"))
+    if credentials:
+        out[XENDIT_KEYS] = [
+            {
+                "site": public_ids[row.site_id], "configured": row.configured, "key_mode": row.key_mode,
+                "key_failed_at": _iso(row.key_failed_at), "updated_at": _iso(row.updated_at),
+            }
+            for row in credentials
+        ]
+    return out

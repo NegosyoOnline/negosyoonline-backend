@@ -94,8 +94,27 @@ def mobile_check(member):
     return {"pending": True, "mobile": member.mobile, "code_sent_to": ch.target if ch is not None else ""}
 
 
-PACK_TONES = {"pending_review": "rev", "rejected": "att", "verified": "ok"}
-METHOD_LABEL = "Bank or e-wallet transfer"
+PACK_TONES = {
+    "pending_review": "rev", "rejected": "att", "verified": "ok", "awaiting_xendit": "rev",
+    "xendit_expired": "att", "xendit_mismatch": "rev",
+}
+METHOD_LABEL = C.METHOD_LABELS[C.PAYMENT_METHOD]
+
+
+def method_label(order):
+    return C.METHOD_LABELS.get(order.payment_method, METHOD_LABEL)
+
+
+def payment_facts(order):
+    """The fields every member-facing order carries for a Xendit-capable order: the method, the
+    order's own invoice URL while it can still be paid (never a browser-supplied one), when Xendit
+    confirmed it, and the server's amount."""
+    from apps.pack import xendit
+    return {
+        "payment_method": order.payment_method, "payment_method_label": method_label(order),
+        "pay_url": xendit.continue_url(order), "paid_at": order.paid_at.isoformat() if order.paid_at else None,
+        "currency": order.currency,
+    }
 
 
 def _lock(order):
@@ -120,8 +139,8 @@ def pack_panel(member):
         return None
     return {
         "order_number": order.order_number, "payment_status": order.payment_status,
-        "payment_label": dict(C.PAYMENT_STATUSES)[order.payment_status], "method_label": METHOD_LABEL,
-        "price_centavos": order.price_centavos, "tone": PACK_TONES.get(order.payment_status, "rev"),
+        "payment_label": dict(C.PAYMENT_STATUSES)[order.payment_status], "method_label": method_label(order),
+        **payment_facts(order), "price_centavos": order.price_centavos, "tone": PACK_TONES.get(order.payment_status, "rev"),
         "lock": _lock(order), "benefits_off": not interfaces.benefits_active(member),
         "proofs": [
             {

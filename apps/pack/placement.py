@@ -1,9 +1,11 @@
-"""Pack placement, TWCinc `place_pack_order` steps 1-12 without Xendit and without a billing
-meter (port of negosyoonline_sante_pack/placement.py).
+"""Pack placement, TWCinc `place_pack_order` steps 1-12 without a billing meter (port of
+negosyoonline_sante_pack/placement.py).
 
 One transaction under the Site row lock, keyed by UniqueConstraint(site, idempotency_key): a
-replay returns the first result and writes nothing. The order exists only with its first proof,
-benefits are on from placement, status pending_review. Amounts are the server's constants; nothing
+replay returns the first result and writes nothing. Direct: the order exists only with its first
+proof, benefits are on from placement, status pending_review. Xendit (Coach Ed, 2026-11-18): the
+order is awaiting_xendit with benefits off and no registration yet; the hosted invoice is created
+after commit with the site's own key (apps.pack.xendit). Amounts are the server's constants; nothing
 posted except the proof fields is read. The proof file is stored BEFORE the transaction and
 discarded on any rollback."""
 import hashlib
@@ -21,7 +23,7 @@ from apps.members.models import MemberOtpChallenge
 from apps.members.otp import binding_hash
 from apps.meta_ads import services as meta_ads
 from apps.payments import services as payments
-from apps.pack import checkout, constants as C, notices, policies, portal, proofs, records, registration
+from apps.pack import checkout, constants as C, notices, policies, portal, proofs, records, registration, xendit
 from apps.pack.models import CheckoutToken, PackOrder
 from apps.sites.models import Site
 
@@ -83,18 +85,21 @@ def _member(site, token, raw):
     )
 
 
-def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip=None, meta=None):
+def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip=None, meta=None, pay_method=C.PAYMENT_METHOD):
     key = idempotency_key(token, submit_key)
     first = _replay(site, key)
     if first is not None:
         return Placed(first, True)
+    if pay_method not in C.METHODS:
+        raise ApiError("method_unavailable", C.MSG_PAYMENT_UNAVAILABLE, status=409)  # never COD
     portal.require_sale_open()  # L45, before any file is stored
     if not token.pending_contact:
         raise ApiError("no_contact", C.MSG_NO_CONTACT, status=409)
     records.require_current(token)  # a held agreement only; before any file is stored, so a refused order leaves nothing behind
     records.require_enrollment(token)
-    proof = proofs.clean(site, data or {}, upload)
-    file_key = _store(site, proof)
+    by_xendit = pay_method == C.XENDIT
+    proof = None if by_xendit else proofs.clean(site, data or {}, upload)
+    file_key = "" if by_xendit else _store(site, proof)
     try:
         with transaction.atomic():
             locked = Site.objects.select_for_update().get(pk=site.pk)
@@ -106,9 +111,13 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
                 # The storefront's own refusal, asked again under the lock: a request that passed it
                 # and then lost service (sweep, cancellation, due date, operator hold) creates nothing.
                 raise ApiError("not_found", "Not found.", status=404)
-            if not payments.any_method(locked) or not payments.active_accounts(locked).filter(
-                pk=proof.account.pk
-            ).exists():
+            if by_xendit:
+                usable = payments.methods_available(locked)["xendit"]
+            else:
+                usable = payments.any_method(locked) and payments.active_accounts(locked).filter(
+                    pk=proof.account.pk
+                ).exists()
+            if not usable:
                 raise ApiError("method_unavailable", C.MSG_PAYMENT_UNAVAILABLE, status=409)
             tok = CheckoutToken.objects.select_for_update().get(pk=token.pk, site=locked)
             if tok.order_ref:
@@ -120,27 +129,37 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
             order = PackOrder.objects.create(
                 site=locked, member=member, order_number=_next_number(locked),
                 price_centavos=C.PRICE_CENTAVOS, buyer_name=tok.pending_contact["full_name"],
-                delivery_address=tok.pending_contact["delivery_address"],
-                payment_status=C.PENDING_REVIEW, benefits_active_at=now, idempotency_key=key,
+                delivery_address=tok.pending_contact["delivery_address"], payment_method=pay_method,
+                payment_status=C.AWAITING_XENDIT if by_xendit else C.PENDING_REVIEW,
+                benefits_active_at=None if by_xendit else now, idempotency_key=key,
                 policy_version=_policy_version(locked),
+                xendit_external_id=xendit.new_external_id(locked) if by_xendit else None,
             )
             order.add_event(
-                C.EVENT_PLACED, new={"method": C.PAYMENT_METHOD}, actor_type="member",
+                C.EVENT_PLACED, new={"method": pay_method}, actor_type="member",
                 actor_ref=member.pk, actor_label=contacts.mask("mobile", member.mobile),
             )
             if version is not None:  # posted by an older storefront; otherwise accepted at the details step
                 records.write_acceptance(order, version, accepted_at)
-            registration.activate(order, now)  # T1
+            if not by_xendit:
+                registration.activate(order, now)  # T1 (a Xendit order's T1 comes with its payment)
             records.write_enrollment(order, enrolled_at)
             tok.order_ref, tok.pending_contact = order.pk, {}  # cleared after placement
             tok.save(update_fields=["order_ref", "pending_contact"])
-            submission = proofs.write(order, proof, file_key, seq=1, ip=ip)
-            notices.after_commit(notices.order_received, order.pk)
-            notices.after_commit(notices.review_needed, submission.pk)
+            if not by_xendit:
+                submission = proofs.write(order, proof, file_key, seq=1, ip=ip)
+                notices.after_commit(notices.order_received, order.pk)
+                notices.after_commit(notices.review_needed, submission.pk)
             meta_ads.after_placement(order, meta, ip)  # Meta AddPaymentInfo, with consent only; never fails the order
     except BaseException:
         private_files.discard(file_key)
         raise
+    if by_xendit:
+        try:
+            order = xendit.ensure_invoice(order.pk)  # after commit; a failure leaves the order awaiting, Try again
+        except ApiError:
+            logger.warning("pack xendit invoice not created site=%s order=%s", site.pk, order.pk)
+            order.refresh_from_db()
     return Placed(order, False)
 
 

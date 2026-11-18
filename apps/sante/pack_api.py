@@ -45,6 +45,7 @@ class AccountOut(Schema):
 class PackOut(Schema):
     price_centavos: int
     currency: str
+    methods: dict[str, bool]
     available: bool
     agreement: AgreementOut | None
     payment_accounts: list[AccountOut]

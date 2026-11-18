@@ -118,7 +118,7 @@ class QueueSetupTests(SimpleTestCase):
                 "billing.notices", "billing.sweep", "file_backup.run", "health.heartbeat", "inquiries.evaluate_comment_rules", "inquiries.fetch_messenger_profile",
                 "inquiries.send_comment_auto_reply", "invoices.daily_alert",
                 "invoices.ensure_items", "lifecycle.run_approved", "meta_ads.send_order_event", "meta_ads.send_page_event", "meta_ads.sweep",
-                "pack.buyer_notice", "pack.purge", "pack.registered_notice", "retention.run", "statements.deliver", "statements.ensure",
+                "pack.buyer_notice", "pack.purge", "pack.registered_notice", "payments.xendit_reconcile", "retention.run", "statements.deliver", "statements.ensure",
             ],
         )
         self.assertTrue(tasks.sweep.ignore_result)
@@ -133,7 +133,7 @@ class QueueSetupTests(SimpleTestCase):
                 "billing-sweep", "invoices-ensure-items", "invoices-daily-alert",
                 "statements-ensure", "statements-deliver", "meta-ads-sweep",
                 "billing-notices", "retention-daily", "file-backup-daily", "pack-purge", "pack-buyer-notice",
-                "pack-registered-notice",
+                "pack-registered-notice", "payments-xendit-reconcile",
                 "lifecycle-run-approved", "health-heartbeat",
             ],
         )

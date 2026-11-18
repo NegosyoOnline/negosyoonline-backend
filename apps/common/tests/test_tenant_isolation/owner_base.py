@@ -23,6 +23,7 @@ from apps.members import recovery
 from apps.members.models import Member, MemberNotice
 from apps.inquiries.models import InquiryComment, InquiryCommentRule, InquiryConnection, InquiryPost
 from apps.inquiries.tests import base as inquiries_base
+from cryptography.fernet import Fernet
 from apps.meta_ads.tests.base import CODE, KEY, PIXEL, TOKEN, FakeMeta, configure
 from apps.pack import constants as PACK
 from apps.pack.models import SanteRegistration
@@ -161,6 +162,8 @@ OWNER_ROUTES = {
     # payments
     ("GET", "/sites/{site_id}/payment-methods/"): 200,
     ("PATCH", "/sites/{site_id}/payment-methods/"): 200,
+    ("PUT", "/sites/{site_id}/payment-methods/xendit/"): 200,
+    ("DELETE", "/sites/{site_id}/payment-methods/xendit/"): 200,
     ("POST", "/sites/{site_id}/payment-methods/accounts/"): 201,
     ("POST", "/sites/{site_id}/payment-methods/accounts/{account_id}/"): 200,
     ("DELETE", "/sites/{site_id}/payment-methods/accounts/{account_id}/"): 200,
@@ -288,6 +291,7 @@ def child_variants(template, own, foreign):
     META_CREDENTIALS_KEY=KEY, INQUIRIES_ENABLED=True, INQUIRIES_CREDENTIALS_KEY=inquiries_base.KEY,
     INQUIRY_MESSENGER_ENABLED=True, META_MESSENGER_APP_ID="123456", META_MESSENGER_APP_SECRET="test-secret",
     MESSENGER_VERIFY_TOKEN="test-verify", INQUIRY_COMMENTS_ENABLED=True, INQUIRY_COMMENT_AUTOMATION_ENABLED=True,
+    XENDIT_ENABLED=True, XENDIT_FAKE=True, DEBUG=True, PAYMENT_CREDENTIALS_KEY=Fernet.generate_key().decode(),
 )
 class TwoOwnersTestCase(SitesApiTestCase):
     """Ana (self.client, self.site) and Ben (self.ben, self.ben_site), each with a Santé site and
@@ -629,6 +633,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return {**PROFILE, "company_name": "Fixture Co"}
         if template.endswith("/payment-methods/"):
             return {"direct_enabled": True}
+        if template.endswith("/payment-methods/xendit/") and method == "PUT":
+            return {"api_key": "xnd_development_fixturekey", "webhook_token": "fixture-token"}
         if "/shop/" in template:
             body = {"state_version": 1}
             if template.endswith("/cancel/"):
