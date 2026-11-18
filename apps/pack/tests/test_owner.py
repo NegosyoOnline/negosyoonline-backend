@@ -18,7 +18,7 @@ class ListAndDetailTests(OwnerTestCase):
         self.assertEqual(
             sorted(row),
             ["buyer_name", "courier", "created_at", "delivered_on", "id", "method", "mobile_masked", "order_number",
-             "payment_status", "price_centavos", "shipment_status", "shipped_on", "shipping_enabled", "state_version",
+             "paid_at", "payment_method_label", "payment_status", "price_centavos", "shipment_status", "shipped_on", "shipping_enabled", "state_version",
              "tracking_number"],
         )
         self.assertEqual(row["price_centavos"], 148800)

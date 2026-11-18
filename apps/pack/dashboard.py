@@ -13,12 +13,14 @@ from django.utils import timezone
 from apps.pack import constants as C, panels
 from apps.pack.models import PackOrder
 
-PROBLEM = ("rejected",)
+PROBLEM = ("rejected", "xendit_expired")
 UNDER_REVIEW = ("pending_review",)
 WEEK_LABELS = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 MIN_AXIS = 4  # a floor on the chart's axis so one order is not a full bar
 STEPS = ("Order Placed", "Payment Verified", "Shipped", "Delivered")
-PROBLEM_LINES = {"rejected": "We could not verify your payment."}
+PROBLEM_LINES = {
+    "rejected": "We could not verify your payment.", "xendit_expired": "Your online payment was not completed.",
+}
 HEADLINE = "Santé Membership Package ×1"
 ITEM_NAME = "Santé Membership Package · 2 Boxes With Stevia, 20 Sachets"
 
@@ -141,9 +143,9 @@ def card(member, o, *, first):
         "id": o.public_id, "order_number": o.order_number, "created_at": o.created_at.isoformat(),
         "order": {"order_number": o.order_number, "created_at": o.created_at.isoformat(), "total": pesos(o.price_centavos)},
         "total": pesos(o.price_centavos), "total_text": money_text(o.price_centavos), "total_centavos": o.price_centavos,
-        "payment_status": o.payment_status, "payment_label": panels.METHOD_LABEL,
+        "payment_status": o.payment_status, "payment_label": panels.method_label(o), **panels.payment_facts(o),
         "chip_label": chip_label, "chip_class": chip_class, "problem": o.payment_status in PROBLEM,
-        "problem_line": PROBLEM_LINES.get(o.payment_status, ""), "awaiting_payment": False,
+        "problem_line": PROBLEM_LINES.get(o.payment_status, ""), "awaiting_payment": o.payment_status == C.AWAITING_XENDIT,
         "under_review": o.payment_status in UNDER_REVIEW, "steps": _steps(o),
         "courier": o.courier_name if o.shipment_recorded_at else "",
         "tracking": o.tracking_number if o.shipment_recorded_at else "",

@@ -117,6 +117,8 @@ def row(order):
     return {
         "id": order.public_id, "order_number": order.order_number, "buyer_name": order.buyer_name,
         "mobile_masked": mask("mobile", order.member.mobile), "method": order.payment_method,
+        "payment_method_label": C.METHOD_LABELS.get(order.payment_method, ""),
+        "paid_at": order.paid_at.isoformat() if order.paid_at else None,
         "payment_status": order.payment_status, "created_at": order.created_at.isoformat(),
         "state_version": order.state_version, "price_centavos": order.price_centavos,
         "shipment_status": order.shipment_status, "shipping_enabled": settings.PACK_SHIPPING_ENABLED,

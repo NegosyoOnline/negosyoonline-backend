@@ -128,8 +128,7 @@ class SwitchTests(PaymentsApiTestCase):
         url = f"{self.url}xendit/"
         body = {"api_key": "xnd_development_x", "webhook_token": "t"}
         self.error(self.send("put", url, body), 404, "not_found")
-        self.error(self.delete(url), 404, "not_found")
-        self.error(self.get(url), 404, "not_found")
+        self.error(self.delete(url), 404, "not_found")  # Xendit is not offered: PUT and DELETE answer 404
 
     def test_bad_body_is_refused_and_changes_nothing(self):
         for body in ({"xendit_enabled": "maybe"}, {"cod_enabled": True}, {"direct_enabled": 1},

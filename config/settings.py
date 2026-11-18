@@ -180,6 +180,28 @@ SANTE_AGREEMENT_ENABLED = os.environ.get("SANTE_AGREEMENT_ENABLED", "").strip() 
 # on their endpoints. Off, the endpoints answer 404 and the payment tables
 # are not read or written.
 PAYMENT_METHODS_ENABLED = os.environ.get("PAYMENT_METHODS_ENABLED", "").strip() == "1"
+# Xendit hosted invoices for the Membership Pack (apps/payments, apps/pack). "1" turns on the
+# owner's Xendit key routes, the Xendit option at pack checkout, the webhook processing and the
+# reconcile task. Off, behaviour is exactly as before. The worker reads only this switch (it has no
+# PAYMENT_METHODS_ENABLED). A site's own Xendit key and webhook token are stored encrypted under
+# PAYMENT_CREDENTIALS_KEY, which reads the platform's existing per-site credential key (a Fernet
+# key); no new variable. Needs that key (see apps/payments/checks.py).
+XENDIT_ENABLED = os.environ.get("XENDIT_ENABLED", "").strip() == "1"
+PAYMENT_CREDENTIALS_KEY = os.environ.get("PAYMENT_CREDENTIALS_ENCRYPTION_KEY", "").strip()
+# A fake Xendit for the local preview and tests (apps/payments/fake_xendit.py): no network call, and
+# a local page that plays Xendit's side. Honoured only with DJANGO_DEBUG=true and no Railway
+# environment name, so never on Railway; a deploy check (payments.E002) refuses the variable there.
+XENDIT_FAKE = (
+    DEBUG and os.environ.get("XENDIT_FAKE", "").strip() == "1"
+    and not os.environ.get("RAILWAY_ENVIRONMENT_NAME", "").strip()
+)
+# Local env only, never a Railway variable: in fake mode the fake page's return links go to this
+# origin (e.g. http://localhost:3002, the storefront run locally) instead of the site's public host.
+# Ignored unless the fake is on; never applied to a real invoice.
+XENDIT_FAKE_RETURN_ORIGIN = (
+    os.environ.get("XENDIT_FAKE_RETURN_ORIGIN", "").strip().rstrip("/") if XENDIT_FAKE else ""
+)
+XENDIT_FAKE_BASE_URL = os.environ.get("XENDIT_FAKE_BASE_URL", "http://127.0.0.1:8000").strip()
 # Private files (apps/common/private_files.py): a payment QR code today. The read-write token
 # of the private Vercel Blob store; read here and nowhere else. With no token, files go to the
 # local folder below, and only while DEBUG is on. With neither, no private file is stored.
@@ -507,6 +529,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "pack.registered_notice",
         "schedule": 3600,
         "options": {"expires": 3600},
+    },
+    # Xendit: re-read each Membership Pack order that still waits for payment with its site's own key
+    # and apply it through the webhook's handler; expire what is past its window. Does nothing, and
+    # reads no payment table, while XENDIT_ENABLED is off. A tick not picked up in 15 minutes is dropped.
+    "payments-xendit-reconcile": {
+        "task": "payments.xendit_reconcile",
+        "schedule": 900,
+        "options": {"expires": 900},
     },
     # The site deletion executor: runs only batches a person approved in HQ. Does nothing, and
     # reads no lifecycle table, while SITE_ERASURE_ENABLED is off. A tick not picked up within
