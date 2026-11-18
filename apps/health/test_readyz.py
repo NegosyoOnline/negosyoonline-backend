@@ -28,7 +28,7 @@ class ReadyzTests(TestCase):
         self.assertJSONEqual(
             response.content,
             {"ok": True, "db": True, "cache": True, "beat": True, "sms_queue": True, "email": True,
-             "files_backup": True, "meta_queue": True},
+             "files_backup": True, "meta_queue": True, "xendit_queue": True},
         )
 
     def test_db_failure_is_503(self):
