@@ -33,7 +33,8 @@ ACTIONS = """<form method="post"><button class="primary" name="action" value="pa
 
 
 def _deliver(request, doc):
-    """POST the invoice document to the site's own webhook URL, as Xendit does."""
+    """POST the invoice document to the site's own webhook URL, as Xendit does, over HTTPS (so
+    SECURE_SSL_REDIRECT, on whenever DEBUG is off, does not answer 301 and swallow the callback)."""
     try:
         site_pk = int(doc["external_id"].split("-")[1])
     except (IndexError, ValueError):
@@ -43,7 +44,7 @@ def _deliver(request, doc):
         return None
     return Client().post(
         f"/v1/webhooks/xendit/{cred.webhook_key}/", json.dumps(doc), content_type="application/json",
-        HTTP_X_CALLBACK_TOKEN=crypto.decrypt(cred.webhook_token_ciphertext), HTTP_HOST=request.get_host(),
+        HTTP_X_CALLBACK_TOKEN=crypto.decrypt(cred.webhook_token_ciphertext), HTTP_HOST=request.get_host(), secure=True,
     )
 
 
