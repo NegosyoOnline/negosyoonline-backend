@@ -106,6 +106,24 @@ class MemberPanelTests(MemberSurfaceCase):
                          ("direct", "Bank or e-wallet transfer", None, None))
         self.assertEqual(len(pack["proofs"]), 1)
 
+    def onboarding_state(self, token):
+        response = self.client.post(
+            "/storefront/v1/onboarding/state/", {"host": HOST, "visitor_ip": "198.51.100.77", "token": token},
+            content_type="application/json", secure=True, HTTP_X_REAL_IP="198.51.100.200",
+            HTTP_AUTHORIZATION=f"Bearer {SECRET}",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def test_the_onboarding_state_names_the_xendit_method(self):
+        token, _, order = self.placed_xendit()
+        self.webhook(order)
+        self.assertEqual(self.onboarding_state(token)["payment_method_label"], "Pay online (Xendit)")
+
+    def test_the_onboarding_state_names_the_transfer_method_for_a_bank_order(self):
+        token, _ = self.placed()
+        self.assertEqual(self.onboarding_state(token)["payment_method_label"], "Bank or e-wallet transfer")
+
 
 class OwnerSurfaceTests(XenditPackCase):
     def setUp(self):
