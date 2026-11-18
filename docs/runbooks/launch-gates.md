@@ -37,7 +37,7 @@ Links: BE #N = `https://github.com/NegosyoOnline/negosyoonline-backend/pull/N`, 
 | Access denial log for the Billing-only 403 (z8uq9mewke) | The 403 `billing_only` (`apps/sites/api.py` `_owner_site`) writes one `security` WARNING line, `event=billing_only reason=billing_only`, with no email, IP, or account or site id: `apps/sites/tests/test_billing_only.py::BillingOnlyTests::test_the_billing_only_403_writes_one_security_line_without_email_ip_or_ids`. Pass once merged | Pass | GATES |
 | Pack proof decisions have an audit record (z8uq9mewke) | `PackProofDecision` (`apps/pack/models.py`) is append-only and holds the actor of each decision; it is the audit record for Pack proof approvals and rejections | Pass | GATES |
 | Roles, refunds and API keys (z8uq9mewke) | No Manager, Fulfillment or Support roles, no refunds and no API keys exist at launch. There is one Subscriber per site and one HQ staff account (Coach Ed's ruling: one staff account for months) | Not applicable at launch | GATES |
-| Webhooks | None at launch: Xendit deferred, PayMongo pending | Not applicable at launch | GATES |
+| Webhooks | One: the Xendit webhook of the Santé Membership Pack, `POST /v1/webhooks/xendit/{webhook_key}/`: a per-site random key in the path, the site's own token compared in constant time (401 otherwise), a 64 KB cap, a duplicate event answers 200 with no effect, a webhook for one site never marks another site's payment (`apps/pack/tests/test_xendit_webhook.py`). Off until `XENDIT_ENABLED=1` (Coach Ed, 2026-11-18; `docs/runbooks/xendit.md`). PayMongo pending | Built, off until the staging check | SANTE |
 
 ## Gate 2: Membership Package flow
 
@@ -207,7 +207,7 @@ Who watches what. Coach Ed watches Meta Events Manager, the UptimeRobot emails a
 ## Deferred after launch (not gated)
 
 - Cash on delivery.
-- Xendit webhook-only orders.
+- Xendit for Subscriber SaaS billing and for webhook-only product orders (the Santé Membership Pack uses Xendit from 2026-11-18; see `docs/runbooks/xendit.md`).
 - J&T booking and tracking.
 - Returns and damaged stock.
 - Track Order guest lookup.

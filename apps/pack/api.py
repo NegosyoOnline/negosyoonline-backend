@@ -10,7 +10,12 @@ apps/storefront/api.py):
     POST /storefront/v1/checkout/place/    multipart: host, visitor_ip, token, submit_key,
         account_id, reference_number, amount_sent, sender_bank, sender_first_name,
         sender_last_name, sender_account_number, transferred_at, proof (the file)
-        -> {order_number, replay}
+        -> {order_number, replay, pay_url}
+        `pay_method` is "direct" (the default; the proof fields and file are required) or "xendit"
+        (no proof; `pay_url` is the Xendit hosted invoice, null when it could not be created yet).
+    POST /storefront/v1/checkout/payment-status/  {host, visitor_ip, token, retry?}
+        -> {payment_status, order_number, pay_url}: what the return page shows; the browser never
+        marks an order paid.
 
 Every call carries the storefronts server's credential (the surface checks it). The token travels
 as data: Django sets no cookie. While PACK_ENABLED is off, and for an unknown, foreign or non-Santé
@@ -29,7 +34,7 @@ from apps.common import private_files, throttle
 from apps.common.errors import ApiError
 from apps.pack import (
     access, address_zip, checkout, visits, constants as C, dashboard, interfaces, notices, onboarding, panels, placement, policies, portal, records,
-    registration, registration_rules, review,
+    registration, registration_rules, review, xendit,
 )
 from apps.members import sessions
 from apps.pack.models import PackOrder, PackProofSubmission, SanteRegistration
@@ -137,11 +142,13 @@ class PlaceIn(Schema):
     user_agent: str = ""
     source_url: str = ""
     visitor_ref: str = ""  # the visit this buyer came from, when the storefront has one
+    pay_method: str = "direct"  # "direct" (proof) or "xendit" (hosted invoice, no proof)
 
 
 class PlaceOut(Schema):
     order_number: str
     replay: bool
+    pay_url: str | None = None
 
 
 @router.post("/checkout/place/", response=PlaceOut)
@@ -155,17 +162,74 @@ def checkout_place(request, body: Form[PlaceIn], proof: File[UploadedFile] = Non
         "consent": body.meta_consent == "1", "host": body.host, "url": body.source_url, "fbp": body.fbp,
         "fbc": body.fbc, "user_agent": body.user_agent, "visitor_ref": body.visitor_ref,
     }
-    for name in ("meta_consent", "fbp", "fbc", "user_agent", "source_url", "visitor_ref"):  # not proof fields
+    for name in ("meta_consent", "fbp", "fbc", "user_agent", "source_url", "visitor_ref", "pay_method"):  # not proof fields
         data.pop(name)
     for name in ("sender_name", "sender_first_name", "sender_last_name"):
         if name not in request.POST:  # an absent field is not an empty one (the name rule reads presence)
             data.pop(name)
     placed = placement.place_pack_order(
         site, token, body.token, submit_key=body.submit_key, data=data, upload=proof,
-        ip=_ip(body.visitor_ip), meta=meta,
+        ip=_ip(body.visitor_ip), meta=meta, pay_method=body.pay_method or C.PAYMENT_METHOD,
     )
     visits.link_order(site, body.visitor_ref, placed.order)
-    return {"order_number": placed.order.order_number, "replay": placed.replay}
+    return {
+        "order_number": placed.order.order_number, "replay": placed.replay,
+        "pay_url": xendit.continue_url(placed.order),
+    }
+
+
+class PaymentStatusIn(Schema):
+    host: str = ""
+    visitor_ip: str = ""
+    token: str = ""
+    retry: bool = False
+
+
+class PaymentStatusOut(Schema):
+    payment_status: str
+    order_number: str
+    pay_url: str | None = None
+
+
+STATUS_NAMES = {
+    C.AWAITING_XENDIT: "waiting", C.VERIFIED: "paid", C.XENDIT_EXPIRED: "expired",
+    C.XENDIT_MISMATCH: "mismatch", C.PENDING_REVIEW: "under_review", C.REJECTED: "needs_attention",
+}
+
+
+def status_name(order):
+    """The return page's word for an order. A waiting order with no invoice yet is `no_invoice`."""
+    if order.payment_status == C.AWAITING_XENDIT and not order.xendit_invoice_url:
+        return "no_invoice"
+    return STATUS_NAMES[order.payment_status]
+
+
+@router.post("/checkout/payment-status/", response=PaymentStatusOut)
+def checkout_payment_status(request, body: PaymentStatusIn):
+    """The return page asks this. Reads the order the checkout token placed; a waiting Xendit order
+    may get ONE server-side read of its invoice at Xendit (at most one per ~5 s), applied through the
+    same verified handler as the webhook. `retry` tries to create a missing invoice (5 per hour per
+    order). Nothing in the request can mark an order paid."""
+    site = _site(body.host)
+    token = checkout.current(site, body.token)
+    if token is None:
+        raise _expired()
+    order = PackOrder.objects.select_related("site", "member").filter(site=site, pk=token.order_ref).first() if token.order_ref else None
+    if order is None:
+        return {"payment_status": "none", "order_number": "", "pay_url": None}
+    if body.retry and order.payment_status == C.AWAITING_XENDIT and not order.xendit_invoice_url:
+        try:
+            order = xendit.retry_invoice(order)
+        except ApiError as exc:
+            if exc.code not in ("xendit_unavailable", "invoice_busy"):
+                raise  # 429 (too many tries) and the like
+            order.refresh_from_db()  # still no invoice: the page shows Try again again
+    else:
+        order = xendit.read_once(order)
+    return {
+        "payment_status": status_name(order), "order_number": order.order_number,
+        "pay_url": xendit.continue_url(order),
+    }
 
 
 # -- the Membership Pack page visitor (ClickUp z8uq9mfw14) -------------------------------------------
@@ -241,6 +305,8 @@ def _funnel(host, raw):
         raise _closed()
     if access.contacts_replaced_since(order.member, token.created_at):
         raise ApiError("checkout_stale", C.MSG_CHECKOUT_EXPIRED, status=409)
+    if order.payment_method == C.XENDIT and order.payment_status in C.XENDIT_UNPAID:
+        raise ApiError("payment_pending", C.MSG_PAYMENT_PENDING, status=409)  # onboarding opens when Xendit confirms
     return site, token, order, order.member
 
 
@@ -272,6 +338,8 @@ class StateOut(Schema):
     address: dict
     details_erased: bool
     registration_held: dict | None = None
+    payment_method_label: str = ""
+    payment_verified: bool = False
     expires_at: str
 
 
@@ -307,7 +375,8 @@ def _state(site, token, order, member, *, with_held=False):
         "address": {"country": "Philippines", "receiver_name": member.full_name, "receiver_mobile": member.mobile,
                     **(order.delivery_address or {})},
         "details_erased": panels.details_erased(reg), "registration_held": held,
-        "expires_at": token.expires_at.isoformat(),
+        "payment_method_label": panels.method_label(order),
+        "payment_verified": order.payment_status == C.VERIFIED, "expires_at": token.expires_at.isoformat(),
     }
 
 

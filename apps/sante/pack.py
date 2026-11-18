@@ -23,11 +23,13 @@ def pack_out(site):
     """The pack as the site's buyers see it. Available only with a payment account to pay to
     and a published agreement version (TWCinc: acceptance.available and the payment method)."""
     pay_to = accounts(site)
+    methods = payments.methods_available(site)  # what buyers may choose now; Xendit only when offered and working
     active = agreement.active_version()
     return {
         "price_centavos": PRICE_CENTAVOS,
         "currency": CURRENCY,
-        "available": bool(pay_to) and active is not None,
+        "methods": {"direct": bool(pay_to), "xendit": methods["xendit"]},
+        "available": (bool(pay_to) or methods["xendit"]) and active is not None,
         "agreement": (
             {"id": active.pk, "label": active.version_label, "effective_date": active.effective_date.isoformat()}
             if active else None

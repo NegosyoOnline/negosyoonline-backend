@@ -59,6 +59,13 @@ class PackOrder(models.Model):
     delivery_address = models.JSONField(default=dict)
     payment_method = models.CharField(max_length=8, default=C.PAYMENT_METHOD)
     payment_status = models.CharField(max_length=16, choices=C.PAYMENT_STATUSES)
+    # Xendit hosted invoice (payment_method "xendit"): our own reference, the invoice Xendit made, its
+    # page, when it expires, and when Xendit says it was paid. Adapted from TWCinc PackOrder.
+    xendit_external_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    xendit_invoice_id = models.CharField(max_length=64, blank=True, default="")
+    xendit_invoice_url = models.URLField(max_length=500, blank=True, default="")
+    xendit_expires_at = models.DateTimeField(null=True, blank=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
     rejection_lock_active = models.BooleanField(default=False)
     benefits_active_at = models.DateTimeField(null=True, blank=True)
     verified_at = models.DateTimeField(null=True, blank=True)
@@ -101,7 +108,11 @@ class PackOrder(models.Model):
                 condition=Q(price_centavos=C.PRICE_CENTAVOS), name="pack_order_fixed_amount"
             ),
             models.CheckConstraint(
-                condition=Q(payment_method=C.PAYMENT_METHOD), name="pack_order_direct_only"
+                condition=Q(payment_method__in=C.METHODS), name="pack_order_method"
+            ),
+            models.CheckConstraint(
+                condition=Q(payment_method=C.PAYMENT_METHOD) | Q(xendit_external_id__isnull=False),
+                name="pack_order_xendit_has_ref",
             ),
         ]
 

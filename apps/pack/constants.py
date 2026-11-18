@@ -4,14 +4,30 @@ Money is integer centavos. The wording is TWCinc's, character for character, exc
 support contact, which is each Subscriber's own (Subscribers are separate businesses)."""
 PRICE_CENTAVOS = 148800  # PHP 1,488.00, frozen on every order row
 CURRENCY = "PHP"
-PAYMENT_METHOD = "direct"  # bank or e-wallet transfer with proof; Xendit is not built, never COD
+PAYMENT_METHOD = "direct"  # bank or e-wallet transfer with proof; never COD
+XENDIT = "xendit"  # a Xendit hosted invoice, the site's own key (Coach Ed, 2026-11-18)
+METHODS = (PAYMENT_METHOD, XENDIT)
+METHOD_LABELS = {PAYMENT_METHOD: "Bank or e-wallet transfer", XENDIT: "Pay online (Xendit)"}
 MAX_AMOUNT_CENTAVOS = 9999999  # PHP 99,999.99
 
 PENDING_REVIEW, REJECTED, VERIFIED = "pending_review", "rejected", "verified"
+# A Xendit order is `awaiting_xendit` until Xendit confirms it (webhook or server-side read); a paid one
+# is `verified` (payment_method "xendit", paid_at set), so shipping, registration and the member panel
+# read it like any verified order. `xendit_mismatch`: Xendit reported another amount or currency.
+AWAITING_XENDIT, XENDIT_EXPIRED, XENDIT_MISMATCH = "awaiting_xendit", "xendit_expired", "xendit_mismatch"
 PAYMENT_STATUSES = [
     (PENDING_REVIEW, "Under review"), (REJECTED, "Needs attention"), (VERIFIED, "Verified"),
+    (AWAITING_XENDIT, "Waiting for payment"), (XENDIT_EXPIRED, "Payment not completed"),
+    (XENDIT_MISMATCH, "Under review"),
 ]
-LIVE_STATUSES = (PENDING_REVIEW, REJECTED, VERIFIED)
+LIVE_STATUSES = (PENDING_REVIEW, REJECTED, VERIFIED, AWAITING_XENDIT, XENDIT_MISMATCH)
+XENDIT_UNPAID = (AWAITING_XENDIT, XENDIT_EXPIRED, XENDIT_MISMATCH)  # a Xendit order whose onboarding stays closed
+INVOICE_SECONDS = 24 * 3600
+EXTERNAL_PREFIX = "np-"  # np-{site row id}-{24 hex}: our own reference at Xendit
+RETURN_PATH = "/funnel/membership-pack/checkout/return/"
+MSG_PAYMENT_PENDING = "Your payment is not confirmed yet."
+MSG_INVOICE_BUSY = "Payment is being prepared. Please try again shortly."
+INVOICE_RETRY_LIMIT = ("pack-invoice-retry", 5, 3600)
 
 REJECTION_REASONS = [
     ("amount_mismatch", "Amount does not match ₱1,488."),
@@ -32,9 +48,14 @@ EVENT_PLACED = "placed"
 EVENT_SHIPMENT_RECORDED, EVENT_SHIPMENT_CORRECTED, EVENT_DELIVERED = (
     "shipment_recorded", "shipment_corrected", "delivered",
 )
+EVENT_XENDIT_PAID, EVENT_XENDIT_EXPIRED, EVENT_XENDIT_MISMATCH, EVENT_XENDIT_SUPERSEDED = (
+    "xendit_paid", "xendit_expired", "xendit_mismatch", "xendit_paid_superseded",
+)
 ORDER_EVENT_KINDS = [
     (EVENT_PLACED, "Placed"), (EVENT_SHIPMENT_RECORDED, "Shipment recorded"),
     (EVENT_SHIPMENT_CORRECTED, "Shipment corrected"), (EVENT_DELIVERED, "Delivered"),
+    (EVENT_XENDIT_PAID, "Paid with Xendit"), (EVENT_XENDIT_EXPIRED, "Xendit payment expired"),
+    (EVENT_XENDIT_MISMATCH, "Xendit amount mismatch"), (EVENT_XENDIT_SUPERSEDED, "Late Xendit payment"),
 ]
 
 # Shipment by hand (PK-SHIP). The courier list is TWCinc's (negosyoonline_orders/models.py), a draft
