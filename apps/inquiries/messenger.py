@@ -21,6 +21,7 @@ import hmac
 import json
 import logging
 import re
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -186,6 +187,7 @@ def call(method, path, *, params=None, form=None, token=None, timeout=None, priv
     (Graph's message and trace id can quote the id)."""
     extra = {"timeout": timeout} if timeout is not None else {}
     shown = private or _path_template(path)
+    _LAST.code = None
     try:
         status, body = _transport(method, path, params=params, form=form, token=token, **extra)
     except (OSError, ValueError) as error:
@@ -193,6 +195,7 @@ def call(method, path, *, params=None, form=None, token=None, timeout=None, priv
         return Result(outcomes.PROVIDER_DOWN)
     if status >= 400 or "error" in body:
         code = map_error(status, body)
+        _LAST.code = _log_error_fields(body)[0] or None
         if private:
             error_code, subcode, *_ = _log_error_fields(body)
             logger.warning(
@@ -208,6 +211,16 @@ def call(method, path, *, params=None, form=None, token=None, timeout=None, priv
         )
         return Result(code)
     return Result(outcomes.OK, body)
+
+
+_LAST = threading.local()
+
+
+def last_error_code():
+    """Meta's numeric error code of the latest failed `call` in this thread (None if it did not fail
+    or sent none). The comment auto-reply back-off reads it to tell Meta's spam block (368) apart,
+    which keeps its `bad_response` mapping. The number only, never the body."""
+    return getattr(_LAST, "code", None)
 
 
 def _app_token():
@@ -389,6 +402,30 @@ def reply_comment(page_token, comment_id, text):
         return result
     new_id = result.value.get("id")
     return Result(outcomes.OK, str(new_id)[:128]) if new_id else Result(outcomes.BAD_RESPONSE)
+
+
+def commenter_picture(author_id, page_token):
+    """Result(ok, {"data": {"url", "is_silhouette"}}): the picture of a commenter, read with the Page's
+    own token (the picture edge of the commenter's page-scoped id; redirect=false answers JSON). The id
+    is in the path, so the call logs a fixed label and codes only."""
+    if not PAGE_ID_RE.match(str(author_id)):
+        return Result(outcomes.NOT_FOUND)
+    return call(
+        "GET", f"/{urllib.parse.quote(str(author_id), safe='')}/picture",
+        params={"redirect": "false", "type": "normal", "appsecret_proof": _proof(page_token)},
+        token=page_token, timeout=PROFILE_TIMEOUT, private="/{commenter}/picture",
+    )
+
+
+def post_text(post_id, page_token):
+    """Result(ok, {"message", "permalink_url"}): the text and link of a Page post (fields allowed by
+    pages_read_engagement). The post id is in the path, so the call logs a fixed label and codes only."""
+    if not COMMENT_ID_RE.match(str(post_id)):
+        return Result(outcomes.NOT_FOUND)
+    return call(
+        "GET", _comment_path(post_id), params={"fields": "message,permalink_url", "appsecret_proof": _proof(page_token)},
+        token=page_token, timeout=PROFILE_TIMEOUT, private="/{post}",
+    )
 
 
 def hide_comment(page_token, comment_id):

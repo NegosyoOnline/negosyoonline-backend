@@ -10,6 +10,7 @@ from apps.accounts.api_connections import router as connections_router
 from apps.accounts.api_facebook import router as facebook_router
 from apps.billing.api import router as billing_router
 from apps.catalog.api import router as catalog_router
+from apps.inquiries.api_comment_rules import router as comment_rules_router
 from apps.inquiries.api_comments import router as comments_router
 from apps.inquiries.api_messenger import owner as messenger_owner_router, public as messenger_public_router
 from apps.inquiries.api_owner import router as inquiries_router
@@ -58,6 +59,7 @@ api.add_router("", shop_owner_router)
 api.add_router("", meta_router)
 api.add_router("", inquiries_router)
 api.add_router("", comments_router)
+api.add_router("", comment_rules_router)
 api.add_router("", messenger_owner_router)
 api.add_router("", messenger_public_router)
 
