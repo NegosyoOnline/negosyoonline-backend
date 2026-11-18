@@ -404,6 +404,30 @@ def reply_comment(page_token, comment_id, text):
     return Result(outcomes.OK, str(new_id)[:128]) if new_id else Result(outcomes.BAD_RESPONSE)
 
 
+def commenter_picture(author_id, page_token):
+    """Result(ok, {"data": {"url", "is_silhouette"}}): the picture of a commenter, read with the Page's
+    own token (the picture edge of the commenter's page-scoped id; redirect=false answers JSON). The id
+    is in the path, so the call logs a fixed label and codes only."""
+    if not PAGE_ID_RE.match(str(author_id)):
+        return Result(outcomes.NOT_FOUND)
+    return call(
+        "GET", f"/{urllib.parse.quote(str(author_id), safe='')}/picture",
+        params={"redirect": "false", "type": "normal", "appsecret_proof": _proof(page_token)},
+        token=page_token, timeout=PROFILE_TIMEOUT, private="/{commenter}/picture",
+    )
+
+
+def post_text(post_id, page_token):
+    """Result(ok, {"message", "permalink_url"}): the text and link of a Page post (fields allowed by
+    pages_read_engagement). The post id is in the path, so the call logs a fixed label and codes only."""
+    if not COMMENT_ID_RE.match(str(post_id)):
+        return Result(outcomes.NOT_FOUND)
+    return call(
+        "GET", _comment_path(post_id), params={"fields": "message,permalink_url", "appsecret_proof": _proof(page_token)},
+        token=page_token, timeout=PROFILE_TIMEOUT, private="/{post}",
+    )
+
+
 def hide_comment(page_token, comment_id):
     """Hide a comment on Facebook (it is not deleted). Result(ok)."""
     if not COMMENT_ID_RE.match(str(comment_id)):

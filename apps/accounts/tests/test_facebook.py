@@ -122,6 +122,37 @@ class FacebookClientTests(SimpleTestCase):
                     facebook.parse_signed_request(value)
 
 
+class SignedRequestRefusalLogTests(SimpleTestCase):
+    """A refusal logs the error class and which fixed check refused it, never the request, signature or secret."""
+
+    def refused(self, value):
+        with self.assertLogs("apps.accounts.facebook", level="WARNING") as logs:
+            with self.assertRaises(facebook.BadSignedRequest):
+                facebook.parse_signed_request(value, secret=SECRET)
+        return "".join(logs.output)
+
+    def test_each_check_is_named_in_the_log(self):
+        cases = {
+            "malformed": "no-dot-here",
+            "signature": signed_request(secret="someone-elses-secret"),
+            "algorithm": signed_request(algorithm="none"),
+            "user_id": signed_request(user_id=""),
+            "issued_at": signed_request(issued_at="1800000000"),
+        }
+        for reason, value in cases.items():
+            with self.subTest(reason=reason):
+                self.assertIn(f"refused (ValueError: {reason})", self.refused(value))
+
+    def test_a_missing_issued_at_logs_the_key_error_class_and_the_log_holds_no_secret_or_request(self):
+        payload = _b64(json.dumps({"algorithm": "HMAC-SHA256", "user_id": "fb-1"}).encode())
+        signature = _b64(hmac.new(SECRET.encode(), payload.encode(), hashlib.sha256).digest())
+        value = f"{signature}.{payload}"
+        output = self.refused(value)
+        self.assertIn("refused (KeyError)", output)
+        for secret_thing in (SECRET, signature, payload):
+            self.assertNotIn(secret_thing, output)
+
+
 NOW = 1_800_000_000
 
 
