@@ -37,6 +37,8 @@ A Santé site only: a site of another template cannot save a key (404) and reads
 
 `RAILWAY_ENVIRONMENT_NAME` decides: `production` accepts live keys (`xnd_production_...`) only; any other Railway environment (staging) accepts test keys (`xnd_development_...`) only; a local run takes either. A key is checked with one `GET /balance` at Xendit before it is stored.
 
+`XENDIT_LIVE_KEY_SITES` (staging only; default empty = exactly the rule above): comma-separated site public ids (the `site_...` id; spaces and blank entries are ignored). On a non-production Railway environment a listed site may also save a live key (`xnd_production_...`); test keys stay allowed for it and every other site stays test-only with the same error. Production (live only) and local runs ignore it. It is a Railway variable on staging that the Manager sets after Coach Ed approves; never set it on production. The key itself is never logged.
+
 ## Owner routes (contract: `xendit-contract-z8uq9mgkk2-v2.md` in the SANTE Supervisor worktree)
 
 - `GET/PATCH /v1/sites/{id}/payment-methods/`: the read carries the `xendit` block with `offered: true` only while Xendit is offered; otherwise the body is exactly what it was. The PATCH accepts `xendit_enabled`.

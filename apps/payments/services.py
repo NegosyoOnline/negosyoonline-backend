@@ -312,16 +312,24 @@ def key_mode(api_key):
     return LIVE if api_key.startswith("xnd_production_") else TEST
 
 
-def environment_allows(mode):
+def environment_allows(mode, site=None):
     """Production takes live keys only; staging takes test keys only (Railway names the
-    environment). With no environment name (a local run) either mode is allowed only while DEBUG
+    environment), except that a site whose public id is in XENDIT_LIVE_KEY_SITES may also save a
+    live key there. With no environment name (a local run) either mode is allowed only while DEBUG
     is on; any other run without a name refuses both."""
     env = settings.RAILWAY_ENVIRONMENT_NAME
     if env == "production":
         return mode == LIVE
     if env:
-        return mode == TEST
+        return mode == TEST or (site is not None and site.public_id in _live_key_sites())
     return bool(settings.DEBUG)
+
+
+def _live_key_sites():
+    raw = getattr(settings, "XENDIT_LIVE_KEY_SITES", ())
+    if isinstance(raw, str):
+        raw = raw.split(",")
+    return {part.strip() for part in raw if part and part.strip()}
 
 
 def require_offered(site):
@@ -335,7 +343,7 @@ def save_xendit(account, site, *, api_key, webhook_token):
     require_offered(site)
     api_key, webhook_token = (api_key or "").strip(), (webhook_token or "").strip()
     mode = key_mode(api_key)
-    if not environment_allows(mode):
+    if not environment_allows(mode, site):
         raise _invalid({"api_key": KEY_LIVE_ONLY if mode == TEST else KEY_TEST_ONLY})
     if not 1 <= len(webhook_token) <= 200:
         raise _invalid({"webhook_token": TOKEN_ERROR})

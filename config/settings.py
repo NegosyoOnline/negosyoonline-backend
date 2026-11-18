@@ -613,6 +613,14 @@ RELEASE_COMMIT = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown")[:12]
 # Railway names the environment itself (no variable to set). Only the staff test-data commands
 # that must never run on production read it (pack_delete_test_order); empty off Railway.
 RAILWAY_ENVIRONMENT_NAME = os.environ.get("RAILWAY_ENVIRONMENT_NAME", "").strip().lower()
+# Staging only: site public ids (comma-separated) that may save a live Xendit key (xnd_production_)
+# there. Blank entries and spaces are ignored; empty (the default) changes nothing. Production and
+# local runs ignore it. Set by the Manager after approval, never in code.
+def parse_site_id_list(raw):
+    return tuple(part.strip() for part in (raw or "").split(",") if part.strip())
+
+
+XENDIT_LIVE_KEY_SITES = parse_site_id_list(os.environ.get("XENDIT_LIVE_KEY_SITES", ""))
 
 # Access denials go to the console, so Railway's logs hold them (apps/common/security_log.py).
 # Only the `security` logger is configured here; Django's own logging stays as it is.
