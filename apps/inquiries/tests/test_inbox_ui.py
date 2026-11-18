@@ -675,6 +675,119 @@ class UnreadFilterTests(InboxUiCase):
         self.assertEqual([i["ref"] for i in response.json()["items"]], ["wc_" + "9" * 24])
 
 
+class AnsweredFilterTests(InboxUiCase):
+    """Every item carries `answered`; the `answered` parameter filters by the same rule (a database annotation)."""
+
+    def setUp(self):
+        super().setUp()
+        self.now = timezone.now()
+        self.wc = make_stored(self.site, ref="wc_" + "1" * 24, name="Web Chat", unread=True, at=self.now - timedelta(minutes=10))
+        self.em = make_stored(self.site, ref="em_" + "2" * 24, name="Email Person", unread=False, at=self.now - timedelta(minutes=9))
+        InquiryConversation.objects.filter(pk=self.em.pk).update(provider=InquiryConversation.EMAIL)
+        self.ms = make_stored(self.site, ref="fm_" + "3" * 24, name="Messenger Person", unread=False, at=self.now - timedelta(minutes=8))
+        InquiryConversation.objects.filter(pk=self.ms.pk).update(provider=InquiryConversation.MESSENGER)
+        self.empty = make_stored(self.site, ref="wc_" + "4" * 24, name="No Messages", unread=False, at=self.now - timedelta(minutes=7))
+        InquiryMessage.objects.filter(conversation=self.empty).delete()
+
+    def out(self, conversation, minutes, state="sent"):
+        InquiryMessage.objects.create(
+            site=self.site, conversation=conversation, direction=InquiryMessage.OUT, sender_kind=InquiryMessage.OWNER,
+            body="Reply", delivery_state=state, created_at=self.now + timedelta(minutes=minutes),
+        )
+
+    def inbound(self, conversation, minutes):
+        InquiryMessage.objects.create(
+            site=self.site, conversation=conversation, direction=InquiryMessage.IN, sender_kind=InquiryMessage.CUSTOMER,
+            body="More", created_at=self.now + timedelta(minutes=minutes),
+        )
+
+    def items(self, **params):
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        response = self.get(f"{self.list_url}?{query}")
+        self.assertEqual(response.status_code, 200, response.content)
+        return {i["ref"]: i for i in response.json()["items"]}, response.json()
+
+    def test_field_per_channel(self):
+        self.out(self.wc, -5)
+        self.out(self.em, -5, state="delivered")
+        self.out(self.ms, -5, state="seen")
+        self.inbound(self.ms, -4)  # the customer wrote last
+        items, _ = self.items()
+        self.assertIs(items[self.wc.external_id]["answered"], True)
+        self.assertIs(items[self.em.external_id]["answered"], True)
+        self.assertIs(items[self.ms.external_id]["answered"], False)
+        self.assertIs(items[self.empty.external_id]["answered"], False)
+
+    def test_failed_or_bounced_outgoing_is_unanswered(self):
+        self.out(self.wc, -5, state="failed")
+        self.out(self.em, -5, state="bounced")
+        items, _ = self.items()
+        self.assertIs(items[self.wc.external_id]["answered"], False)
+        self.assertIs(items[self.em.external_id]["answered"], False)
+
+    def test_latest_message_decides_and_ties_break_by_pk(self):
+        self.out(self.wc, -5, state="failed")
+        self.out(self.wc, -5)  # same time, later pk, sent
+        self.assertIs(self.items()[0][self.wc.external_id]["answered"], True)
+
+    def test_filter_answered_and_unanswered(self):
+        self.out(self.wc, -5)
+        self.out(self.em, -5, state="failed")
+        self.assertEqual(list(self.items(answered="answered")[0]), [self.wc.external_id])
+        self.assertEqual(
+            sorted(self.items(answered="unanswered")[0]),
+            sorted([self.em.external_id, self.ms.external_id, self.empty.external_id]),
+        )
+        for value in ("", "all"):
+            self.assertEqual(len(self.items(answered=value)[0]), 4)
+        self.assertEqual(len(self.items()[0]), 4)
+
+    def test_combines_with_unread_status_and_q(self):
+        self.out(self.wc, -5)
+        self.out(self.em, -5)
+        self.assertEqual(list(self.items(answered="answered", unread=1)[0]), [self.wc.external_id])
+        self.assertEqual(list(self.items(answered="answered", unread=0)[0]), [self.em.external_id])
+        InquiryConversation.objects.filter(pk=self.em.pk).update(status=InquiryConversation.CLOSED)
+        self.assertEqual(list(self.items(answered="answered", status="closed")[0]), [self.em.external_id])
+        self.assertEqual(list(self.items(answered="unanswered", q="Cebu", status="open")[0]),
+                         [self.ms.external_id])
+
+    def test_pages_with_the_cursor_under_the_filter(self):
+        for i in range(32):
+            c = make_stored(self.site, ref=f"wc_{i:024d}", name=f"Pat {i}", unread=False,
+                            at=self.now - timedelta(seconds=i + 100))
+            self.out(c, 1)
+        first, body = self.items(answered="answered")
+        self.assertEqual(len(first), stored.LIST_LIMIT)
+        second, body2 = self.items(answered="answered", stored_cursor=body["stored_next_cursor"])
+        self.assertEqual((len(second), body2["stored_next_cursor"]), (32 - stored.LIST_LIMIT, None))
+        self.assertFalse(set(first) & set(second))
+
+    def test_any_other_value_is_422_invalid_answered(self):
+        for bad in ("true", "1", "yes", "Answered", "answered,unanswered"):
+            response = self.get(f"{self.list_url}?answered={bad}")
+            self.error(response, 422, "invalid_answered")
+            self.assertIn("answered", response.json()["error"]["fields"])
+
+    def test_one_query_count_does_not_grow_with_rows(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        with CaptureQueriesContext(connection) as few:
+            self.get(self.list_url)
+        for i in range(6):
+            c = make_stored(self.site, ref=f"wc_{i + 100:024d}", name=f"Lee {i}", at=self.now - timedelta(seconds=i + 50))
+            self.out(c, 1)
+        with CaptureQueriesContext(connection) as many:
+            self.get(self.list_url)
+        # the existing snippet lookup is one query per row; the answered field adds none
+        self.assertLessEqual(len(many) - len(few), 6)
+
+    def test_another_sites_conversations_never_appear(self):
+        other = self.other_site()
+        make_stored(other, ref="wc_" + "9" * 24)
+        self.assertNotIn("wc_" + "9" * 24, self.items(answered="unanswered")[0])
+
+
 class UnreadTests(InboxUiCase):
     def setUp(self):
         super().setUp()
