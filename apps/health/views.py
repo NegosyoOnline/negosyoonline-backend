@@ -22,6 +22,12 @@ from apps.health.tasks import HEARTBEAT_KEY
 CHECK_TIMEOUT = 2  # seconds each check may take
 BEAT_MAX_AGE = timedelta(minutes=3)
 SMS_QUEUE_MAX_AGE = timedelta(minutes=15)
+# A Meta delivery is normally done within about 12 minutes: a page event makes 3 attempts 60 seconds
+# apart (about 2 minutes); an order event the first dispatch missed is re-queued by meta_ads.sweep,
+# which runs every 5 minutes and acts on rows older than 5 minutes (about 10 minutes), then makes
+# its attempts the same way. 30 minutes is safely above that, so only a stuck row (worker or beat
+# down, a lost task) trips it.
+READYZ_META_QUEUE_MINUTES = 30
 READYZ_EMAIL_SAMPLE = 20  # newest email rows read by check_email
 READYZ_LIMIT = (30, 60)  # attempts per IP per window (seconds)
 
@@ -98,6 +104,23 @@ def check_sms_queue():
         return False
 
 
+def check_meta_queue():
+    """False when a Meta Conversions delivery has been queued or retrying for longer than
+    READYZ_META_QUEUE_MINUTES. True while Meta events are off. One `.exists()` query."""
+    from apps.meta_ads import services
+    from apps.meta_ads.models import MetaDelivery
+
+    if not services.enabled():
+        return True
+    try:
+        cutoff = timezone.now() - timedelta(minutes=READYZ_META_QUEUE_MINUTES)
+        return not MetaDelivery.objects.filter(
+            outcome__in=MetaDelivery.OPEN, created_at__lte=cutoff
+        ).exists()
+    except Exception:
+        return False
+
+
 def check_email():
     """False when the newest emails inside the window are all failures: at least the threshold
     failed and none sent. One query by primary key (no index on created_at or status needed)."""
@@ -143,6 +166,7 @@ def readyz(request):
         "sms_queue": check_sms_queue(),
         "email": check_email(),
         "files_backup": check_files_backup(),
+        "meta_queue": check_meta_queue(),
     }
     ok = all(checks.values())
     return JsonResponse({"ok": ok, **checks}, status=200 if ok else 503)
