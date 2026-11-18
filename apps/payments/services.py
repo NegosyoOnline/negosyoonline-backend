@@ -314,13 +314,14 @@ def key_mode(api_key):
 
 def environment_allows(mode):
     """Production takes live keys only; staging takes test keys only (Railway names the
-    environment); a local run takes either."""
+    environment). With no environment name (a local run) either mode is allowed only while DEBUG
+    is on; any other run without a name refuses both."""
     env = settings.RAILWAY_ENVIRONMENT_NAME
     if env == "production":
         return mode == LIVE
     if env:
         return mode == TEST
-    return True
+    return bool(settings.DEBUG)
 
 
 def require_offered(site):
@@ -362,16 +363,18 @@ def save_xendit(account, site, *, api_key, webhook_token):
 
 
 def clear_xendit(account, site):
-    """Blank both secrets and switch Xendit off. The row and its webhook_key stay so a re-save
-    keeps the same webhook URL. Returns how many orders still wait for a Xendit payment (with
-    no key they are not read; each expires on its own when its payment window ends)."""
+    """Blank the API key and switch Xendit off. The row, its webhook_key and its webhook token
+    stay: the webhook keeps applying a payment on an invoice that is still open (a buyer who
+    pays after the owner removed the key is still verified), and a re-save keeps the same
+    webhook URL. Returns how many orders still wait for a Xendit payment (with no key they are
+    not read; each expires on its own when its payment window ends, and a late authenticated
+    PAID still applies)."""
     require_offered(site)
     from apps.pack import xendit as pack_xendit
     with transaction.atomic():
         site = _locked_site(account, site)
         SiteXenditCredential.objects.select_for_update().filter(site=site).update(
-            api_key_ciphertext="", webhook_token_ciphertext="", key_mode="", key_failed_at=None,
-            actor_account_id=account.pk,
+            api_key_ciphertext="", key_mode="", key_failed_at=None, actor_account_id=account.pk,
         )
         SitePaymentSettings.objects.filter(site=site).update(xendit_enabled=False)
         record_event(account, "xendit_key_removed", site=site.public_id)
@@ -398,12 +401,14 @@ def mark_key_failed(site):
     ).update(key_failed_at=timezone.now())
     owner = site.account
     if changed and owner.email and owner.email_verified_at:
-        send_email(
+        # After the surrounding transaction commits (at once when there is none), so a rollback
+        # sends no email and the mail provider is never called while a row lock is held.
+        transaction.on_commit(lambda: send_email(
             to=owner.email, category="xendit_key_failed", subject="Your Xendit key no longer works",
             body="Your Xendit key no longer works. Save a working key to accept Xendit payments again.\n"
                  "Until then, buyers do not see the Xendit option. Update the key in your NegosyoOnline "
                  "Dashboard under Payments.",
-        )
+        ))
 
 
 def webhook_url(row, api_base):

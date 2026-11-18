@@ -4,7 +4,7 @@ negosyoonline_sante_pack/placement.py invoice steps and payments.py, without met
 Every call here uses the site's OWN key (apps.payments.services.api_key_for); a site has no
 platform key. Only an authenticated webhook (apps.payments.webhooks) or a server-to-server read
 of the invoice at Xendit (apps.payments.reconcile) reaches `apply_state`; nothing the browser
-sends ever does. The amount is the server's constant. Lock order: the Site row, then the order
+sends ever does. The amount is the order's frozen price. Lock order: the Site row, then the order
 row. Logs carry site ids only.
 """
 import logging
@@ -28,15 +28,16 @@ from apps.sites.models import Site
 
 logger = logging.getLogger(__name__)
 
-CLAIM_SECONDS = 60
+# The claim must outlive the worst find + create: two calls, each at most connect + read timeout.
+CLAIM_SECONDS = 2 * (xendit_client.CONNECT_TIMEOUT + xendit_client.READ_TIMEOUT) + 30
 WAIT_SECONDS, WAIT_STEP = 10, 0.5
 INVOICELESS_EXPIRY = timedelta(hours=2)  # no stored invoice this long after placement: one last lookup, then expired
 READ_GRACE = timedelta(hours=1)  # reconcile reads an invoice until this long after its expiry
 
 
-def amount():
-    """The server's constant, in pesos."""
-    return Decimal(C.PRICE_CENTAVOS) / 100
+def amount(order):
+    """The order's own frozen price, in pesos (never the current constant)."""
+    return Decimal(order.price_centavos) / 100
 
 
 def new_external_id(site):
@@ -103,7 +104,7 @@ def ensure_invoice(order_pk):
             if len(found) > 1:
                 _problem(order, "several_invoices")
             inv = xendit_client.newest_unexpired(found) or xendit_client.create_invoice(
-                api_key, external_id=order.xendit_external_id, amount=amount(),
+                api_key, external_id=order.xendit_external_id, amount=amount(order),
                 description=f"Membership Pack {order.order_number}", duration_seconds=C.INVOICE_SECONDS,
                 success_url=back, failure_url=back,
             )
@@ -227,7 +228,7 @@ def apply_state(site, state, *, now=None):
     if other_invoice:
         _problem(order, "other_invoice")
     # Amount or currency differs.
-    if state.amount != amount() or state.currency != C.CURRENCY:
+    if state.amount != amount(order) or state.currency != C.CURRENCY:
         if order.payment_status != C.XENDIT_MISMATCH:
             old = order.payment_status
             order.payment_status = C.XENDIT_MISMATCH

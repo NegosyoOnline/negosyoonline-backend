@@ -44,6 +44,6 @@ urlpatterns = [
     re_path(r"^v1/", api_not_found),
 ]
 
-if settings.XENDIT_FAKE:  # the local preview's fake Xendit page; XENDIT_FAKE needs DJANGO_DEBUG=true
+if settings.XENDIT_FAKE and not settings.RAILWAY_ENVIRONMENT_NAME:  # the local preview's fake Xendit page; needs DJANGO_DEBUG=true and no Railway environment
     from apps.payments import fake_views
     urlpatterns.insert(0, path("fake-xendit/invoice/<str:invoice_id>/", fake_views.invoice))

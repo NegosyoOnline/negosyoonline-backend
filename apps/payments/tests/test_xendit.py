@@ -17,7 +17,7 @@ from apps.sante.tests.base import retemplate
 
 FERNET = Fernet.generate_key().decode()  # made for this test run
 KEY, TOKEN = "xnd_development_secretkeyvalue1", "whsec-token-value-1"
-xendit_on = override_settings(XENDIT_ENABLED=True, XENDIT_FAKE=True, PAYMENT_CREDENTIALS_KEY=FERNET)
+xendit_on = override_settings(XENDIT_ENABLED=True, XENDIT_FAKE=True, DEBUG=True, PAYMENT_CREDENTIALS_KEY=FERNET)
 NOT_SET_UP = {
     "offered": True, "configured": False, "key_mode": "", "webhook_url": "", "key_failed": False,
     "key_failed_at": None,
@@ -147,6 +147,19 @@ class SaveTests(XenditApiCase):
         self.assertEqual(fake_xendit.calls, [])
         self.saved()
 
+    @override_settings(RAILWAY_ENVIRONMENT_NAME="", DEBUG=False)
+    def test_no_environment_name_and_no_debug_refuses_either_key(self):
+        for key in (KEY, "xnd_production_livekey1"):
+            with self.subTest(key=key):
+                self.assertEqual(self.put(api_key=key).status_code, 400)
+        self.assertEqual(fake_xendit.calls, [])
+        self.assertFalse(SiteXenditCredential.objects.exists())
+
+    @override_settings(RAILWAY_ENVIRONMENT_NAME="", DEBUG=True)
+    def test_no_environment_name_with_debug_takes_either_key(self):
+        self.saved()
+        self.assertEqual(self.saved(api_key="xnd_production_livekey1")["xendit"]["key_mode"], "live")
+
     @override_settings(RAILWAY_ENVIRONMENT_NAME="production")
     def test_production_takes_live_keys_only(self):
         self.assertEqual(self.fields(self.put())["api_key"], [services.KEY_LIVE_ONLY])
@@ -191,7 +204,7 @@ class SaveTests(XenditApiCase):
 
 @xendit_on
 class RemoveTests(XenditApiCase):
-    def test_remove_blanks_both_secrets_switches_it_off_and_keeps_the_url(self):
+    def test_remove_blanks_the_key_only_switches_it_off_and_keeps_the_url_and_token(self):
         self.saved()
         self.patch(self.url, {"xendit_enabled": True})
         row = SiteXenditCredential.objects.get(site=self.site)
@@ -204,7 +217,9 @@ class RemoveTests(XenditApiCase):
         self.assertIn(key, body["xendit"]["webhook_url"])
         self.assertEqual(body["enabled"]["xendit"], False)
         row.refresh_from_db()
-        self.assertEqual((row.api_key_ciphertext, row.webhook_token_ciphertext, row.key_mode), ("", "", ""))
+        self.assertEqual((row.api_key_ciphertext, row.key_mode), ("", ""))
+        self.assertNotEqual(row.webhook_token_ciphertext, "")  # F1: the webhook still authenticates
+        self.assertEqual(crypto.decrypt(row.webhook_token_ciphertext), TOKEN)
 
     def test_remove_says_how_many_orders_still_wait(self):
         self.saved()

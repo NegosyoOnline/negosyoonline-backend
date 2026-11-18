@@ -89,8 +89,10 @@ class ReconcileTests(XenditPackCase):
         age(order, minutes=20)
         give_key(self.site, api_key="xnd_development_rejected")
         with mock.patch("apps.notifications.services.send_email") as send:
-            reconcile.run()
-            reconcile.run()
+            with self.captureOnCommitCallbacks(execute=True):
+                reconcile.run()
+            with self.captureOnCommitCallbacks(execute=True):
+                reconcile.run()
         self.assertIsNotNone(SiteXenditCredential.objects.get(site=self.site).key_failed_at)
         self.assertEqual(send.call_count, 1)  # told once, not every 15 minutes
         order.refresh_from_db()

@@ -61,7 +61,7 @@ class XenditBillingOnlyTests(BillingOnlyBase):
         super().setUp()
         from cryptography.fernet import Fernet
         patch = override_settings(
-            XENDIT_ENABLED=True, XENDIT_FAKE=True, PAYMENT_CREDENTIALS_KEY=Fernet.generate_key().decode()
+            XENDIT_ENABLED=True, XENDIT_FAKE=True, DEBUG=True, PAYMENT_CREDENTIALS_KEY=Fernet.generate_key().decode()
         )
         patch.enable()
         self.addCleanup(patch.disable)

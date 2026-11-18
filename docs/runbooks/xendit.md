@@ -70,11 +70,12 @@ Local only: it needs `DJANGO_DEBUG=true`, so it cannot run on Railway.
 ```
 export DJANGO_DEBUG=true DJANGO_SECRET_KEY=local-preview-only
 export XENDIT_ENABLED=1 XENDIT_FAKE=1 PAYMENT_METHODS_ENABLED=1 PACK_ENABLED=1
+export XENDIT_FAKE_RETURN_ORIGIN=http://localhost:3002   # optional, see below
 export PAYMENT_CREDENTIALS_ENCRYPTION_KEY=$(uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
 uv run python manage.py runserver 127.0.0.1:8000
 ```
 
-(plus the other local switches the pack checkout already needs.) In the dash Payments page enter any key that starts `xnd_development_` (one containing `rejected` is refused, one containing `down` is "not reachable") and any token, switch Xendit on, then buy the pack with "Pay online". The buyer lands on `http://127.0.0.1:8000/fake-xendit/invoice/<id>/`, a page that plays Xendit: Pay (signed callback to the real webhook), Pay a different amount (mismatch), Let it expire. The invoice's return address is the storefront's `/funnel/membership-pack/checkout/return/` on the site's public host. The fake lives in memory: restarting the server forgets its invoices.
+(plus the other local switches the pack checkout already needs.) In the dash Payments page enter any key that starts `xnd_development_` (one containing `rejected` is refused, one containing `down` is "not reachable") and any token, switch Xendit on, then buy the pack with "Pay online". The buyer lands on `http://127.0.0.1:8000/fake-xendit/invoice/<id>/`, a page that plays Xendit: Pay (signed callback to the real webhook), Pay a different amount (mismatch), Let it expire. The invoice's return address is the storefront's `/funnel/membership-pack/checkout/return/` on the site's public host. The fake also needs no `RAILWAY_ENVIRONMENT_NAME` (it refuses to run on any Railway environment, and `check --deploy` errors with `payments.E002` if `XENDIT_FAKE` is set there). `XENDIT_FAKE_RETURN_ORIGIN` is a local environment variable only (never a Railway variable): when it is set and the fake is on, the fake page sends the buyer back to that origin (the storefront run locally, for example `http://localhost:3002`) with the same path, instead of the site's public host. It is ignored otherwise and never touches a real invoice. The fake lives in memory: restarting the server forgets its invoices.
 
 ## Verifying on an environment (Supervisor, after the migrations and `XENDIT_ENABLED=1`)
 

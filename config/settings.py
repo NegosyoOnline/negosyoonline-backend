@@ -189,8 +189,18 @@ PAYMENT_METHODS_ENABLED = os.environ.get("PAYMENT_METHODS_ENABLED", "").strip() 
 XENDIT_ENABLED = os.environ.get("XENDIT_ENABLED", "").strip() == "1"
 PAYMENT_CREDENTIALS_KEY = os.environ.get("PAYMENT_CREDENTIALS_ENCRYPTION_KEY", "").strip()
 # A fake Xendit for the local preview and tests (apps/payments/fake_xendit.py): no network call, and
-# a local page that plays Xendit's side. Honoured only with DJANGO_DEBUG=true, so never on Railway.
-XENDIT_FAKE = DEBUG and os.environ.get("XENDIT_FAKE", "").strip() == "1"
+# a local page that plays Xendit's side. Honoured only with DJANGO_DEBUG=true and no Railway
+# environment name, so never on Railway; a deploy check (payments.E002) refuses the variable there.
+XENDIT_FAKE = (
+    DEBUG and os.environ.get("XENDIT_FAKE", "").strip() == "1"
+    and not os.environ.get("RAILWAY_ENVIRONMENT_NAME", "").strip()
+)
+# Local env only, never a Railway variable: in fake mode the fake page's return links go to this
+# origin (e.g. http://localhost:3002, the storefront run locally) instead of the site's public host.
+# Ignored unless the fake is on; never applied to a real invoice.
+XENDIT_FAKE_RETURN_ORIGIN = (
+    os.environ.get("XENDIT_FAKE_RETURN_ORIGIN", "").strip().rstrip("/") if XENDIT_FAKE else ""
+)
 XENDIT_FAKE_BASE_URL = os.environ.get("XENDIT_FAKE_BASE_URL", "http://127.0.0.1:8000").strip()
 # Private files (apps/common/private_files.py): a payment QR code today. The read-write token
 # of the private Vercel Blob store; read here and nowhere else. With no token, files go to the

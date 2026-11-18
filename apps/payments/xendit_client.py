@@ -2,6 +2,7 @@
 Adapted from TWCinc negosyoonline_orders/xendit_client.py onto stdlib urllib.request (no new
 dependency). One request, a timeout, no retry. Never logs a key, a header or a body."""
 import base64
+import http.client
 import json
 import socket
 import urllib.error
@@ -15,7 +16,8 @@ from django.conf import settings
 from django.utils.dateparse import parse_datetime
 
 BASE_URL = "https://api.xendit.co"
-TIMEOUT = 20  # seconds, for connect and read together
+CONNECT_TIMEOUT = 5  # seconds, to open the connection (TCP and TLS)
+READ_TIMEOUT = 20  # seconds, each wait for Xendit's answer once connected
 
 
 class XenditError(Exception):
@@ -34,9 +36,26 @@ class InvoiceState:
     paid_at: datetime | None = None  # Xendit's own payment time (UTC, aware); None when absent
 
 
+class _Connection(http.client.HTTPSConnection):
+    """Connects within CONNECT_TIMEOUT (the connection's timeout), then waits up to READ_TIMEOUT
+    for each read: requests-style (connect, read) timeouts."""
+
+    def connect(self):
+        super().connect()
+        self.sock.settimeout(READ_TIMEOUT)
+
+
+class _Handler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_Connection, req)
+
+
+_opener = urllib.request.build_opener(_Handler)
+
+
 def _open(request):
     """The only network call in this module (replaced in tests and by the local fake)."""
-    return urllib.request.urlopen(request, timeout=TIMEOUT)
+    return _opener.open(request, timeout=CONNECT_TIMEOUT)
 
 
 def _call(api_key, method, path, *, payload=None, params=None):

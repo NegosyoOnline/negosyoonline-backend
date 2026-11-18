@@ -7,6 +7,7 @@ webhook code runs, with the site's own token), then sends the buyer back to the 
 URL, exactly as Xendit does. "Expire" does the same with EXPIRED. Nothing leaves the machine.
 """
 import json
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.http import Http404, HttpResponse, HttpResponseRedirect
@@ -46,9 +47,19 @@ def _deliver(request, doc):
     )
 
 
+def _local_return(url):
+    """Fake mode only: with XENDIT_FAKE_RETURN_ORIGIN set (a local env var), the same path and query
+    on that origin, since the site's public host does not exist on a developer machine."""
+    origin = settings.XENDIT_FAKE_RETURN_ORIGIN
+    if not origin:
+        return url
+    parts = urlsplit(url)
+    return origin + parts.path + (f"?{parts.query}" if parts.query else "")
+
+
 @csrf_exempt
 def invoice(request, invoice_id):
-    if not settings.XENDIT_FAKE:
+    if not settings.XENDIT_FAKE or settings.RAILWAY_ENVIRONMENT_NAME:
         raise Http404()
     doc = fake_xendit.get(invoice_id)
     if doc is None:
@@ -64,7 +75,8 @@ def invoice(request, invoice_id):
         if action in ("pay", "pay_wrong", "expire"):
             _deliver(request, doc)
         # the buyer goes back to the store, as Xendit does; the page there asks the server what happened
-        return HttpResponseRedirect(doc["success_redirect_url"] if doc["status"] != "EXPIRED" else doc["failure_redirect_url"])
+        target = doc["success_redirect_url"] if doc["status"] != "EXPIRED" else doc["failure_redirect_url"]
+        return HttpResponseRedirect(_local_return(target))
     body = PAGE.format(
         number=escape(doc["id"]), currency=escape(doc["currency"]), amount=f"{float(doc['amount']):,.2f}",
         status=escape(doc["status"]), actions=ACTIONS.format(
