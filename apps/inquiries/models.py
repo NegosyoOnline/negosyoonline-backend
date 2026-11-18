@@ -222,3 +222,143 @@ class InquiryChannelSettings(models.Model):
         return f"<InquiryChannelSettings site={self.site_id}>"
 
     __str__ = __repr__
+
+
+def comment_ref():
+    """The server-made id of a comment, the only id the browser sees (Meta's ids stay in the table)."""
+    return "cm_" + secrets.token_hex(12)
+
+
+class InquiryCommentSettings(models.Model):
+    """One row per site, written when the owner connects a Page with the comments permissions.
+    It is a table of its own (not columns on InquiryConnection) so that code released before its
+    migration still reads the connection table. Nothing here is personal or a credential."""
+
+    site = models.OneToOneField("sites.Site", on_delete=models.PROTECT, related_name="inquiry_comment_settings")
+    feed_subscribed = models.BooleanField(default=False)  # the Page's `feed` field was subscribed with the permissions
+    page_id = models.CharField(max_length=64, blank=True)  # the Page that subscription is for
+    subscribed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __repr__(self):
+        return f"<InquiryCommentSettings site={self.site_id}>"
+
+    __str__ = __repr__
+
+
+class InquiryPost(models.Model):
+    """A Page post or ad that has comments: its id, a verified permalink pattern and a short caption."""
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_posts")
+    connection = models.ForeignKey(InquiryConnection, on_delete=models.CASCADE, related_name="posts")
+    external_id = models.CharField(max_length=64)  # Meta's post id
+    is_ad = models.BooleanField(default=False)
+    permalink = models.CharField(max_length=300, blank=True)  # only a verified pattern; no query
+    caption = models.CharField(max_length=140, blank=True)  # a short snippet, never the full post
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["site", "external_id"], name="inquiry_post_site_external_uniq"),
+        ]
+
+    def __repr__(self):
+        return f"<InquiryPost site={self.site_id} pk={self.pk}>"
+
+    __str__ = __repr__
+
+
+class InquiryComment(models.Model):
+    """One comment on a post or ad. The text and the author are personal and untrusted (plain text
+    only). Deleted COMMENT_RETENTION after the comment time. A `remove` event keeps the row as a
+    tombstone (no text, no author) so a late retry of the same comment is not stored again."""
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_comments")
+    connection = models.ForeignKey(InquiryConnection, on_delete=models.CASCADE, related_name="comments")
+    post = models.ForeignKey(InquiryPost, on_delete=models.CASCADE, related_name="comments")
+    ref = models.CharField(max_length=32, default=comment_ref)
+    external_id = models.CharField(max_length=64)  # Meta's comment id; the idempotency key
+    parent_external_id = models.CharField(max_length=64, blank=True)  # the post id, or the comment replied to
+    author_psid = models.CharField(max_length=64, blank=True)  # page-scoped id; personal, blanked on removal
+    author_name = models.CharField(max_length=120, blank=True)  # personal, blanked on removal
+    is_page = models.BooleanField(default=False)  # the Page's own comment
+    text = models.TextField(max_length=2000, blank=True)  # personal, untrusted; blanked on removal
+    unread = models.BooleanField(default=True)
+    is_hidden = models.BooleanField(default=False)
+    removed = models.BooleanField(default=False)
+    public_reply_at = models.DateTimeField(null=True, blank=True)  # our send, or the Page's own reply seen on Facebook
+    private_reply_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)  # Meta's time of the comment
+    received_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["site", "external_id"], name="inquiry_comment_site_external_uniq"),
+            models.UniqueConstraint(fields=["site", "ref"], name="inquiry_comment_site_ref_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["site", "-created_at", "-id"], name="inquiry_comment_site_time"),
+            models.Index(fields=["post", "parent_external_id"], name="inquiry_comment_post_parent"),
+        ]
+
+    def __repr__(self):
+        return f"<InquiryComment site={self.site_id} pk={self.pk}>"
+
+    __str__ = __repr__
+
+
+class InquiryCommentAction(models.Model):
+    """One outgoing action on a comment (public reply, private reply, hide). Holds the outcome code
+    and Meta's id of the result, never Meta's body, a token or a URL. `text` is the private message
+    the owner sent (only when it ended SENT; a public reply is stored as a comment instead); it is
+    personal, blanked when the comment is removed and deleted with the comment."""
+
+    PUBLIC, PRIVATE, HIDE = "public", "private", "hide"
+    KINDS = [(PUBLIC, "Public reply"), (PRIVATE, "Private reply"), (HIDE, "Hide")]
+    MANUAL, RULE = "manual", "rule"  # rule: automation, a later task
+    SOURCES = [(MANUAL, "Manual"), (RULE, "Rule")]
+    QUEUED, SENDING, SENT, FAILED, BLOCKED_RATE, CANCELLED = (
+        "queued", "sending", "sent", "failed", "blocked_rate", "cancelled")
+    STATES = [
+        (QUEUED, "Queued"), (SENDING, "Sending"), (SENT, "Sent"), (FAILED, "Failed"),
+        (BLOCKED_RATE, "Blocked, rate limit"), (CANCELLED, "Cancelled"),
+    ]
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_comment_actions")
+    comment = models.ForeignKey(InquiryComment, on_delete=models.CASCADE, related_name="actions")
+    kind = models.CharField(max_length=8, choices=KINDS)
+    source = models.CharField(max_length=8, choices=SOURCES, default=MANUAL)
+    author = models.ForeignKey(
+        "accounts.Account", null=True, blank=True, on_delete=models.SET_NULL, related_name="inquiry_comment_actions",
+    )
+    state = models.CharField(max_length=14, choices=STATES, default=SENDING)
+    error_code = models.CharField(max_length=24, blank=True, choices=[(c, c) for c in outcomes.CODES])
+    meta_id = models.CharField(max_length=128, blank=True)  # Meta's id of the reply comment or message
+    idempotency_key = models.CharField(max_length=64, blank=True)
+    body_length = models.PositiveSmallIntegerField(default=0)
+    text = models.TextField(max_length=1000, blank=True)  # the sent private message; personal, blanked on removal
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["site", "idempotency_key"], condition=~Q(idempotency_key=""),
+                name="inquiry_comment_action_site_key_uniq",
+            ),
+            # Meta: one private reply per comment. A failed attempt does not use it up.
+            models.UniqueConstraint(
+                fields=["comment"], condition=Q(kind="private") & Q(state__in=["queued", "sending", "sent"]),
+                name="inquiry_comment_action_one_private",
+            ),
+            # An automatic public or private reply happens once per comment, ever (C2).
+            models.UniqueConstraint(
+                fields=["comment", "kind"], condition=Q(source="rule") & Q(kind__in=["public", "private"]),
+                name="inquiry_comment_action_auto_once",
+            ),
+        ]
+
+    def __repr__(self):
+        return f"<InquiryCommentAction site={self.site_id} pk={self.pk} {self.kind} {self.state}>"
+
+    __str__ = __repr__

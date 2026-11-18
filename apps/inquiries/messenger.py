@@ -12,7 +12,10 @@ https://developers.facebook.com/docs/messenger-platform/webhooks ; Send API
 https://developers.facebook.com/docs/messenger-platform/send-messages ; error codes
 https://developers.facebook.com/docs/messenger-platform/error-codes ; subscribed_apps
 https://developers.facebook.com/docs/graph-api/reference/page/subscribed_apps/ ; Facebook Login for
-Business https://developers.facebook.com/docs/facebook-login/facebook-login-for-business ."""
+Business https://developers.facebook.com/docs/facebook-login/facebook-login-for-business .
+
+Page comments (task z8uq9mg9pe; Meta sources checked 2026-11-18, see the comment block above
+COMMENT_PERMISSIONS)."""
 import hashlib
 import hmac
 import json
@@ -29,6 +32,7 @@ from apps.inquiries.adapters.base import Result
 
 logger = logging.getLogger(__name__)
 
+PROVIDER = "messenger"  # InquiryConnection.provider of the direct Messenger inbox
 GRAPH_VERSION = "v26.0"  # the one place the Graph API version is set
 GRAPH_URL = f"https://graph.facebook.com/{GRAPH_VERSION}"
 DIALOG_URL = f"https://www.facebook.com/{GRAPH_VERSION}/dialog/oauth"
@@ -42,6 +46,33 @@ MAX_GRANTED_PAGES = 100  # cap on Page ids taken from debug_token's granular sco
 PAGE_ID_RE = re.compile(r"^[0-9]{1,64}$")
 
 
+# -- Page comments: Meta facts, checked against Meta's developer docs on 2026-11-18 ------------
+# * `feed` webhook field: item `comment`, verb add / edited / remove (the documented verb enum also has
+#   hide / unhide), value keys comment_id, post_id, parent_id, from{id,name}, message, created_time,
+#   post{...}. "Webhooks are not sent for Ad Posts, but are sent for Comments on Ad Posts." The page
+#   names pages_manage_metadata for receiving these webhooks.
+#   https://developers.facebook.com/docs/graph-api/webhooks/reference/page/
+# * Public reply: POST /{comment-id}/comments with `message`; answer {"id"}; Page token of a person
+#   who can MODERATE, or pages_manage_engagement.
+#   https://developers.facebook.com/docs/graph-api/reference/object/comments/
+# * Hide: POST /{comment-id} with is_hidden (boolean, "only applicable to Page comments"); answer
+#   {"success": bool}.  https://developers.facebook.com/docs/graph-api/reference/comment/
+# * Private reply: POST /{page-id}/messages with recipient {comment_id}; pages_messaging; "must be sent
+#   within 7 days from when the post or comment was created"; "only one message can be sent to the
+#   person who commented".  https://developers.facebook.com/docs/messenger-platform/discovery/private-replies
+# * Permissions: pages_read_user_content (read comments and posts by users on a Page) and
+#   pages_manage_engagement (create, edit, delete comments on a Page), each App Review.
+#   https://developers.facebook.com/docs/permissions/
+# NOT confirmed in the docs (kept as the safest reading, listed in the task report): the exact
+# messaging_type for a private reply (RESPONSE is used), the permission the hide call needs
+# (pages_manage_engagement is assumed), and the error codes for a second private reply.
+COMMENT_PERMISSIONS = ("pages_read_user_content", "pages_manage_engagement")
+COMMENT_SCOPES = SCOPES + "," + ",".join(COMMENT_PERMISSIONS)
+FEED_FIELD = "feed"
+MAX_COMMENT_TEXT = 2000
+COMMENT_ID_RE = re.compile(r"^[0-9_]{1,64}$")
+
+
 def app_secret():
     return settings.META_MESSENGER_APP_SECRET
 
@@ -50,15 +81,18 @@ def configured():
     return bool(settings.META_MESSENGER_APP_ID and settings.META_MESSENGER_APP_SECRET)
 
 
-def authorization_url(redirect_uri, state):
+def authorization_url(redirect_uri, state, comments=False):
     params = {
         "client_id": settings.META_MESSENGER_APP_ID, "redirect_uri": redirect_uri, "state": state,
         "response_type": "code",
     }
-    if settings.META_MESSENGER_CONFIG_ID:  # Facebook Login for Business: config_id replaces scope
-        params["config_id"] = settings.META_MESSENGER_CONFIG_ID
+    # Comments use the second configuration; with none set they ask for the scopes, never the
+    # Messenger-only configuration (it lacks the two extra permissions).
+    config_id = settings.META_COMMENTS_CONFIG_ID if comments else settings.META_MESSENGER_CONFIG_ID
+    if config_id:  # Facebook Login for Business: config_id replaces scope
+        params["config_id"] = config_id
     else:
-        params["scope"] = SCOPES
+        params["scope"] = COMMENT_SCOPES if comments else SCOPES
     return f"{DIALOG_URL}?{urllib.parse.urlencode(params)}"
 
 
@@ -292,9 +326,11 @@ def _granted_pages(user_token):
     return Result(outcomes.OK, pages)
 
 
-def subscribe_page(page_id, page_token):
+def subscribe_page(page_id, page_token, comments=False):
+    """Subscribe the app to the Page. `comments` adds the `feed` field: only for a site whose comments
+    switch is on and whose token has the comments permissions (the caller decides)."""
     result = call("POST", f"/{page_id}/subscribed_apps", form={
-        "subscribed_fields": SUBSCRIBED_FIELDS, "appsecret_proof": _proof(page_token),
+        "subscribed_fields": SUBSCRIBED_FIELDS + ("," + FEED_FIELD if comments else ""), "appsecret_proof": _proof(page_token),
     }, token=page_token)
     if result.ok and result.value.get("success") is not True:
         return Result(outcomes.BAD_RESPONSE)
@@ -329,6 +365,52 @@ def send_text(page_id, page_token, psid, text):
         "recipient": json.dumps({"id": psid}), "messaging_type": "RESPONSE",
         "message": json.dumps({"text": text[:MAX_TEXT]}), "appsecret_proof": _proof(page_token),
     }, token=page_token)
+    if not result.ok:
+        return result
+    mid = result.value.get("message_id")
+    return Result(outcomes.OK, str(mid)[:128]) if mid else Result(outcomes.BAD_RESPONSE)
+
+
+# -- comments ---------------------------------------------------------------------------------
+
+def _comment_path(comment_id, tail=""):
+    return f"/{urllib.parse.quote(str(comment_id), safe='')}{tail}"
+
+
+def reply_comment(page_token, comment_id, text):
+    """Public reply under a comment, posted as the Page. Result(ok, Meta's id of the new comment).
+    The comment id is in the path, so the call logs a fixed label and codes only."""
+    if not COMMENT_ID_RE.match(str(comment_id)):
+        return Result(outcomes.NOT_FOUND)
+    result = call("POST", _comment_path(comment_id, "/comments"), form={
+        "message": text[:MAX_COMMENT_TEXT], "appsecret_proof": _proof(page_token),
+    }, token=page_token, private="/{comment}/comments")
+    if not result.ok:
+        return result
+    new_id = result.value.get("id")
+    return Result(outcomes.OK, str(new_id)[:128]) if new_id else Result(outcomes.BAD_RESPONSE)
+
+
+def hide_comment(page_token, comment_id):
+    """Hide a comment on Facebook (it is not deleted). Result(ok)."""
+    if not COMMENT_ID_RE.match(str(comment_id)):
+        return Result(outcomes.NOT_FOUND)
+    result = call("POST", _comment_path(comment_id), form={
+        "is_hidden": "true", "appsecret_proof": _proof(page_token),
+    }, token=page_token, private="/{comment}")
+    if result.ok and result.value.get("success") is not True:
+        return Result(outcomes.BAD_RESPONSE)
+    return result
+
+
+def private_reply(page_id, page_token, comment_id, text):
+    """Private reply to a commenter: Send API with recipient {comment_id}. Result(ok, Meta's message id)."""
+    if not COMMENT_ID_RE.match(str(comment_id)):
+        return Result(outcomes.NOT_FOUND)
+    result = call("POST", f"/{page_id}/messages", form={
+        "recipient": json.dumps({"comment_id": str(comment_id)}), "messaging_type": "RESPONSE",
+        "message": json.dumps({"text": text[:MAX_TEXT]}), "appsecret_proof": _proof(page_token),
+    }, token=page_token, private="/{page}/messages(comment)")
     if not result.ok:
         return result
     mid = result.value.get("message_id")

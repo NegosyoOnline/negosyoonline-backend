@@ -38,9 +38,9 @@ from apps.accounts.api import signed_in
 from apps.accounts.models import Account
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
-from apps.inquiries import api_owner, crypto, messenger, messenger_inbox, outcomes
+from apps.inquiries import api_owner, comments as comment_logic, crypto, messenger, messenger_inbox, outcomes
 from apps.inquiries.models import InquiryConnection
-from apps.inquiries.switch import messenger_on, stored_tables_exist
+from apps.inquiries.switch import comment_tables_exist, comments_on, messenger_on, stored_tables_exist
 from apps.sites import templates
 from apps.sites.models import Site
 from apps.sites.services import site_for
@@ -89,12 +89,18 @@ def _nonce_key(nonce):
 # -- owner routes -----------------------------------------------------------------------------
 
 @owner.get("/sites/{site_id}/inquiries/messenger/start/", response={302: None})
-def start(request, site_id: str):
+def start(request, site_id: str, comments: str = ""):
+    """`?comments=1` asks for the two comments permissions too (the reconnect that turns comments on);
+    it counts only while the comments switch is on."""
     hit("inq-write", request.account.pk, limit=api_owner.WRITE_LIMIT, window=api_owner.WINDOW)
     nonce = secrets.token_urlsafe(16)
     cache.set(_nonce_key(nonce), 1, STATE_SECONDS)
-    state = signing.dumps({"s": request.inquiry_site.pk, "a": request.account.pk, "n": nonce}, salt=STATE_SALT)
-    return HttpResponseRedirect(messenger.authorization_url(_redirect_uri(request), state))
+    want = comments == "1" and comments_on()
+    payload = {"s": request.inquiry_site.pk, "a": request.account.pk, "n": nonce}
+    if want:
+        payload["c"] = 1
+    state = signing.dumps(payload, salt=STATE_SALT)
+    return HttpResponseRedirect(messenger.authorization_url(_redirect_uri(request), state, comments=want))
 
 
 @owner.get("/sites/{site_id}/inquiries/messenger/connection/")
@@ -145,7 +151,8 @@ def connect(request, site_id: str, payload: ConnectIn):
         encrypted = crypto.encrypt(token)
     except crypto.TokenKeyError:
         raise ApiError("provider_down", "Facebook could not be reached. Try again.", status=502) from None
-    result = messenger.subscribe_page(page["id"], token)
+    with_comments = bool(pick.get("comments_ok")) and comments_on() and comment_tables_exist()
+    result = messenger.subscribe_page(page["id"], token, comments=with_comments)
     if not result.ok:
         raise ApiError("provider_down", "Facebook could not be reached. Try again.", status=502)
     existing = messenger_inbox.connection_of(site)
@@ -164,6 +171,9 @@ def connect(request, site_id: str, payload: ConnectIn):
             raise
         # no unsubscribe: the Page's subscription now belongs to the site that won the race
         raise ApiError("page_taken", "That Page is already connected to another site.", status=409) from None
+    if comment_tables_exist():
+        if with_comments or comment_logic.settings_of(site) is not None:
+            comment_logic.mark_subscribed(site, row, with_comments)
     if old_row is not None:  # only after the save won: a lost race leaves the old Page's webhooks alone
         messenger_inbox.unsubscribe_row(old_row)  # best effort, with the old Page's own token
     cache.delete(messenger_inbox.pick_key(site, request.account))
@@ -211,6 +221,7 @@ def callback(request, code: str = "", state: str = "", error: str = ""):
         account = Account.objects.get(pk=data["a"])
         site = Site.objects.get(pk=data["s"])
         nonce = data["n"]
+        wants_comments = bool(data.get("c")) and comments_on()
     except (signing.BadSignature, Account.DoesNotExist, Site.DoesNotExist, KeyError, TypeError):
         return _reply("state_invalid", "bad_state")
     if not cache.delete(_nonce_key(nonce)):  # one use
@@ -228,7 +239,8 @@ def callback(request, code: str = "", state: str = "", error: str = ""):
     granted = messenger.granted_permissions(token.value)
     if not granted.ok:
         return _reply("provider_down")
-    missing = sorted(set(messenger.REQUIRED_PERMISSIONS) - set(granted.value))
+    needed = messenger.REQUIRED_PERMISSIONS + (messenger.COMMENT_PERMISSIONS if wants_comments else ())
+    missing = sorted(set(needed) - set(granted.value))
     if missing:
         return _reply("permission_missing", "missing: " + ", ".join(missing))
     who = messenger.user_id(token.value)
@@ -241,7 +253,10 @@ def callback(request, code: str = "", state: str = "", error: str = ""):
         kept = [{"id": p["id"], "name": p["name"], "token": crypto.encrypt(p["access_token"])} for p in pages.value]
     except crypto.TokenKeyError:
         return _reply("provider_down")
-    cache.set(messenger_inbox.pick_key(site, account), {"pages": kept, "user_id": who.value}, messenger_inbox.PICK_SECONDS)
+    cache.set(messenger_inbox.pick_key(site, account), {
+        "pages": kept, "user_id": who.value,
+        "comments_ok": comments_on() and set(messenger.COMMENT_PERMISSIONS) <= set(granted.value),
+    }, messenger_inbox.PICK_SECONDS)
     return _reply("pick")
 
 

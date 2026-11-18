@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import BooleanField, Case, Exists, F, OuterRef, Q, Subquery, Value, When
 from django.utils import timezone
 
 from apps.common import throttle
@@ -128,19 +128,39 @@ def unread_count(site):
     ).count()
 
 
-def list_items(site, limit=LIST_LIMIT, after=None, query=None, status=None, unread=None):
+FAILED_DELIVERY = ("failed", "bounced")  # a store message in one of these states did not reach the customer
+
+
+def _with_answered(rows):
+    """Annotate `answered`: the conversation's latest message (created_at, then pk) is the store's and
+    its delivery did not fail. No messages means unanswered. One subquery, no per-row query."""
+    latest = InquiryMessage.objects.filter(conversation=OuterRef("pk")).order_by("-created_at", "-pk")
+    return rows.annotate(
+        _last_direction=Subquery(latest.values("direction")[:1]),
+        _last_delivery=Subquery(latest.values("delivery_state")[:1]),
+    ).annotate(answered=Case(
+        When(Q(_last_direction=InquiryMessage.OUT) & ~Q(_last_delivery__in=FAILED_DELIVERY), then=Value(True)),
+        default=Value(False), output_field=BooleanField(),
+    ))
+
+
+def list_items(site, limit=LIST_LIMIT, after=None, query=None, status=None, unread=None, answered=None):
     """(items, next_cursor): the site's stored conversations, latest first, in the shape the owner's
     list uses. `after` is a previous call's next_cursor; next_cursor is None on the last page.
     `query` (already validated, see valid_query) keeps only the conversations that match it;
     `status` (open or closed, already validated) keeps only those;
-    `unread` (True or False, None for all) keeps only the unread or only the read."""
+    `unread` (True or False, None for all) keeps only the unread or only the read;
+    `answered` (True or False, None for all) keeps only the answered or only the unanswered (see _with_answered)."""
     rows = InquiryConversation.objects.filter(
         site=site, provider__in=providers(), stores_history=True,
     ).order_by(F("last_message_at").desc(nulls_last=True), "-pk")
+    rows = _with_answered(rows)
     if status:
         rows = rows.filter(status=status)
     if unread is not None:
         rows = rows.filter(unread=unread)
+    if answered is not None:
+        rows = rows.filter(answered=answered)
     if query:
         rows = _matching(rows, query)
     if after:
@@ -160,6 +180,7 @@ def list_items(site, limit=LIST_LIMIT, after=None, query=None, status=None, unre
             "source": "stored",
             "status": conversation.status,
             "unread": conversation.unread,
+            "answered": conversation.answered,
             "avatar_url": photos.get(conversation.pk),
         })
     return items, (cursor_of(rows[-1]) if more else None)
