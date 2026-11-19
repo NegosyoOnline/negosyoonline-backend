@@ -67,7 +67,7 @@ class InquiryDisposalTests(DisposalTestCase):
         self.assertEqual(entry.detail["blanked"]["inquiry_connections"], ["token_encrypted", "external_page_id", "label", "meta_user_id"])
         self.assertEqual(
             entry.detail["blanked"]["inquiry_conversations"],
-            ["display_name", "contact_name", "contact_email", "visitor_hash", "thread_token", "psid"],
+            ["display_name", "contact_name", "contact_email", "contact_mobile", "visitor_hash", "thread_token", "psid"],
         )
         self.assertEqual(entry.detail["blanked"]["inquiry_messages"], ["all rows deleted"])
         self.assertNotIn(TOKEN, str(entry.detail))

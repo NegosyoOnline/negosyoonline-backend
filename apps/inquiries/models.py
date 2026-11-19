@@ -81,6 +81,7 @@ class InquiryConversation(models.Model):
     status = models.CharField(max_length=8, choices=STATUSES, default=OPEN, db_default=OPEN)
     contact_name = models.CharField(max_length=120, blank=True, db_default="")  # stored channels; personal, blanked
     contact_email = models.EmailField(max_length=254, blank=True, db_default="")  # only if the person gave it; blanked
+    contact_mobile = models.CharField(max_length=16, blank=True, db_default="")  # +639XXXXXXXXX, only if the visitor gave it; blanked
     visitor_hash = models.CharField(max_length=64, blank=True, db_default="")  # SHA-256 of the chat visitor's secret
     thread_token = models.CharField(max_length=24, blank=True, db_default="")  # the email reply-thread token (PR2)
     psid = models.CharField(max_length=64, blank=True, db_default="")  # messenger: the customer's page-scoped id; personal, blanked

@@ -24,12 +24,12 @@ def chat_on(site, **fields):
 
 
 def make_stored(site, *, ref=WC_REF, name="Maria Santos", email="", text="Do you deliver to Cebu?",
-                status=InquiryConversation.OPEN, visitor_hash="", at=None, unread=True):
+                status=InquiryConversation.OPEN, visitor_hash="", at=None, unread=True, mobile=""):
     """A website-chat conversation with one customer message, as the chat route would make it."""
     at = at or timezone.now()
     conversation = InquiryConversation.objects.create(
         site=site, provider=InquiryConversation.WEBCHAT, external_id=ref, stores_history=True,
-        display_name=name, contact_name=name, contact_email=email, visitor_hash=visitor_hash,
+        display_name=name, contact_name=name, contact_email=email, contact_mobile=mobile, visitor_hash=visitor_hash,
         status=status, unread=unread, last_message_at=at, last_inbound_at=at,
     )
     InquiryMessage.objects.create(
