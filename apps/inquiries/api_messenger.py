@@ -29,7 +29,6 @@ import secrets
 from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
-from django.db import transaction
 from django.http import HttpResponse, HttpResponseRedirect
 from ninja import Router, Schema
 from pydantic import ConfigDict
@@ -338,18 +337,16 @@ def _signed_user(request):
 @public.post("/webhooks/messenger/deauthorize/")
 def deauthorize(request):
     user_id = _signed_user(request)
-    with transaction.atomic():
-        messenger_inbox.deauthorize(user_id)
-        remove_facebook_identity(user_id)  # one Meta app: this is also the sign-in app's callback
+    remove_facebook_identity(user_id)  # one Meta app: this is also the sign-in app's callback
+    messenger_inbox.deauthorize(user_id)
     return {}
 
 
 @public.post("/webhooks/messenger/data-deletion/", response=DeletionOut)
 def data_deletion(request):
     user_id = _signed_user(request)
-    with transaction.atomic():
-        messenger_inbox.erase_user(user_id)  # the same answer whether or not we knew the user
-        remove_facebook_identity(user_id)  # one Meta app: this is also the sign-in app's callback
+    remove_facebook_identity(user_id)  # one Meta app: this is also the sign-in app's callback
+    messenger_inbox.erase_user(user_id)  # the same answer whether or not we knew the user
     code = signing.dumps(secrets.token_hex(8), salt=DELETION_SALT)
     return {"url": request.build_absolute_uri(f"{DELETION_PATH}{code}/"), "confirmation_code": code}
 

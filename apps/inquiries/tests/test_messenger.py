@@ -785,14 +785,20 @@ class MetaCallbackTests(MessengerTestCase):
         self.assertEqual(ExternalIdentity.objects.count(), 1)
         self.assertEqual(InquiryConnection.objects.get(site=self.site).status, "active")
 
-    def test_a_failure_removing_the_sign_in_link_rolls_the_messenger_cleanup_back(self):
+    def test_a_failed_messenger_cleanup_keeps_the_link_removed_and_a_retry_completes_it(self):
         self.connect_row()
         self.inbound()
-        with mock.patch("apps.inquiries.api_messenger.remove_facebook_identity", side_effect=RuntimeError("boom")):
+        self.link()
+        with mock.patch("apps.inquiries.messenger_inbox.erase_user", side_effect=RuntimeError("boom")):
             response = self.post_signed("data-deletion", signed_request("fbuser-1"))
         self.assertGreaterEqual(response.status_code, 400)
+        self.assertFalse(ExternalIdentity.objects.exists())
         self.assertTrue(InquiryMessage.objects.filter(site=self.site).exists())
-        self.assertEqual(InquiryConnection.objects.get(site=self.site).status, "active")
+        retry = self.post_signed("data-deletion", signed_request("fbuser-1"))
+        self.assertEqual(retry.status_code, 200, retry.content)
+        self.assertEqual(set(retry.json()), {"url", "confirmation_code"})
+        self.assertFalse(InquiryMessage.objects.filter(site=self.site).exists())
+        self.assertEqual(InquiryConnection.objects.get(site=self.site).token_encrypted, "")
 
     def test_malformed_payloads_are_refused_with_the_fixed_code_and_log_only_the_class(self):
         self.connect_row()
