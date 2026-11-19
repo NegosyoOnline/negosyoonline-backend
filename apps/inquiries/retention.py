@@ -10,7 +10,7 @@ from datetime import timedelta
 from django.db.models import Q
 
 from apps.common import retention
-from apps.inquiries import profile
+from apps.inquiries import comment_media, profile
 from apps.inquiries.models import (
     InquiryChannelSettings, InquiryComment, InquiryCommentSettings, InquiryConnection, InquiryConversation,
     InquiryMessage, InquiryPost, InquiryReply,
@@ -86,6 +86,7 @@ def old_comments(now, dry_run):
     count = comments.count() + posts.count()
     if dry_run:
         return count
+    comment_media.forget(list(comments.values_list("pk", flat=True)))  # the cached photos go with the rows
     comments.delete()
     posts.delete()
     return count
@@ -171,6 +172,7 @@ def blank_inquiries(sites, dry_run=False):
         return {}
     if not dry_run:
         if comment_rows is not None:
+            comment_media.forget(list(comment_rows.values_list("pk", flat=True)))
             comment_rows.delete()
             InquiryPost.objects.filter(site__in=sites).delete()
             InquiryCommentSettings.objects.filter(site__in=sites).update(feed_subscribed=False, page_id="")

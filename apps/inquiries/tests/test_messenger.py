@@ -718,6 +718,38 @@ class MetaCallbackTests(MessengerTestCase):
         self.assertNotIn("DELETE", [m for m, _ in self.meta.paths()])  # the app is already removed
         self.assertEqual(InquiryConnection.objects.get(site=other_site).status, "active")
 
+    def test_a_request_shaped_the_way_meta_sends_it_is_accepted_and_applied(self):
+        """Meta's payload also carries a `user` object; the Messenger app's secret signs it."""
+        self.connect_row()
+        data = {"algorithm": "HMAC-SHA256", "issued_at": int(time.time()), "user": {"country": "ph", "locale": "en_US"}, "user_id": "fbuser-1"}
+        payload = base64.urlsafe_b64encode(json.dumps(data).encode()).decode().rstrip("=")
+        sig = base64.urlsafe_b64encode(hmac.new(SECRET.encode(), payload.encode(), hashlib.sha256).digest()).decode().rstrip("=")
+        response = self.post_signed("deauthorize", f"{sig}.{payload}")
+        self.assertEqual((response.status_code, response.json()), (200, {}))
+        self.assertEqual(InquiryConnection.objects.get(site=self.site).status, "invalid")
+
+    def test_a_request_signed_by_the_sign_in_app_is_refused_and_applies_nothing(self):
+        """The Facebook Login app has its own secret; only the Messenger app's secret counts here."""
+        self.connect_row()
+        with override_settings(FACEBOOK_APP_SECRET="the-login-apps-secret"):
+            for path in ("deauthorize", "data-deletion"):
+                response = self.post_signed(path, signed_request(secret="the-login-apps-secret"))
+                self.assertEqual((response.status_code, response.json()["error"]["code"]), (400, "invalid_signature"))
+        self.assertEqual(InquiryConnection.objects.get(site=self.site).status, "active")
+
+    def test_malformed_payloads_are_refused_with_the_fixed_code_and_log_only_the_class(self):
+        self.connect_row()
+        data = {"algorithm": "HMAC-SHA256", "user_id": "fbuser-1"}  # no issued_at
+        payload = base64.urlsafe_b64encode(json.dumps(data).encode()).decode().rstrip("=")
+        sig = base64.urlsafe_b64encode(hmac.new(SECRET.encode(), payload.encode(), hashlib.sha256).digest()).decode().rstrip("=")
+        for value in ("", "nodot", "a.b", f"{sig}.{payload}"):
+            with self.subTest(value=value[:8]), self.assertLogs("apps.accounts.facebook", level="WARNING") as logs:
+                response = self.post_signed("deauthorize", value)
+            self.assertEqual((response.status_code, response.json()["error"]["code"]), (400, "invalid_signature"))
+            self.assertNotIn(SECRET, "".join(logs.output))
+            self.assertNotIn(sig, "".join(logs.output))
+        self.assertEqual(InquiryConnection.objects.get(site=self.site).status, "active")
+
     def test_a_forged_stale_or_unconfigured_callback_is_refused(self):
         self.connect_row()
         for path in ("deauthorize", "data-deletion"):

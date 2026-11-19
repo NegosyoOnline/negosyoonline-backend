@@ -21,7 +21,7 @@ from apps.invoices import services as invoice_services
 from apps.invoices.tests.test_scans import MemoryScanStore
 from apps.members import recovery
 from apps.members.models import Member, MemberNotice
-from apps.inquiries.models import InquiryComment, InquiryConnection, InquiryPost
+from apps.inquiries.models import InquiryComment, InquiryCommentRule, InquiryConnection, InquiryPost
 from apps.inquiries.tests import base as inquiries_base
 from cryptography.fernet import Fernet
 from apps.meta_ads.tests.base import CODE, KEY, PIXEL, TOKEN, FakeMeta, configure
@@ -222,6 +222,15 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/inquiries/comments/{ref}/reply/"): 409,
     ("POST", "/sites/{site_id}/inquiries/comments/{ref}/private-reply/"): 409,
     ("POST", "/sites/{site_id}/inquiries/comments/{ref}/hide/"): 409,
+    # Facebook comment auto-reply rules (needs INQUIRY_COMMENT_AUTOMATION_ENABLED too). {ref} is a rule's.
+    ("GET", "/sites/{site_id}/inquiries/comment-rules/"): 200,
+    ("PUT", "/sites/{site_id}/inquiries/comment-rules/automation/"): 200,
+    ("GET", "/sites/{site_id}/inquiries/comment-rules/posts/"): 200,
+    ("POST", "/sites/{site_id}/inquiries/comment-rules/preview/"): 200,
+    ("POST", "/sites/{site_id}/inquiries/comment-rules/"): 201,
+    ("GET", "/sites/{site_id}/inquiries/comment-rules/{ref}/"): 200,
+    ("PUT", "/sites/{site_id}/inquiries/comment-rules/{ref}/"): 200,
+    ("DELETE", "/sites/{site_id}/inquiries/comment-rules/{ref}/"): 200,
     # last: a cancelled trial is Billing-only, so every route called after it would answer 403
     ("POST", "/sites/{site_id}/billing/cancel/"): 200,
 }
@@ -281,7 +290,7 @@ def child_variants(template, own, foreign):
     MEMBERS_ENABLED=True, PACK_SHIPPING_ENABLED=True, BILLING_STATEMENTS_ENABLED=True,
     META_CREDENTIALS_KEY=KEY, INQUIRIES_ENABLED=True, INQUIRIES_CREDENTIALS_KEY=inquiries_base.KEY,
     INQUIRY_MESSENGER_ENABLED=True, META_MESSENGER_APP_ID="123456", META_MESSENGER_APP_SECRET="test-secret",
-    MESSENGER_VERIFY_TOKEN="test-verify", INQUIRY_COMMENTS_ENABLED=True,
+    MESSENGER_VERIFY_TOKEN="test-verify", INQUIRY_COMMENTS_ENABLED=True, INQUIRY_COMMENT_AUTOMATION_ENABLED=True,
     XENDIT_ENABLED=True, XENDIT_FAKE=True, DEBUG=True, PAYMENT_CREDENTIALS_KEY=Fernet.generate_key().decode(),
 )
 class TwoOwnersTestCase(SitesApiTestCase):
@@ -341,6 +350,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
         self.ben_chat = inquiries_base.make_stored(self.ben_site, ref=BEN_WC_REF, name="Ben's Visitor")
         self.ana_comment = self.make_comment(self.site, "100000000000001")
         self.ben_comment = self.make_comment(self.ben_site, "100000000000002")
+        self.ben_rule = InquiryCommentRule.objects.create(site=self.ben_site, public_text="{Hi|Hello} {name}")
         for ids in (self.ben_ids, self.ben_shop_ids):
             ids["ref"] = BEN_WC_REF
         mail.outbox.clear()
@@ -473,7 +483,10 @@ class TwoOwnersTestCase(SitesApiTestCase):
             ids.update(self.make_media(self.site, video="/video/" in template))
         if "{ref}" in template:
             # Ana's website-chat conversation, or her Facebook comment on a comments route
-            ids["ref"] = self.ana_comment.ref if "/comments/" in template else inquiries_base.WC_REF
+            if "/comment-rules/" in template:  # made anew: the delete uses it up
+                ids["ref"] = InquiryCommentRule.objects.create(site=self.site, public_text="{Hi|Hello} {name}").ref
+            else:
+                ids["ref"] = self.ana_comment.ref if "/comments/" in template else inquiries_base.WC_REF
         if "{invoice_id}" in template:
             ids["invoice_id"] = self.invoice_ids[self.site.pk]
         if "{number}" in template:
@@ -490,6 +503,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
         """Ben's children for the placeholders this route has (a shop route gets his shop order)."""
         ids = self.ben_shop_ids if "/shop/" in template else self.ben_ids
         if "{ref}" in template:  # an inquiries route: Ben's website chat, or his Facebook comment
+            if "/comment-rules/" in template:
+                return {**ids, "ref": self.ben_rule.ref}
             return {**ids, "ref": self.ben_comment.ref if "/comments/" in template else BEN_WC_REF}
         return ids
 
@@ -640,6 +655,14 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return {"pixel_id": PIXEL, "access_token": TOKEN, "test_event_code": CODE}
         if template.endswith("/inquiries/channels/") and method == "PUT":
             return {"webchat_enabled": True}
+        if "/comment-rules/" in template:
+            if template.endswith("/automation/"):
+                return {"enabled": True}
+            if template.endswith("/preview/"):
+                return {"template": "{Hi|Hello} {name}", "kind": "public"}
+            if method == "POST" or method == "PUT":
+                return {"public_text": "{Hi|Hello} {name}!"} if method == "POST" else {"enabled": False}
+            return None
         if template.endswith("/messenger/connect/"):
             return {"page_id": "100000000000001"}
         if template.endswith(("/reply/", "/private-reply/")):

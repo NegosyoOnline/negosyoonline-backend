@@ -84,3 +84,16 @@ def check_comments_dependencies(app_configs, **kwargs):
         hint="Comments arrive through the Messenger Page connection: turn the Messenger inbox on, or turn comments off.",
         id="inquiries.E006",
     )]
+
+
+@register(deploy=True)
+def check_comment_automation_dependencies(app_configs, **kwargs):
+    if not settings.INQUIRY_COMMENT_AUTOMATION_ENABLED:
+        return []
+    if settings.INQUIRY_COMMENTS_ENABLED and settings.INQUIRY_MESSENGER_ENABLED and settings.INQUIRIES_ENABLED:
+        return []
+    return [Error(
+        "INQUIRY_COMMENT_AUTOMATION_ENABLED is on but comments are not (INQUIRY_COMMENTS_ENABLED, INQUIRY_MESSENGER_ENABLED and INQUIRIES_ENABLED).",
+        hint="Auto-replies answer stored comments: turn comments on, or turn auto-replies off.",
+        id="inquiries.E007",
+    )]

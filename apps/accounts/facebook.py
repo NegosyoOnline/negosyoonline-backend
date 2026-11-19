@@ -109,6 +109,8 @@ def _b64decode(text):
 # A signed request is accepted for a day after Meta issued it, and not from the future (clock skew).
 MAX_AGE_SECONDS = 24 * 3600
 MAX_FUTURE_SECONDS = 5 * 60
+# The fixed words a refusal is labelled with in the log, so one failed callback shows which check refused it.
+_REFUSAL_REASONS = frozenset({"malformed", "signature", "algorithm", "user_id", "issued_at"})
 
 
 def parse_signed_request(signed_request, secret=None):
@@ -119,15 +121,20 @@ def parse_signed_request(signed_request, secret=None):
     than 5 minutes ahead. A request without `issued_at` is refused as BadSignedRequest.
     """
     try:
-        signature, payload = signed_request.split(".", 1)
+        try:
+            signature, payload = signed_request.split(".", 1)
+        except ValueError:
+            raise ValueError("malformed") from None
         if not hmac.compare_digest(_b64decode(signature), _sign(payload, secret).digest()):
-            raise ValueError("signature does not match")
+            raise ValueError("signature")
         data = json.loads(_b64decode(payload))
-        if str(data["algorithm"]).upper() != "HMAC-SHA256" or not data["user_id"]:
-            raise ValueError("unexpected content")
+        if str(data["algorithm"]).upper() != "HMAC-SHA256":
+            raise ValueError("algorithm")
+        if not data["user_id"]:
+            raise ValueError("user_id")
         issued_at = data["issued_at"]
         if isinstance(issued_at, bool) or not isinstance(issued_at, (int, float)):
-            raise ValueError("unexpected content")
+            raise ValueError("issued_at")
         age = time.time() - issued_at
         if age > MAX_AGE_SECONDS or age < -MAX_FUTURE_SECONDS:
             raise StaleSignedRequest()
@@ -136,5 +143,8 @@ def parse_signed_request(signed_request, secret=None):
         logger.warning("Facebook signed request refused (stale)")
         raise
     except (KeyError, TypeError, ValueError, AttributeError) as error:
-        logger.warning("Facebook signed request refused (%s)", type(error).__name__)
+        # Only the kind of failure is logged, plus which of our own fixed checks refused it (never
+        # the request, the signature or the secret). A missing field logs the KeyError class.
+        reason = str(error) if isinstance(error, ValueError) and str(error) in _REFUSAL_REASONS else ""
+        logger.warning("Facebook signed request refused (%s%s)", type(error).__name__, f": {reason}" if reason else "")
         raise BadSignedRequest() from None

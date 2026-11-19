@@ -314,6 +314,11 @@ INQUIRY_COMMENTS_ENABLED = os.environ.get("INQUIRY_COMMENTS_ENABLED", "").strip(
 # Optional: the second Facebook Login for Business configuration (the six permissions, used only
 # when the owner turns comments on). When unset, the dialog asks for the scopes instead.
 META_COMMENTS_CONFIG_ID = os.environ.get("META_COMMENTS_CONFIG_ID", "").strip()
+# Comment auto-replies (apps/inquiries/comment_automation.py; limits in comment_limits.py). "1" turns
+# the rules routes and the Celery automation on, and only while INQUIRY_COMMENTS_ENABLED is on
+# (`check --deploy` reports inquiries.E007 otherwise). Off, the rules routes answer 404 and no
+# queued automatic reply is sent. Default off.
+INQUIRY_COMMENT_AUTOMATION_ENABLED = os.environ.get("INQUIRY_COMMENT_AUTOMATION_ENABLED", "").strip() == "1"
 # The storefront surface (/storefront/v1/), called only by the storefronts server. "1" turns
 # it on, and only while STOREFRONT_SERVER_SECRET holds at least 32 characters. Off, every path
 # under it answers 404. The secret is read here and nowhere else.
