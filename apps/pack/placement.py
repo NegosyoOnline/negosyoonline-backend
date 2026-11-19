@@ -143,7 +143,7 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
                 price_centavos=C.PRICE_CENTAVOS, buyer_name=tok.pending_contact["full_name"],
                 delivery_address=tok.pending_contact["delivery_address"], payment_method=pay_method,
                 payment_status=C.AWAITING_XENDIT if by_xendit else C.PENDING_REVIEW,
-                benefits_active_at=None if by_xendit else now, idempotency_key=key,
+                benefits_active_at=None, idempotency_key=key,  # benefits come on only at verify (1100430000578068)
                 policy_version=_policy_version(locked),
                 xendit_external_id=xendit.new_external_id(locked) if by_xendit else None,
                 buyer_mobile=tok.requested_mobile if by_xendit else "",

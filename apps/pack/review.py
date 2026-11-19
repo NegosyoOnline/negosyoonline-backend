@@ -53,8 +53,9 @@ def approve(account, site, order_id, *, state_version):
             actor_type=kind, actor_ref=ref, actor_label=label,
         )
         order.payment_status, order.verified_at = C.VERIFIED, timezone.now()
+        order.benefits_active_at = order.benefits_active_at or order.verified_at  # benefits on at verify; a legacy value is kept
         order.rejection_lock_active = False
-        _save(order, ["payment_status", "verified_at", "rejection_lock_active"])
+        _save(order, ["payment_status", "verified_at", "rejection_lock_active", "benefits_active_at"])
         registration.on_payment_verified(order)  # T8
         notices.after_commit(notices.payment_verified, decision.pk)
     return order
