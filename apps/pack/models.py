@@ -51,7 +51,16 @@ class CheckoutToken(models.Model):
 class PackOrder(models.Model):
     public_id = models.CharField(max_length=40, unique=True, default=new_order_id, editable=False)
     site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="pack_orders")
-    member = models.ForeignKey("members.Member", on_delete=models.PROTECT, related_name="pack_orders")
+    # Null only for a Xendit order that is not paid yet: the member is created when the payment is
+    # confirmed (apps.pack.buyer.attach_member), so a failed or abandoned checkout holds no account.
+    member = models.ForeignKey(
+        "members.Member", on_delete=models.PROTECT, related_name="pack_orders", null=True, blank=True
+    )
+    # What an unpaid Xendit order keeps for creating that member later: the typed mobile and email and
+    # the used onboarding challenge that proved the mobile. Blanked the moment the member is attached.
+    buyer_mobile = models.CharField(max_length=13, blank=True, default="")
+    buyer_email = models.EmailField(max_length=254, blank=True, default="")
+    onboarding_challenge_id = models.PositiveBigIntegerField(null=True, blank=True)
     order_number = models.CharField(max_length=8)  # SMP00001
     price_centavos = models.PositiveIntegerField()
     currency = models.CharField(max_length=3, default=C.CURRENCY)
@@ -114,6 +123,10 @@ class PackOrder(models.Model):
                 condition=Q(payment_method=C.PAYMENT_METHOD) | Q(xendit_external_id__isnull=False),
                 name="pack_order_xendit_has_ref",
             ),
+            models.CheckConstraint(
+                condition=Q(member__isnull=False) | Q(payment_method=C.XENDIT),
+                name="pack_order_member_unless_xendit",
+            ),
         ]
 
     def __str__(self):
@@ -121,6 +134,15 @@ class PackOrder(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ImmutableRecordError("Pack orders are never deleted.")
+
+    @property
+    def contact_mobile(self):
+        """The buyer's mobile: the member's once there is one, else the one kept on the unpaid order."""
+        return self.member.mobile if self.member_id else self.buyer_mobile
+
+    @property
+    def contact_email(self):
+        return self.member.email if self.member_id else self.buyer_email
 
     @property
     def shipment_status(self):

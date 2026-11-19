@@ -21,7 +21,7 @@ from django.utils import timezone
 from apps.common import throttle
 from apps.common.errors import ApiError
 from apps.members import services as members
-from apps.pack import constants as C, notices, registration
+from apps.pack import buyer, constants as C, notices, registration
 from apps.pack.models import PackOrder
 from apps.payments import services as payments, xendit_client
 from apps.sites.models import Site
@@ -185,7 +185,7 @@ def apply_state(site, state, *, now=None):
     Returns (outcome, order pk or None)."""
     Site.objects.select_for_update().filter(pk=site.pk).first()
     order = (
-        PackOrder.objects.select_for_update().select_related("member")
+        PackOrder.objects.select_for_update()  # no select_related: member is nullable (an outer join cannot be locked)
         .filter(site=site, xendit_external_id=state.external_id).first()
     )
     if order is None:
@@ -211,20 +211,22 @@ def apply_state(site, state, *, now=None):
     if not paid_like:
         return "ignored", order.pk  # PENDING, FAILED and the rest: the event row is the record
     live = order.payment_status in C.LIVE_STATUSES
-    # A payment on a non-live order while the member has another live order: money arrived on a closed
-    # order; recorded, never applied (the one-live-order rule).
-    newer = (
-        PackOrder.objects.filter(member_id=order.member_id, payment_status__in=C.LIVE_STATUSES)
-        .exclude(pk=order.pk).first()
-    )
-    if not live and newer is not None:
-        order.add_event(C.EVENT_XENDIT_SUPERSEDED, new={"invoice_id": state.invoice_id, "newer_order": newer.order_number})
-        _problem(order, "superseded")
-        return "superseded", order.pk
-    if not live and members.contacts_released(order.member):  # nobody can be reached on it
-        order.add_event(C.EVENT_XENDIT_SUPERSEDED, new={"invoice_id": state.invoice_id, "contacts_released": True})
-        _problem(order, "superseded")
-        return "superseded", order.pk
+    member = order.member  # None for a Xendit order not paid yet: the member is made below, on payment
+    if member is not None:
+        # A payment on a non-live order while the member has another live order: money arrived on a closed
+        # order; recorded, never applied (the one-live-order rule).
+        newer = (
+            PackOrder.objects.filter(member_id=order.member_id, payment_status__in=C.LIVE_STATUSES)
+            .exclude(pk=order.pk).first()
+        )
+        if not live and newer is not None:
+            order.add_event(C.EVENT_XENDIT_SUPERSEDED, new={"invoice_id": state.invoice_id, "newer_order": newer.order_number})
+            _problem(order, "superseded")
+            return "superseded", order.pk
+        if not live and members.contacts_released(member):  # nobody can be reached on it
+            order.add_event(C.EVENT_XENDIT_SUPERSEDED, new={"invoice_id": state.invoice_id, "contacts_released": True})
+            _problem(order, "superseded")
+            return "superseded", order.pk
     if other_invoice:
         _problem(order, "other_invoice")
     # Amount or currency differs.
@@ -239,7 +241,15 @@ def apply_state(site, state, *, now=None):
             )
         _problem(order, "amount_mismatch")
         return "amount_mismatch", order.pk
-    # The correct amount, from awaiting_xendit, xendit_expired or xendit_mismatch: paid.
+    # The correct amount, from awaiting_xendit, xendit_expired or xendit_mismatch: paid. The member of a
+    # Xendit order is created now (never before the payment); a contact someone else took meanwhile, or an
+    # order whose earlier member had its contacts released, goes to "Under review", never a silent merge.
+    if member is None:
+        member, refusal = buyer.attach_member(order)
+        if member is None:
+            return _hold_for_review(order, buyer.refusal_detail(refusal))
+    elif members.contacts_released(member):  # an order the earlier checkout made, its contacts since released
+        return _hold_for_review(order, {"reason": "contacts_released", "field": ""})
     order.payment_status = C.VERIFIED
     order.paid_at = state.paid_at or now
     order.verified_at = now
@@ -251,6 +261,18 @@ def apply_state(site, state, *, now=None):
     registration.on_payment_verified(order)  # T8
     notices.after_commit(notices.payment_verified_order, order.pk)
     return "applied", order.pk
+
+
+def _hold_for_review(order, detail):
+    """The money arrived but the buyer cannot be given an account: the existing "Under review" state,
+    with an event that says why; benefits, registration and the buyer notice wait for a person."""
+    if order.payment_status != C.XENDIT_MISMATCH:
+        old = order.payment_status
+        order.payment_status = C.XENDIT_MISMATCH
+        _save(order, ["payment_status"])
+        order.add_event(C.EVENT_XENDIT_MISMATCH, old={"payment_status": old}, new=detail)
+    _problem(order, "contact_conflict")
+    return "contact_conflict", order.pk
 
 
 def handle(site, state):

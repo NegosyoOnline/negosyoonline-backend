@@ -83,12 +83,19 @@ def clean_contact(data):
 
 
 def abandoned(member):
-    """A checkout that ended without an order holds no contact ("Unpaid orders are never
-    consulted"): an onboarding member whose mobile is still pending and who never ordered."""
-    return (
-        member.source == "onboarding" and member.mobile_state == "pending"
-        and not PackOrder.objects.filter(member=member).exists()
-    )
+    """A checkout that ended without a paid order holds no contact ("Unpaid orders are never
+    consulted"): an onboarding member whose mobile is still pending and who never ordered, or (a member
+    the Xendit checkout made at placement before the member came only with the payment, hotfix
+    z8uq9mgpt5) whose every order is an unpaid Xendit order with no benefits. A real paid member, or
+    one with a bank-transfer order, is never abandoned."""
+    if member.source != "onboarding":
+        return False
+    orders = PackOrder.objects.filter(member=member)
+    if not orders.exists():
+        return member.mobile_state == "pending"
+    return not orders.exclude(
+        payment_method=C.XENDIT, payment_status__in=C.XENDIT_UNPAID, benefits_active_at__isnull=True
+    ).exists()
 
 
 def live_order(member):

@@ -43,7 +43,7 @@ def _latest(*values, default=None):
 def order_rows(site):
     orders = list(PackOrder.objects.filter(site=site).values(
         "pk", "public_id", "order_number", "buyer_name", "member_id", "created_at", "verified_at",
-        "payment_status", "price_centavos", "currency", "member__mobile", "member__email"))
+        "payment_status", "price_centavos", "currency", "member__mobile", "member__email", "buyer_mobile", "buyer_email"))
     pks = [o["pk"] for o in orders]
     proofs = dict(
         PackProofSubmission.objects.filter(site=site, order_id__in=pks).values_list("order_id")
@@ -52,7 +52,7 @@ def order_rows(site):
         r["pack_order_id"]: r for r in SanteRegistration.objects.filter(site=site, pack_order_id__in=pks)
         .values("pack_order_id", "status", "status_entered_at")}
     sessions = dict(
-        MemberSession.objects.filter(site=site, member_id__in={o["member_id"] for o in orders})
+        MemberSession.objects.filter(site=site, member_id__in={o["member_id"] for o in orders if o["member_id"]})
         .values_list("member_id").annotate(at=Max("created_at")))
     video = dict(
         PackVisit.objects.filter(site=site, order_id__in=pks).values_list("order_id").annotate(p=Max("video_percent")))
@@ -73,7 +73,7 @@ def order_rows(site):
             "kind": "order", "name": o["buyer_name"], "order_number": o["order_number"], "order_id": o["public_id"],
             "source": PAGE_SOURCE, "stage": stage, "registration_status": status, "last_activity": last,
             "video_percent": video.get(o["pk"]),  # None: no linked visit, unknown
-            "mobile": o["member__mobile"], "email": o["member__email"], "placed_at": o["created_at"].isoformat(),
+            "mobile": o["member__mobile"] or o["buyer_mobile"], "email": o["member__email"] or o["buyer_email"], "placed_at": o["created_at"].isoformat(),
             "payment_status": o["payment_status"], "price_centavos": o["price_centavos"], "currency": o["currency"],
         })
     return rows

@@ -142,11 +142,10 @@ def page_event(name, event_id, *, now, url, ip, user_agent, fbp, fbc, visitor_re
 def order_event(delivery, order, context, visitor_ref=""):
     """The AddPaymentInfo or Purchase of an order, or None when there is nothing to send it with
     (no saved browser identifiers or no client address). Nothing is read from a request."""
-    member = order.member
     address = order.delivery_address if isinstance(order.delivery_address, dict) else {}
     user = user_data(
         ip=context.client_ip or "", user_agent=context.user_agent, fbp=context.fbp, fbc=context.fbc,
-        email=member.email, mobile=member.mobile, visitor_ref=visitor_ref, full_name=order.buyer_name,
+        email=order.contact_email, mobile=order.contact_mobile, visitor_ref=visitor_ref, full_name=order.buyer_name,
         city=str(address.get("city") or ""), province=str(address.get("province") or ""),
         zip_code=str(address.get("zip") or ""),
     )

@@ -110,7 +110,7 @@ def access_link(member, *, limited=True):
 def order_received(order_pk):
     order = PackOrder.objects.select_related("site__account", "member").get(pk=order_pk)
     site, member = order.site, order.member
-    if not member.email:
+    if member is None or not member.email:
         return None
     subject, body = RECEIVED
     values = {
@@ -137,7 +137,7 @@ def review_needed(submission_pk):
     subject, body = REVIEW
     values = {
         "no": sub.order.order_number, "store": messaging.store_name(site),
-        "who": _who(sub.order.member),
+        "who": _who(sub.order.member) if sub.order.member else "",
     }
     return send_email(
         to=owner.email, category="pack_review_needed", subject=subject.format(**values),
@@ -154,7 +154,7 @@ def _decision_email(decision_pk, texts, category):
 
 def _order_email(order, texts, category):
     member = order.member
-    if not member.email:
+    if member is None or not member.email:  # a Xendit order has no member until it is paid
         return None
     subject, body = texts
     site = order.site
@@ -189,7 +189,7 @@ def _shipment_email(order_pk, texts, category, extra):
         return None
     order = PackOrder.objects.select_related("site", "member").get(pk=order_pk)
     member = order.member
-    if not member.email:
+    if member is None or not member.email:
         return None
     subject, body = texts
     values = {

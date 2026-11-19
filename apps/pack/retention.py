@@ -40,7 +40,7 @@ HOLDS_DETAILS = (
 HOLDS_PERSONAL = HOLDS_DETAILS | ~Q(sante_member_id="")
 ERASE_T24 = ("waiting_for_accept", "ready_to_register", "in_registration", "retry_wait")
 CLEAR_CONFIRMED = ("awaiting_buyer_details", "needs_buyer_action", "possible_existing_member")
-ORDER_PERSONAL = ("buyer_name", "delivery_address")
+ORDER_PERSONAL = ("buyer_name", "delivery_address", "buyer_mobile", "buyer_email", "onboarding_challenge_id")
 PROOF_PERSONAL = ("sender_name", "sender_account_number", "reference_number", "ip_advisory", "file_key")
 TOKEN_GRACE = retention.CREDENTIAL_GRACE  # an expired token is deleted this long after it expires
 
@@ -94,7 +94,7 @@ def blank_packs(sites, dry_run=False, *, ignore_switch=False, keep_files=False):
             private_files.delete(key)
         tokens.delete()
         visit_rows.delete()
-        orders.update(buyer_name="", delivery_address={})
+        orders.update(buyer_name="", delivery_address={}, buyer_mobile="", buyer_email="", onboarding_challenge_id=None)
         wiped = {"sender_name": "", "sender_account_number": "", "reference_number": "", "ip_advisory": ""}
         proofs.update(**wiped, **({} if keep_files else {"file_key": ""}))
         registrations.update(date_of_birth=None, desired_username="", alternate_username="", sante_member_id="")
@@ -108,7 +108,7 @@ def _order_row(row, public_ids):
     exists on an order at all."""
     item = {
         "site": public_ids[row.site_id], "id": row.public_id, "number": row.order_number,
-        "member": row.member.public_id, "buyer_name": row.buyer_name,
+        "member": row.member.public_id if row.member_id else None, "buyer_name": row.buyer_name,
         "delivery_address": row.delivery_address, "price_centavos": row.price_centavos,
         "currency": row.currency, "status": row.payment_status,
         "benefits_active_at": _iso(row.benefits_active_at), "verified_at": _iso(row.verified_at),
@@ -116,6 +116,7 @@ def _order_row(row, public_ids):
     }
     if row.payment_method == "xendit":
         item.update({
+            "buyer_mobile": row.buyer_mobile, "buyer_email": row.buyer_email,  # kept until the payment makes the member
             "payment_method": row.payment_method, "xendit_external_id": row.xendit_external_id,
             "xendit_invoice_id": row.xendit_invoice_id, "xendit_expires_at": _iso(row.xendit_expires_at),
             "paid_at": _iso(row.paid_at),

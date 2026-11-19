@@ -72,14 +72,14 @@ def recent_orders(site, since):
         SanteRegistration.objects.filter(site=site, pack_order__in=orders).values_list("pack_order_id", "status")
     )
     with_access = set(
-        MemberSession.objects.filter(site=site, member_id__in=[o.member_id for o in orders])
+        MemberSession.objects.filter(site=site, member_id__in=[o.member_id for o in orders if o.member_id])
         .values_list("member_id", flat=True)
     )
     return [
         {
             "order_id": o.public_id, "order_number": o.order_number, "placed_at": o.created_at.isoformat(),
             "payment_status": o.payment_status, "registration_status": statuses.get(o.pk),
-            "dashboard_access": o.member_id in with_access,
+            "dashboard_access": o.member_id is not None and o.member_id in with_access,
         }
         for o in orders
     ]

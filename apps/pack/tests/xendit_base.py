@@ -65,6 +65,26 @@ class XenditPackCase(PackTestCase):
         self.assertEqual(response.status_code, 200, response.content)
         return token, response.json(), PackOrder.objects.get(order_number=response.json()["order_number"])
 
+    def onboarding(self, path, token):
+        return self.client.post(
+            "/storefront/v1/" + path, {"host": HOST, "visitor_ip": VISITOR, "token": token},
+            content_type="application/json", secure=True, HTTP_X_REAL_IP="198.51.100.200",
+            HTTP_AUTHORIZATION=f"Bearer {SECRET}",
+        )
+
+    def give_legacy_member(self, order):
+        """The shape an order placed before hotfix z8uq9mgpt5 has: a member made at placement. New Xendit
+        orders have none until they are paid; the old ones in the database still do."""
+        from apps.members import services as members
+        order.refresh_from_db()
+        if order.member_id is None:
+            member = members.create_member(
+                self.site, full_name=order.buyer_name, mobile=order.buyer_mobile, email=order.buyer_email,
+            )
+            PackOrder.objects.filter(pk=order.pk).update(member=member, buyer_mobile="", buyer_email="")
+            order.refresh_from_db()
+        return order.member
+
     def get_pack(self):
         return self.client.get(
             "/storefront/v1/pack/", {"host": HOST}, secure=True, HTTP_AUTHORIZATION=f"Bearer {SECRET}",
