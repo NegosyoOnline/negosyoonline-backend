@@ -79,11 +79,11 @@ Rotate at once if the value was ever shown in a log, a chat, a screenshot or a c
 
 ## Web chat
 
-Two routes of the surface, `POST /storefront/v1/chat/send/` and `/chat/poll/` (`apps/inquiries/api_storefront.py`), called by the storefronts server only, with the same credential and host lookup as the contact call.
+Three routes of the surface, `POST /storefront/v1/chat/send/`, `/chat/poll/` and `/chat/contact/` (saves the visitor's email or Philippine mobile number on their own conversation, filling only an empty field) (`apps/inquiries/api_storefront.py`), called by the storefronts server only, with the same credential and host lookup as the contact call.
 
 | Switch | Default | Does |
 |---|---|---|
-| `INQUIRY_WEBCHAT_ENABLED` | off | Opens the two chat routes. Needs `INQUIRIES_ENABLED` and `STOREFRONT_ENABLED`; `manage.py check --deploy` reports `inquiries.E002` otherwise. Off, or before `inquiries.0002` is applied, both routes answer the 404 of an unknown site before the body is read and read no table. |
+| `INQUIRY_WEBCHAT_ENABLED` | off | Opens the three chat routes. Needs `INQUIRIES_ENABLED` and `STOREFRONT_ENABLED`; `manage.py check --deploy` reports `inquiries.E002` otherwise. Off, or before `inquiries.0002` is applied, all three routes answer the 404 of an unknown site before the body is read and read no table. |
 
 A store's visitors can chat only while its owner has turned chat on (`PUT /v1/sites/{id}/inquiries/channels/`) and has not paused it. Staging order: apply `inquiries.0002_stored_channels` (see `docs/runbooks/migrations.md`), check `migrate --plan` and `/healthz/`, then the switch on the reference site only. Do not switch it on in staging until the Privacy wording for chat is approved.
 
