@@ -17,7 +17,7 @@ Errors have the repository shape `{"error": {"code", "message", "fields"?}}`; `f
 
 Shapes found by the scripted flow: `delivery_address` is an object (omit it when empty), `agreement_version_id` is the active version's id as a string, `account_id` is the payment account's public id (`pay_...`), `transferred_at` is `YYYY-MM-DDTHH:MM` (Manila).
 
-Codes: `invalid_contact` 422 (with `fields`), `contact_in_use`, `checkout_expired` 409, `checkout_used` 409, `no_contact` 409, `mobile_not_verified` 409, `method_unavailable` 409, `store_unavailable` 503, agreement and enrollment refusals as the sub-spec.
+Codes: `invalid_contact` 422 (with `fields`), `contact_in_use`, `order_on_file` 409 (a memberless bank order holds the contact), `checkout_expired` 409, `checkout_used` 409, `no_contact` 409, `mobile_not_verified` 409, `method_unavailable` 409, `store_unavailable` 503, agreement and enrollment refusals as the sub-spec.
 
 ## Onboarding after payment (PK7)
 

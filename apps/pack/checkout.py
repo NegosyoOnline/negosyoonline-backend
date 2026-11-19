@@ -123,9 +123,16 @@ def held_by_pending_order(site, mobile, email, exclude=None):
     return None
 
 
+def order_on_file(field):
+    """409 for a contact a memberless bank order holds. No account exists, so it is not contact_in_use."""
+    message = C.ORDER_ON_FILE[field]
+    return ApiError("order_on_file", message, status=409, fields={field: [message]})
+
+
 def match_existing(site, mobile, email, *, exclude_order=None):
     """None for a new buyer; the returning member (same mobile AND same email, no benefits, no
-    live order); or ApiError contact_in_use, for this site or another live store. `exclude_order`
+    live order); or ApiError contact_in_use, for this site or another live store, or order_on_file
+    when only a memberless bank order holds the contact. `exclude_order`
     is the order that is itself making its member (attach_member)."""
     by_mobile = Member.objects.filter(site=site, mobile=mobile).first()
     by_email = Member.objects.filter(site=site, email=email).first()
@@ -138,7 +145,7 @@ def match_existing(site, mobile, email, *, exclude_order=None):
         raise members.contact_in_use("mobile" if by_mobile is not None else "email")
     held = held_by_pending_order(site, mobile, email, exclude_order)
     if held:
-        raise members.contact_in_use(held)
+        raise order_on_file(held)
     members.require_free_elsewhere(site, "mobile", mobile)
     members.require_free_elsewhere(site, "email", email)
     return by_mobile
@@ -190,9 +197,9 @@ def check_contact(site, mobile, email, *, ip=None):
         if not value or field in errors:
             continue
         if held_by_pending_order(site, value if field == "mobile" else None, value if field == "email" else None):
-            errors.update(members.contact_in_use(field).fields)
+            errors.update(order_on_file(field).fields)
             continue
-        member = Member.objects.filter(site=site, **{field: value}).first()
+        member =Member.objects.filter(site=site, **{field: value}).first()
         if member is not None and not abandoned(member):
             # Each contact is unique, so each is judged on its own. One held by a member who has
             # benefits or a live order can never be taken again; any other may be a returning

@@ -3,18 +3,20 @@ transfer order is placed with no Member. It keeps the buyer's contact; the membe
 come when the Subscriber approves the proof. Until then the buyer works from the checkout token or the
 emailed order link (the status page, the new proof)."""
 import re
+from datetime import timedelta
 from unittest import mock
 
 from django.core import mail
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.utils import timezone
 
 from apps.common.errors import ApiError
 from apps.members import services as members
-from apps.members.models import Member
+from apps.members.models import Member, MemberOtpChallenge
 from apps.pack import constants as C, review
 from apps.pack.models import PackOrder, PackProofSubmission, SanteRegistration
-from apps.pack.tests.base import EMAIL, HOST, MOBILE, PNG, VISITOR, PackTestCase
+from apps.pack.tests.base import EMAIL, HOST, MOBILE, OTHER_HOST, PNG, VISITOR, PackTestCase
 from apps.storefront.tests.base import SECRET
 
 LINK = re.compile(r"https://\S+/funnel/membership-pack/access/([^/\s]+)/")
@@ -86,9 +88,56 @@ class PlacementTests(BankCase):
 
     def test_the_contact_stays_taken_while_the_proof_is_under_review(self):
         response = self.contact()
-        self.assertEqual((response.status_code, response.json()["error"]["code"]), (409, "contact_in_use"))
+        error = response.json()["error"]
+        self.assertEqual((response.status_code, error["code"]), (409, "order_on_file"))
+        self.assertEqual(error["message"], C.ORDER_ON_FILE["mobile"])
+        self.assertEqual(error["fields"], {"mobile": [C.ORDER_ON_FILE["mobile"]]})
         check = self.post("check/", mobile=MOBILE, email=EMAIL).json()
         self.assertIn("mobile", check["errors"])
+
+    def test_a_rejected_order_also_gives_order_on_file(self):
+        self.reject()
+        error = self.contact().json()["error"]
+        self.assertEqual(error["code"], "order_on_file")
+        self.assertEqual(error["message"], C.ORDER_ON_FILE["mobile"])
+
+    def test_the_email_alone_gives_the_email_message(self):
+        error = self.contact(mobile="09179990000").json()["error"]
+        self.assertEqual((error["code"], error["message"]), ("order_on_file", C.ORDER_ON_FILE["email"]))
+        self.assertEqual(error["fields"], {"email": [C.ORDER_ON_FILE["email"]]})
+
+    def test_check_names_the_new_message_per_field(self):
+        self.assertEqual(self.post("check/", mobile=MOBILE).json()["errors"], {"mobile": [C.ORDER_ON_FILE["mobile"]]})
+        self.assertEqual(self.post("check/", email=EMAIL).json()["errors"], {"email": [C.ORDER_ON_FILE["email"]]})
+        both = self.post("check/", mobile=MOBILE, email=EMAIL).json()["errors"]
+        self.assertEqual(both, {"mobile": [C.ORDER_ON_FILE["mobile"]], "email": [C.ORDER_ON_FILE["email"]]})
+        self.assertEqual(self.post("check/", mobile="09179990000", email="new@buyer.test").json()["errors"], {})
+
+    def test_a_real_member_keeps_contact_in_use_and_its_old_text(self):
+        self.approve()
+        error = self.contact().json()["error"]
+        self.assertEqual((error["code"], error["message"]), ("contact_in_use", "This mobile number is already registered."))
+        errors = self.post("check/", email=EMAIL).json()["errors"]
+        self.assertEqual(errors, {"email": ["This email is already registered."]})
+
+    def test_a_member_of_another_store_keeps_contact_in_use(self):
+        Member.objects.create(site=self.other_site, full_name="Ben", mobile="+639170000002", email="ben@buyer.test")
+        error = self.contact(mobile="09170000002", email="fresh@buyer.test").json()["error"]
+        self.assertEqual((error["code"], error["message"]), ("contact_in_use", "This mobile number is already registered."))
+
+    def test_an_unpaid_xendit_order_holds_nothing(self):
+        PackOrder.objects.filter(pk=self.order.pk).update(
+            payment_method=C.XENDIT, payment_status=C.AWAITING_XENDIT, xendit_external_id="np-1-" + "a" * 24,
+        )
+        self.assertEqual(self.contact().status_code, 200)
+        self.assertEqual(self.post("check/", mobile=MOBILE, email=EMAIL).json()["errors"], {})
+
+    def test_a_bank_order_of_one_store_holds_nothing_in_another(self):
+        response = self.post("contact/", host=OTHER_HOST, **self.contact_fields())
+        error = (response.json() or {}).get("error", {})
+        self.assertNotIn(error.get("code"), ("order_on_file", "contact_in_use"))
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.post("check/", host=OTHER_HOST, mobile=MOBILE, email=EMAIL).json()["errors"], {})
 
 
 class ApproveTests(BankCase):
@@ -293,6 +342,44 @@ class OrderLinkTests(PackTestCase):
         read = self.call("access/read/", link=link).json()
         self.assertEqual((read["link_open"], read["renewable"], read["payment_status"]), (False, False, "paid"))
         self.assertFalse(self.call("access/redeem/", link=link).json()["redeemed"])
+
+    def test_the_order_email_link_works_for_the_under_review_state(self):
+        # "Use the link in your order email": the received email carries it and it opens the status page
+        status = self.call("checkout/payment-status/", token=self.call("access/redeem/", link=self.link_in(self.received)).json()["token"]).json()
+        self.assertEqual((status["payment_status"], status["can_resubmit"]), ("under_review", False))
+
+    def test_the_order_email_link_works_for_the_rejected_state(self):
+        mail.outbox.clear()
+        self.reject("wrong_account")
+        message = mail.outbox[0]
+        self.assertEqual(message.to, [EMAIL])
+        read = self.call("access/read/", link=self.link_in(message)).json()
+        self.assertEqual((read["link_open"], read["kind"], read["payment_status"]), (True, "order", "needs_attention"))
+        redeemed = self.call("access/redeem/", link=self.link_in(message)).json()
+        status = self.call("checkout/payment-status/", token=redeemed["token"]).json()
+        self.assertEqual((status["payment_status"], status["can_resubmit"]), ("needs_attention", True))
+
+    def test_a_used_order_link_can_get_a_new_one_by_email(self):
+        link = self.link_in(self.received)
+        self.assertTrue(self.call("access/redeem/", link=link).json()["redeemed"])
+        mail.outbox.clear()
+        renewed = self.call("access/renew/", link=link).json()
+        self.assertEqual((renewed["sent"], renewed["renewable"]), (True, True))
+        self.assertEqual(mail.outbox[0].to, [EMAIL])
+        self.assertTrue(self.call("access/read/", link=self.link_in(mail.outbox[0])).json()["link_open"])
+
+    def test_an_expired_order_link_can_get_a_new_one_by_email(self):
+        link = self.link_in(self.received)
+        MemberOtpChallenge.objects.filter(member__isnull=True, channel="email").update(
+            expires_at=timezone.now() - timedelta(minutes=1)
+        )
+        read = self.call("access/read/", link=link).json()
+        self.assertEqual((read["link_open"], read["renewable"]), (False, True))
+        mail.outbox.clear()
+        renewed = self.call("access/renew/", link=link).json()
+        self.assertTrue(renewed["sent"])
+        self.assertEqual(mail.outbox[0].to, [EMAIL])
+        self.assertTrue(self.call("access/read/", link=self.link_in(mail.outbox[0])).json()["link_open"])
 
     def test_a_link_of_another_site_or_a_forged_one_is_404(self):
         link = self.link_in(self.received)

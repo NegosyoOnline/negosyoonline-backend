@@ -321,7 +321,7 @@ class BankTransferHoldsContact(XenditPackCase):
         self.placed_memberless()
         response = self.contact()
         self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()["error"]["code"], "contact_in_use")
+        self.assertEqual(response.json()["error"]["code"], "order_on_file")
 
 
 class ReadersHandleNoMember(XenditPackCase):

@@ -44,7 +44,11 @@ MSG_ORDER_STALE = "This order changed. Reload it and try again."
 MSG_CHOOSE_REASON = "Choose a reason."
 MSG_CONTACT_TAKEN = "The buyer's {field} is now used by another member. The order stays under review."
 MSG_CONTACT_UNPROVEN = "The buyer's mobile number could not be confirmed. The order stays under review."
-MSG_NOT_REJECTED = "A new proof can be sent only after the store asks for one."
+ORDER_ON_FILE = {  # a memberless bank order holds the contact: no account exists, so never "already registered"
+    "mobile": "This mobile number already has a bank transfer order with this store. Use the link in your order email to follow it.",
+    "email": "This email already has a bank transfer order with this store. Use the link in your order email to follow it.",
+}
+MSG_NOT_REJECTED ="A new proof can be sent only after the store asks for one."
 
 EVENT_PLACED = "placed"
 EVENT_SHIPMENT_RECORDED, EVENT_SHIPMENT_CORRECTED, EVENT_DELIVERED = (
