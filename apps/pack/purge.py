@@ -101,6 +101,9 @@ def _clear_details(site_id, now, member_id=None):
     orders = scoped(PackOrder.objects)
     orders.exclude(buyer_name=BUYER_PLACEHOLDER).update(buyer_name=BUYER_PLACEHOLDER)
     orders.exclude(delivery_address={}).update(delivery_address={})
+    orders.exclude(buyer_mobile="", buyer_email="", onboarding_challenge_id=None).update(
+        buyer_mobile="", buyer_email="", onboarding_challenge_id=None  # an unpaid Xendit order's kept contact
+    )
     counts["pack_orders"] = orders.count()
     members = Member.objects.filter(site_id=site_id)
     members = members.filter(pk=member_id) if member_id else members

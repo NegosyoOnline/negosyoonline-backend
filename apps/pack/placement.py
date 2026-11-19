@@ -85,6 +85,18 @@ def _member(site, token, raw):
     )
 
 
+def _hold_contact(site, token, raw):
+    """A Xendit order creates no member: the contact stays on the order until the payment. The same
+    refusals as a member's creation come now (a contact someone holds, the number to be proved for a
+    returning buyer), under the Site lock; returns the used onboarding challenge's id, or None."""
+    contact, mobile = token.pending_contact, token.requested_mobile
+    returning = checkout.match_existing(site, mobile, contact["email"])
+    if returning is None:
+        checkout.release_abandoned(site, mobile, contact["email"])  # an earlier checkout's unpaid holder
+    proof = _proof_challenge(site, token, raw) if (returning is not None or token.verified_mobile) else None
+    return proof.pk if proof is not None else None
+
+
 def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip=None, meta=None, pay_method=C.PAYMENT_METHOD):
     key = idempotency_key(token, submit_key)
     first = _replay(site, key)
@@ -124,7 +136,7 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
                 raise ApiError("checkout_used", C.MSG_CHECKOUT_EXPIRED, status=409)
             version, accepted_at = records.require_current(tok, lock=True)  # the second check, under the locks
             enrolled_at = records.require_enrollment(tok)
-            member = _member(locked, tok, raw)
+            member, challenge_id = (None, _hold_contact(locked, tok, raw)) if by_xendit else (_member(locked, tok, raw), None)
             now = timezone.now()
             order = PackOrder.objects.create(
                 site=locked, member=member, order_number=_next_number(locked),
@@ -134,10 +146,14 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
                 benefits_active_at=None if by_xendit else now, idempotency_key=key,
                 policy_version=_policy_version(locked),
                 xendit_external_id=xendit.new_external_id(locked) if by_xendit else None,
+                buyer_mobile=tok.requested_mobile if by_xendit else "",
+                buyer_email=tok.pending_contact["email"] if by_xendit else "",
+                onboarding_challenge_id=challenge_id,
             )
             order.add_event(
                 C.EVENT_PLACED, new={"method": pay_method}, actor_type="member",
-                actor_ref=member.pk, actor_label=contacts.mask("mobile", member.mobile),
+                actor_ref=member.pk if member else None,
+                actor_label=contacts.mask("mobile", member.mobile if member else order.buyer_mobile),
             )
             if version is not None:  # posted by an older storefront; otherwise accepted at the details step
                 records.write_acceptance(order, version, accepted_at)
