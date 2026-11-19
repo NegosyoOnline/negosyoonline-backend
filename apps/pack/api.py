@@ -657,11 +657,11 @@ class MemberPackOut(Schema):
 @router.post("/member/pack/", response=MemberPackOut)
 def member_pack(request, body: MemberIn):
     """The payment card, the rejection reason (only here, after sign-in) and the member's own
-    proofs. The registration card is shown only while benefits are on (TWCinc AC-68)."""
+    proofs. The registration card is shown while benefits are on (TWCinc AC-68) and for a bank-transfer buyer awaiting the verify."""
     _, member = _member(body.host, body.token)
     return {
         "pack": panels.pack_panel(member),
-        "registration": panels.registration_panel(member) if interfaces.benefits_active(member) else None,
+        "registration": panels.registration_panel(member) if interfaces.benefits_active(member) or interfaces.bank_order_placed(member) else None,
     }
 
 

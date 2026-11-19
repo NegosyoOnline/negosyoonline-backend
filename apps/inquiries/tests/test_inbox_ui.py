@@ -489,6 +489,10 @@ class SearchTests(InboxUiCase):
         self.assertEqual(self.refs("remedios")[0], [self.messenger.external_id])
         self.assertEqual(self.refs("coupons")[0], [self.messenger.external_id])
 
+    def test_the_mobile_number_matches(self):
+        InquiryConversation.objects.filter(pk=self.ben.pk).update(contact_mobile="+639171234567")
+        self.assertEqual(self.refs("9171234")[0], [self.ben.external_id])
+
     def test_an_earlier_message_of_the_thread_matches_too(self):
         InquiryMessage.objects.create(site=self.site, conversation=self.maria, direction="out", sender_kind="owner", body="Yes, via LBC courier")
         self.assertEqual(self.refs("courier")[0], [self.maria.external_id])

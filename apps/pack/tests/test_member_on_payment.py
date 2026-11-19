@@ -313,7 +313,7 @@ class BankTransferUnchanged(XenditPackCase):
         self.assertEqual((order.buyer_mobile, order.buyer_email), ("", ""))
         self.assertIsNone(order.onboarding_challenge_id)
         self.assertEqual(order.payment_status, C.PENDING_REVIEW)
-        self.assertIsNotNone(order.benefits_active_at)
+        self.assertIsNone(order.benefits_active_at)
         self.assertEqual(SanteRegistration.objects.get().member_id, member.pk)
 
     def test_a_bank_buyer_with_a_pending_order_still_blocks_the_contact(self):

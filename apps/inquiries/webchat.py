@@ -1,4 +1,4 @@
-"""Website chat: what the two storefront chat routes do (apps/inquiries/api_storefront.py).
+"""Website chat: what the three storefront chat routes do (send, poll, contact) (apps/inquiries/api_storefront.py).
 
 The browser never calls Django. The storefronts server posts here with the server credential, the
 visitor's host and address, and the visitor's secret (which it keeps in a cookie). The site is
@@ -25,6 +25,7 @@ from django.db.models import Case, When
 from django.utils import timezone
 
 from apps.common import throttle
+from apps.common.phones import normalise_ph_mobile
 from apps.common.errors import ApiError
 from apps.inquiries import live, stored
 from apps.inquiries.models import InquiryChannelSettings, InquiryConversation, InquiryMessage
@@ -104,6 +105,25 @@ def _checked_email(raw):
     except ValidationError:
         raise _invalid("email", "Please enter a valid email address.") from None
     return email
+
+
+def _checked_contact(raw):
+    """("email", address) or ("mobile", "+639XXXXXXXXX") for a visitor's contact, or a 422 on `contact`."""
+    value = (raw or "").strip()
+    message = "Please enter a valid email address or Philippine mobile number."
+    if not value or len(value) > MAX_EMAIL:
+        raise _invalid("contact", message)
+    if "@" in value:
+        email = value.lower()
+        try:
+            validate_email(email)
+        except ValidationError:
+            raise _invalid("contact", message) from None
+        return "email", email
+    try:
+        return "mobile", normalise_ph_mobile(value)
+    except ValueError:
+        raise _invalid("contact", message) from None
 
 
 def _paused(state="paused"):
@@ -242,6 +262,27 @@ def send(site, *, visitor_ip, visitor_secret, name, email, text, website, opened
     return {
         "state": saved.status, "visitor_secret": issued, "messages": _owner_messages(saved, after_id), "notice": "",
     }
+
+
+def save_contact(site, *, visitor_ip, visitor_secret, contact):
+    """Add an email or a Philippine mobile number to the visitor's own conversation. Returns
+    {saved, kind}. Only an empty field is filled, never overwritten. A secret that matches no
+    conversation on this site gets the same answer as a match, with nothing stored. {saved: False,
+    kind: ""} means chat is switched off or paused."""
+    if not available(site):
+        return {"saved": False, "kind": ""}
+    kind, value = _checked_contact(contact)
+    ip = _ip(visitor_ip)
+    secret_hash = hash_of(visitor_secret)
+    throttle.hit(IP_MESSAGES[0], ip, limit=IP_MESSAGES[1], window=IP_MESSAGES[2])
+    throttle.hit(SECRET_MESSAGES[0], f"{site.pk}:{secret_hash}", limit=SECRET_MESSAGES[1], window=SECRET_MESSAGES[2])
+    conversation = _latest(site, secret_hash)
+    if conversation is not None:
+        field = "contact_email" if kind == "email" else "contact_mobile"
+        if not getattr(conversation, field):
+            setattr(conversation, field, value)
+            conversation.save(update_fields=[field])
+    return {"saved": True, "kind": kind}
 
 
 def poll(site, *, visitor_ip, visitor_secret, after_id):

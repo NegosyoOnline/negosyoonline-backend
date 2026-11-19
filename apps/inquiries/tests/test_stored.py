@@ -48,6 +48,11 @@ class StoredOwnerTestCase(SitesApiTestCase):
 
 
 class ListAndThreadTests(StoredOwnerTestCase):
+    def test_the_thread_carries_the_email_and_the_mobile(self):
+        InquiryConversation.objects.filter(pk=self.conv.pk).update(contact_email="m@visitor.test", contact_mobile="+639171234567")
+        body = self.get(self.base + f"conversations/{WC_REF}/").json()
+        self.assertEqual((body["contact_email"], body["contact_mobile"]), ("m@visitor.test", "+639171234567"))
+
     def test_the_list_holds_stored_conversations(self):
         body = self.get(self.base + "conversations/").json()
         (item,) = body["items"]
@@ -294,7 +299,7 @@ class StoredRetentionTests(DisposalTestCase):
         self.fresh = timezone.now() - timedelta(days=10)
 
     def plant(self, site, ref, at, hash_="a" * 64, email="maria@visitor.test"):
-        conversation = make_stored(site, ref=ref, at=at, email=email, visitor_hash=hash_)
+        conversation = make_stored(site, ref=ref, at=at, email=email, visitor_hash=hash_, mobile="+639171234567")
         InquiryConversation.objects.filter(pk=conversation.pk).update(thread_token=ref[-20:])
         InquiryMessage.objects.create(
             site=site, conversation=conversation, direction="out", sender_kind="owner", body="Reply", created_at=at,
@@ -332,8 +337,8 @@ class StoredRetentionTests(DisposalTestCase):
         retention.run_all(only=["inquiry_messages"])
         old.refresh_from_db()
         self.assertEqual(
-            (old.contact_name, old.contact_email, old.visitor_hash, old.thread_token, old.display_name, old.status),
-            ("", "", "", "", "", "closed"),
+            (old.contact_name, old.contact_email, old.contact_mobile, old.visitor_hash, old.thread_token, old.display_name, old.status),
+            ("", "", "", "", "", "", "closed"),
         )
         self.assertFalse(InquiryMessage.objects.filter(conversation=old).exists())
         self.assertEqual(InquiryReply.objects.count(), 1)
@@ -369,12 +374,12 @@ class StoredRetentionTests(DisposalTestCase):
             self.assertEqual(counts[key], dry[key], key)
         self.assertEqual(counts["inquiry_messages"], 2)
         mine.refresh_from_db()
-        self.assertEqual((mine.contact_name, mine.contact_email, mine.visitor_hash, mine.thread_token), ("",) * 4)
+        self.assertEqual((mine.contact_name, mine.contact_email, mine.contact_mobile, mine.visitor_hash, mine.thread_token), ("",) * 5)
         self.assertFalse(InquiryMessage.objects.filter(site=self.mine).exists())
         settings_row = InquiryChannelSettings.objects.get(site=self.mine)
         self.assertEqual((settings_row.email_route_token, settings_row.webchat_enabled), ("", False))
         theirs.refresh_from_db()
-        self.assertEqual(theirs.contact_email, "maria@visitor.test")
+        self.assertEqual((theirs.contact_email, theirs.contact_mobile), ("maria@visitor.test", "+639171234567"))
         self.assertEqual(InquiryMessage.objects.filter(site=self.theirs).count(), 2)
         self.assertTrue(InquiryChannelSettings.objects.get(site=self.theirs).webchat_enabled)
         self.assertNotEqual(InquiryChannelSettings.objects.get(site=self.theirs).email_route_token, "")

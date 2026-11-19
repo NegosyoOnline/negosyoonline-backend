@@ -110,13 +110,14 @@ def valid_query(text):
 
 
 def _matching(rows, text):
-    """The rows whose name, contact name, contact email or any message text contains `text`, ignoring
+    """The rows whose name, contact name, contact email, contact mobile or any message text contains `text`, ignoring
     case. `rows` is already this site's; the message test is tied to the same conversation and site."""
     in_message = InquiryMessage.objects.filter(
         conversation=OuterRef("pk"), site=OuterRef("site"), body__icontains=text,
     )
     return rows.filter(
         Q(display_name__icontains=text) | Q(contact_name__icontains=text) | Q(contact_email__icontains=text)
+        | Q(contact_mobile__icontains=text)
         | Exists(in_message)
     )
 
@@ -228,6 +229,7 @@ def thread(site, ref):
         "status": conversation.status,
         "unread": conversation.unread,
         "contact_email": conversation.contact_email,
+        "contact_mobile": conversation.contact_mobile,
         "messages": [
             {
                 "id": str(m.pk), "direction": m.direction, "sender_kind": m.sender_kind, "text": m.body,

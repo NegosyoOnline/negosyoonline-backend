@@ -21,13 +21,13 @@ from apps.pack.tests.base import (
 
 
 class PlaceTests(PackTestCase):
-    def test_a_good_order_is_placed_pending_review_with_benefits_on(self):
+    def test_a_good_order_is_placed_pending_review_with_benefits_off(self):
         token, body = self.placed()
         self.assertEqual(body, {"order_number": "SMP00001", "replay": False, "pay_url": None})
         order = PackOrder.objects.get()
         self.assertEqual(order.payment_status, C.PENDING_REVIEW)
         self.assertEqual(order.price_centavos, C.PRICE_CENTAVOS)
-        self.assertIsNotNone(order.benefits_active_at)
+        self.assertIsNone(order.benefits_active_at)
         self.assertEqual(order.buyer_name, "Maria Santos")
         self.assertTrue(order.public_id.startswith("pko_"))
         member = Member.objects.get()

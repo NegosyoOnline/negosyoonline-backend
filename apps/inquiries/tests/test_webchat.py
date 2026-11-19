@@ -20,6 +20,7 @@ from apps.storefront.tests.base import HOST, NOT_FOUND, SECRET, SurfaceTestCase
 
 SEND = "/storefront/v1/chat/send/"
 POLL = "/storefront/v1/chat/poll/"
+CONTACT = "/storefront/v1/chat/contact/"
 IP = "203.0.113.60"
 OTHER_HOST = "bens-store.negosyotest.com"
 
@@ -56,6 +57,9 @@ class ChatTestCase(SurfaceTestCase):
         response = self.send(**kw)
         self.assertEqual(response.status_code, 200, response.content)
         return response.json()
+
+    def contact(self, secret, contact, host=HOST, visitor_ip=IP, **fields):
+        return self.post(CONTACT, host=host, visitor_ip=visitor_ip, visitor_secret=secret, contact=contact, **fields)
 
     def owner_reply(self, conversation, text="Yes, we deliver."):
         return InquiryMessage.objects.create(
@@ -194,6 +198,108 @@ class SendTests(ChatTestCase):
         response = self.send(text="Same text")
         self.assertEqual(response.json()["visitor_secret"], "")
         self.assertEqual(InquiryMessage.objects.count(), 1)
+
+
+class ContactTests(ChatTestCase):
+    def conversation(self, site=None):
+        return InquiryConversation.objects.get(site=site or self.site)
+
+    def test_a_first_message_needs_no_name_and_no_email(self):
+        body = self.first()
+        conversation = self.conversation()
+        self.assertEqual(body["state"], "open")
+        self.assertEqual((conversation.contact_name, conversation.contact_email, conversation.contact_mobile), ("", "", ""))
+
+    def test_an_email_is_saved_lower_cased(self):
+        secret = self.first()["visitor_secret"]
+        response = self.contact(secret, "  Maria@Visitor.TEST ")
+        self.assertEqual((response.status_code, response.json()), (200, {"saved": True, "kind": "email"}))
+        conversation = self.conversation()
+        self.assertEqual((conversation.contact_email, conversation.contact_mobile), ("maria@visitor.test", ""))
+
+    def test_a_ph_mobile_is_saved_in_the_plus_63_form(self):
+        secret = self.first()["visitor_secret"]
+        for raw in ("0917 123 4567", "9171234567", "+63 917-123-4567", "639171234567"):
+            InquiryConversation.objects.filter(site=self.site).update(contact_mobile="")
+            response = self.contact(secret, raw)
+            self.assertEqual((response.status_code, response.json()), (200, {"saved": True, "kind": "mobile"}), raw)
+            self.assertEqual(self.conversation().contact_mobile, "+639171234567", raw)
+        self.assertEqual(self.conversation().contact_email, "")
+
+    def test_anything_else_is_a_422_on_contact_and_changes_nothing(self):
+        secret = self.first()["visitor_secret"]
+        for raw in ("", "   ", "hello", "not@", "a@b", "12345", "+14155550123", "0817 123 4567", "x" * 300):
+            response = self.contact(secret, raw)
+            self.assertEqual(response.status_code, 422, raw)
+            self.assertEqual(list(response.json()["error"]["fields"]), ["contact"], raw)
+        conversation = self.conversation()
+        self.assertEqual((conversation.contact_email, conversation.contact_mobile), ("", ""))
+
+    def test_a_filled_field_is_never_overwritten_but_the_other_one_is_filled(self):
+        secret = self.first(email="first@visitor.test")["visitor_secret"]
+        self.assertEqual(self.contact(secret, "second@visitor.test").json(), {"saved": True, "kind": "email"})
+        self.assertEqual(self.conversation().contact_email, "first@visitor.test")
+        self.assertEqual(self.contact(secret, "09171234567").json(), {"saved": True, "kind": "mobile"})
+        self.assertEqual(self.contact(secret, "09181234567").json(), {"saved": True, "kind": "mobile"})
+        conversation = self.conversation()
+        self.assertEqual((conversation.contact_email, conversation.contact_mobile), ("first@visitor.test", "+639171234567"))
+
+    def test_a_secret_from_another_store_or_no_secret_gets_the_same_answer_and_stores_nothing(self):
+        secret = self.first()["visitor_secret"]
+        mine = self.contact(secret, "09171234567")
+        for response in (
+            self.contact(secret, "09171234567", host=OTHER_HOST),
+            self.contact("", "09171234567"),
+            self.contact("A" * 43, "09171234567"),
+            self.contact("not a secret", "09171234567"),
+        ):
+            self.assertEqual((response.status_code, response.json()), (200, mine.json()))
+        self.assertFalse(InquiryConversation.objects.filter(site=self.ben).exists())
+        InquiryConversation.objects.filter(site=self.site).update(contact_mobile="")
+        self.contact(secret, "09171234567", host=OTHER_HOST)
+        self.assertEqual(self.conversation().contact_mobile, "")
+
+    def test_another_visitors_conversation_is_not_touched(self):
+        mine = self.first(visitor_ip="203.0.113.81")["visitor_secret"]
+        other = self.first(text="Other question", visitor_ip="203.0.113.82")["visitor_secret"]
+        self.contact(other, "09181234567", visitor_ip="203.0.113.82")
+        self.contact(mine, "09171234567", visitor_ip="203.0.113.81")
+        mobiles = {c.visitor_hash: c.contact_mobile for c in InquiryConversation.objects.filter(site=self.site)}
+        self.assertEqual(mobiles[webchat.hash_of(mine)], "+639171234567")
+        self.assertEqual(mobiles[webchat.hash_of(other)], "+639181234567")
+
+    def test_it_is_throttled_per_address_and_per_secret(self):
+        secret = self.first()["visitor_secret"]
+        for _ in range(9):  # the secret has used 1 of its 10 in 10 minutes
+            self.assertEqual(self.contact(secret, "09171234567").status_code, 200)
+        self.assertEqual(self.contact(secret, "09171234567").status_code, 429)
+        with mock.patch.object(webchat, "IP_MESSAGES", ("chat-ip-messages", 1, 3600)):
+            self.assertEqual(self.contact("", "09171234567", visitor_ip="203.0.113.91").status_code, 200)
+            self.assertEqual(self.contact("", "09171234567", visitor_ip="203.0.113.91").status_code, 429)
+
+    def test_paused_chat_saves_nothing(self):
+        secret = self.first()["visitor_secret"]
+        InquiryChannelSettings.objects.filter(site=self.site).update(webchat_enabled=False)
+        response = self.contact(secret, "09171234567")
+        self.assertEqual((response.status_code, response.json()), (200, {"saved": False, "kind": ""}))
+        self.assertEqual(self.conversation().contact_mobile, "")
+
+    def test_the_site_comes_only_from_the_host_and_extra_fields_are_refused(self):
+        secret = self.first()["visitor_secret"]
+        self.assertEqual(self.contact(secret, "09171234567", site_id="s_x").status_code, 400)
+        self.assertEqual(self.contact(secret, "09171234567", host="nobody.negosyotest.com").status_code, 404)
+        self.assertEqual(self.post(CONTACT, secret=None, host=HOST, contact="x").status_code, 401)
+
+    def test_the_contact_and_secret_are_never_logged(self):
+        secret = self.first()["visitor_secret"]
+        with self.assertLogs(level=logging.DEBUG) as logs:
+            logging.getLogger("apps").debug("marker")
+            self.contact(secret, "09171234567")
+            self.contact(secret, "private@visitor.test")
+            self.contact(secret, "nonsense")
+        text = "\n".join(logs.output)
+        for needle in (secret, "09171234567", "639171234567", "private@visitor.test", "nonsense", IP):
+            self.assertNotIn(needle, text)
 
 
 class IsolationTests(ChatTestCase):
@@ -337,7 +443,7 @@ class LimitTests(ChatTestCase):
 class SwitchTests(ChatTestCase):
     def walk(self):
         return [
-            self.send(), self.poll(""),
+            self.send(), self.poll(""), self.contact("", "09171234567"),
             self.post(SEND, host="nobody.negosyotest.com", text="x"),
         ]
 

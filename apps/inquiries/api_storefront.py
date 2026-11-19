@@ -6,6 +6,11 @@ credential; the browser never does.
         website, opened_at, after_id?} -> {state, visitor_secret, messages, notice}
     POST /storefront/v1/chat/poll/  {host, visitor_ip, visitor_secret, after_id?}
         -> {state, visitor_secret: "", messages, notice}
+    POST /storefront/v1/chat/contact/  {host, visitor_ip, visitor_secret, contact} -> {saved, kind}
+        `contact` is an email or a Philippine mobile number (stored as +639XXXXXXXXX); anything
+        else is 422 on `contact`. It fills only an empty field of the visitor's own conversation.
+        kind is "email" or "mobile"; {saved: false, kind: ""} while chat is off or paused. A
+        secret that owns no conversation here gets the same answer as one that does.
 
 `state` is "none" (no conversation for this secret on this site), "open", "closed" or "paused".
 `visitor_secret` is filled only on the send that made it; the storefronts server keeps it in an
@@ -15,7 +20,7 @@ after it answers 422 `too_fast`. A wrong or unknown secret is treated as no secr
 
 The site comes only from `host`; a body naming anything else is refused (422). While
 INQUIRY_WEBCHAT_ENABLED is off, before inquiries.0002 is applied, and for an unknown, held or
-non-Santé host, both routes answer the 404 of an unknown site, and the switch check runs before
+non-Santé host, all three routes answer the 404 of an unknown site, and the switch check runs before
 the body is read and before any table is touched.
 """
 from datetime import datetime
@@ -60,6 +65,19 @@ class PollIn(Schema):
     after_id: int = 0
 
 
+class ContactIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    host: str = ""
+    visitor_ip: str = ""
+    visitor_secret: str = ""
+    contact: str = ""
+
+
+class ContactOut(Schema):
+    saved: bool
+    kind: str = ""
+
+
 class MessageOut(Schema):
     id: int
     text: str
@@ -95,4 +113,12 @@ def chat_poll(request, body: PollIn):
     site = _site(body.host)
     return webchat.poll(
         site, visitor_ip=body.visitor_ip, visitor_secret=body.visitor_secret, after_id=body.after_id,
+    )
+
+
+@router.post("/chat/contact/", response=ContactOut)
+def chat_contact(request, body: ContactIn):
+    site = _site(body.host)
+    return webchat.save_contact(
+        site, visitor_ip=body.visitor_ip, visitor_secret=body.visitor_secret, contact=body.contact,
     )

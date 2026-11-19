@@ -14,6 +14,13 @@ def benefits_active(member):
     return bool(order is not None and order.benefits_active_at)
 
 
+def bank_order_placed(member):
+    """A live bank-transfer (direct-proof) order: the buyer is a member from placement, and the
+    benefits come on only when the owner verifies the transfer (1100430000578068)."""
+    order = live_order(member)
+    return bool(order is not None and order.payment_method != C.XENDIT)
+
+
 def pack_payment_verified(member):
     order = live_order(member)
     return bool(order is not None and order.payment_status in C.PAYMENT_OK)
@@ -26,5 +33,9 @@ def pack_lock_active(member):
 
 def pack_dashboard_locked(member):
     """pack_lock_active OR (member.source == 'onboarding' AND NOT benefits_active). Covers every
-    onboarding member without benefits. Only a rejection locks a member who has benefits."""
-    return pack_lock_active(member) or (member.source == "onboarding" and not benefits_active(member))
+    onboarding member without benefits, except a bank-transfer buyer whose order is placed (under
+    review, rejected or verified): benefits wait for the verify, but sign-in and onboarding stay
+    open. A rejection still locks."""
+    return pack_lock_active(member) or (
+        member.source == "onboarding" and not benefits_active(member) and not bank_order_placed(member)
+    )
