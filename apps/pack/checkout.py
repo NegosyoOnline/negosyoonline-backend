@@ -199,7 +199,7 @@ def check_contact(site, mobile, email, *, ip=None):
         if held_by_pending_order(site, value if field == "mobile" else None, value if field == "email" else None):
             errors.update(order_on_file(field).fields)
             continue
-        member =Member.objects.filter(site=site, **{field: value}).first()
+        member = Member.objects.filter(site=site, **{field: value}).first()
         if member is not None and not abandoned(member):
             # Each contact is unique, so each is judged on its own. One held by a member who has
             # benefits or a live order can never be taken again; any other may be a returning

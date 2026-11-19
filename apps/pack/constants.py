@@ -48,7 +48,7 @@ ORDER_ON_FILE = {  # a memberless bank order holds the contact: no account exist
     "mobile": "This mobile number already has a bank transfer order with this store. Use the link in your order email to follow it.",
     "email": "This email already has a bank transfer order with this store. Use the link in your order email to follow it.",
 }
-MSG_NOT_REJECTED ="A new proof can be sent only after the store asks for one."
+MSG_NOT_REJECTED = "A new proof can be sent only after the store asks for one."
 
 EVENT_PLACED = "placed"
 EVENT_SHIPMENT_RECORDED, EVENT_SHIPMENT_CORRECTED, EVENT_DELIVERED = (
