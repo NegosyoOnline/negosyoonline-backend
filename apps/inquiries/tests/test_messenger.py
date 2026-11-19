@@ -13,6 +13,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
+from apps.accounts.models import Account, AccountAuditEvent, ExternalIdentity
 from apps.inquiries import crypto, messenger, messenger_inbox, retention, stored
 from apps.inquiries.models import InquiryConnection, InquiryConversation, InquiryMessage, InquiryReply
 from apps.inquiries.tests.base import KEY, switched_on
@@ -728,13 +729,69 @@ class MetaCallbackTests(MessengerTestCase):
         self.assertEqual((response.status_code, response.json()), (200, {}))
         self.assertEqual(InquiryConnection.objects.get(site=self.site).status, "invalid")
 
-    def test_a_request_signed_by_the_sign_in_app_is_refused_and_applies_nothing(self):
-        """The Facebook Login app has its own secret; only the Messenger app's secret counts here."""
+    def link(self, user="fbuser-1", account=None):
+        return ExternalIdentity.objects.create(
+            account=account or self.account, provider="facebook", provider_user_id=user,
+        )
+
+    def test_one_signed_request_removes_the_messenger_data_and_the_sign_in_link(self):
+        for path in ("deauthorize", "data-deletion"):
+            with self.subTest(path=path):
+                InquiryConnection.objects.all().delete()
+                ExternalIdentity.objects.all().delete()
+                row = self.connect_row()
+                self.link()
+                response = self.post_signed(path, signed_request("fbuser-1"))
+                self.assertEqual(response.status_code, 200, response.content)
+                self.assertEqual(InquiryConnection.objects.get(pk=row.pk).token_encrypted, "")
+                self.assertFalse(ExternalIdentity.objects.filter(provider="facebook", provider_user_id="fbuser-1").exists())
+                self.assertTrue(AccountAuditEvent.objects.filter(account=self.account, event="identity_removed").exists())
+
+    def test_a_sign_in_link_without_a_connection_is_removed_and_the_answer_is_the_same(self):
+        self.link()
+        deauthorize = self.post_signed("deauthorize", signed_request("fbuser-1"))
+        self.assertEqual((deauthorize.status_code, deauthorize.json()), (200, {}))
+        self.assertFalse(ExternalIdentity.objects.exists())
+        self.link()
+        deletion = self.post_signed("data-deletion", signed_request("fbuser-1"))
+        self.assertEqual(deletion.status_code, 200, deletion.content)
+        self.assertEqual(set(deletion.json()), {"url", "confirmation_code"})
+        self.assertFalse(ExternalIdentity.objects.exists())
+
+    def test_a_connection_without_a_sign_in_link_behaves_as_before(self):
         self.connect_row()
-        with override_settings(FACEBOOK_APP_SECRET="the-login-apps-secret"):
-            for path in ("deauthorize", "data-deletion"):
-                response = self.post_signed(path, signed_request(secret="the-login-apps-secret"))
-                self.assertEqual((response.status_code, response.json()["error"]["code"]), (400, "invalid_signature"))
+        self.assertEqual(self.post_signed("data-deletion", signed_request("fbuser-1")).status_code, 200)
+        self.assertEqual(InquiryConnection.objects.get(site=self.site).token_encrypted, "")
+        self.assertFalse(ExternalIdentity.objects.exists())
+
+    def test_another_facebook_users_link_and_other_sites_are_untouched(self):
+        self.connect_row()
+        other_site = Site.objects.get(public_id=self.create_site(client=self.other_client(), subdomain="ben-store")["id"])
+        self.connect_row(site=other_site, page=PAGE_B, user="fbuser-2")
+        ben = Account.objects.exclude(pk=self.account.pk).get()
+        self.link("fbuser-1")
+        self.link("fbuser-2", account=ben)
+        for path in ("deauthorize", "data-deletion"):
+            self.assertEqual(self.post_signed(path, signed_request("fbuser-1")).status_code, 200)
+        self.assertEqual(list(ExternalIdentity.objects.values_list("provider_user_id", flat=True)), ["fbuser-2"])
+        self.assertEqual(InquiryConnection.objects.get(site=other_site).status, "active")
+
+    def test_a_wrong_signature_keeps_the_sign_in_link(self):
+        self.connect_row()
+        self.link()
+        for path in ("deauthorize", "data-deletion"):
+            response = self.post_signed(path, signed_request("fbuser-1", secret="the-login-apps-secret"))
+            self.assertEqual((response.status_code, response.json()["error"]["code"]), (400, "invalid_signature"))
+        self.assertEqual(ExternalIdentity.objects.count(), 1)
+        self.assertEqual(InquiryConnection.objects.get(site=self.site).status, "active")
+
+    def test_a_failure_removing_the_sign_in_link_rolls_the_messenger_cleanup_back(self):
+        self.connect_row()
+        self.inbound()
+        with mock.patch("apps.inquiries.api_messenger.remove_facebook_identity", side_effect=RuntimeError("boom")):
+            response = self.post_signed("data-deletion", signed_request("fbuser-1"))
+        self.assertGreaterEqual(response.status_code, 400)
+        self.assertTrue(InquiryMessage.objects.filter(site=self.site).exists())
         self.assertEqual(InquiryConnection.objects.get(site=self.site).status, "active")
 
     def test_malformed_payloads_are_refused_with_the_fixed_code_and_log_only_the_class(self):
