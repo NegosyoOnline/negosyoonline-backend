@@ -56,6 +56,29 @@ class FacebookClientTests(SimpleTestCase):
         )
         self.assertNotIn(SECRET, url.query)
 
+    @override_settings(FACEBOOK_LOGIN_CONFIG_ID="cfg-123")
+    def test_authorization_url_sends_the_config_id_and_no_scope_when_set(self):
+        url = urlsplit(facebook.authorization_url(REDIRECT, "the-state"))
+        query = {key: values[0] for key, values in parse_qs(url.query).items()}
+
+        self.assertEqual(f"{url.scheme}://{url.netloc}{url.path}", facebook.DIALOG_URL)
+        self.assertEqual(
+            query,
+            {
+                "client_id": "app-id",
+                "redirect_uri": REDIRECT,
+                "state": "the-state",
+                "response_type": "code",
+                "config_id": "cfg-123",
+            },
+        )
+
+    @override_settings(FACEBOOK_LOGIN_CONFIG_ID="")
+    def test_authorization_url_is_the_classic_scope_dialog_when_the_config_id_is_empty(self):
+        query = parse_qs(urlsplit(facebook.authorization_url(REDIRECT, "the-state")).query)
+        self.assertEqual(query["scope"], ["public_profile,email"])
+        self.assertNotIn("config_id", query)
+
     def test_fetch_profile_swaps_the_code_then_reads_the_person(self):
         profile, call = self.fetch(
             {"access_token": "the-token"},

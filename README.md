@@ -33,6 +33,7 @@ Before a staging deploy, configure these Railway variables through the service U
 - `DATABASE_URL` and `REDIS_URL`: references to the staging Postgres and Redis services.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: the Google OAuth client for this environment. Without them the Google sign-in endpoints answer 404.
 - `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET`: the Meta app for this environment. Without them the Facebook sign-in endpoints and the data deletion callback answer 404.
+- `FACEBOOK_LOGIN_CONFIG_ID` (optional, not secret): the Facebook Login for Business configuration id. When set, the sign-in and account-connection dialogs send `config_id` instead of a `scope`; empty keeps `public_profile,email`.
 - `ADMIN_SECRETS_KEY` and `HQ_HOST`: admin two-step sign-in, and hq. Leave both unset until `docs/runbooks/admin-two-step.md` is followed.
 - `SMS_GATEWAY_ENABLED`: `1` turns on the SMS gateway (`send_sms` in `apps/notifications`, and the admin's SMS lists). Leave it unset until the `apps/notifications` SMS migration has been applied and `REDIS_URL` is set; unset, no text is queued and the SMS tables are not read or written.
 - `RETENTION_ENABLED`: `1` lets the account-side retention rules delete and blank (`manage.py run_retention`, and `manage.py dispose_account` for one account on request). Leave it unset until Coach Ed approves it for the environment, following `docs/runbooks/retention.md`; unset, a run of those rules changes nothing and only the dry run counts.

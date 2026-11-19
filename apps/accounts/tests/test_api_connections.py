@@ -104,6 +104,22 @@ class ConnectionTests(ApiTestCase):
             self.assertNotIn(state, response.cookies.output())
             self.assertNotIn(self.account.public_id, response.cookies.output())
 
+    @override_settings(FACEBOOK_LOGIN_CONFIG_ID="cfg-123")
+    def test_facebook_start_sends_the_config_id_and_no_scope_when_set(self):
+        response, _state = self.start("facebook")
+        query = parse_qs(urlsplit(response.json()["url"]).query)
+        self.assertEqual(query["config_id"], ["cfg-123"])
+        self.assertNotIn("scope", query)
+        self.assertEqual((query["client_id"], query["response_type"]), (["app-id"], ["code"]))
+        self.assertEqual(query["redirect_uri"], ["https://testserver/v1/auth/facebook/callback/"])
+
+    @override_settings(FACEBOOK_LOGIN_CONFIG_ID="")
+    def test_facebook_start_sends_the_scope_and_no_config_id_when_empty(self):
+        response, _state = self.start("facebook")
+        query = parse_qs(urlsplit(response.json()["url"]).query)
+        self.assertEqual(query["scope"], ["public_profile,email"])
+        self.assertNotIn("config_id", query)
+
     @override_settings(GOOGLE_CLIENT_ID="", FACEBOOK_APP_ID="")
     def test_start_says_not_configured_when_the_provider_has_no_keys(self):
         for provider in PROVIDERS:

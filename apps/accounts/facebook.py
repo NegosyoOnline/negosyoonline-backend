@@ -47,15 +47,17 @@ def is_configured():
 
 
 def authorization_url(redirect_uri, state):
-    query = urllib.parse.urlencode(
-        {
-            "client_id": settings.FACEBOOK_APP_ID,
-            "redirect_uri": redirect_uri,
-            "state": state,
-            "response_type": "code",
-            "scope": "public_profile,email",
-        }
-    )
+    params = {
+        "client_id": settings.FACEBOOK_APP_ID,
+        "redirect_uri": redirect_uri,
+        "state": state,
+        "response_type": "code",
+    }
+    if settings.FACEBOOK_LOGIN_CONFIG_ID:  # Login for Business: the configuration carries the permissions
+        params["config_id"] = settings.FACEBOOK_LOGIN_CONFIG_ID
+    else:
+        params["scope"] = "public_profile,email"
+    query = urllib.parse.urlencode(params)
     return f"{DIALOG_URL}?{query}"
 
 

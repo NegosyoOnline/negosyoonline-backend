@@ -54,6 +54,23 @@ class FacebookApiTests(ApiTestCase):
         self.assertEqual(cookie["path"], "/v1/auth/facebook/")
         self.assertEqual(cookie["max-age"], 600)
 
+    @override_settings(FACEBOOK_LOGIN_CONFIG_ID="cfg-123")
+    def test_start_sends_the_config_id_and_no_scope_when_set(self):
+        query = parse_qs(urlsplit(self.get("/v1/auth/facebook/start/")["Location"]).query)
+        self.assertEqual(query["config_id"], ["cfg-123"])
+        self.assertNotIn("scope", query)
+        self.assertEqual(
+            (query["client_id"], query["redirect_uri"], query["response_type"]),
+            (["app-id"], [CALLBACK], ["code"]),
+        )
+        self.assertIn("state", query)
+
+    @override_settings(FACEBOOK_LOGIN_CONFIG_ID="")
+    def test_start_sends_the_scope_and_no_config_id_when_empty(self):
+        query = parse_qs(urlsplit(self.get("/v1/auth/facebook/start/")["Location"]).query)
+        self.assertEqual(query["scope"], ["public_profile,email"])
+        self.assertNotIn("config_id", query)
+
     def test_a_linked_facebook_user_is_signed_in_and_sent_to_the_dashboard(self):
         account = Account.objects.create(email=EMAIL)
         ExternalIdentity.objects.create(account=account, provider="facebook", provider_user_id="fb-1")
