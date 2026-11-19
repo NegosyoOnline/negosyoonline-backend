@@ -51,12 +51,13 @@ class CheckoutToken(models.Model):
 class PackOrder(models.Model):
     public_id = models.CharField(max_length=40, unique=True, default=new_order_id, editable=False)
     site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="pack_orders")
-    # Null only for a Xendit order that is not paid yet: the member is created when the payment is
-    # confirmed (apps.pack.buyer.attach_member), so a failed or abandoned checkout holds no account.
+    # Null only for an order that is not paid or verified yet (a Xendit order, or a bank order while its
+    # proof is under review or rejected): the member is created when the payment is confirmed or the
+    # Subscriber approves it (apps.pack.buyer.attach_member), so a failed or abandoned checkout holds no account.
     member = models.ForeignKey(
         "members.Member", on_delete=models.PROTECT, related_name="pack_orders", null=True, blank=True
     )
-    # What an unpaid Xendit order keeps for creating that member later: the typed mobile and email and
+    # What an unpaid order keeps for creating that member later: the typed mobile and email and
     # the used onboarding challenge that proved the mobile. Blanked the moment the member is attached.
     buyer_mobile = models.CharField(max_length=13, blank=True, default="")
     buyer_email = models.EmailField(max_length=254, blank=True, default="")
@@ -124,8 +125,11 @@ class PackOrder(models.Model):
                 name="pack_order_xendit_has_ref",
             ),
             models.CheckConstraint(
-                condition=Q(member__isnull=False) | Q(payment_method=C.XENDIT),
-                name="pack_order_member_unless_xendit",
+                condition=(
+                    Q(member__isnull=False) | Q(payment_method=C.XENDIT)
+                    | Q(payment_status__in=(C.PENDING_REVIEW, C.REJECTED))
+                ),
+                name="pack_order_member_unless_unpaid",
             ),
         ]
 

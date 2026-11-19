@@ -8,8 +8,9 @@ from django.utils import timezone
 
 from apps.common import private_files
 from apps.common.errors import ApiError
-from apps.pack import constants as C, notices, proofs, registration
+from apps.pack import buyer, constants as C, notices, proofs, registration
 from apps.pack.models import PackOrder, PackProofDecision
+from apps.sites.models import Site
 
 
 def subscriber_actor(account):
@@ -38,9 +39,24 @@ def _save(order, fields):
     order.save(update_fields=[*fields, "state_version", "updated_at"])
 
 
+CONFLICT_FIELDS = {"mobile": "mobile number", "email": "email"}
+
+
+def _conflict(refusal):
+    """The owner's refusal when the buyer's contact cannot become a member. Names only the field."""
+    field = next(iter(refusal.fields or {}), "mobile")
+    name = CONFLICT_FIELDS.get(field, "mobile number")
+    if refusal.code == "mobile_not_verified":
+        message = C.MSG_CONTACT_UNPROVEN
+    else:
+        message = C.MSG_CONTACT_TAKEN.format(field=name)
+    return ApiError("contact_conflict", message, status=409, fields={field: [message]})
+
+
 def approve(account, site, order_id, *, state_version):
     kind, ref, label = subscriber_actor(account)
     with transaction.atomic():
+        Site.objects.select_for_update().filter(pk=site.pk).first()  # one member made at a time (as xendit)
         order = _lock(site, order_id, state_version)
         sub = _latest(order)
         if (
@@ -48,13 +64,20 @@ def approve(account, site, order_id, *, state_version):
             or sub.decisions.filter(decision="approved").exists()
         ):
             raise _wrong_status()
+        now = timezone.now()
+        if order.member_id is None:  # the member is made only now, never before the payment is verified
+            member, refusal = buyer.attach_member(order)
+            if member is None:
+                raise _conflict(refusal)  # rolls back: the order stays pending_review, nothing merged
         decision = PackProofDecision.objects.create(
             site_id=order.site_id, order=order, submission=sub, decision="approved",
             actor_type=kind, actor_ref=ref, actor_label=label,
         )
-        order.payment_status, order.verified_at = C.VERIFIED, timezone.now()
+        order.payment_status, order.verified_at = C.VERIFIED, now
         order.rejection_lock_active = False
-        _save(order, ["payment_status", "verified_at", "rejection_lock_active"])
+        order.benefits_active_at = order.benefits_active_at or now
+        _save(order, ["payment_status", "verified_at", "rejection_lock_active", "benefits_active_at"])
+        registration.activate(order, now)  # T1 (idempotent; a legacy order already has it)
         registration.on_payment_verified(order)  # T8
         notices.after_commit(notices.payment_verified, decision.pk)
     return order
@@ -92,17 +115,16 @@ def reject(account, site, order_id, *, state_version, reason_code, other_text=""
     return order
 
 
-def resubmit(site, member, *, data, upload, ip=None):
-    """A rejected member sends a new proof: only from `rejected`, seq + 1, and the lock stays
-    until the Subscriber approves."""
+def resubmit(site, member=None, *, order_pk=None, data, upload, ip=None):
+    """A rejected buyer sends a new proof: only from `rejected`, seq + 1, and the lock stays until the
+    Subscriber approves. By the member's session (an order that has a member) or, for an order with no
+    member yet, by the order the checkout token or the emailed link names (`order_pk`)."""
     proof = proofs.clean(site, data or {}, upload)
     file_key = private_files.save(C.PROOF_FOLDER.format(site.pk), proof.content, proof.content_type)
     try:
         with transaction.atomic():
-            order = (
-                PackOrder.objects.select_for_update()
-                .filter(site=site, member=member, payment_status__in=C.LIVE_STATUSES).first()
-            )
+            orders = PackOrder.objects.select_for_update().filter(site=site, payment_status__in=C.LIVE_STATUSES)
+            order = (orders.filter(member=member) if order_pk is None else orders.filter(pk=order_pk)).first()
             if order is None or order.payment_status != C.REJECTED:
                 raise ApiError("not_rejected", C.MSG_NOT_REJECTED, status=409)
             seq = (order.submissions.aggregate(n=Max("seq"))["n"] or 0) + 1

@@ -13,7 +13,7 @@ from apps.members.models import Member
 from apps.pack import constants as C
 from apps.pack.models import (
     CheckoutToken, PackAgreementAcceptance, PackEnrollmentAuthorization, PackOrder,
-    PackOrderEvent, PackProofSubmission,
+    PackOrderEvent, PackProofSubmission, SanteRegistration,
 )
 from apps.pack.tests.base import (
     EMAIL, MOBILE, NOT_FOUND, OTHER_HOST, PDF, PNG, PackTestCase,
@@ -21,18 +21,22 @@ from apps.pack.tests.base import (
 
 
 class PlaceTests(PackTestCase):
-    def test_a_good_order_is_placed_pending_review_with_benefits_on(self):
-        token, body = self.placed()
-        self.assertEqual(body, {"order_number": "SMP00001", "replay": False, "pay_url": None})
+    def test_a_good_order_is_placed_pending_review_with_no_member_and_benefits_off(self):
+        token, body = self.placed_memberless()
+        self.assertEqual(body, {
+            "order_number": "SMP00001", "replay": False, "pay_url": None, "payment_method": "direct",
+            "payment_status": "under_review",
+        })
         order = PackOrder.objects.get()
         self.assertEqual(order.payment_status, C.PENDING_REVIEW)
         self.assertEqual(order.price_centavos, C.PRICE_CENTAVOS)
-        self.assertIsNotNone(order.benefits_active_at)
+        self.assertIsNone(order.benefits_active_at)
         self.assertEqual(order.buyer_name, "Maria Santos")
         self.assertTrue(order.public_id.startswith("pko_"))
-        member = Member.objects.get()
-        self.assertEqual((member.mobile_state, member.email_state), ("pending", "unverified"))
-        self.assertEqual(order.member, member)
+        self.assertIsNone(order.member)  # the member is made when the Subscriber approves the proof
+        self.assertEqual(Member.objects.count(), 0)
+        self.assertEqual((order.buyer_mobile, order.buyer_email), ("+639171234567", EMAIL))
+        self.assertFalse(SanteRegistration.objects.exists())
 
     def test_the_proof_snapshot_and_file_are_kept(self):
         self.placed()
@@ -73,10 +77,13 @@ class PlaceTests(PackTestCase):
         self.assertEqual(self.place(token, submit_key="k2").json()["order_number"], "SMP00002")
 
     def test_a_replay_returns_the_first_order_and_writes_nothing(self):
-        token, first = self.placed()
+        token, first = self.placed_memberless()
         files = self.proof_files()
         replay = self.place(token)
-        self.assertEqual(replay.json(), {"order_number": first["order_number"], "replay": True, "pay_url": None})
+        self.assertEqual(replay.json(), {
+            "order_number": first["order_number"], "replay": True, "pay_url": None, "payment_method": "direct",
+            "payment_status": "under_review",
+        })
         self.assertEqual(PackOrder.objects.count(), 1)
         self.assertEqual(self.proof_files(), files)
         self.assertEqual(len(mail.outbox), 2)

@@ -42,6 +42,8 @@ EXPLAIN_REASON = "Explain the reason."
 MSG_PAYMENT_WRONG_STATUS = "This payment cannot be changed now."
 MSG_ORDER_STALE = "This order changed. Reload it and try again."
 MSG_CHOOSE_REASON = "Choose a reason."
+MSG_CONTACT_TAKEN = "The buyer's {field} is now used by another member. The order stays under review."
+MSG_CONTACT_UNPROVEN = "The buyer's mobile number could not be confirmed. The order stays under review."
 MSG_NOT_REJECTED = "A new proof can be sent only after the store asks for one."
 
 EVENT_PLACED = "placed"

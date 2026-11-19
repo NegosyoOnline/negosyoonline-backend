@@ -1,6 +1,6 @@
 """Hotfix z8uq9mgpt5 (Coach Ed, 2026-11-19): a Xendit checkout creates the Member only when the payment is
 confirmed. A failed, expired or abandoned Xendit checkout holds no account and never blocks the next
-checkout with the same mobile and email. Bank transfer is unchanged (member at placement)."""
+checkout with the same mobile and email. Bank transfer follows the same rule since task z8uq9mgpzd (test_bank_member_on_verify)."""
 import json
 from datetime import timedelta
 from types import SimpleNamespace
@@ -304,27 +304,24 @@ class LegacyUnpaidHolders(XenditPackCase):
         self.assertFalse(checkout.abandoned(holder))
 
 
-class BankTransferUnchanged(XenditPackCase):
-    def test_a_bank_order_still_creates_the_member_at_placement(self):
-        token, body = self.placed()
-        order = PackOrder.objects.get()
-        member = Member.objects.get()
-        self.assertEqual(order.member_id, member.pk)
-        self.assertEqual((order.buyer_mobile, order.buyer_email), ("", ""))
-        self.assertIsNone(order.onboarding_challenge_id)
-        self.assertEqual(order.payment_status, C.PENDING_REVIEW)
-        self.assertIsNotNone(order.benefits_active_at)
-        self.assertEqual(SanteRegistration.objects.get().member_id, member.pk)
+class BankTransferHoldsContact(XenditPackCase):
+    """Bank transfer follows the same rule since task z8uq9mgpzd: the member is made when the owner approves."""
 
-    def test_a_bank_buyer_with_a_pending_order_still_blocks_the_contact(self):
-        self.placed()
+    def test_a_bank_order_creates_no_member_at_placement(self):
+        token, body = self.placed_memberless()
+        order = PackOrder.objects.get()
+        self.assertIsNone(order.member_id)
+        self.assertEqual((order.buyer_mobile, order.buyer_email), ("+639171234567", EMAIL))
+        self.assertEqual(order.payment_status, C.PENDING_REVIEW)
+        self.assertIsNone(order.benefits_active_at)
+        self.assertFalse(SanteRegistration.objects.exists())
+        self.assertFalse(Member.objects.exists())
+
+    def test_a_bank_buyer_with_an_order_under_review_still_blocks_the_contact(self):
+        self.placed_memberless()
         response = self.contact()
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["error"]["code"], "contact_in_use")
-
-    def test_a_xendit_member_free_check_does_not_change_bank_returns(self):
-        self.placed()
-        self.assertEqual(PackOrder.objects.filter(member__isnull=True).count(), 0)
 
 
 class ReadersHandleNoMember(XenditPackCase):
@@ -353,9 +350,9 @@ class ReadersHandleNoMember(XenditPackCase):
         self.assertEqual(rows[0]["mobile"], "+639171234567")
         self.assertEqual(rows[0]["email"], EMAIL)
 
-    def test_the_buyer_notice_sends_nothing_without_a_member(self):
-        self.assertIsNone(notices.payment_verified_order(self.order.pk))
-        self.assertEqual(len(mail.outbox), 0)
+    def test_the_buyer_notice_goes_to_the_kept_email_without_a_member(self):
+        self.assertIsNotNone(notices.payment_verified_order(self.order.pk))  # to the kept buyer email
+        self.assertEqual([m.to for m in mail.outbox], [[EMAIL]])
 
     def test_the_meta_event_uses_the_kept_contact(self):
         context = SimpleNamespace(client_ip="203.0.113.5", user_agent="UA", fbp="", fbc="", source_url="https://x.test/")

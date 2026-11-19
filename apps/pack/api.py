@@ -10,12 +10,14 @@ apps/storefront/api.py):
     POST /storefront/v1/checkout/place/    multipart: host, visitor_ip, token, submit_key,
         account_id, reference_number, amount_sent, sender_bank, sender_first_name,
         sender_last_name, sender_account_number, transferred_at, proof (the file)
-        -> {order_number, replay, pay_url}
+        -> {order_number, replay, pay_url, payment_method, payment_status}
         `pay_method` is "direct" (the default; the proof fields and file are required) or "xendit"
         (no proof; `pay_url` is the Xendit hosted invoice, null when it could not be created yet).
     POST /storefront/v1/checkout/payment-status/  {host, visitor_ip, token, retry?}
-        -> {payment_status, order_number, pay_url}: what the return page shows; the browser never
-        marks an order paid.
+        -> {payment_status, order_number, pay_url, payment_method, payment_label, lock, can_resubmit}:
+        what the return page and the bank status page show; the browser never marks an order paid.
+    POST /storefront/v1/checkout/resubmit/  multipart: host, visitor_ip, token, the proof fields, proof
+        -> the payment-status answer; a rejected bank order with no member only (task z8uq9mgpzd).
 
 Every call carries the storefronts server's credential (the surface checks it). The token travels
 as data: Django sets no cookie. While PACK_ENABLED is off, and for an unknown, foreign or non-Santé
@@ -145,10 +147,27 @@ class PlaceIn(Schema):
     pay_method: str = "direct"  # "direct" (proof) or "xendit" (hosted invoice, no proof)
 
 
+class ResubmitTokenIn(Schema):
+    host: str = ""
+    visitor_ip: str = ""
+    token: str = ""
+    account_id: str = ""
+    reference_number: str = ""
+    amount_sent: str = ""
+    sender_bank: str = ""
+    sender_name: str = ""
+    sender_first_name: str = ""
+    sender_last_name: str = ""
+    sender_account_number: str = ""
+    transferred_at: str = ""
+
+
 class PlaceOut(Schema):
     order_number: str
     replay: bool
     pay_url: str | None = None
+    payment_method: str = ""
+    payment_status: str = ""
 
 
 @router.post("/checkout/place/", response=PlaceOut)
@@ -174,7 +193,8 @@ def checkout_place(request, body: Form[PlaceIn], proof: File[UploadedFile] = Non
     visits.link_order(site, body.visitor_ref, placed.order)
     return {
         "order_number": placed.order.order_number, "replay": placed.replay,
-        "pay_url": xendit.continue_url(placed.order),
+        "pay_url": xendit.continue_url(placed.order), "payment_method": placed.order.payment_method,
+        "payment_status": status_name(placed.order),
     }
 
 
@@ -189,6 +209,10 @@ class PaymentStatusOut(Schema):
     payment_status: str
     order_number: str
     pay_url: str | None = None
+    payment_method: str = ""
+    payment_label: str = ""
+    lock: dict | None = None
+    can_resubmit: bool = False
 
 
 STATUS_NAMES = {
@@ -226,10 +250,45 @@ def checkout_payment_status(request, body: PaymentStatusIn):
             order.refresh_from_db()  # still no invoice: the page shows Try again again
     else:
         order = xendit.read_once(order)
+    return _status_out(order)
+
+
+def _token_resubmits(order):
+    """A bank order that has no member yet is handled by its checkout token (no member session exists)."""
+    return order.member_id is None and order.payment_method == C.PAYMENT_METHOD
+
+
+def _status_out(order):
+    """The status page's answer. The rejection reason and the accounts to pay to go to the holder of the
+    checkout token (or of the emailed link) of an order that has no member session to show them to."""
+    lock = panels.lock_for(order) if _token_resubmits(order) else None
     return {
         "payment_status": status_name(order), "order_number": order.order_number,
-        "pay_url": xendit.continue_url(order),
+        "pay_url": xendit.continue_url(order), "payment_method": order.payment_method,
+        "payment_label": dict(C.PAYMENT_STATUSES)[order.payment_status], "lock": lock,
+        "can_resubmit": _token_resubmits(order) and order.payment_status == C.REJECTED,
     }
+
+
+@router.post("/checkout/resubmit/", response=PaymentStatusOut)
+def checkout_resubmit(request, body: Form[ResubmitTokenIn], proof: File[UploadedFile] = None):
+    """A new proof for a rejected bank order that has no member, by the checkout token. Multipart like
+    /checkout/place/ without the submit key and the Meta fields. Only from `rejected` (409
+    `not_rejected`); 10 per hour per order; the lock stays until the Subscriber approves."""
+    site = _site(body.host)
+    token = checkout.current(site, body.token)
+    if token is None:
+        raise _expired()
+    order = PackOrder.objects.filter(site=site, pk=token.order_ref).first() if token.order_ref else None
+    if order is None or not _token_resubmits(order):
+        raise _expired()
+    data = {k: v for k, v in body.dict().items() if k not in ("host", "visitor_ip", "token")}
+    for name in ("sender_name", "sender_first_name", "sender_last_name"):
+        if name not in request.POST:
+            data.pop(name)
+    throttle.hit("pack-resubmit-order", order.pk, limit=10, window=3600)
+    review.resubmit(site, order_pk=order.pk, data=data, upload=proof, ip=_ip(body.visitor_ip))
+    return _status_out(PackOrder.objects.get(pk=order.pk))
 
 
 # -- the Membership Pack page visitor (ClickUp z8uq9mfw14) -------------------------------------------
@@ -539,21 +598,34 @@ class AccessIn(Schema):
 class AccessOut(Schema):
     link_open: bool
     renewable: bool
+    kind: str = "member"
+    payment_status: str = ""
+    payment_method: str = ""
 
 
 def _link(host, link):
     site = _site(host)
-    row = access.read(site, link)
-    if row is None:
+    found = access.resolve(site, link)
+    if found is None:
         raise ApiError("not_found", "Not found.", status=404)
-    return site, row
+    return site, found
+
+
+def _link_facts(found):
+    """kind + what the page can say about an order link (also once it is no longer open)."""
+    if found.kind == "order":
+        return {
+            "kind": "order", "payment_status": status_name(found.order),
+            "payment_method": found.order.payment_method,
+        }
+    return {"kind": "member", "payment_status": "", "payment_method": ""}
 
 
 @router.post("/access/read/", response=AccessOut)
 def access_read(request, body: AccessIn):
     """A GET-like read: changes nothing, so a mail scanner's visit spends nothing."""
-    _, row = _link(body.host, body.link)
-    return {"link_open": access.is_open(row), "renewable": access.applies(row.member)}
+    _, found = _link(body.host, body.link)
+    return {"link_open": access.link_open(found), "renewable": access.link_renewable(found), **_link_facts(found)}
 
 
 class AccessRenewOut(Schema):
@@ -570,31 +642,51 @@ def _access_throttle(ip):
 
 @router.post("/access/renew/", response=AccessRenewOut)
 def access_renew(request, body: AccessIn):
-    _, row = _link(body.host, body.link)
+    _, found = _link(body.host, body.link)
     _access_throttle(_ip(body.visitor_ip))
     sent = False
-    if access.applies(row.member):
-        notices.access_link(row.member)
+    if access.link_renewable(found):
+        if found.kind == "order":
+            notices.order_access_link(PackOrder.objects.select_related("site").get(pk=found.order.pk))
+        else:
+            notices.access_link(found.member)
         sent = True
-    row.refresh_from_db()
-    return {"sent": sent, "link_open": access.is_open(row), "renewable": access.applies(row.member)}
+    found.row.refresh_from_db()
+    order = PackOrder.objects.get(pk=found.order.pk) if found.kind == "order" else None
+    found = access.Link(found.kind, found.row, found.member, order)
+    return {"sent": sent, "link_open": access.link_open(found), "renewable": access.link_renewable(found)}
 
 
 class RedeemOut(Schema):
     redeemed: bool
     token: str
     expires_at: str
+    kind: str = "member"
+    payment_status: str = ""
 
 
 @router.post("/access/redeem/", response=RedeemOut)
 def access_redeem(request, body: AccessIn):
-    """Spends the link once. Marks the email verified (only the inbox owner opens the link) and
-    answers a fresh checkout token for the member's latest order: the link opens the onboarding
-    step, never a session. The session comes only from the Completed step."""
-    site, row = _link(body.host, body.link)
+    """Spends the link once. A member's link marks the email verified (only the inbox owner opens the
+    link) and answers a fresh checkout token for the member's latest order: it opens the onboarding
+    step, never a session. An order's link (no member yet) answers a fresh checkout token whose order is
+    that order: it opens the status page. The session comes only from the Completed step."""
+    site, found = _link(body.host, body.link)
     _access_throttle(_ip(body.visitor_ip))
+    facts = _link_facts(found)
+    if found.kind == "order":
+        if not access.redeem_order(found.row, found.order):
+            return {"redeemed": False, "token": "", "expires_at": "", "kind": "order", "payment_status": facts["payment_status"]}
+        token, raw = checkout.begin(site)
+        token.order_ref = found.order.pk
+        token.save(update_fields=["order_ref"])
+        return {
+            "redeemed": True, "token": raw, "expires_at": token.expires_at.isoformat(),
+            "kind": "order", "payment_status": facts["payment_status"],
+        }
+    row = found.row
     if access.redeem(row) is None:
-        return {"redeemed": False, "token": "", "expires_at": ""}
+        return {"redeemed": False, "token": "", "expires_at": "", "kind": "member", "payment_status": ""}
     onboarding.confirm_member_email(
         site, row.member, actor_label="Order access link", target=row.target
     )
@@ -602,7 +694,10 @@ def access_redeem(request, body: AccessIn):
     token, raw = checkout.begin(site)
     token.order_ref = order.pk if order is not None else None
     token.save(update_fields=["order_ref"])
-    return {"redeemed": True, "token": raw, "expires_at": token.expires_at.isoformat()}
+    return {
+        "redeemed": True, "token": raw, "expires_at": token.expires_at.isoformat(),
+        "kind": "member", "payment_status": "",
+    }
 
 
 # -- the delivery address's ZIP, from the vendored dataset ------------------------------------------

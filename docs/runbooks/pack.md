@@ -80,3 +80,15 @@ A paid Membership Pack buyer of a Santé site that is suspended, or cancelled pa
 With the switches on, the local private store and a published agreement, `curl` `checkout/contact/` (JSON) then `checkout/place/` (`-F proof=@file.png;type=image/png`): the file lands under `sante/proofs/site-<pk>/` in the local private folder, the order row exists, and both emails print in the service log.
 
 - **Export of the Pack files** (ClickUp z8uq9mbu0p): support runs `export_pack_files` for an ended site; see `docs/runbooks/retention.md`, "The Pack files of an ended site", and `docs/runbooks/support-and-exit.md`, section 4.
+
+## Bank transfer: the member is made on approval (task z8uq9mgpzd, Coach Ed 2026-11-19)
+
+Quote: "the creation of account must be after successful payment". Placing a bank-transfer order (`pay_method` direct) creates **no Member**, no `benefits_active_at` and no registration (T1). The order keeps `buyer_mobile`, `buyer_email` and `onboarding_challenge_id`, as a Xendit order does, and the answer of `checkout/place/` adds `payment_method` and `payment_status` (`under_review`). The contact stays taken while the proof is under review or rejected: a new checkout with that mobile or email is refused (`contact_in_use`), as it was when the member existed.
+
+- **Approve** (`review.approve`, owner route): under the Site and order locks it calls `buyer.attach_member`, then benefits on, `registration.activate` (T1), `on_payment_verified` (T8) and the verified email. If the contact was taken meanwhile, or the buyer's mobile proof is gone, it answers 409 `contact_conflict` (message names the mobile number or the email); the order stays `pending_review`, nothing is made or merged. An order that already has a member (placed before this change) is approved as before.
+- **Status page**: `checkout/payment-status/` answers a bank order by the checkout token, with `payment_method`, `payment_label`, `lock` (the reason and the accounts, only for an order with no member) and `can_resubmit`. Onboarding answers 409 `payment_pending` until approval.
+- **New proof**: `checkout/resubmit/` (multipart, checkout token) works only from `rejected` (409 `not_rejected`), 10 an hour per order; `/member/pack/resubmit/` stays for an order that has a member.
+- **Order link**: an order with no member has an order-kind access link (the same challenge table, no member, signed id `o<row>.<order>`, 7 days, once). `access/read|redeem|renew` answer `kind` ("order" or "member"); redeeming an order link answers a fresh checkout token for that order (the status page) and makes no member. It works only while the order is under review or rejected, and only for the email typed at checkout.
+- **Emails**: received (to the buyer email, link to the status page), rejected (link to the status page), verified (adds "Continue your registration: <link>", the member access link while the mobile is unconfirmed, else the dashboard).
+- Migration `pack.0010_bank_member_on_verify` (see `docs/runbooks/migrations.md`).
+- Operator check on staging: after a bank order is placed `Member.objects.count()` does not grow; after approve it grows by one.

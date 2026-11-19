@@ -372,7 +372,10 @@ class OutcomeTests(XenditPackCase):
 class ReturnPageStatusTests(XenditPackCase):
     def test_before_any_order_the_status_is_none(self):
         token = self.start()
-        self.assertEqual(self.status(token).json(), {"payment_status": "none", "order_number": "", "pay_url": None})
+        self.assertEqual(self.status(token).json(), {
+            "payment_status": "none", "order_number": "", "pay_url": None, "payment_method": "", "payment_label": "",
+            "lock": None, "can_resubmit": False,
+        })
 
     def test_a_bad_token_is_409(self):
         response = self.status("not-a-token")
@@ -382,7 +385,10 @@ class ReturnPageStatusTests(XenditPackCase):
     def test_a_waiting_order_shows_its_own_invoice_url(self):
         token, body, order = self.placed_xendit()
         answer = self.status(token).json()
-        self.assertEqual(answer, {"payment_status": "waiting", "order_number": order.order_number, "pay_url": body["pay_url"]})
+        self.assertEqual(answer, {
+            "payment_status": "waiting", "order_number": order.order_number, "pay_url": body["pay_url"],
+            "payment_method": "xendit", "payment_label": "Waiting for payment", "lock": None, "can_resubmit": False,
+        })
 
     def test_the_browser_returning_from_xendit_never_marks_the_order_paid(self):
         token, _, order = self.placed_xendit()

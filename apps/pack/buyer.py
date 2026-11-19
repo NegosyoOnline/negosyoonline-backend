@@ -1,10 +1,10 @@
-"""The member of a Membership Pack order that has none yet (hotfix z8uq9mgpt5, Coach Ed 2026-11-19).
+"""The member of a Membership Pack order that has none yet (hotfix z8uq9mgpt5, bank task z8uq9mgpzd,
+Coach Ed 2026-11-19).
 
-A Xendit order is placed with no Member: it keeps the buyer's typed mobile and email and the used
-onboarding challenge that proved the mobile, and the member is created here when the payment is
-confirmed (apps.pack.xendit.apply_state). A checkout that never pays therefore holds no account and
-no contact. Written so a later change can call `attach_member` for any order that has no member, for
-example when a bank transfer is verified; nothing calls it for a bank order today.
+A Xendit order or a bank-transfer order is placed with no Member: it keeps the buyer's typed mobile and
+email and the used onboarding challenge that proved the mobile, and the member is created here when the
+payment is confirmed (apps.pack.xendit.apply_state) or the Subscriber approves the proof
+(apps.pack.review.approve). A checkout that never pays therefore holds no account and no contact.
 
 `attach_member` runs inside the caller's transaction, under the Site row lock and the order row lock.
 It never merges: a contact someone else holds in the meantime is returned as a refusal for the caller
@@ -33,7 +33,7 @@ def kept_challenge(order):
 def _resolve(order):
     site, mobile, email = order.site, order.buyer_mobile, order.buyer_email
     proof = kept_challenge(order)
-    returning = checkout.match_existing(site, mobile, email)  # raises contact_in_use
+    returning = checkout.match_existing(site, mobile, email, exclude_order=order)  # raises contact_in_use
     if returning is not None:  # the same buyer, no benefits and no live order: only with the proved number
         if proof is None:
             raise ApiError("mobile_not_verified", members.PROOF_ERROR, fields={"mobile": [members.PROOF_ERROR]})

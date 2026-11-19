@@ -208,6 +208,7 @@ class TermsAtDetailsTests(OnboardingCase):
         token = response.json()["token"]
         with self.captureOnCommitCallbacks(execute=True):
             self.assertEqual(self.place(token).status_code, 200)
+        self.give_member("SMP00001")  # the Subscriber approved the proof: the member exists now
         self.verify_both(token)
         self.call("onboarding/address/", token=token, **ADDRESS)
         self.assertEqual(PackAgreementAcceptance.objects.count(), 0)
@@ -421,14 +422,16 @@ class AccessLinkTests(OnboardingCase):
         self.placed_token()
         link = self.link()
         read = self.call("access/read/", link=link).json()
-        self.assertEqual(read, {"link_open": True, "renewable": True})
+        self.assertEqual(read, {
+            "link_open": True, "renewable": True, "kind": "member", "payment_status": "", "payment_method": "",
+        })
         self.assertEqual(self.call("access/read/", link=link).json()["link_open"], True)
         first = self.call("access/redeem/", link=link).json()
         self.assertTrue(first["redeemed"])
         self.assertEqual(self.state(first["token"])["step"], "verify")
         self.assertTrue(Member.objects.get().email_state == "verified")
         again = self.call("access/redeem/", link=link).json()
-        self.assertEqual(again, {"redeemed": False, "token": "", "expires_at": ""})
+        self.assertEqual((again["redeemed"], again["token"], again["expires_at"]), (False, "", ""))
         self.assertEqual(MemberSession.objects.count(), 0)
 
     def test_redeeming_never_issues_a_session_and_marks_only_the_email(self):
@@ -458,7 +461,8 @@ class AccessLinkTests(OnboardingCase):
         link = self.link()
         self.call("onboarding/mobile/send/", token=token)
         self.call("onboarding/mobile/verify/", token=token, code=self.codes[-1][1])
-        self.assertEqual(self.call("access/read/", link=link).json(), {"link_open": False, "renewable": False})
+        read = self.call("access/read/", link=link).json()
+        self.assertEqual((read["link_open"], read["renewable"], read["kind"]), (False, False, "member"))
 
     def test_a_link_expires_after_seven_days(self):
         self.placed_token()
@@ -489,6 +493,8 @@ class CheckoutCodeTests(OnboardingCase):
         self.assertEqual(self.call("checkout/code/verify/", token=token, code=self.codes[-1][1]).json(), {"status": "verified"})
         self.assertTrue(self.call("checkout/state/", token=token).json()["verified"])
         self.assertEqual(self.place(token).status_code, 200)
+        self.assertIsNone(PackOrder.objects.get().member_id)  # no member until the owner approves
+        self.give_member("SMP00001")
         self.assertEqual(PackOrder.objects.get().member_id, existing.pk)
 
     def test_send_needs_contact_details_first(self):

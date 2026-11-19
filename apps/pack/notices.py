@@ -25,17 +25,17 @@ RECEIVED = (
     _HI + "Thank you for your order. We received your payment proof for your Membership Pack, order {no} (₱1,488.00).\n\n"
     "The store will review your payment. Once it is verified, your Lifetime Membership turns on: 40% member savings on "
     "eligible Santé products, with no renewal fees, no monthly quotas and no maintenance purchases. Your pack ships "
-    "after the payment is verified. You can follow your order in your dashboard: {url}\n\nPlease also add your Santé "
-    "membership details in your dashboard so the store can register your membership." + _SIGN,
+    "after the payment is verified. You can follow your order here: {url}" + _SIGN,
 )
 REJECTED = (
     "Your payment for order {no} needs attention",
-    _HI + "The store could not verify the payment proof for order {no}. Sign in to your dashboard to see the reason and "
+    _HI + "The store could not verify the payment proof for order {no}. Open this link to see the reason and "
     "send your payment details and proof again: {url}" + _SIGN,
 )
 VERIFIED = (
     "Your payment for order {no} is verified",
-    _HI + "The store verified your payment for order {no}. We will let you know when your pack ships." + _SIGN,
+    _HI + "The store verified your payment for order {no}. We will let you know when your pack ships."
+    "\n\nContinue your registration: {link}" + _SIGN,
 )
 SHIPPED = (
     "Your order {no} has shipped",
@@ -81,6 +81,11 @@ def _who(member):
     return f"{parts[0]} {parts[-1][0]}." if len(parts) > 1 else (parts[0] if parts else "A member")
 
 
+def _who_named(full_name):
+    parts = (full_name or "").split()
+    return f"{parts[0]} {parts[-1][0]}." if len(parts) > 1 else (parts[0] if parts else "A member")
+
+
 def dashboard_url(site):
     base = custom_hosts.public_base_url(site)
     return f"{base}/dashboard/" if base else "the store's website"
@@ -107,22 +112,54 @@ def access_link(member, *, limited=True):
     )
 
 
+def _first(order):
+    """The buyer's first name: the member's, or the order's typed name while there is no member."""
+    return _first_name(order.member) if order.member_id else (order.buyer_name or "").split(" ")[0]
+
+
+def _link_url(order):
+    """Where the buyer is sent. A member whose mobile is unconfirmed cannot sign in by SMS, so the email
+    carries the secure link back; an order with no member yet gets the secure link to its status page;
+    any other member gets the dashboard."""
+    host = host_for(order.site)
+    if order.member_id is None:
+        if host and order.buyer_email:
+            return access.order_link_for(order, host) + ACCESS_LINK_NOTE
+        return dashboard_url(order.site)
+    if host and access.applies(order.member):
+        return access.link_for(order.member, host) + ACCESS_LINK_NOTE
+    return dashboard_url(order.site)
+
+
+def order_access_link(order, *, limited=True):
+    """A new secure link to the status page of an order that has no member, to the buyer's typed email
+    only; the existing "secure link" email text."""
+    access.renew_order(order, limited=limited)
+    site, host = order.site, host_for(order.site)
+    if not host or not order.buyer_email:
+        return None
+    link = access.order_link_for(order, host)
+    subject, body = ACCESS_EMAIL
+    values = {"name": messaging.store_name(site), "first": _first(order), "url": link}
+    return send_store_email(
+        site, to=order.buyer_email, category="pack_access_link", subject=subject.format(**values),
+        body=body.format(**values),
+    )
+
+
 def order_received(order_pk):
     order = PackOrder.objects.select_related("site__account", "member").get(pk=order_pk)
-    site, member = order.site, order.member
-    if member is None or not member.email:
+    site = order.site
+    to = order.contact_email
+    if not to:
         return None
     subject, body = RECEIVED
     values = {
-        "name": messaging.store_name(site), "first": _first_name(member), "no": order.order_number,
-        "url": dashboard_url(site),
+        "name": messaging.store_name(site), "first": _first(order), "no": order.order_number,
+        "url": _link_url(order),
     }
-    if access.applies(member):  # an unconfirmed mobile cannot sign in: the email carries the way back
-        host = host_for(site)
-        if host:
-            values["url"] = access.link_for(member, host) + ACCESS_LINK_NOTE
     return send_store_email(
-        site, to=member.email, category="pack_order_received", subject=subject.format(**values),
+        site, to=to, category="pack_order_received", subject=subject.format(**values),
         body=body.format(**values),
     )
 
@@ -137,7 +174,7 @@ def review_needed(submission_pk):
     subject, body = REVIEW
     values = {
         "no": sub.order.order_number, "store": messaging.store_name(site),
-        "who": _who(sub.order.member) if sub.order.member else "",
+        "who": _who(sub.order.member) if sub.order.member_id else _who_named(sub.order.buyer_name),
     }
     return send_email(
         to=owner.email, category="pack_review_needed", subject=subject.format(**values),
@@ -153,17 +190,19 @@ def _decision_email(decision_pk, texts, category):
 
 
 def _order_email(order, texts, category):
-    member = order.member
-    if member is None or not member.email:  # a Xendit order has no member until it is paid
+    to = order.contact_email
+    if not to:  # nothing to send to (a purged order)
         return None
     subject, body = texts
     site = order.site
     values = {
-        "name": messaging.store_name(site), "first": _first_name(member), "no": order.order_number,
+        "name": messaging.store_name(site), "first": _first(order), "no": order.order_number,
         "url": dashboard_url(site),
     }
+    if "{link}" in body or order.member_id is None:
+        values["url"] = values["link"] = _link_url(order)
     return send_store_email(
-        site, to=member.email, category=category, subject=subject.format(**values), body=body.format(**values),
+        site, to=to, category=category, subject=subject.format(**values), body=body.format(**values),
     )
 
 

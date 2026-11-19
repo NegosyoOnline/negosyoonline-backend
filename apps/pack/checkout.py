@@ -107,9 +107,26 @@ def benefits_active(member):
     return bool(order is not None and order.benefits_active_at)
 
 
-def match_existing(site, mobile, email):
+def held_by_pending_order(site, mobile, email, exclude=None):
+    """"mobile" or "email" when a bank order that has no member yet (its proof is under review or
+    was rejected) holds that contact, else None. The buyer has sent money, so the contact stays
+    taken as it was when the member existed; an unpaid Xendit order never holds one."""
+    orders = PackOrder.objects.filter(
+        site=site, member__isnull=True, payment_method=C.PAYMENT_METHOD,
+        payment_status__in=(C.PENDING_REVIEW, C.REJECTED),
+    )
+    if exclude is not None:
+        orders = orders.exclude(pk=exclude.pk)
+    for field, value in (("mobile", mobile), ("email", email)):
+        if value and orders.filter(**{f"buyer_{field}": value}).exists():
+            return field
+    return None
+
+
+def match_existing(site, mobile, email, *, exclude_order=None):
     """None for a new buyer; the returning member (same mobile AND same email, no benefits, no
-    live order); or ApiError contact_in_use, for this site or another live store."""
+    live order); or ApiError contact_in_use, for this site or another live store. `exclude_order`
+    is the order that is itself making its member (attach_member)."""
     by_mobile = Member.objects.filter(site=site, mobile=mobile).first()
     by_email = Member.objects.filter(site=site, email=email).first()
     by_mobile = None if by_mobile is not None and abandoned(by_mobile) else by_mobile
@@ -119,6 +136,9 @@ def match_existing(site, mobile, email):
         and not benefits_active(by_mobile) and live_order(by_mobile) is None
     ):
         raise members.contact_in_use("mobile" if by_mobile is not None else "email")
+    held = held_by_pending_order(site, mobile, email, exclude_order)
+    if held:
+        raise members.contact_in_use(held)
     members.require_free_elsewhere(site, "mobile", mobile)
     members.require_free_elsewhere(site, "email", email)
     return by_mobile
@@ -168,6 +188,9 @@ def check_contact(site, mobile, email, *, ip=None):
             errors.update(exc.fields or {})
     for field, value in values.items():
         if not value or field in errors:
+            continue
+        if held_by_pending_order(site, value if field == "mobile" else None, value if field == "email" else None):
+            errors.update(members.contact_in_use(field).fields)
             continue
         member = Member.objects.filter(site=site, **{field: value}).first()
         if member is not None and not abandoned(member):

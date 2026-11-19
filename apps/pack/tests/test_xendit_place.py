@@ -95,7 +95,8 @@ class PlaceTests(XenditPackCase):
         self.assertIsNone(body["pay_url"])
         self.assertEqual(order.payment_status, C.AWAITING_XENDIT)
         self.assertEqual(order.xendit_invoice_url, "")
-        self.assertEqual(self.status(token).json(), {"payment_status": "no_invoice", "order_number": order.order_number, "pay_url": None})
+        answer = self.status(token).json()
+        self.assertEqual((answer["payment_status"], answer["order_number"], answer["pay_url"]), ("no_invoice", order.order_number, None))
         give_key(self.site)  # the key works again
         retry = self.status(token, retry=True)
         self.assertEqual(retry.status_code, 200, retry.content)

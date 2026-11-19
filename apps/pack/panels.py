@@ -117,6 +117,10 @@ def payment_facts(order):
     }
 
 
+def lock_for(order):
+    return _lock(order)
+
+
 def _lock(order):
     """The rejection dialog's data: the reason (shown only after sign-in), whether a new proof is
     already in, and the accounts to pay to."""

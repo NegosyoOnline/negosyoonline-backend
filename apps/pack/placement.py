@@ -3,8 +3,10 @@ negosyoonline_sante_pack/placement.py).
 
 One transaction under the Site row lock, keyed by UniqueConstraint(site, idempotency_key): a
 replay returns the first result and writes nothing. Direct: the order exists only with its first
-proof, benefits are on from placement, status pending_review. Xendit (Coach Ed, 2026-11-18): the
-order is awaiting_xendit with benefits off and no registration yet; the hosted invoice is created
+proof, status pending_review. Neither method creates a member (Coach Ed, 2026-11-19, "the creation of
+account must be after successful payment"): the order keeps the buyer's contact, benefits are off and
+there is no registration until the payment is confirmed or the Subscriber approves the proof
+(apps.pack.buyer.attach_member). Xendit (Coach Ed, 2026-11-18): the order is awaiting_xendit; the hosted invoice is created
 after commit with the site's own key (apps.pack.xendit). Amounts are the server's constants; nothing
 posted except the proof fields is read. The proof file is stored BEFORE the transaction and
 discarded on any rollback."""
@@ -18,12 +20,12 @@ from django.utils import timezone
 from apps.billing import services as billing
 from apps.common import private_files
 from apps.common.errors import ApiError
-from apps.members import contacts, services as members
+from apps.members import contacts
 from apps.members.models import MemberOtpChallenge
 from apps.members.otp import binding_hash
 from apps.meta_ads import services as meta_ads
 from apps.payments import services as payments
-from apps.pack import checkout, constants as C, notices, policies, portal, proofs, records, registration, xendit
+from apps.pack import checkout, constants as C, notices, policies, portal, proofs, records, xendit
 from apps.pack.models import CheckoutToken, PackOrder
 from apps.sites.models import Site
 
@@ -71,22 +73,9 @@ def _proof_challenge(site, token, raw):
     return ch
 
 
-def _member(site, token, raw):
-    contact, mobile = token.pending_contact, token.requested_mobile
-    returning = checkout.match_existing(site, mobile, contact["email"])
-    if returning is not None:  # placing signs the buyer in as this member, so the number must be proved first
-        members.claim_onboarding_proof(site, returning, mobile=mobile, proof=_proof_challenge(site, token, raw))
-        return returning
-    checkout.release_abandoned(site, mobile, contact["email"])
-    proof = _proof_challenge(site, token, raw) if token.verified_mobile else None
-    return members.create_member(
-        site, full_name=contact["full_name"], mobile=mobile, email=contact["email"],
-        delivery_address=contact["delivery_address"], mobile_proof=proof,
-    )
-
-
 def _hold_contact(site, token, raw):
-    """A Xendit order creates no member: the contact stays on the order until the payment. The same
+    """An order creates no member (Xendit or bank): the contact stays on the order until the payment is
+    confirmed or the Subscriber approves the proof. The same
     refusals as a member's creation come now (a contact someone holds, the number to be proved for a
     returning buyer), under the Site lock; returns the used onboarding challenge's id, or None."""
     contact, mobile = token.pending_contact, token.requested_mobile
@@ -136,29 +125,25 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
                 raise ApiError("checkout_used", C.MSG_CHECKOUT_EXPIRED, status=409)
             version, accepted_at = records.require_current(tok, lock=True)  # the second check, under the locks
             enrolled_at = records.require_enrollment(tok)
-            member, challenge_id = (None, _hold_contact(locked, tok, raw)) if by_xendit else (_member(locked, tok, raw), None)
+            challenge_id = _hold_contact(locked, tok, raw)
             now = timezone.now()
             order = PackOrder.objects.create(
-                site=locked, member=member, order_number=_next_number(locked),
+                site=locked, member=None, order_number=_next_number(locked),
                 price_centavos=C.PRICE_CENTAVOS, buyer_name=tok.pending_contact["full_name"],
                 delivery_address=tok.pending_contact["delivery_address"], payment_method=pay_method,
                 payment_status=C.AWAITING_XENDIT if by_xendit else C.PENDING_REVIEW,
-                benefits_active_at=None if by_xendit else now, idempotency_key=key,
+                idempotency_key=key,
                 policy_version=_policy_version(locked),
                 xendit_external_id=xendit.new_external_id(locked) if by_xendit else None,
-                buyer_mobile=tok.requested_mobile if by_xendit else "",
-                buyer_email=tok.pending_contact["email"] if by_xendit else "",
+                buyer_mobile=tok.requested_mobile, buyer_email=tok.pending_contact["email"],
                 onboarding_challenge_id=challenge_id,
             )
             order.add_event(
                 C.EVENT_PLACED, new={"method": pay_method}, actor_type="member",
-                actor_ref=member.pk if member else None,
-                actor_label=contacts.mask("mobile", member.mobile if member else order.buyer_mobile),
+                actor_ref=None, actor_label=contacts.mask("mobile", order.buyer_mobile),
             )
             if version is not None:  # posted by an older storefront; otherwise accepted at the details step
                 records.write_acceptance(order, version, accepted_at)
-            if not by_xendit:
-                registration.activate(order, now)  # T1 (a Xendit order's T1 comes with its payment)
             records.write_enrollment(order, enrolled_at)
             tok.order_ref, tok.pending_contact = order.pk, {}  # cleared after placement
             tok.save(update_fields=["order_ref", "pending_contact"])
