@@ -214,7 +214,7 @@ def checkout_payment_status(request, body: PaymentStatusIn):
     token = checkout.current(site, body.token)
     if token is None:
         raise _expired()
-    order = PackOrder.objects.select_related("site", "member").filter(site=site, pk=token.order_ref).first() if token.order_ref else None
+    order = PackOrder.objects.select_related("site", "member").filter(site=site, pk=token.order_ref).first() if token.order_ref else None  # member is None until a Xendit order is paid
     if order is None:
         return {"payment_status": "none", "order_number": "", "pay_url": None}
     if body.retry and order.payment_status == C.AWAITING_XENDIT and not order.xendit_invoice_url:
@@ -303,10 +303,11 @@ def _funnel(host, raw):
     order = PackOrder.objects.select_related("member").filter(site=site, pk=token.order_ref).first() if token and token.order_ref else None
     if token is None or order is None:
         raise _closed()
+    if order.member is None or (order.payment_method == C.XENDIT and order.payment_status in C.XENDIT_UNPAID):
+        # Onboarding opens when Xendit confirms; a Xendit order has no member until then.
+        raise ApiError("payment_pending", C.MSG_PAYMENT_PENDING, status=409)
     if access.contacts_replaced_since(order.member, token.created_at):
         raise ApiError("checkout_stale", C.MSG_CHECKOUT_EXPIRED, status=409)
-    if order.payment_method == C.XENDIT and order.payment_status in C.XENDIT_UNPAID:
-        raise ApiError("payment_pending", C.MSG_PAYMENT_PENDING, status=409)  # onboarding opens when Xendit confirms
     return site, token, order, order.member
 
 

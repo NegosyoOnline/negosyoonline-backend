@@ -142,7 +142,8 @@ def members_by_order(request, site_id: str, ids: str = ""):
 
     wanted = [i for i in dict.fromkeys(x.strip() for x in ids.split(",")) if i][:BY_ORDER_MAX]
     orders = PackOrder.objects.select_related("member").filter(site=request.member_site, public_id__in=wanted)
-    return _json({"members": {o.public_id: row(o.member, _hold(o.member)) for o in orders}})
+    # An order with no member yet (a Xendit order not paid) has no recovery action: left out, like another site's.
+    return _json({"members": {o.public_id: row(o.member, _hold(o.member)) for o in orders if o.member_id}})
 
 
 @router.get("/sites/{site_id}/members/{member_id}/recovery/")

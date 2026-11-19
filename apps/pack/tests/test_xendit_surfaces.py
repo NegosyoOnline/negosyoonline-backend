@@ -26,6 +26,8 @@ class MemberSurfaceCase(XenditPackCase):
         )
 
     def signed_in(self, order):
+        self.give_legacy_member(order)  # a member exists only for an order placed before the hotfix, or once paid
+        order.refresh_from_db()
         _, session = sessions.create_session(self.site, order.member)
         return session
 

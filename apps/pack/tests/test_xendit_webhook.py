@@ -311,7 +311,9 @@ class OutcomeTests(XenditPackCase):
 
     def test_a_late_payment_on_an_expired_order_is_recorded_not_applied_when_a_newer_order_is_live(self):
         token, _, order = self.placed_xendit()
+        self.give_legacy_member(order)
         self.webhook(order, status="EXPIRED")
+        order.refresh_from_db()
         newer = PackOrder.objects.create(
             site=self.site, member=order.member, order_number="SMP00002", price_centavos=C.PRICE_CENTAVOS,
             buyer_name=NAME, payment_method="xendit", payment_status=C.AWAITING_XENDIT,
@@ -357,7 +359,9 @@ class OutcomeTests(XenditPackCase):
 
     def test_a_paid_event_for_a_member_whose_contacts_were_released_is_recorded_not_applied(self):
         _, _, order = self.placed_xendit()
+        self.give_legacy_member(order)
         self.webhook(order, status="EXPIRED")
+        order.refresh_from_db()
         order.member.email = "released-1@released.invalid"
         order.member.save()
         self.webhook(order, status="PAID", webhook_id="late")
