@@ -24,7 +24,7 @@ WHEN = datetime(2026, 11, 13, 10, 30, tzinfo=dt_timezone.utc)
 
 
 def _pack(texts, **extra):
-    values = {"name": "Live for More", "first": "Maria", "no": "SMP00001", "url": LINK, **extra}
+    values = {"name": "Live for More", "first": "Maria", "no": "SMP00001", "url": LINK, "link": LINK, **extra}
     subject, body = texts
     return subject.format(**values), body.format(**values), ""
 

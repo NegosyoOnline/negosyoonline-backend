@@ -101,13 +101,13 @@ class PackTestCase(SurfaceTestCase):
         self.give_member(body["order_number"])
         return token, body
 
-    def give_member(self, order_number):
+    def give_member(self, order_number, site=None):
         """What the old placement did at once: the member, benefits on and the registration (T1)."""
         from django.db import transaction
         from apps.pack import buyer, registration
         from apps.pack.models import PackOrder
         with transaction.atomic():
-            order = PackOrder.objects.select_for_update().get(order_number=order_number)
+            order = PackOrder.objects.select_for_update().get(site=site or self.site, order_number=order_number)
             member, refusal = buyer.attach_member(order)
             assert member is not None, refusal
             order.benefits_active_at = timezone.now()

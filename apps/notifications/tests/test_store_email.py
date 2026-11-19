@@ -209,11 +209,11 @@ class CallerGoldenTests(StoreCase):
     def test_pack_notice_off_matches_today(self):
         from apps.pack import notices
         subject, body = notices.VERIFIED
-        values = {"name": "Ana's Store", "first": "Maria", "no": "N1", "url": ""}
+        values = {"name": "Ana's Store", "first": "Maria", "no": "N1", "url": "", "link": "https://dash.test/x/"}
         store_email.send_store_email(self.site, to="m@x.test", category="pack_verified",
                                      subject=subject.format(**values), body=body.format(**values))
         sent = mail.outbox[0]
-        self.assertEqual(sent.body, "Hi Maria,\n\nThe store verified your payment for order N1. We will let you know when your pack ships.\n\nAna's Store")
+        self.assertEqual(sent.body, "Hi Maria,\n\nThe store verified your payment for order N1. We will let you know when your pack ships.\n\nContinue your registration: https://dash.test/x/\n\nAna's Store")
         self.assertEqual(getattr(sent, "alternatives", []), [])
 
 

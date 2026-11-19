@@ -195,6 +195,7 @@ class StorefrontIsolationTests(PackTestCase):
         self.assertEqual(placed_b.status_code, 200, placed_b.content)
         order_a, order_b = PackOrder.objects.order_by("pk")
         self.assertEqual((order_a.site, order_b.site), (self.site, self.other_site))
+        self.give_member(order_b.order_number, site=self.other_site)  # the owner approved it: only then does onboarding open
         before = self.state()
 
         for token, mine, theirs, label in (
