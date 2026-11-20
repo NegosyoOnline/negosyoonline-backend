@@ -77,6 +77,10 @@ A site with no subscription (made before billing and not yet backfilled) is not 
 
 A never-paid subscription that ends before payment collection is live has no download date, no deletion date and no last date to pay: `GET billing/` answers `clocks_started: false`. B2 starts those clocks on the day collection goes live.
 
+## Where the commands run
+
+The three commands below (`billing_backfill_subscriptions`, `billing_exempt`, `billing_sweep`) run inside the Bunny staging `api` container, where `python` is the project's own environment and `manage.py` is in `/app`. Bunny has no one-off job API (`docs/runbooks/bunny-staging.md`), and this repository documents no method for running a one-off management command in a Bunny staging container. Do not invent one. The Manager, or GATES, runs them, with Coach Ed's approval for the step.
+
 ## Backfill
 
 Gives each site made before billing its subscription. It writes exactly what site creation writes. A removed site gets none. A site that already has a subscription is skipped, so it is safe to run again. The output is counts only.
@@ -84,7 +88,7 @@ Gives each site made before billing its subscription. It writes exactly what sit
 Count first. This writes nothing:
 
 ```bash
-railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e staging -s api -- uv run python manage.py billing_backfill_subscriptions
+python manage.py billing_backfill_subscriptions
 ```
 
 It prints `sites_without_subscription`, `trial_still_running` and `trial_already_ended`. The last one is the number of sites that are ended when it is applied. An approved test site cannot be exempted beforehand, because an exemption needs the subscription to exist: apply first, then exempt it, and it is served again.
@@ -92,7 +96,7 @@ It prints `sites_without_subscription`, `trial_still_running` and `trial_already
 Apply:
 
 ```bash
-railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e staging -s api -- uv run python manage.py billing_backfill_subscriptions --apply
+python manage.py billing_backfill_subscriptions --apply
 ```
 
 A second run answers "Every site already has a subscription."
@@ -102,7 +106,7 @@ A second run answers "Every site already has a subscription."
 An approved test site is never billed. The exemption is set once and **cannot be undone**: no command, screen or endpoint clears it. An exempt site is always served, and nothing changes its subscription again: the sweep skips it, and a cancel, a reactivation and every payment function refuse it with `billing_exempt`.
 
 ```bash
-railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e staging -s api -- 'uv run python manage.py billing_exempt SITE --actor USERNAME --reason "approved test site"'
+python manage.py billing_exempt SITE --actor USERNAME --reason "approved test site"
 ```
 
 `SITE` is the site's public id (`site_...`). `--actor` is your own staff username. The reason is written to the admin audit log (action `billing_exempt_set`, kept whole), so it must hold no personal value. A second run answers "was already exempt" and writes nothing.
@@ -116,13 +120,13 @@ On staging the `worker` and `beat` services exist ("Worker and beat", below), so
 Print what is due. This writes nothing:
 
 ```bash
-railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e staging -s api -- uv run python manage.py billing_sweep --dry-run
+python manage.py billing_sweep --dry-run
 ```
 
 Run it:
 
 ```bash
-railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e staging -s api -- uv run python manage.py billing_sweep
+python manage.py billing_sweep
 ```
 
 The output is a count per transition. A second run answers "Nothing is due."
@@ -146,59 +150,38 @@ The routes do not exist while `HQ_STAFF_ORIGIN` is unset, and answer 404 and rea
 
 ## Worker and beat
 
-Two services run the sweep on a schedule: `worker` and `beat`. Both exist on staging, since 2026-11-11. **A new service, and any change to a service's Settings, needs Coach Ed's approval.** Staging only: production has no services.
+Staging runs the sweep on a schedule with two containers beside `api`: `worker` and `beat`. All three are containers of the Bunny Magic Containers app `negosyoonline-backend-staging`, built from the one `deploy/bunny/Dockerfile` (targets `api`, `worker`, `beat`, one image per role, all from the same commit). **A new container, and any change to a container's settings, needs Coach Ed's approval.** Production is not provisioned on Bunny and is not covered here (`docs/runbooks/bunny-staging.md`). Release, rollback, settings names and the Bunny API used are in `docs/runbooks/bunny-staging.md`; this runbook does not repeat them.
 
-Each service's settings are typed into its Settings in the Railway dashboard, project `negosyoonline-backend`, staging environment. No file in this repository sets them: Railway stops reading `railway.toml` files on 2026-12-01, and the three this repository had were removed in Build B1a. This table is the record of what each service's Settings must hold.
-
-| Setting, with its label in Settings | `api` | `worker` | `beat` |
+| | `api` | `worker` | `beat` |
 |---|---|---|---|
 | What it does | Serves the API | Runs queued jobs | Queues the sweep every 5 minutes |
-| Build command: "Custom Build Command" | `uv sync --frozen` | `uv sync --frozen` | `uv sync --frozen` |
-| Start command: "Custom Start Command" | `uv run gunicorn config.asgi:application -k uvicorn_worker.UvicornWorker --bind 0.0.0.0:$PORT --access-logfile - --error-logfile -` | `sh scripts/start_worker.sh` | `sh scripts/start_beat.sh` |
-| Health path: "Healthcheck Path" | `/healthz/` | empty | empty |
-| Health timeout, in seconds: "Healthcheck Timeout" (shown once a path is set) | `120` | not used | not used |
-| Restart policy: "Restart Policy" | `On Failure` | `On Failure` | `On Failure` |
-| Restart retries: "Max restart retries" | `10` | `10` | `10` |
-| Number of instances: "Regions & Replicas" | not set here | not set here | `1` |
-| Public domain | yes | none | none |
-| Config file path: "Railway Config File" (button "Add File Path") | empty | empty | empty |
+| Entrypoint (in `deploy/bunny/`) | `init-api.sh`, then `start-api.sh` | `start-worker.sh` | `start-beat.sh` |
+| Command it ends in | `gunicorn config.asgi:application -k uvicorn_worker.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --access-logfile - --error-logfile -` | `celery -A config worker --loglevel=info --concurrency=2` | `celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule` |
+| Migrations | Runs `migrate.sh` first, under a PostgreSQL advisory lock | Waits until `migrate --check` passes (`wait-migrated.sh`) | Waits until `migrate --check` passes (`wait-migrated.sh`) |
+| Instances | not set here | not set here | exactly `1` |
 
-- `api` runs on ASGI workers since the live Inbox (z8uq9mg7ah), so the Inbox can hold server-sent events open (`GET /v1/sites/{site_id}/inquiries/stream/`; see `docs/runbooks/inquiries.md`). The Manager makes the dashboard edit at release, on staging only; production is untouched. **Rollback** (one dashboard edit, no code change; the live Inbox then falls back to polling): `uv run gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --access-logfile - --error-logfile -`.
+- `api` migrates at start: `init-api.sh` runs `migrate.sh` (the advisory lock, `migrate --noinput`, then `migrate --check`) and then `start-api.sh`, which never migrates. `MIGRATE_ON_START=0` skips the migration. `worker` and `beat` run no migration: their start scripts wait, up to 15 minutes by default, until `migrate --check` passes, so they never run new code on the old schema. Migrations stay an explicit reviewed release step and must be backward-compatible with the previous release.
+- `api` runs on ASGI workers (the `uvicorn_worker.UvicornWorker` in `start-api.sh`) since the live Inbox (z8uq9mg7ah), so the Inbox can hold server-sent events open (`GET /v1/sites/{site_id}/inquiries/stream/`; see `docs/runbooks/inquiries.md`). Going back to polling needs the `gunicorn` line in `deploy/bunny/start-api.sh` changed to the WSGI form (`gunicorn config.wsgi:application --bind ...`) and released; this repository documents no settings-only switch on Bunny for it. It is a code change, so it goes through the normal reviewed release.
+- The image runs as `nobody` (`USER nobody` in the Dockerfile), so `worker` and `beat` do no privilege drop. The beat schedule file is in `/tmp`, so a restart loses only the last-run times.
+- The start scripts first wait up to 60 seconds for `DATABASE_URL` to accept a connection (`_wait_db.sh`) and `api` needs `REDIS_URL` set.
 
-The `worker` and `beat` scripts start as root and Celery then drops to `nobody:nogroup` (`--uid=nobody --gid=nogroup`); if that user is missing, or the script is not root, it logs one line and starts without the drop. After the drop `/app` is read-only to the processes. The beat schedule file is in `/tmp`, so a restart loses only the last-run times, as before. The worker writes only to `/tmp` (pack export tempfiles). Rollback is the old commands, typed back into "Custom Start Command": `uv run celery -A config worker --loglevel=info --concurrency=2` and `uv run celery -A config beat --loglevel=info --schedule=/tmp/celerybeat-schedule`. Switching to the scripts is a one-time dashboard edit per environment: staging is the Manager's, production is Coach Ed's.
+Health. `/healthz/` answers `{"status":"ok","commit":"<first 12 characters of the commit>"}`; `/readyz/` answers 200 with every check true, `beat` included. After a release the Bunny staging workflow checks both from outside over HTTPS (`deploy/bunny/ci/verify-release.sh`); by hand, see "Verify a release by hand" in `docs/runbooks/bunny-staging.md`.
 
-No start command runs a migration. "Wait for CI" is off on all three.
-
-On pull requests GitHub runs the SQLite checks only ("Django checks and tests"); the PostgreSQL and Redis job is skipped there. PostgreSQL and Redis are proven by the Release Builders' local run (ruling 1100430000509948) and by the tagged-release run (`promote-production` calls `ci.yml`).
-
-`api` has the health path `/healthz/` with a timeout of 120 seconds, set on 2026-11-11 with Coach Ed's approval. Railway calls it once, at the start of each deployment, and switches traffic to the new deployment only after it answers 200; it is not continuous monitoring. The first deployment with the path set passed the check and succeeded (`df826a05`, commit `6725454`). The path was typed in the dashboard: the Railway CLI (`railway environment edit --service-config`) made no change.
-
-The check works only because `/healthz/` is exempt from the HTTPS redirect. Railway's health check calls the service over plain HTTP, and the backend answers every other plain-HTTP request with a redirect to HTTPS (`SECURE_SSL_REDIRECT`). Before Build B1b that included `/healthz/`: with the path set, the deployment of 2026-11-11 failed (`33d647de`, HTTP 301 on `/healthz/`), and the path was removed until the exemption was merged (`9753aa68` succeeded without it). The exemption is `SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]` in `config/settings.py`: it matches only that exact path. Do not widen it, and do not remove it while the health path is set. From outside nothing changed: Railway's public edge answers plain HTTP with its own redirect before the request reaches the app, so only Railway's health check and services on the project's private network can call `/healthz/` over plain HTTP. The check sends the host `healthcheck.railway.app`, which must stay in `DJANGO_ALLOWED_HOSTS`; without it the check gets 400 and every deployment fails. `/healthz/` is also checked from outside over HTTPS after each deploy: `scripts/verify_deploy.sh` and the `verify-staging` workflow.
-
-To create a service like these again:
-
-1. Duplicate an existing service in the dashboard and, before its first deploy, change the name and the start command. Duplicating is how the variables are copied without anyone reading or retyping a value: `beat` was made by duplicating `worker`. The copy has the same repository and branch (`main`).
-2. Check the service's values against the table in its Settings. Leave the config file path empty.
-3. Check it has the variables it needs, by name only: `DATABASE_URL`, `REDIS_URL`, `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=false` and `BILLING_ENABLED` at the least. `worker` and `beat` have the same variables. They do not have `SANTE_CATALOG_ENABLED` or `SANTE_SETTINGS_ENABLED`, which only `api` has.
-4. No public domain and no health path. `beat` runs as exactly one instance: two would queue every sweep twice (harmless to the data, since a second sweep finds nothing due, but wasteful).
-
-After changing a value: a change in the dashboard is staged. "Details" lists the staged changes and "Deploy Changes" applies them and redeploys the service. Read the value back from the service's Settings, and change this table in the same pull request or the next one, so the table and the dashboard never disagree. Every change to a service's Settings needs Coach Ed's approval.
+`/healthz/` is exempt from the HTTPS redirect: `SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]` in `config/settings.py` matches only that exact path, while every other plain-HTTP request is answered with a redirect to HTTPS (`SECURE_SSL_REDIRECT`). Do not widen it, and do not remove it while any caller reaches `/healthz/` over plain HTTP. The Bunny verification calls the API over HTTPS.
 
 The queue uses the Redis server of `REDIS_URL` on the database number after the cache's (cache on 0, queue on 1), so clearing the cache never drops queued work. It needs no variable of its own. Nothing is stored about a finished job.
 
-While `BILLING_ENABLED` is unset on `worker`, every sweep it runs returns at once and reads nothing. So the services can be created before the switch is on. On staging `BILLING_ENABLED` is set on `worker`.
+While `BILLING_ENABLED` is unset on `worker`, every sweep it runs returns at once and reads nothing. So the containers can run before the switch is on. On staging `BILLING_ENABLED` is set on `worker`. Each container has the variables it needs, by name only: `DATABASE_URL`, `REDIS_URL`, `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=false` and `BILLING_ENABLED` at the least.
 
-Check, in the service logs:
+Check, in the container logs:
 
 - `worker`: a line listing `billing.sweep` under `[tasks]`, then `ready`. After `beat` is up, every 5 minutes: `Task billing.sweep[...] received` and `succeeded ...: {...}`. The braces hold a count per transition, or nothing when nothing was due. No log line holds a personal value.
 - `beat`: `beat: Starting...`, then `Scheduler: Sending due task billing-sweep (billing.sweep)` every 5 minutes. The first one comes 5 minutes after the start.
 - Retention, once a day at 03:00 Manila time (`docs/runbooks/retention.md`): `beat` shows `Scheduler: Sending due task retention-daily (retention.run)`, and `worker` shows `Task retention.run[...] received` then `succeeded` with the counts per rule and the rules `switched_off`. `retention.run` is listed under `[tasks]` with `billing.sweep`.
 
-Checked on staging, 2026-11-11: `beat` deployment `a1f38b2a` succeeded. At 13:21:25 +08:00 the `beat` log showed `Scheduler: Sending due task billing-sweep (billing.sweep)`, and in the same second the `worker` log showed the task received, `Billing sweep: nothing due`, and succeeded.
+Run exactly one `beat`: two would queue every sweep twice (harmless to the data, since a second sweep finds nothing due, but wasteful).
 
-If `worker` is down, queued sweeps are dropped after 5 minutes instead of piling up, and no site's state is wrong meanwhile: every read computes the state from the time. If `beat` is down, nothing is queued; run the sweep by hand.
-
-To go back, remove the two services. Nothing else depends on them.
+If `worker` is down, queued sweeps are dropped after 5 minutes instead of piling up, and no site's state is wrong meanwhile: every read computes the state from the time. If `beat` is down, nothing is queued, and `/readyz/` reports `beat` false; run the sweep by hand.
 
 ## Not in this runbook yet
 
