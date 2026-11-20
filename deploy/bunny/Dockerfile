@@ -18,15 +18,15 @@ COPY scripts/start_worker.sh scripts/start_beat.sh scripts/
 
 ENV UV_NO_SYNC=1
 USER nobody
-EXPOSE 8000
-CMD ["gunicorn", "config.asgi:application", "-k", "uvicorn_worker.UvicornWorker", "--bind", "0.0.0.0:8000", "--access-logfile", "-", "--error-logfile", "-"]
 
 FROM backend AS worker
-CMD ["sh", "scripts/start_worker.sh"]
+CMD ["celery", "-A", "config", "worker", "--loglevel=info", "--concurrency=2"]
 
 FROM backend AS beat
-CMD ["sh", "scripts/start_beat.sh"]
+CMD ["celery", "-A", "config", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule"]
 
 FROM backend AS api
 COPY deploy/bunny/start-api.sh /app/start-api.sh
 ENTRYPOINT ["sh", "/app/start-api.sh"]
+EXPOSE 8000
+CMD ["gunicorn", "config.asgi:application", "-k", "uvicorn_worker.UvicornWorker", "--bind", "0.0.0.0:8000", "--access-logfile", "-", "--error-logfile", "-"]
