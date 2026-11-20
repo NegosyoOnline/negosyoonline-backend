@@ -16,6 +16,7 @@ from datetime import datetime, time, timedelta
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.core.cache import cache
+from django.utils.crypto import salted_hmac
 from django.utils import timezone
 
 from apps.notifications.models import SmsDevice, SmsMessage, SmsPolicy
@@ -320,9 +321,29 @@ def normalise_token(token):
     return token.upper() if len(token) == TOKEN_LENGTH else token
 
 
-def token_hash(token):
-    """What is stored of a phone's token. The token itself is shown once and never kept."""
-    return hashlib.sha256(token.encode()).hexdigest()
+TOKEN_SALT = "apps.notifications.sms.token"
+
+
+def token_hash(token, secret=None):
+    """What is stored of a phone's token: a keyed hash (Django's salted_hmac over SECRET_KEY, or
+    over `secret`) of the token as normalised. The token itself is shown once and never kept."""
+    return salted_hmac(
+        TOKEN_SALT, normalise_token(token), secret=secret, algorithm="sha256"
+    ).hexdigest()
+
+
+def _legacy_token_hash(token):
+    """The plain SHA-256 that phones registered before the keyed hash were stored with."""
+    return hashlib.sha256(normalise_token(token).encode()).hexdigest()
+
+
+def token_hash_candidates(token):
+    """Every hash a phone holding `token` may be stored under, the current one first: the keyed
+    hash, the keyed hash under each of SECRET_KEY_FALLBACKS, and the legacy plain hash."""
+    keyed = [token_hash(token)] + [
+        token_hash(token, secret=old) for old in settings.SECRET_KEY_FALLBACKS
+    ]
+    return keyed + [_legacy_token_hash(token)]
 
 
 def pick_device():

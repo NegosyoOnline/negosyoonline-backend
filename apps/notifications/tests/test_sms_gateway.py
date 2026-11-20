@@ -1,4 +1,5 @@
 """T-GW: the three calls the phone makes."""
+import hashlib
 import json
 from datetime import timedelta
 from unittest import mock
@@ -108,6 +109,79 @@ class GatewayIdentityTests(GatewayCase):
         for _ in range(gateway.FAILED_TRIES):
             self.assertEqual(self.call("poll", token="K7M2QX9S").status_code, 401)
         self.assertEqual(self.call("poll", token="K7M2QX9S").status_code, 429)
+
+    def plain(self, token):
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def stored(self, name):
+        return SmsDevice.objects.get(name=name).token_hash
+
+    def test_2_a_phone_with_the_plain_hash_is_upgraded_on_its_first_poll(self):
+        phone = make_phone("old", "K7M2QX9R")
+        SmsDevice.objects.filter(pk=phone.pk).update(token_hash=self.plain("K7M2QX9R"))
+        self.assertEqual(self.call("poll", token="k7m2qx9r").status_code, 200)
+        self.assertEqual(self.stored("old"), sms.token_hash("K7M2QX9R"))
+        self.assertNotEqual(self.stored("old"), self.plain("K7M2QX9R"))
+        self.assertEqual(self.call("poll", token="K7M2QX9R").status_code, 200)
+
+    def test_2_a_wrong_token_is_refused_and_counted_before_and_after_the_upgrade(self):
+        phone = make_phone("old", "K7M2QX9R")
+        SmsDevice.objects.filter(pk=phone.pk).update(token_hash=self.plain("K7M2QX9R"))
+        self.assertEqual(self.call("poll", token="K7M2QX9S").status_code, 401)
+        self.assertEqual(self.call("poll", token="K7M2QX9R").status_code, 200)
+        self.assertEqual(self.call("poll", token="K7M2QX9S").status_code, 401)
+        self.assertEqual(cache.get(gateway._tries_key(self.rf_request())), 2)
+
+    def rf_request(self):
+        from django.test import RequestFactory
+        return RequestFactory().post("/", HTTP_X_REAL_IP="203.0.113.7")
+
+    def test_2_a_long_legacy_token_is_upgraded_too(self):
+        long_token = "Ab" * 22
+        phone = make_phone("legacy", long_token)
+        SmsDevice.objects.filter(pk=phone.pk).update(token_hash=self.plain(long_token))
+        self.assertEqual(self.call("poll", token=long_token).status_code, 200)
+        self.assertEqual(self.stored("legacy"), sms.token_hash(long_token))
+
+    def test_2_a_hash_under_a_fallback_key_is_accepted_and_upgraded(self):
+        phone = make_phone("keyed", "K7M2QX9R")
+        SmsDevice.objects.filter(pk=phone.pk).update(
+            token_hash=sms.token_hash("K7M2QX9R", secret="an-older-key")
+        )
+        with override_settings(SECRET_KEY_FALLBACKS=["an-older-key"]):
+            self.assertEqual(self.call("poll", token="K7M2QX9R").status_code, 200)
+        self.assertEqual(self.stored("keyed"), sms.token_hash("K7M2QX9R"))
+        self.assertNotEqual(self.stored("keyed"), sms.token_hash("K7M2QX9R", secret="an-older-key"))
+
+    def test_2_a_fallback_hash_is_refused_once_the_key_is_not_a_fallback(self):
+        phone = make_phone("keyed", "K7M2QX9R")
+        SmsDevice.objects.filter(pk=phone.pk).update(
+            token_hash=sms.token_hash("K7M2QX9R", secret="an-older-key")
+        )
+        self.assertEqual(self.call("poll", token="K7M2QX9R").status_code, 401)
+
+    def test_2_a_disabled_phone_with_a_plain_hash_is_not_served_or_upgraded(self):
+        phone = make_phone("off", "K7M2QX9R", is_active=False)
+        SmsDevice.objects.filter(pk=phone.pk).update(token_hash=self.plain("K7M2QX9R"))
+        self.assertEqual(self.call("poll", token="K7M2QX9R").status_code, 401)
+        self.assertEqual(self.stored("off"), self.plain("K7M2QX9R"))
+
+    def test_2_new_phones_hold_the_keyed_hash_and_the_token_is_in_no_log(self):
+        from django.core.management import call_command
+        from io import StringIO
+        from django.contrib.auth import get_user_model
+        get_user_model().objects.create_user("coach", password="pw", is_staff=True)
+        out = StringIO()
+        with self.assertLogs(level="DEBUG") as logs:
+            call_command("sms_device", "add", name="fresh", actor="coach", stdout=out)
+            token = out.getvalue().split("Token: ")[1].split()[0]
+            self.call("poll", token=token)
+            self.call("poll", token="WRONGTKN")
+        self.assertEqual(self.stored("fresh"), sms.token_hash(token))
+        self.assertNotEqual(self.stored("fresh"), self.plain(token))
+        everything = "\n".join(logs.output)
+        self.assertNotIn(token, everything)
+        self.assertNotIn(self.stored("fresh"), everything)
 
     def test_2_failed_tries_are_limited_per_ip(self):
         for _ in range(gateway.FAILED_TRIES):
