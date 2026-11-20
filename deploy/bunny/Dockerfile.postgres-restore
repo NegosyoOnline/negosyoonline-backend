@@ -1,0 +1,5 @@
+FROM postgres:18
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl openssl \
+    && rm -rf /var/lib/apt/lists/*
+COPY deploy/bunny/restore-staging.sh /docker-entrypoint-initdb.d/90-restore-staging.sh

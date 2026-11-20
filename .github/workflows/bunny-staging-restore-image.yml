@@ -1,0 +1,31 @@
+name: Bunny staging restore image
+
+on:
+  push:
+    branches: [pilot/bunny-backend]
+    paths:
+      - deploy/bunny/Dockerfile.postgres-restore
+      - deploy/bunny/restore-staging.sh
+      - .github/workflows/bunny-staging-restore-image.yml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Build and publish PostgreSQL 18 restore image
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}-bunny-pilot:${GITHUB_SHA}-postgres-restore"
+          sh -n deploy/bunny/restore-staging.sh
+          docker build --file deploy/bunny/Dockerfile.postgres-restore --tag "$image" .
+          docker run --rm --entrypoint pg_restore "$image" --version
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$image"
