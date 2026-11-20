@@ -21,7 +21,7 @@ jobs:
       - name: Compare /healthz/ commit with main
         env:
           GH_TOKEN: ${{ github.token }}
-          URL: ${{ vars.BUNNY_STAGING_URL || 'https://api-bunny-staging.negosyonline.com' }}
+          URL: ${{ vars.BUNNY_STAGING_URL || 'https://api-staging.negosyonline.com' }}
         run: |
           set -euo pipefail
           head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
