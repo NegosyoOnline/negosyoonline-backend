@@ -39,8 +39,8 @@ class MemberPanelTests(MemberSurfaceCase):
         self.assertEqual(pack["payment_status"], "awaiting_xendit")
         self.assertEqual(pack["payment_label"], "Waiting for payment")
         self.assertEqual(pack["payment_method"], "xendit")
-        self.assertEqual(pack["payment_method_label"], "Pay online (Xendit)")
-        self.assertEqual(pack["method_label"], "Pay online (Xendit)")
+        self.assertEqual(pack["payment_method_label"], "Credit / Debit Card / GCash / Maya")
+        self.assertEqual(pack["method_label"], "Credit / Debit Card / GCash / Maya")
         self.assertEqual(pack["pay_url"], body["pay_url"])
         self.assertEqual((pack["price_centavos"], pack["currency"]), (148800, "PHP"))
         self.assertIsNone(pack["paid_at"])
@@ -81,7 +81,7 @@ class MemberPanelTests(MemberSurfaceCase):
         session = self.signed_in(order)
         card = self.member_post("orders/", session).json()["cards"][0]
         self.assertEqual((card["payment_status"], card["payment_method"], card["awaiting_payment"]), ("awaiting_xendit", "xendit", True))
-        self.assertEqual((card["payment_label"], card["pay_url"], card["chip_label"]), ("Pay online (Xendit)", body["pay_url"], "Waiting for payment"))
+        self.assertEqual((card["payment_label"], card["pay_url"], card["chip_label"]), ("Credit / Debit Card / GCash / Maya", body["pay_url"], "Waiting for payment"))
         self.assertEqual(self.member_post("home/", session).status_code, 200)
         self.webhook(order, status="EXPIRED")
         card = self.member_post("orders/", session).json()["cards"][0]
@@ -94,7 +94,7 @@ class MemberPanelTests(MemberSurfaceCase):
         self.webhook(order)
         order.refresh_from_db()
         card = portal.card(order.member, order)
-        self.assertEqual((card["payment_method"], card["payment_method_label"], card["payment_status"]), ("xendit", "Pay online (Xendit)", "verified"))
+        self.assertEqual((card["payment_method"], card["payment_method_label"], card["payment_status"]), ("xendit", "Credit / Debit Card / GCash / Maya", "verified"))
         self.assertEqual(card["paid_at"], "2026-11-18T10:00:00+00:00")
         self.assertEqual(card["total_text"], "1,488.00")
         self.assertEqual(card["currency"], "PHP")
@@ -120,7 +120,7 @@ class MemberPanelTests(MemberSurfaceCase):
     def test_the_onboarding_state_names_the_xendit_method(self):
         token, _, order = self.placed_xendit()
         self.webhook(order)
-        self.assertEqual(self.onboarding_state(token)["payment_method_label"], "Pay online (Xendit)")
+        self.assertEqual(self.onboarding_state(token)["payment_method_label"], "Credit / Debit Card / GCash / Maya")
         self.assertIs(self.onboarding_state(token)["payment_verified"], True)
 
     def test_the_onboarding_state_names_the_transfer_method_for_a_bank_order(self):
@@ -154,7 +154,7 @@ class OwnerSurfaceTests(XenditPackCase):
         self.webhook(order)
         order.refresh_from_db()
         row = api_owner.row(order)
-        self.assertEqual((row["method"], row["payment_method_label"], row["payment_status"]), ("xendit", "Pay online (Xendit)", "verified"))
+        self.assertEqual((row["method"], row["payment_method_label"], row["payment_status"]), ("xendit", "Credit / Debit Card / GCash / Maya", "verified"))
         self.assertEqual(row["paid_at"], "2026-11-18T10:00:00+00:00")
         self.assertEqual(row["shipment_status"], "not_shipped")
 

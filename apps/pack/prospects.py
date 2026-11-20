@@ -15,18 +15,16 @@ from django.db.models import Max
 
 from apps.inquiries.models import InquiryConversation
 from apps.members.models import MemberSession
-from apps.pack.models import PackOrder, PackProofSubmission, PackVisit, SanteRegistration
+from apps.pack.models import CheckoutToken, PackOrder, PackProofSubmission, PackVisit, SanteRegistration
 
 PAGE_SIZE = 25
-# TWCinc's eight stages (partnership/stages.py), in funnel order. A row reports the furthest it reached.
-# Mapping here: a message to the site is New Lead; a visit is Landing Page, then Start Watching and Done
-# Watching by the video, then Add to Cart once the checkout step was opened or a contact saved; an
-# order placed (with or without a proof) is Checked Out; an approved payment is Account Setup (with
-# the registration status beside it); a member who signed in to the dashboard is Activated.
-STAGES = (
-    "new_lead", "landing_page", "start_watching", "done_watching", "added_to_cart", "checked_out",
-    "account_setup", "activated",
-)
+# Six stages, in funnel order (Coach Ed, 2026-11-21, ruling 1100430000601591). A row reports the furthest
+# it reached. A visit with no order is Landing Page, Start Watching or Done Watching by the video; an
+# inquiry that is not merged into a visit is Landing Page. An order is Checked Out until its payment
+# details are in (bank: a proof was submitted, any review outcome; Xendit: paid), then Purchased, then
+# Activated once the buyer finished onboarding (a member session was issued, or the checkout token
+# says it was), with the registration status beside it.
+STAGES = ("landing_page", "start_watching", "done_watching", "checked_out", "purchased", "activated")
 CHANNEL_KEYS = {
     InquiryConversation.WEBCHAT: "webchat",
     InquiryConversation.EMAIL: "email",
@@ -43,7 +41,7 @@ def _latest(*values, default=None):
 def order_rows(site):
     orders = list(PackOrder.objects.filter(site=site).values(
         "pk", "public_id", "order_number", "buyer_name", "member_id", "created_at", "verified_at",
-        "payment_status", "price_centavos", "currency", "member__mobile", "member__email", "buyer_mobile", "buyer_email"))
+        "payment_status", "payment_method", "paid_at", "price_centavos", "currency", "member__mobile", "member__email", "buyer_mobile", "buyer_email"))
     pks = [o["pk"] for o in orders]
     proofs = dict(
         PackProofSubmission.objects.filter(site=site, order_id__in=pks).values_list("order_id")
@@ -54,21 +52,31 @@ def order_rows(site):
     sessions = dict(
         MemberSession.objects.filter(site=site, member_id__in={o["member_id"] for o in orders if o["member_id"]})
         .values_list("member_id").annotate(at=Max("created_at")))
+    issued = set(
+        CheckoutToken.objects.filter(site=site, order_ref__in=pks, session_issued_at__isnull=False)
+        .values_list("order_ref", flat=True))
     video = dict(
         PackVisit.objects.filter(site=site, order_id__in=pks).values_list("order_id").annotate(p=Max("video_percent")))
     rows = []
     for o in orders:
         stage, last, status = "checked_out", o["created_at"], None
+        paid = o["paid_at"] is not None or o["verified_at"] is not None
         if o["pk"] in proofs:
             last = _latest(last, proofs[o["pk"]])
+        if o["pk"] in proofs or paid:
+            stage = "purchased"
         if o["verified_at"] is not None:
-            stage, last = "account_setup", _latest(last, o["verified_at"])
+            last = _latest(last, o["verified_at"])
             reg = registrations.get(o["pk"])
             # A registration is opened with the order; it counts as a step once the payment is approved.
             if reg is not None:
                 status, last = reg["status"], _latest(last, reg["status_entered_at"])
-            if o["member_id"] in sessions:
-                stage, last = "activated", _latest(last, sessions[o["member_id"]])
+        # Activated: onboarding finished. The member's session is the durable marker; the checkout
+        # token's once-only issue time is the same fact read from the order's side.
+        if o["member_id"] in sessions and paid:
+            stage, last = "activated", _latest(last, sessions[o["member_id"]])
+        elif o["pk"] in issued:
+            stage = "activated"
         rows.append({
             "kind": "order", "name": o["buyer_name"], "order_number": o["order_number"], "order_id": o["public_id"],
             "source": PAGE_SOURCE, "stage": stage, "registration_status": status, "last_activity": last,
@@ -80,8 +88,6 @@ def order_rows(site):
 
 
 def visit_stage(v):
-    if v["checkout_started_at"] is not None or v["contact_saved_at"] is not None:
-        return "added_to_cart"
     if v["done_watching_at"] is not None:
         return "done_watching"
     if v["started_watching_at"] is not None or v["video_percent"] > 0:
@@ -106,15 +112,18 @@ def visit_rows(site):
 
 def inquiry_rows(site):
     rows = []
-    for c in InquiryConversation.objects.filter(site=site, provider__in=tuple(CHANNEL_KEYS)).values(
-            "provider", "contact_name", "contact_email", "last_message_at", "last_inbound_at", "created_at"):
+    # A website chat started from a visit of this site is that visitor's one row (the visit row), never a second.
+    visited = set(PackVisit.objects.filter(site=site).values_list("visitor_ref", flat=True))
+    for c in InquiryConversation.objects.filter(site=site, provider__in=tuple(CHANNEL_KEYS)).exclude(
+            pack_visitor_ref__in=visited, pack_visitor_ref__gt="").values(
+            "provider", "contact_name", "contact_email", "contact_mobile", "last_message_at", "last_inbound_at", "created_at"):
         # A stored channel keeps the name in contact_name; read live, so a blanked name stays blank.
         rows.append({
             "kind": "inquiry", "name": c["contact_name"], "order_number": None, "order_id": None,
-            "source": CHANNEL_KEYS[c["provider"]], "stage": "new_lead",
+            "source": CHANNEL_KEYS[c["provider"]], "stage": "landing_page",
             "registration_status": None,
             "last_activity": _latest(c["last_message_at"], c["last_inbound_at"], default=c["created_at"]),
-            "video_percent": None, "mobile": "",  # no phone is stored on a conversation
+            "video_percent": None, "mobile": c["contact_mobile"],
             "email": c["contact_email"], **NO_ORDER,
         })
     return rows

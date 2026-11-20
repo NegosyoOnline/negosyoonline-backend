@@ -25,7 +25,7 @@ MESSAGE_RETENTION = timedelta(days=180)
 COMMENT_RETENTION = timedelta(days=180)  # counted from the comment's time (Meta's created_time)
 
 # The personal fields of a stored conversation, blanked together.
-PERSONAL = ("display_name", "contact_name", "contact_email", "contact_mobile", "visitor_hash", "thread_token", "psid")
+PERSONAL = ("display_name", "contact_name", "contact_email", "contact_mobile", "visitor_hash", "pack_visitor_ref", "thread_token", "psid")
 
 
 @retention.behind_switch

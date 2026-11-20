@@ -37,7 +37,7 @@ class PackRetentionTests(PackTestCase):
         self.assertEqual(len(rows), 2)
         cart, landed = rows
         self.assertEqual((cart["order"], cart["stage"], landed["order"], landed["stage"]),
-                         (order.public_id, "added_to_cart", None, "landing_page"))
+                         (order.public_id, "start_watching", None, "landing_page"))
         self.assertEqual(sorted(cart), sorted([
             "site", "order", "stage", "video_percent", "landed_at", "started_watching_at", "done_watching_at",
             "checkout_started_at", "contact_name", "contact_mobile", "contact_email", "contact_saved_at",

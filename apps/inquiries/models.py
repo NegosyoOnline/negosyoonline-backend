@@ -83,6 +83,7 @@ class InquiryConversation(models.Model):
     contact_email = models.EmailField(max_length=254, blank=True, db_default="")  # only if the person gave it; blanked
     contact_mobile = models.CharField(max_length=16, blank=True, db_default="")  # +639XXXXXXXXX, only if the visitor gave it; blanked
     visitor_hash = models.CharField(max_length=64, blank=True, db_default="")  # SHA-256 of the chat visitor's secret
+    pack_visitor_ref = models.CharField(max_length=32, blank=True, db_default="")  # the Membership Pack visit this chat was started from; "" = none; blanked with the contact
     thread_token = models.CharField(max_length=24, blank=True, db_default="")  # the email reply-thread token (PR2)
     psid = models.CharField(max_length=64, blank=True, db_default="")  # messenger: the customer's page-scoped id; personal, blanked
     page_id = models.CharField(max_length=64, blank=True, db_default="")  # messenger: the Page this conversation arrived on; a reply needs the connection to still be that Page
