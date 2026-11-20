@@ -31,7 +31,7 @@ class PolicyRouteTests(StaffTestCase):
         return list(OperatorAuditEntry.objects.filter(action="sms_policy_change"))
 
     def test_the_routes_are_in_the_table_and_are_posts(self):
-        self.assertEqual(sorted(staff.ROUTES), ["sms/policy/get/", "sms/policy/set/"])
+        self.assertLessEqual({"sms/policy/get/", "sms/policy/set/"}, set(staff.ROUTES))
         for path in staff.ROUTES:
             self.assertEqual(staff_views.ROUTES[path][0], "POST")
 

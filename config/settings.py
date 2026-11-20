@@ -112,6 +112,18 @@ HQ_STAFF_ORIGIN = os.environ.get("HQ_STAFF_ORIGIN", "").strip()
 # The SMS gateway. "1" turns on the send function and the admin's SMS lists. Off, no text is
 # queued and the gateway's tables are not read or written.
 SMS_GATEWAY_ENABLED = os.environ.get("SMS_GATEWAY_ENABLED", "").strip() == "1"
+# HQ -> Settings -> SMS Gateway: register, rotate and stop the platform phone. "1" turns on its
+# routes; off, they answer 404. Needs SMS_GATEWAY_ENABLED as well.
+SMS_GATEWAY_MGMT_ENABLED = os.environ.get("SMS_GATEWAY_MGMT_ENABLED", "").strip() == "1"
+# Phones that belong to a Site (a dedicated SMS line). "1" lets a Site's texts use its own phone.
+# Off, every text uses the platform phone. Only defined here for now.
+SMS_SITE_LINES_ENABLED = os.environ.get("SMS_SITE_LINES_ENABLED", "").strip() == "1"
+# The address a phone's app is told to call: an origin only, for example this environment's API
+# host. Empty means "not configured" and the HQ screen says so. There is no default for staging or
+# production in code; local development (DEBUG) falls back to the local server.
+SMS_GATEWAY_PUBLIC_URL = os.environ.get("SMS_GATEWAY_PUBLIC_URL", "").strip().rstrip("/") or (
+    "http://127.0.0.1:8000" if DEBUG else ""
+)
 # /readyz/ "email" fails when this many of the newest emails inside the window failed and none sent.
 READYZ_EMAIL_FAILURES = int(os.environ.get("READYZ_EMAIL_FAILURES", "3"))
 READYZ_EMAIL_WINDOW_MINUTES = int(os.environ.get("READYZ_EMAIL_WINDOW_MINUTES", "30"))

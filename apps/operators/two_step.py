@@ -164,6 +164,15 @@ def verify_second_step(identity_id, code, *, surface):
         return Result(ok=False, locked=locked)
 
 
+def verify_fresh_totp(identity_id, code, *, surface):
+    """Like verify_second_step, but only a 6-digit authenticator code passes. Anything else,
+    a recovery code included, is refused and counts nothing."""
+    text = re.sub(r"\s", "", code) if isinstance(code, str) else ""
+    if not _SIX_DIGITS.fullmatch(text):
+        return Result(ok=False)
+    return verify_second_step(identity_id, text, surface=surface)
+
+
 def send_lockout_notice(identity_id):
     identity = AdminIdentity.objects.filter(pk=identity_id).first()
     if identity is None:

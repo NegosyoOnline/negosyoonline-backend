@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import re
+import secrets
 from dataclasses import asdict, dataclass
 from datetime import datetime, time, timedelta
 
@@ -16,6 +17,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 
 from apps.notifications.models import SmsDevice, SmsMessage, SmsPolicy
 
@@ -299,9 +301,49 @@ def sweep(now, unsent):
 # --- The phone -----------------------------------------------------------------------------
 
 
-def token_hash(token):
-    """What is stored of a phone's token. The token itself is shown once and never kept."""
-    return hashlib.sha256(token.encode()).hexdigest()
+# A phone's token is typed in by hand, so it is short and easy to read: capitals and digits
+# without the look-alikes 0, O, 1, I and L. 31 symbols over 8 places is about 40 bits.
+TOKEN_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+TOKEN_LENGTH = 8
+
+
+def new_token():
+    """A fresh phone token. Both `register` and `rotate` (so the HQ screens and the command)
+    come here."""
+    return "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_LENGTH))
+
+
+def normalise_token(token):
+    """The token as it is hashed. Surrounding spaces are always dropped. A token of the new
+    length is typed by hand, so it is also matched without regard to case; a longer legacy
+    token stays exactly as it was."""
+    token = token.strip()
+    return token.upper() if len(token) == TOKEN_LENGTH else token
+
+
+TOKEN_SALT = "apps.notifications.sms.token"
+
+
+def token_hash(token, secret=None):
+    """What is stored of a phone's token: a keyed hash (Django's salted_hmac over SECRET_KEY, or
+    over `secret`) of the token as normalised. The token itself is shown once and never kept."""
+    return salted_hmac(
+        TOKEN_SALT, normalise_token(token), secret=secret, algorithm="sha256"
+    ).hexdigest()
+
+
+def _legacy_token_hash(token):
+    """The plain SHA-256 that phones registered before the keyed hash were stored with."""
+    return hashlib.sha256(normalise_token(token).encode()).hexdigest()
+
+
+def token_hash_candidates(token):
+    """Every hash a phone holding `token` may be stored under, the current one first: the keyed
+    hash, the keyed hash under each of SECRET_KEY_FALLBACKS, and the legacy plain hash."""
+    keyed = [token_hash(token)] + [
+        token_hash(token, secret=old) for old in settings.SECRET_KEY_FALLBACKS
+    ]
+    return keyed + [_legacy_token_hash(token)]
 
 
 def pick_device():

@@ -68,9 +68,18 @@ def _device(request):
     scheme, _, token = request.headers.get("Authorization", "").partition(" ")
     if scheme != "Bearer" or not token.strip():
         return None
-    return SmsDevice.objects.filter(
-        token_hash=sms.token_hash(token.strip()), is_active=True
+    current = sms.token_hash(token)
+    device = SmsDevice.objects.filter(
+        token_hash__in=sms.token_hash_candidates(token), is_active=True
     ).first()
+    if device is not None and device.token_hash != current:
+        # Stored under the plain hash or an older key: move it to the current keyed hash. The
+        # filter makes this safe against a second poll doing the same, and it touches one column.
+        SmsDevice.objects.filter(pk=device.pk, token_hash=device.token_hash).update(
+            token_hash=current
+        )
+        device.token_hash = current
+    return device
 
 
 def phone_call(view):
