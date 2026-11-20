@@ -19,7 +19,7 @@ jobs:
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY,,}-bunny-pilot:${GITHUB_SHA}"
           docker build --file deploy/bunny/Dockerfile --tag "$image" .
-          docker run --rm -e DJANGO_DEBUG=1 "$image" python manage.py check
+          docker run --rm -e DJANGO_DEBUG=true -e DJANGO_SECRET_KEY=ci-only-bunny-image-smoke-check "$image" python manage.py check
       - name: Publish private pilot image
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
