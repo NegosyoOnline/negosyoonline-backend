@@ -16,10 +16,11 @@ from datetime import datetime, time, timedelta
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
-from apps.notifications.models import SmsDevice, SmsMessage, SmsPolicy
+from apps.notifications.models import SmsDevice, SmsMessage, SmsPolicy, site_column_exists
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +263,7 @@ def refusal(message):
         if site_key:
             _release(site_key)
         return reason
-    if not gateway_online():
+    if not gateway_online(message.site):
         _release(_platform_key())
         if site_key:
             _release(site_key)
@@ -347,14 +348,68 @@ def token_hash_candidates(token):
 
 
 def pick_device():
-    """The phone that sends a text. Today there is one, the system phone: the first phone
-    added that is still active. A second phone is handed nothing."""
-    return SmsDevice.objects.filter(is_active=True).order_by("pk").first()
+    """The platform phone, the system phone: the first active phone that belongs to no Site. A
+    phone with a Site can never become it, so a Site's phone is never handed other texts."""
+    phones = SmsDevice.objects.filter(is_active=True)
+    if site_column_exists():  # before notifications.0005 no phone has a Site
+        phones = phones.filter(site__isnull=True)
+    return phones.order_by("pk").first()
 
 
-def gateway_online():
-    """The phone asked for texts in the last minute."""
-    device = pick_device()
+def site_lines_on():
+    """SMS_SITE_LINES_ENABLED: Site phones carry their Site's texts. Off by default."""
+    return bool(getattr(settings, "SMS_SITE_LINES_ENABLED", False))
+
+
+def site_has_line(site):
+    """Whether this Site is entitled to its own phone. The entitlement model is not approved
+    yet, so this is a stub that answers False for every Site. The Dedicated SMS Line add-on
+    replaces the body of this one function; nothing else decides entitlement."""
+    return False
+
+
+def _lined(site):
+    """The Site's own active phone when its texts go through it, else None."""
+    if site is None or not site_lines_on() or not site_column_exists() or not site_has_line(site):
+        return None
+    return SmsDevice.objects.filter(is_active=True, site=site).first()
+
+
+def line_for(site):
+    """The phone that carries a text of this Site (None: a platform text): the Site's own active
+    phone when the switch is on and the Site is entitled, otherwise the platform phone."""
+    return _lined(site) or pick_device()
+
+
+def claimable(device):
+    """The condition on SmsMessage rows that this phone may take. Used by the waiting query and
+    again in the claim UPDATE. It is the mirror of `line_for`.
+
+    Platform phone: texts of no Site, and texts of Sites that have no line. A Site phone: only
+    its own Site's texts, and nothing while its Site has no line (switch off or not entitled)."""
+    if device.site_id is not None:
+        if site_lines_on() and site_has_line(device.site):
+            return Q(site_id=device.site_id)
+        return Q(pk__in=[])
+    if not site_lines_on() or not site_column_exists():
+        return Q()
+    sites = SmsDevice.objects.filter(is_active=True, site__isnull=False).select_related("site")
+    lined = [phone.site_id for phone in sites if site_has_line(phone.site)]
+    if not lined:
+        return Q()
+    return Q(site__isnull=True) | ~Q(site_id__in=lined)
+
+
+def may_be_handed_texts(device):
+    """True for the platform phone, and for a Site phone whose Site has a line now."""
+    if device.site_id is None:
+        return device == pick_device()
+    return _lined(device.site) == device
+
+
+def gateway_online(site=None):
+    """The phone that would carry a text of this Site asked for texts in the last minute."""
+    device = line_for(site)
     if device is None or device.last_contact_at is None:
         return False
     return device.last_contact_at >= timezone.now() - ONLINE_WITHIN

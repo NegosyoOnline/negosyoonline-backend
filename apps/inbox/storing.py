@@ -29,8 +29,8 @@ def owner_of(device):
 
 
 def wanted(device):
-    """True when a text from this phone is to be stored."""
-    return inbox_on() and device.forwards_incoming
+    """True when a text from this phone is to be stored. Never for a Site's phone."""
+    return device.site_id is None and inbox_on() and device.forwards_incoming
 
 
 def _text(value, longest=None):
