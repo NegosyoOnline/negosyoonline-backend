@@ -614,7 +614,10 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31_536_000
 
 # Short commit of the running release, used by /healthz/ to prove which build is live.
-RELEASE_COMMIT = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown")[:12]
+# APP_COMMIT_SHA (Bunny image), then RAILWAY_GIT_COMMIT_SHA, then "unknown": apps/common/release.py.
+from apps.common.release import release_commit  # noqa: E402
+
+RELEASE_COMMIT = release_commit(os.environ)
 # Railway names the environment itself (no variable to set). Only the staff test-data commands
 # that must never run on production read it (pack_delete_test_order); empty off Railway.
 RAILWAY_ENVIRONMENT_NAME = os.environ.get("RAILWAY_ENVIRONMENT_NAME", "").strip().lower()

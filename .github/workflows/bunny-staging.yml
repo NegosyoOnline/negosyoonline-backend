@@ -1,0 +1,194 @@
+name: Bunny staging release
+
+# Every push to main: required checks for that exact commit -> private images tagged with the full
+# commit SHA -> (environment approval) update ONLY the api, worker and beat containers of the Bunny
+# app -> verify the commit and /readyz/ -> roll the three containers back if verification fails.
+# A red run here turns the main commit red. Manual dispatch with `sha` redeploys that commit's
+# already-built images (rollback or re-run): no tests, no build, no migration rollback.
+# Runbook: docs/runbooks/bunny-staging.md
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full 40-character commit SHA on main whose images are redeployed (rollback). Empty = this run's commit (checks, build, deploy)."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# One release at a time; a running deploy is never cancelled mid-way. Only the newest queued run waits.
+concurrency:
+  group: bunny-staging-release
+  cancel-in-progress: false
+
+env:
+  IMAGE_BASE: ghcr.io/${{ github.repository }}-staging
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.p.outputs.sha }}
+      mode: ${{ steps.p.outputs.mode }}
+      image_repo: ${{ steps.p.outputs.image_repo }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: p
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          sha="${INPUT_SHA:-$GITHUB_SHA}"
+          mode=build
+          if [ "$sha" != "$GITHUB_SHA" ]; then mode=redeploy; fi
+          printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$' || { echo "sha must be 40 lowercase hex characters" >&2; exit 1; }
+          if [ "$mode" = redeploy ]; then
+            git cat-file -e "$sha^{commit}" && git merge-base --is-ancestor "$sha" "origin/main" \
+              || { echo "$sha is not a commit on main" >&2; exit 1; }
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "image_repo=${IMAGE_BASE,,}" >> "$GITHUB_OUTPUT"
+          echo "Release $sha ($mode)" >> "$GITHUB_STEP_SUMMARY"
+
+  checks:
+    name: checks
+    needs: plan
+    if: needs.plan.outputs.mode == 'build'
+    # The same required checks as pull requests ("Django checks and tests", "PostgreSQL and Redis
+    # configuration") for this exact commit, reused from ci.yml.
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  images:
+    name: Build and publish images
+    needs: [plan, checks]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.checks.result == 'success' || needs.checks.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      api: ${{ steps.d.outputs.api }}
+      worker: ${{ steps.d.outputs.worker }}
+      beat: ${{ steps.d.outputs.beat }}
+    env:
+      SHA: ${{ needs.plan.outputs.sha }}
+      REPO: ${{ needs.plan.outputs.image_repo }}
+      MODE: ${{ needs.plan.outputs.mode }}
+    steps:
+      - name: Check out source
+        if: env.MODE == 'build'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Log in to GHCR
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build, smoke-check and push (tag = full SHA + role)
+        if: env.MODE == 'build'
+        run: |
+          set -euo pipefail
+          for role in api worker beat; do
+            image="$REPO:$SHA-$role"
+            docker build --file deploy/bunny/Dockerfile --target "$role" \
+              --build-arg "APP_COMMIT_SHA=$SHA" --tag "$image" .
+            docker run --rm --entrypoint python \
+              -e DJANGO_DEBUG=true -e DJANGO_SECRET_KEY=ci-only-bunny-image-smoke-check \
+              "$image" manage.py check
+            docker push "$image"
+          done
+      - name: Record image digests
+        id: d
+        run: |
+          set -euo pipefail
+          for role in api worker beat; do
+            digest="$(docker buildx imagetools inspect "$REPO:$SHA-$role" --format '{{.Manifest.Digest}}')"
+            printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' || { echo "no digest for $role image (does it exist?)" >&2; exit 1; }
+            echo "$role=$digest" >> "$GITHUB_OUTPUT"
+            echo "- $role: \`$REPO:$SHA-$role@$digest\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  deploy:
+    name: Deploy, migrate, verify
+    needs: [plan, images]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # Required reviewers (set by the owner on this environment) approve every release here.
+    environment: bunny-staging
+    permissions:
+      contents: read
+    env:
+      SHA: ${{ needs.plan.outputs.sha }}
+      IMAGE_REPO: ${{ needs.plan.outputs.image_repo }}
+      BUNNY_APP_ID: ${{ vars.BUNNY_APP_ID }}
+      BUNNY_CONTAINER_API: ${{ vars.BUNNY_CONTAINER_API }}
+      BUNNY_CONTAINER_WORKER: ${{ vars.BUNNY_CONTAINER_WORKER }}
+      BUNNY_CONTAINER_BEAT: ${{ vars.BUNNY_CONTAINER_BEAT }}
+      BUNNY_STAGING_URL: ${{ vars.BUNNY_STAGING_URL }}
+      BUNNY_HQ_URL: ${{ vars.BUNNY_HQ_URL }}
+    steps:
+      - name: Check out source (scripts)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Require configuration
+        env:
+          KEY_PRESENT: ${{ secrets.BUNNY_API_KEY != '' }}
+        run: |
+          [ "$KEY_PRESENT" = "true" ] || { echo "secret BUNNY_API_KEY is not set on the bunny-staging environment" >&2; exit 1; }
+          for v in BUNNY_APP_ID BUNNY_CONTAINER_API BUNNY_CONTAINER_WORKER BUNNY_CONTAINER_BEAT BUNNY_STAGING_URL; do
+            [ -n "${!v}" ] || { echo "variable $v is not set on the bunny-staging environment" >&2; exit 1; }
+          done
+      - name: Record the images running now (rollback point)
+        id: snap
+        env:
+          BUNNY_API_KEY: ${{ secrets.BUNNY_API_KEY }}
+        run: |
+          deploy/bunny/ci/bunny-deploy.sh snapshot "$RUNNER_TEMP/previous.json"
+          cp "$RUNNER_TEMP/previous.json" previous-images.json
+          {
+            echo "### Previous images (rollback point)"
+            jq -r '.[] | "- \(.role): `\(.imageName):\(.imageTag)`"' previous-images.json
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save rollback point
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bunny-staging-previous-images
+          path: previous-images.json
+          retention-days: 90
+      - name: Update the api, worker and beat containers
+        env:
+          BUNNY_API_KEY: ${{ secrets.BUNNY_API_KEY }}
+          DIG_API: ${{ needs.images.outputs.api }}
+          DIG_WORKER: ${{ needs.images.outputs.worker }}
+          DIG_BEAT: ${{ needs.images.outputs.beat }}
+        # The api container migrates on start (advisory lock); worker and beat wait for a migrated schema.
+        run: deploy/bunny/ci/bunny-deploy.sh apply "$SHA" "$DIG_API" "$DIG_WORKER" "$DIG_BEAT"
+      - name: Verify the API host (commit, /readyz/ including beat)
+        run: deploy/bunny/ci/verify-release.sh "$BUNNY_STAGING_URL" "$SHA" 900
+      - name: Verify the HQ API host
+        if: env.BUNNY_HQ_URL != ''
+        run: deploy/bunny/ci/verify-release.sh "$BUNNY_HQ_URL" "$SHA" 300
+      - name: Roll back the three containers to the previous images
+        if: ${{ failure() && steps.snap.outcome == 'success' }}
+        env:
+          BUNNY_API_KEY: ${{ secrets.BUNNY_API_KEY }}
+        # Images only. Migrations are never rolled back: they must be backward-compatible.
+        run: |
+          deploy/bunny/ci/bunny-deploy.sh restore "$RUNNER_TEMP/previous.json"
+          echo "### ROLLED BACK to the previous images; the release failed." >> "$GITHUB_STEP_SUMMARY"
+          prev="$(jq -r '.[] | select(.role=="api") | .imageTag' "$RUNNER_TEMP/previous.json")"
+          deploy/bunny/ci/verify-release.sh "$BUNNY_STAGING_URL" "${prev%-api}" 600 \
+            || echo "rollback did not verify; check the Bunny dashboard" >&2
