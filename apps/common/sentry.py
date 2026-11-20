@@ -58,6 +58,9 @@ def before_send(event, hint):
     return event
 
 
+from apps.common.release import release_commit  # noqa: E402
+
+
 def init(dsn=None):
     """Start the SDK when a DSN is set. Returns whether it started."""
     dsn = (dsn if dsn is not None else os.environ.get("SENTRY_DSN", "")).strip()
@@ -73,7 +76,7 @@ def init(dsn=None):
         include_local_variables=False,
         traces_sample_rate=0,
         before_send=before_send,
-        release=os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown")[:12],
+        release=release_commit(os.environ),
         environment=os.environ.get("SENTRY_ENVIRONMENT", "") or None,
         integrations=[DjangoIntegration(), CeleryIntegration()],
     )
