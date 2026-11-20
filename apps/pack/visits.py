@@ -128,6 +128,30 @@ def link_order(site, ref, order):
         order=order, last_activity_at=timezone.now()))
 
 
+def valid_ref(ref):
+    return isinstance(ref, str) and bool(REF_RE.match(ref))
+
+
+def note_chat_contact(site, ref, *, email="", mobile=""):
+    """A website chat started from this visit (ClickUp z8uq9mh9ev): the email or mobile the visitor typed
+    in the chat is written onto the visit's own contact fields, only where they are empty. Never raises,
+    never matches by name, and a malformed, unknown or other-site ref does nothing. True when the ref
+    names a visit of this site (the chat then has no prospect row of its own)."""
+    if not valid_ref(ref):
+        return False
+    visit = PackVisit.objects.filter(site=site, visitor_ref=ref).first()
+    if visit is None:
+        return False
+    changes = {}
+    if email and not visit.contact_email and EMAIL_RE.match(email):
+        changes["contact_email"] = email
+    if mobile and not visit.contact_mobile and MOBILE_RE.match(mobile):
+        changes["contact_mobile"] = mobile
+    if changes:
+        PackVisit.objects.filter(pk=visit.pk).update(contact_saved_at=timezone.now(), **changes)
+    return True
+
+
 def blank_contacts(rows):
     """Blank the typed contact of these visits."""
     return rows.exclude(contact_name="", contact_mobile="", contact_email="").update(

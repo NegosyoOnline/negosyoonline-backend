@@ -188,6 +188,21 @@ def _fill_contact(conversation, name, email):
         conversation.save(update_fields=changed)
 
 
+def _link_pack_visit(site, conversation, ref):
+    """Tie the conversation to the same browser's Membership Pack visit on this site and copy the typed
+    email or mobile onto that visit (only where empty). A bad, unknown or other-site ref is ignored."""
+    if conversation is None:
+        return
+    from apps.pack import visits  # the pack app reads inquiries too; imported here to keep one direction at load
+
+    ref = ref if visits.valid_ref(ref) else conversation.pack_visitor_ref
+    if not ref:
+        return
+    if visits.note_chat_contact(site, ref, email=conversation.contact_email, mobile=conversation.contact_mobile):
+        if conversation.pack_visitor_ref != ref:
+            InquiryConversation.objects.filter(pk=conversation.pk).update(pack_visitor_ref=ref)
+
+
 def _store(site, conversation, secret_hash, name, email, text, now):
     """Add the visitor's message, starting a conversation when there is none open. Returns the
     conversation. Two first messages at once end up in one conversation (the database allows
@@ -220,7 +235,7 @@ def _store(site, conversation, secret_hash, name, email, text, now):
     return conversation
 
 
-def send(site, *, visitor_ip, visitor_secret, name, email, text, website, opened_at, after_id):
+def send(site, *, visitor_ip, visitor_secret, name, email, text, website, opened_at, after_id, pack_visitor_ref=""):
     """One visitor message. Returns the response dict: {state, visitor_secret, messages, notice}.
     `visitor_secret` is filled only on the call that made it."""
     if website:  # the hidden field people never see: answered as sent, nothing stored or counted
@@ -257,6 +272,7 @@ def send(site, *, visitor_ip, visitor_secret, name, email, text, website, opened
             "messages": _owner_messages(conversation, after_id), "notice": "",
         }
     saved = _store(site, conversation, secret_hash, name, email, text, now)
+    _link_pack_visit(site, saved, pack_visitor_ref)
     if issued:  # the same text again, now with the new secret, is a duplicate of this one
         cache.add(_dup_key(site, secret_hash, text), 1, DUPLICATE_WINDOW)
     return {
@@ -264,7 +280,7 @@ def send(site, *, visitor_ip, visitor_secret, name, email, text, website, opened
     }
 
 
-def save_contact(site, *, visitor_ip, visitor_secret, contact):
+def save_contact(site, *, visitor_ip, visitor_secret, contact, pack_visitor_ref=""):
     """Add an email or a Philippine mobile number to the visitor's own conversation. Returns
     {saved, kind}. Only an empty field is filled, never overwritten. A secret that matches no
     conversation on this site gets the same answer as a match, with nothing stored. {saved: False,
@@ -282,6 +298,7 @@ def save_contact(site, *, visitor_ip, visitor_secret, contact):
         if not getattr(conversation, field):
             setattr(conversation, field, value)
             conversation.save(update_fields=[field])
+        _link_pack_visit(site, conversation, pack_visitor_ref)
     return {"saved": True, "kind": kind}
 
 

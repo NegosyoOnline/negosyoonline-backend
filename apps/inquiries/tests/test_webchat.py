@@ -469,3 +469,54 @@ class SwitchTests(ChatTestCase):
         with mock.patch("apps.inquiries.api_storefront.stored_tables_exist", return_value=False):
             for response in self.walk():
                 self.assertEqual(response.status_code, 404)
+
+
+class ChatPackVisitLinkTests(ChatTestCase):
+    """ClickUp z8uq9mh9ev: a chat from a browser that has a Membership Pack visit on the same site is
+    that visitor's one prospect row, showing the chat email or mobile."""
+
+    REF = "visitrefvisitrefvisit"
+
+    def visit(self, site=None, ref=None):
+        from apps.pack.models import PackVisit
+        return PackVisit.objects.create(site=site or self.site, visitor_ref=ref or self.REF)
+
+    def rows(self):
+        from apps.pack import prospects
+        return prospects.prospects(self.site)["results"]
+
+    def test_a_chat_from_a_visited_browser_is_one_row_with_the_chat_email_and_mobile(self):
+        visit = self.visit()
+        body = self.first(email="Maria@Buyer.test", pack_visitor_ref=self.REF, name="Someone Else")
+        self.assertEqual(self.contact(body["visitor_secret"], "0917 123 4567", pack_visitor_ref=self.REF).status_code, 200)
+        conversation = InquiryConversation.objects.get()
+        self.assertEqual(conversation.pack_visitor_ref, self.REF)
+        rows = self.rows()
+        self.assertEqual([r["kind"] for r in rows], ["visit"])
+        self.assertEqual((rows[0]["email"], rows[0]["mobile"]), ("maria@buyer.test", "+639171234567"))
+        visit.refresh_from_db()
+        self.assertEqual(visit.contact_name, "")  # never matched or filled by name
+
+    def test_a_visit_contact_already_there_is_never_overwritten(self):
+        from apps.pack.models import PackVisit
+        visit = self.visit()
+        PackVisit.objects.filter(pk=visit.pk).update(contact_email="typed@buyer.test")
+        self.first(email="chat@buyer.test", pack_visitor_ref=self.REF)
+        visit.refresh_from_db()
+        self.assertEqual(visit.contact_email, "typed@buyer.test")
+
+    def test_unknown_malformed_and_other_site_refs_are_ignored_and_the_chat_keeps_its_own_row(self):
+        self.visit(site=self.ben)
+        for ref in (self.REF, "bad ref!", "x" * 80):
+            with self.subTest(ref=ref):
+                InquiryConversation.objects.all().delete()
+                response = self.send(email="a@buyer.test", pack_visitor_ref=ref)
+                self.assertEqual(response.status_code, 200, response.content)
+                self.assertEqual(InquiryConversation.objects.get().pack_visitor_ref, "")
+                self.assertEqual([r["kind"] for r in self.rows()], ["inquiry"])
+                cache.clear()
+
+    def test_without_a_ref_it_is_its_own_row_as_before(self):
+        self.visit()
+        self.first(email="a@buyer.test")
+        self.assertEqual(sorted(r["kind"] for r in self.rows()), ["inquiry", "visit"])

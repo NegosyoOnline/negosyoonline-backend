@@ -9,8 +9,10 @@ Any other period answers 422 `invalid_period`.
     GET /v1/sites/{site_id}/pack/journey/prospects/?stage=&q=&page=   (ClickUp z8uq9mfw14)
 
 The people who placed an order, visited the Membership Pack page or wrote to the site, newest activity
-first, 25 to a page: a name, the order number, the source, the furthest stage (new_lead, landing_page,
-start_watching, done_watching, added_to_cart, checked_out, account_setup, activated), the video progress (null
+first, 25 to a page: a name, the order number, the source, the furthest stage (landing_page,
+start_watching, done_watching, checked_out, purchased, activated: Checked Out is an order with no
+payment details yet, Purchased a bank order with a proof or a paid Xendit order, Activated a finished
+onboarding; an unmerged message is landing_page), the video progress (null
 when unknown: an inquiry, or an order with no linked visit)
 and the last activity. Each row also has a mobile and an email, in full, where one is already stored
 (Coach Ed, 2026-11-16, D2: an order the buyer's, a visit the contact captured, a stored message its
