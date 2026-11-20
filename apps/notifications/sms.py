@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import re
+import secrets
 from dataclasses import asdict, dataclass
 from datetime import datetime, time, timedelta
 
@@ -297,6 +298,26 @@ def sweep(now, unsent):
 
 
 # --- The phone -----------------------------------------------------------------------------
+
+
+# A phone's token is typed in by hand, so it is short and easy to read: capitals and digits
+# without the look-alikes 0, O, 1, I and L. 31 symbols over 8 places is about 40 bits.
+TOKEN_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+TOKEN_LENGTH = 8
+
+
+def new_token():
+    """A fresh phone token. Both `register` and `rotate` (so the HQ screens and the command)
+    come here."""
+    return "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_LENGTH))
+
+
+def normalise_token(token):
+    """The token as it is hashed. Surrounding spaces are always dropped. A token of the new
+    length is typed by hand, so it is also matched without regard to case; a longer legacy
+    token stays exactly as it was."""
+    token = token.strip()
+    return token.upper() if len(token) == TOKEN_LENGTH else token
 
 
 def token_hash(token):

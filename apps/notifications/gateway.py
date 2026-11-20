@@ -69,7 +69,7 @@ def _device(request):
     if scheme != "Bearer" or not token.strip():
         return None
     return SmsDevice.objects.filter(
-        token_hash=sms.token_hash(token.strip()), is_active=True
+        token_hash=sms.token_hash(sms.normalise_token(token)), is_active=True
     ).first()
 
 

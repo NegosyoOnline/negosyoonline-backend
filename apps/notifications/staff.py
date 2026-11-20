@@ -141,7 +141,16 @@ def device_get(body, operator):
 @_device_route
 def device_register(body, operator):
     _confirmed(body)
-    device, token = _call(devices.register, operator, body.get("name"), via="hq")
+    # platform_phone() is an enabled phone when there is one, so a disabled one here means the
+    # new phone replaces it. That needs a fresh code, as rotate and disable do. An enabled phone
+    # still ends in phone_exists (409) from register.
+    old = devices.platform_phone()
+    replaces = old if old is not None and not old.is_active else None
+    if replaces is not None:
+        _fresh_code(body, operator)
+    device, token = _call(
+        devices.register, operator, body.get("name"), via="hq", replaces=replaces
+    )
     return _answer(device, token)
 
 

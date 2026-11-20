@@ -56,7 +56,7 @@ class SmsDeviceCommandTests(SmsTestCase):
 
         device = SmsDevice.objects.get()
         self.assertEqual(output.count(token), 1)
-        self.assertGreaterEqual(len(token), 40)
+        self.assertEqual(len(token), sms.TOKEN_LENGTH)
         self.assertEqual((device.name, device.token_hash), ("system", sms.token_hash(token)))
         self.assertTrue(device.is_active)
         self.assertFalse(device.forwards_incoming)

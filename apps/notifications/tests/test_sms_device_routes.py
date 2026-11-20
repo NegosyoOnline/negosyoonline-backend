@@ -123,6 +123,76 @@ class SmsDeviceRouteTests(StaffTestCase):
         self.assertNotIn(device.token_hash, later.content.decode())
         self.assertEqual(poll(token), 200)
 
+    def test_7_register_and_rotate_give_a_short_token_of_easy_characters(self):
+        self.signed_in()
+        first = self.register()
+        second = self.dev("rotate/", {"name": "system", "confirm": True, "code": self.fresh()}).json()["token"]
+        for token in (first, second):
+            self.assertEqual(len(token), sms.TOKEN_LENGTH)
+            self.assertEqual(len(token), 8)
+            self.assertLessEqual(set(token), set(sms.TOKEN_ALPHABET))
+        self.assertEqual(poll(second.lower()), 200)
+        self.assertEqual(poll(f"  {second}  "), 200)
+
+    def test_7_generated_tokens_use_only_the_alphabet_and_no_look_alikes(self):
+        self.assertEqual(sms.TOKEN_LENGTH, 8)
+        self.assertFalse(set("0O1IL") & set(sms.TOKEN_ALPHABET))
+        seen = set()
+        for _ in range(2000):
+            token = sms.new_token()
+            self.assertEqual(len(token), 8)
+            self.assertRegex(token, r"^[A-HJKMNP-Z2-9]{8}$")
+            self.assertFalse(set("0O1IL") & set(token))
+            seen.add(token)
+        self.assertGreater(len(seen), 1990)
+
+    def _disabled(self):
+        self.signed_in()
+        old = self.register()
+        self.dev("disable/", {"name": "system", "confirm": True, "code": self.fresh()})
+        return old
+
+    def test_10_a_disabled_phone_is_replaced_with_a_fresh_code(self):
+        old = self._disabled()
+        self.assertEqual(self.dev("get/").json()["device"]["connection"], "disabled")
+        body = {"name": "system-2", "confirm": True}
+        self.assertError(self.dev("register/", body), 403, "reauth_failed")
+        self.assertError(self.dev("register/", {**body, "code": "000000"}), 403, "reauth_failed")
+        self.assertEqual(SmsDevice.objects.count(), 1)
+
+        response = self.dev("register/", {**body, "code": self.fresh()})
+        self.assertEqual(response.status_code, 200, response.content)
+        token = response.json()["token"]
+        self.assertEqual(len(token), 8)
+        self.assertEqual(response.json()["device"]["name"], "system-2")
+        self.assertEqual(SmsDevice.objects.count(), 2)
+        self.assertFalse(SmsDevice.objects.get(name="system").is_active)
+        self.assertTrue(SmsDevice.objects.get(name="system-2").is_active)
+        self.assertEqual(self.dev("get/").json()["device"]["name"], "system-2")
+        self.assertEqual(poll(old), 401)
+        self.assertEqual(poll(token), 200)
+        entry = self.audit("sms_device_replace")[0]
+        new = SmsDevice.objects.get(name="system-2")
+        old_row = SmsDevice.objects.get(name="system")
+        self.assertEqual(entry.detail, {
+            "device": new.pk, "name": "system-2", "via": "hq",
+            "replaces": old_row.pk, "replaces_name": "system",
+        })
+        self.assertNotIn(token, str(entry.detail) + str(entry.personal))
+
+    def test_10_replacing_with_the_old_name_is_name_taken(self):
+        self._disabled()
+        response = self.dev("register/", {"name": "system", "confirm": True, "code": self.fresh()})
+        self.assertError(response, 409, "name_taken")
+
+    def test_10_an_enabled_phone_still_answers_phone_exists(self):
+        self.signed_in()
+        self.register()
+        self.assertError(
+            self.dev("register/", {"name": "other", "confirm": True, "code": self.fresh()}),
+            409, "phone_exists",
+        )
+
     def test_register_is_409_while_a_platform_phone_exists(self):
         self.signed_in()
         self.register()
@@ -271,8 +341,9 @@ class SmsDeviceRouteTests(StaffTestCase):
         again = self.dev("disable/", {"name": "system", "confirm": True, "code": self.fresh()})
         self.assertEqual(again.status_code, 200)
         self.assertEqual(len(self.audit("sms_device_disable")), 1)
-        # A new phone can then be registered.
-        self.register("system-2")
+        # A new phone can then be registered, with a fresh code.
+        replaced = self.dev("register/", {"name": "system-2", "confirm": True, "code": self.fresh()})
+        self.assertEqual(replaced.status_code, 200)
         self.assertEqual(self.dev("get/").json()["device"]["name"], "system-2")
 
     def test_the_wrapper_refuses_a_recovery_code_without_counting_it(self):

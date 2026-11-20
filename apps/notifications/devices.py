@@ -7,7 +7,6 @@ kept (sms.token_hash). None of these functions touches `forwards_incoming`.
 """
 import logging
 import re
-import secrets
 from datetime import timedelta
 
 from django.db import transaction
@@ -50,10 +49,10 @@ def platform_phone():
     return sms.pick_device() or SmsDevice.objects.order_by("-pk").first()
 
 
-def _record(actor, action, device, via):
+def _record(actor, action, device, via, **extra):
     audit.record(
         actor, action, target_type=TARGET, target_id=device.pk,
-        detail={"device": device.pk, "name": device.name, "via": via},
+        detail={"device": device.pk, "name": device.name, "via": via, **extra},
     )
     logger.error("sms-device-change: %s on phone %s by operator %s", action, device.pk, actor.pk)
 
@@ -65,18 +64,25 @@ def _locked(name, platform_only):
     return device
 
 
-def register(actor, name, *, via="hq", single=True):
+def register(actor, name, *, via="hq", single=True, replaces=None):
     """Add a phone. Returns (device, token); the token is shown once. With `single` (the
-    screens) it is refused while an active platform phone exists."""
+    screens) it is refused while an active platform phone exists. `replaces` is a disabled
+    phone that stays as history; the audit row names it."""
     name = clean_name(name)
     with transaction.atomic():
         if single and sms.pick_device() is not None:
             raise DeviceError("phone_exists", "A phone is already registered.")
         if SmsDevice.objects.filter(name=name).exists():
             raise DeviceError("name_taken", "A phone with that name already exists.")
-        token = secrets.token_urlsafe(32)
+        token = sms.new_token()
         device = SmsDevice.objects.create(name=name, token_hash=sms.token_hash(token))
-        _record(actor, "sms_device_add", device, via)
+        if replaces is None:
+            _record(actor, "sms_device_add", device, via)
+        else:
+            _record(
+                actor, "sms_device_replace", device, via,
+                replaces=replaces.pk, replaces_name=replaces.name,
+            )
     return device, token
 
 
@@ -85,7 +91,7 @@ def rotate(actor, name, *, via="hq", platform_only=True):
     phone stays disabled."""
     with transaction.atomic():
         device = _locked(clean_name(name), platform_only)
-        token = secrets.token_urlsafe(32)
+        token = sms.new_token()
         device.token_hash = sms.token_hash(token)
         device.rotated_at = timezone.now()
         device.save(update_fields=["token_hash", "rotated_at"])

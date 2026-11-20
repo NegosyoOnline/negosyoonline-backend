@@ -90,6 +90,25 @@ class GatewayIdentityTests(GatewayCase):
         )
         self.assertEqual(response.status_code, 401)
 
+    def test_2_an_eight_character_token_ignores_case_and_surrounding_spaces(self):
+        make_phone("typed", "K7M2QX9R")
+        for sent in ("K7M2QX9R", "k7m2qx9r", "  k7m2qx9r  ", "K7m2qX9r"):
+            with self.subTest(sent=sent):
+                self.assertEqual(self.call("poll", token=sent).status_code, 200)
+
+    def test_2_a_long_legacy_token_stays_case_sensitive_and_still_works(self):
+        long_token = "Ab" * 22
+        make_phone("legacy", long_token)
+        self.assertEqual(self.call("poll", token=long_token).status_code, 200)
+        self.assertEqual(self.call("poll", token=long_token.lower()).status_code, 401)
+        self.assertEqual(self.call("poll", token=f" {long_token} ").status_code, 200)
+
+    def test_2_a_wrong_eight_character_token_counts_toward_the_limit(self):
+        make_phone("typed", "K7M2QX9R")
+        for _ in range(gateway.FAILED_TRIES):
+            self.assertEqual(self.call("poll", token="K7M2QX9S").status_code, 401)
+        self.assertEqual(self.call("poll", token="K7M2QX9S").status_code, 429)
+
     def test_2_failed_tries_are_limited_per_ip(self):
         for _ in range(gateway.FAILED_TRIES):
             self.assertEqual(self.call("poll", token="wrong").status_code, 401)

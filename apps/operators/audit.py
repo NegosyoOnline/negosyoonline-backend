@@ -22,6 +22,7 @@ ACTIONS = {
     "sms_device_add": KEPT,
     "sms_device_rotate": KEPT,
     "sms_device_disable": KEPT,
+    "sms_device_replace": KEPT,
     "sms_device_incoming": KEPT,
     # A refused fresh code on the HQ phone screens. Counts only: never a code.
     "sms_device_reauth_failed": KEPT,
