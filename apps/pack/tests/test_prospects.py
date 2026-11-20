@@ -10,7 +10,7 @@ from apps.inquiries.models import InquiryConversation
 from apps.members.models import Member, MemberSession
 from apps.pack import constants as C
 from apps.pack import prospects
-from apps.pack.models import PackOrder, PackProofSubmission, PackVisit, SanteRegistration
+from apps.pack.models import CheckoutToken, PackOrder, PackProofSubmission, PackVisit, SanteRegistration
 from apps.pack.tests.owner_base import OwnerTestCase, make_order
 from apps.sites.models import Site
 
@@ -45,7 +45,8 @@ class ProspectTests(OwnerTestCase):
     def bare_order(self, number="SMP90001"):
         """An order with no proof: make_order always files one, and proofs are append-only."""
         member = Member.objects.create(
-            site=self.site, full_name="Bare Buyer", mobile="+639170000099", mobile_state="verified")
+            site=self.site, full_name="Bare Buyer", mobile=f"+6391700{number[-5:]}", mobile_state="verified",
+            email=f"bare{number.lower()}@buyer.test")
         return PackOrder.objects.create(
             site=self.site, member=member, order_number=number, price_centavos=C.PRICE_CENTAVOS,
             buyer_name="Bare Buyer", payment_status=C.PENDING_REVIEW, idempotency_key=f"bare-{number}")
@@ -56,32 +57,39 @@ class ProspectTests(OwnerTestCase):
         return order
 
     def test_each_stage_is_the_furthest_step(self):
-        placed = self.bare_order()
-        proofed, _ = make_order(self.site)
+        placed = self.bare_order()  # an order, no payment details yet
+        proofed, _ = make_order(self.site)  # bank order with a proof (any review outcome)
+        rejected, _ = make_order(self.site, status=C.REJECTED)
         verified = self.verified_order()
         reg = self.verified_order()
         SanteRegistration.objects.create(site=self.site, member=reg.member, pack_order=reg, status="ready_to_register")
         dash = self.verified_order()
         SanteRegistration.objects.create(site=self.site, member=dash.member, pack_order=dash, status="registered")
         session(self.site, dash.member)
-        # A registration row and a sign-in before the payment is approved are not steps.
-        early, _ = make_order(self.site)
-        SanteRegistration.objects.create(
-            site=self.site, member=early.member, pack_order=early, status="awaiting_buyer_details")
+        # A sign-in before any payment details is not a step.
+        early = self.bare_order("SMP90002")
         session(self.site, early.member)
 
-        self.assertEqual(self.by_number(placed)["stage"], "checked_out")  # an order, no proof yet
-        self.assertEqual(self.by_number(proofed)["stage"], "checked_out")
+        self.assertEqual(self.by_number(placed)["stage"], "checked_out")
+        self.assertEqual(self.by_number(early)["stage"], "checked_out")
+        self.assertEqual(self.by_number(proofed)["stage"], "purchased")
+        self.assertEqual(self.by_number(rejected)["stage"], "purchased")
         row = self.by_number(verified)
-        self.assertEqual((row["stage"], row["registration_status"]), ("account_setup", None))
+        self.assertEqual((row["stage"], row["registration_status"]), ("purchased", None))
         row = self.by_number(reg)
-        self.assertEqual((row["stage"], row["registration_status"]), ("account_setup", "ready_to_register"))
+        self.assertEqual((row["stage"], row["registration_status"]), ("purchased", "ready_to_register"))
         row = self.by_number(dash)
         self.assertEqual((row["stage"], row["registration_status"]), ("activated", "registered"))
-        self.assertEqual(self.by_number(early)["stage"], "checked_out")
         counts = self.get(self.path()).json()["stage_counts"]
-        self.assertEqual(counts, {"all": 6, "new_lead": 0, "landing_page": 0, "start_watching": 0, "done_watching": 0,
-                                  "added_to_cart": 0, "checked_out": 3, "account_setup": 2, "activated": 1})
+        self.assertEqual(counts, {"all": 7, "landing_page": 0, "start_watching": 0, "done_watching": 0,
+                                  "checked_out": 2, "purchased": 4, "activated": 1})
+
+    def test_the_checkout_token_marks_activated_when_no_session_row_is_there(self):
+        order = self.verified_order()
+        CheckoutToken.objects.create(
+            site=self.site, token_hash="t" * 64, expires_at=timezone.now() + timedelta(days=1),
+            order_ref=order.pk, session_issued_at=timezone.now())
+        self.assertEqual(self.by_number(order)["stage"], "activated")
 
     def test_last_activity_is_the_latest_event(self):
         # The newest of placed, proof, approval, registration change and sign-in.
@@ -112,7 +120,7 @@ class ProspectTests(OwnerTestCase):
         self.assertEqual([(r["name"], r["source"]) for r in rows], [
             ("Chat Person", "webchat"), ("Mail Person", "email"), ("", "webchat")])
         for r in rows:
-            self.assertEqual((r["stage"], r["order_id"], r["order_number"]), ("new_lead", None, None))
+            self.assertEqual((r["stage"], r["order_id"], r["order_number"]), ("landing_page", None, None))
 
     def test_webchat_email_and_messenger_inquiries_are_listed_newest_first(self):
         t = timezone.now() - timedelta(days=1)
@@ -124,7 +132,7 @@ class ProspectTests(OwnerTestCase):
         rows = [r for r in response.json()["results"] if r["kind"] == "inquiry"]
         self.assertEqual([(r["name"], r["source"]) for r in rows], [
             ("Chat Person", "webchat"), ("Mail Person", "email"), ("Messenger Person", "messenger")])
-        self.assertEqual(rows[2]["stage"], "new_lead")
+        self.assertEqual(rows[2]["stage"], "landing_page")
 
     def test_inquiry_provider_absent_from_channel_keys_is_skipped(self):
         t = timezone.now() - timedelta(days=1)
@@ -143,7 +151,7 @@ class ProspectTests(OwnerTestCase):
         rows = self.rows()
         self.assertEqual(len(rows), 2)
         self.assertEqual(sorted(r["kind"] for r in rows), ["inquiry", "order"])
-        self.assertEqual(self.get(self.path()).json()["stage_counts"]["checked_out"], 1)
+        self.assertEqual(self.get(self.path()).json()["stage_counts"]["purchased"], 1)
 
     def test_search_and_stage_filter(self):
         a, _ = make_order(self.site)
@@ -153,9 +161,9 @@ class ProspectTests(OwnerTestCase):
         self.assertEqual([r["name"] for r in self.rows("?q=dela")], ["Juan Dela Cruz"])
         self.assertEqual([r["order_number"] for r in self.rows(f"?q={a.order_number.lower()}")], [a.order_number])
         self.assertEqual(sorted(r["name"] for r in self.rows("?q=juan")), ["Juan Dela Cruz", "Juana Reyes"])
-        self.assertEqual([r["name"] for r in self.rows("?stage=new_lead")], ["Juana Reyes"])
-        self.assertEqual([r["order_number"] for r in self.rows("?stage=account_setup")], [b.order_number])
-        body = self.get(self.path("?stage=new_lead&q=zzz")).json()
+        self.assertEqual([r["name"] for r in self.rows("?stage=landing_page")], ["Juana Reyes"])
+        self.assertEqual([r["order_number"] for r in self.rows("?stage=purchased")], [b.order_number, a.order_number])
+        body = self.get(self.path("?stage=landing_page&q=zzz")).json()
         self.assertEqual((body["results"], body["total"]), ([], 0))
         self.assertEqual(body["stage_counts"]["all"], 3)  # counts ignore search and stage
 
@@ -243,11 +251,11 @@ class ProspectVisitTests(OwnerTestCase):
         self.visit(contact_name="Typed", contact_saved_at=now)
         got = {r["name"]: (r["stage"], r["video_percent"]) for r in self.rows()}
         self.assertEqual(got, {"Landed": ("landing_page", 0), "Started": ("start_watching", 25),
-                               "Done": ("done_watching", 90), "Cart": ("added_to_cart", 100),
-                               "Typed": ("added_to_cart", 0)})
+                               "Done": ("done_watching", 90), "Cart": ("done_watching", 100),
+                               "Typed": ("landing_page", 0)})
         counts = self.get(self.path()).json()["stage_counts"]
         self.assertEqual((counts["landing_page"], counts["start_watching"], counts["done_watching"],
-                          counts["added_to_cart"]), (1, 1, 1, 2))
+                          counts["checked_out"]), (2, 1, 2, 0))
 
     def test_every_row_shows_the_contact_it_already_has(self):
         self.visit(contact_name="Maria Cart", contact_mobile="09171234567", contact_email="maria@buyer.test",

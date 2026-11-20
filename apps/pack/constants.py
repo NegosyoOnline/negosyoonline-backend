@@ -7,7 +7,7 @@ CURRENCY = "PHP"
 PAYMENT_METHOD = "direct"  # bank or e-wallet transfer with proof; never COD
 XENDIT = "xendit"  # a Xendit hosted invoice, the site's own key (Coach Ed, 2026-11-18)
 METHODS = (PAYMENT_METHOD, XENDIT)
-METHOD_LABELS = {PAYMENT_METHOD: "Bank or e-wallet transfer", XENDIT: "Pay online (Xendit)"}
+METHOD_LABELS = {PAYMENT_METHOD: "Bank or e-wallet transfer", XENDIT: "Credit / Debit Card / GCash / Maya"}
 MAX_AMOUNT_CENTAVOS = 9999999  # PHP 99,999.99
 
 PENDING_REVIEW, REJECTED, VERIFIED = "pending_review", "rejected", "verified"

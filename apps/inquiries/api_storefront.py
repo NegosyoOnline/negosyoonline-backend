@@ -55,6 +55,7 @@ class SendIn(Schema):
     website: str = ""
     opened_at: datetime | None = None
     after_id: int = 0
+    pack_visitor_ref: str = ""  # see ContactIn
 
 
 class PollIn(Schema):
@@ -71,6 +72,7 @@ class ContactIn(Schema):
     visitor_ip: str = ""
     visitor_secret: str = ""
     contact: str = ""
+    pack_visitor_ref: str = ""  # the browser's Membership Pack visit ref; ignored unless it names a visit of this site
 
 
 class ContactOut(Schema):
@@ -104,7 +106,7 @@ def chat_send(request, body: SendIn):
     return webchat.send(
         site, visitor_ip=body.visitor_ip, visitor_secret=body.visitor_secret, name=body.name,
         email=body.email, text=body.text, website=body.website, opened_at=body.opened_at,
-        after_id=body.after_id,
+        after_id=body.after_id, pack_visitor_ref=body.pack_visitor_ref,
     )
 
 
@@ -121,4 +123,5 @@ def chat_contact(request, body: ContactIn):
     site = _site(body.host)
     return webchat.save_contact(
         site, visitor_ip=body.visitor_ip, visitor_secret=body.visitor_secret, contact=body.contact,
+        pack_visitor_ref=body.pack_visitor_ref,
     )
