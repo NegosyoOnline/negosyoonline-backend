@@ -115,7 +115,7 @@ python manage.py billing_exempt SITE --actor USERNAME --reason "approved test si
 
 The sweep catches the stored rows up with the time: a trial past its end, a payment needing attention past 7 days, a paid cycle past its end plus 7 days. A site's state never waits for it, because every read computes the state from the current time; a late sweep shuts nobody early and serves nobody late.
 
-On staging the `worker` and `beat` services exist ("Worker and beat", below), so the sweep also runs every 5 minutes; running it by hand stays safe. Where they do not exist, the sweep runs only by hand.
+On staging the `worker` and `beat` containers exist ("Worker and beat", below), so the sweep also runs every 5 minutes; running it by hand stays safe. Where they do not exist, the sweep runs only by hand (see "Where the commands run").
 
 Print what is due. This writes nothing:
 
