@@ -9,16 +9,13 @@
 `add` and `rotate` show the phone's token once. Only its SHA-256 is stored.
 """
 import logging
-import re
-import secrets
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
-from django.utils import timezone
 
 from apps.inbox.switch import inbox_on
-from apps.notifications import sms
+from apps.notifications import devices, sms
 from apps.notifications.models import SmsDevice
 from apps.operators import audit
 
@@ -26,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 ACTIONS = ("add", "rotate", "disable", "incoming", "list")
 TARGET = "sms_device"
-_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}$")
 
 
 class Command(BaseCommand):
@@ -61,10 +57,10 @@ class Command(BaseCommand):
         return found
 
     def _name(self, raw):
-        name = (raw or "").strip().lower()
-        if not _NAME.match(name):
+        try:
+            return devices.clean_name(raw)
+        except devices.DeviceError:
             raise CommandError("--name is required: lower-case letters, digits and hyphens.")
-        return name
 
     def _locked(self, name):
         device = SmsDevice.objects.select_for_update().filter(name=name).first()
@@ -80,43 +76,38 @@ class Command(BaseCommand):
         self.stdout.write(f"\nToken: {token}")
         self.stdout.write("Enter it in the phone app now. It is shown only this once and is not stored.")
 
-    # Actions
+    # Actions. add, rotate and disable are the functions the HQ screens call.
 
     def _add(self, name, actor, _switch):
-        if SmsDevice.objects.filter(name=name).exists():
-            raise CommandError("A phone with that name already exists.")
-        token = secrets.token_urlsafe(32)
-        device = SmsDevice.objects.create(name=name, token_hash=sms.token_hash(token))
-        self._record(actor, "sms_device_add", device)
+        try:
+            _device, token = devices.register(actor, name, via="cli", single=False)
+        except devices.DeviceError as refusal:
+            raise CommandError(refusal.message)
         self.stdout.write("Added. Incoming texts: off.")
         self._show_token(token)
 
     def _rotate(self, name, actor, _switch):
-        device = self._locked(name)
-        token = secrets.token_urlsafe(32)
-        device.token_hash = sms.token_hash(token)
-        device.rotated_at = timezone.now()
-        device.save(update_fields=["token_hash", "rotated_at"])
-        self._record(actor, "sms_device_rotate", device)
+        self._locked(name)  # keeps the command's own "No such phone" message
+        device, token = devices.rotate(actor, name, via="cli", platform_only=False)
         self.stdout.write("Rotated. The old token no longer works.")
         if not device.is_active:
             self.stdout.write("This phone is disabled, so the new token does not work either.")
         self._show_token(token)
 
     def _disable(self, name, actor, _switch):
-        device = self._locked(name)
-        if not device.is_active:
+        self._locked(name)
+        _device, changed = devices.disable(actor, name, via="cli", platform_only=False)
+        if not changed:
             self.stdout.write("Already disabled.")
             return
-        device.is_active = False
-        device.save(update_fields=["is_active"])
-        self._record(actor, "sms_device_disable", device)
         self.stdout.write("Disabled. The phone is refused from now on.")
 
     def _incoming(self, name, actor, switch):
         if switch == "on" and not inbox_on():
             raise CommandError("SMS_INBOX_ENABLED is off. Turn it on before a phone forwards texts.")
         device = self._locked(name)
+        if switch == "on" and device.site_id is not None:
+            raise CommandError("A Site's phone cannot forward incoming texts.")
         device.forwards_incoming = switch == "on"
         device.save(update_fields=["forwards_incoming"])
         self._record(

@@ -9,6 +9,9 @@ Every step below that touches staging or production needs Coach Ed's approval fo
 | Name | Meaning |
 |---|---|
 | `SMS_GATEWAY_ENABLED` | `1` turns on the send function, the three phone calls and the admin's SMS lists. Unset: no text is queued, the calls answer 404, and the SMS tables are not read or written. |
+| `SMS_GATEWAY_MGMT_ENABLED` | `1` turns on the HQ screens' phone routes (`/staff/v1/sms/device/...`). Needs `SMS_GATEWAY_ENABLED` as well. Unset: those routes answer 404 and the CLI below is the only way. |
+| `SMS_GATEWAY_PUBLIC_URL` | The address HQ shows beside a new token: an origin only, such as this environment's API host. Unset: HQ shows "not configured" (only local `DEBUG` falls back to `http://127.0.0.1:8000`). Never set a default in code. |
+| `SMS_SITE_LINES_ENABLED` | Defined for the later Site-phone work; nothing reads it yet. Leave unset. |
 | `REDIS_URL` | Must be set wherever the gateway is on. A text waits encrypted in Redis until the phone takes it. Without it `manage.py check` reports `notifications.E001` and the gateway stays off. |
 
 ## Release order
@@ -25,7 +28,15 @@ To go back, unset `SMS_GATEWAY_ENABLED`. The tables stay; nothing reads them.
 
 ## Phones
 
-Phones are managed only with `manage.py sms_device`, from a terminal. No browser page can add or change one. `--actor` is the staff user running the command; every action except `list` writes an operator audit row.
+The platform phone is managed from HQ, Settings, SMS Gateway, while `SMS_GATEWAY_MGMT_ENABLED` is on, or with `manage.py sms_device` from a terminal (the fallback, and the only way to switch incoming forwarding). Both call the same functions in `apps/notifications/devices.py`, so they cannot diverge. `--actor` is the staff user running the command; every action except `list` writes an operator audit row.
+
+**HQ screens** (staff routes, all POST, all `Cache-Control: no-store`):
+
+- `sms/device/get/` shows the phone, its connection and the server address; never a token or hash. Connection: *Connected* (an authenticated poll in the last 60 s), *Waiting for phone* (registered or rotated, no poll since), *Offline*, *Disabled*, *No phone*.
+- `sms/device/register/` adds the platform phone and returns its token once. It answers 409 while an active platform phone exists.
+- `sms/device/rotate/` and `sms/device/disable/` need `confirm: true` and a fresh 6-digit authenticator code (a recovery code is refused). A wrong, stale, reused or locked code gets one message, and the failure is audited as `sms_device_reauth_failed` with counts only. A disabled phone cannot be rotated or re-enabled; register a new one.
+- Audit rows are `sms_device_add`, `sms_device_rotate`, `sms_device_disable` with `{"device": id, "name": ..., "via": "hq"}` (`"cli"` from the terminal). No row, log line or later answer holds a token or hash.
+- These routes never change incoming forwarding; that stays `sms_device incoming on|off`.
 
 ```bash
 uv run python manage.py sms_device add --name system --actor USERNAME
