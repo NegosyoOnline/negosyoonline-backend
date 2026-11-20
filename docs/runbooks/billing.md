@@ -183,6 +183,8 @@ Run exactly one `beat`: two would queue every sweep twice (harmless to the data,
 
 If `worker` is down, queued sweeps are dropped after 5 minutes instead of piling up, and no site's state is wrong meanwhile: every read computes the state from the time. If `beat` is down, nothing is queued, and `/readyz/` reports `beat` false; run the sweep by hand.
 
+On pull requests GitHub runs the SQLite checks only ("Django checks and tests"); the PostgreSQL and Redis job is skipped there. PostgreSQL and Redis are proven by the Release Builders' local run (ruling 1100430000509948) and by the tagged-release run (`promote-production` calls `ci.yml`).
+
 ## Not in this runbook yet
 
 - The Finance page itself, in the HQ staff app: a later pull request, in the frontend.
