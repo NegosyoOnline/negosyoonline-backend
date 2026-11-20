@@ -10,3 +10,6 @@
 !scripts/
 !scripts/start_worker.sh
 !scripts/start_beat.sh
+!deploy/
+!deploy/bunny/
+!deploy/bunny/start-api.sh

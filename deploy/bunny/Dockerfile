@@ -28,3 +28,5 @@ FROM backend AS beat
 CMD ["sh", "scripts/start_beat.sh"]
 
 FROM backend AS api
+COPY deploy/bunny/start-api.sh /app/start-api.sh
+ENTRYPOINT ["sh", "/app/start-api.sh"]

@@ -21,7 +21,7 @@ jobs:
           docker build --file deploy/bunny/Dockerfile --target api --tag "$image" .
           docker build --file deploy/bunny/Dockerfile --target worker --tag "$image-worker" .
           docker build --file deploy/bunny/Dockerfile --target beat --tag "$image-beat" .
-          docker run --rm -e DJANGO_DEBUG=true -e DJANGO_SECRET_KEY=ci-only-bunny-image-smoke-check "$image" python manage.py check
+          docker run --rm --entrypoint python -e DJANGO_DEBUG=true -e DJANGO_SECRET_KEY=ci-only-bunny-image-smoke-check "$image" manage.py check
       - name: Publish private pilot image
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
