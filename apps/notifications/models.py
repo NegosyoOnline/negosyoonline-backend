@@ -30,6 +30,11 @@ class SmsDevice(models.Model):
     number, and never the token itself: only its SHA-256."""
 
     name = models.CharField(max_length=60, unique=True)
+    # Empty: the platform phone (every phone so far). Set: this phone is that Site's own line.
+    # A Site phone is handed texts only through `sms.line_for` (switch on and the Site entitled).
+    site = models.ForeignKey(
+        "sites.Site", null=True, blank=True, on_delete=models.PROTECT, related_name="sms_devices"
+    )
     token_hash = models.CharField(max_length=64, unique=True)
     is_active = models.BooleanField(default=True)
     forwards_incoming = models.BooleanField("forwards incoming texts", default=False)
@@ -42,6 +47,13 @@ class SmsDevice(models.Model):
 
     class Meta:
         verbose_name = "SMS phone"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["site"],
+                condition=models.Q(is_active=True, site__isnull=False),
+                name="sms_device_one_active_per_site",
+            )
+        ]
 
     def __str__(self):
         return self.name

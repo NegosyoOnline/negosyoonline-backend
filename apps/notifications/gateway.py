@@ -135,11 +135,12 @@ def _paced():
     return Q(priority=SmsMessage.Priority.MARKETING) | Q(purpose__in=sms.paced_purposes())
 
 
-def _waiting(device, now):
+def _waiting(device, now, rule=None):
     """The next texts for this phone: by sending class, then oldest first. A text that carries
     a gap is handed out one at a time, and the next only after the first is reported, so a
-    paced text never sits on the phone past its expiry."""
-    queued = SmsMessage.objects.filter(status=Status.QUEUED, expires_at__gt=now)
+    paced text never sits on the phone past its expiry. Only texts this phone may carry."""
+    rule = sms.claimable(device) if rule is None else rule
+    queued = SmsMessage.objects.filter(rule, status=Status.QUEUED, expires_at__gt=now)
     paced = queued.filter(_paced())
     order = ("priority", "created_at", "pk")
     chosen = list(queued.exclude(_paced()).order_by(*order)[:BATCH])
@@ -151,8 +152,10 @@ def _waiting(device, now):
 
 def _hand_out(device, now):
     handed = []
-    for message in _waiting(device, now):
-        taken = SmsMessage.objects.filter(pk=message.pk, status=Status.QUEUED).update(
+    rule = sms.claimable(device)
+    for message in _waiting(device, now, rule):
+        # The same rule as the query, so a race cannot give a text to the wrong phone.
+        taken = SmsMessage.objects.filter(rule, pk=message.pk, status=Status.QUEUED).update(
             status=Status.DISPATCHED, device=device, dispatched_at=now
         )
         if not taken:  # another call took it first
@@ -187,7 +190,7 @@ def poll(request, device):
     answer = {"messages": [], "wait": WAIT, "incoming": storing.wanted(device)}
     if sms.policy().sending_stopped:
         answer["wait"] = WAIT_STOPPED
-    elif device == sms.pick_device():
+    elif sms.may_be_handed_texts(device):
         if bulk_on():
             bulk.feed(now)
         answer["messages"] = _hand_out(device, now)
