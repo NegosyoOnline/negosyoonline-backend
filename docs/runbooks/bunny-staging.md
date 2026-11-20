@@ -23,7 +23,7 @@ Environment `bunny-staging`:
 | secret | `BUNNY_API_KEY` | Bunny account API key (`AccessKey` header). Account key; Bunny has no narrower scope. Never printed. |
 | variable | `BUNNY_APP_ID` | Magic Containers app id |
 | variable | `BUNNY_CONTAINER_API`, `BUNNY_CONTAINER_WORKER`, `BUNNY_CONTAINER_BEAT` | container id or name of the three app containers |
-| variable | `BUNNY_STAGING_URL` | API base URL checked by verify (before DNS swap `https://api-bunny-staging.negosyonline.com`; after, `https://api-staging.negosyonline.com`) |
+| variable | `BUNNY_STAGING_URL` | API base URL checked by verify: `https://api-staging.negosyonline.com`. The `api-bunny-staging` names were used only before the 2026-11-20 DNS swap and are removed; the direct Bunny route is `https://mc-4x9f086sdc.bunny.run` |
 | variable | `BUNNY_HQ_URL` | optional; HQ API base URL, also verified |
 
 Repository variable `BUNNY_STAGING_URL` (optional, same value) is read by the drift check. GHCR login uses the workflow's own `GITHUB_TOKEN` (`packages: write` on the images job only). The Bunny app must already hold a registry credential that can pull the private `<repo>-staging` package.
@@ -39,8 +39,8 @@ Bunny has no one-off job API, so the **api image's entrypoint** (`init-api.sh`) 
 ## Verify a release by hand
 
 ```
-curl -s https://api-bunny-staging.negosyonline.com/healthz/        # {"status":"ok","commit":"<first 12 of sha>"}
-curl -s https://api-bunny-staging.negosyonline.com/readyz/         # 200, every value true, "beat" included
+curl -s https://api-staging.negosyonline.com/healthz/        # {"status":"ok","commit":"<first 12 of sha>"}
+curl -s https://api-staging.negosyonline.com/readyz/         # 200, every value true, "beat" included
 git rev-parse --short=12 origin/main                               # must equal the commit above
 ```
 
