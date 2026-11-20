@@ -1,23 +1,28 @@
 """T-SITE: a Site's own phone, built dark. Which phone may take which text."""
+import json
+import time
 from datetime import timedelta
 from io import StringIO
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import ProtectedError
-from django.test import override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from apps.inbox import bulk, storing
-from apps.notifications import gateway, sms
+from apps.notifications import gateway, models as models_module, sms
 from apps.notifications.models import SmsDevice, SmsMessage
 from apps.notifications.services import send_sms
 from apps.notifications.tests import test_sms_gateway as base
-from apps.notifications.tests.base import CODE_TEXT, MOBILE, STATUS_TEXT, fallback, make_phone
+from apps.notifications.tests.base import (
+    CODE_TEXT, MOBILE, STATUS_TEXT, fallback, gateway_on, make_phone,
+)
 from apps.sites.tests.base import make_account, make_site
 
 S = SmsMessage.Status
@@ -254,3 +259,98 @@ class IncomingTests(RoutingCase):
         self.assertFalse(bulk._incoming_on())  # the platform phone is the one asked
         SmsDevice.objects.filter(pk=self.phone.pk).update(forwards_incoming=True)
         self.assertTrue(bulk._incoming_on())
+
+
+class SiteColumnCheckTests(TestCase):
+    def tearDown(self):
+        models_module.forget_site_column_check()
+
+    def test_a_found_column_is_remembered_and_a_missing_one_is_rechecked_later(self):
+        models_module.forget_site_column_check()
+        self.assertTrue(models_module.site_column_exists())  # the test database has it
+        with mock.patch.object(models_module.connection, "cursor", side_effect=AssertionError):
+            self.assertTrue(models_module.site_column_exists())  # remembered: no query
+        models_module._SITE_COLUMN.update(found=False, checked=time.monotonic())
+        with mock.patch.object(models_module.connection, "cursor", side_effect=AssertionError):
+            self.assertFalse(models_module.site_column_exists())  # not looked up again yet
+        models_module._SITE_COLUMN["checked"] = time.monotonic() - 31
+        self.assertTrue(models_module.site_column_exists())  # looked up again, found
+
+
+# --- Before notifications.0005 is applied ------------------------------------------------
+
+
+@gateway_on
+class BeforeTheMigrationTests(TransactionTestCase):
+    """The code is deployed, the column is not there yet (Railway never migrates on deploy).
+    The column is really dropped from the test database, and put back afterwards."""
+
+    TOKEN = "token-of-the-system-phone"
+
+    def setUp(self):
+        cache.clear()
+        declared = {"order_status": sms.Purpose(category=sms.STATUS, priority=sms.Priority.STATUS)}
+        for patcher in (
+            mock.patch.dict(sms.PURPOSES, declared),
+            mock.patch("apps.operators.background.run_later"),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.phone = make_phone("system", self.TOKEN)
+        self.site = make_site(make_account("pre@example.test"), "store-pre", "Store Pre")
+        self.field = SmsDevice._meta.get_field("site")
+        self.constraint = SmsDevice._meta.constraints[0]
+        SmsDevice._meta.constraints = []  # SQLite rebuilds the table from the model
+        with connection.schema_editor() as editor:
+            editor.remove_field(SmsDevice, self.field)
+        self.addCleanup(self.restore_column)
+        models_module.forget_site_column_check()
+
+    def restore_column(self):
+        with connection.schema_editor() as editor:
+            editor.add_field(SmsDevice, self.field)
+            SmsDevice._meta.constraints = [self.constraint]
+            editor.add_constraint(SmsDevice, self.constraint)
+        models_module.forget_site_column_check()
+
+    def call(self, name, body=None):
+        return self.client.post(
+            f"/gateway/v1/{name}", data=json.dumps(body or {}), content_type="application/json",
+            secure=True, HTTP_AUTHORIZATION=f"Bearer {self.TOKEN}", HTTP_X_REAL_IP="203.0.113.7",
+        )
+
+    def test_the_column_is_really_missing(self):
+        self.assertFalse(models_module.site_column_exists())
+
+    def test_every_phone_query_works_and_the_phone_has_no_site(self):
+        self.assertEqual(sms.pick_device(), self.phone)
+        self.assertIsNone(sms.pick_device().site_id)
+        self.assertEqual(sms.line_for(self.site), self.phone)
+        self.assertTrue(sms.gateway_online(self.site))
+        self.assertEqual(str(SmsDevice.objects.get()), "system")
+
+    def test_a_poll_hands_out_a_sites_text_exactly_as_today(self):
+        message = SmsMessage.objects.create(
+            recipient=MOBILE, category="code", purpose="test", priority=SmsMessage.Priority.CODE,
+            expires_at=timezone.now() + timedelta(seconds=600), site=self.site,
+        )
+        sms.hold_text(message, CODE_TEXT, 600)
+        response = self.call("poll", {"battery": 80})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual([m["id"] for m in response.json()["messages"]], [message.public_id])
+        self.phone.refresh_from_db()
+        self.assertEqual(self.phone.battery_percent, 80)
+
+    def test_the_switch_on_changes_nothing_either(self):
+        with lines_on, entitled():
+            self.assertEqual(sms.line_for(self.site), self.phone)
+            self.assertEqual(sms.claimable(self.phone).children, [])
+            self.assertEqual(self.call("poll").status_code, 200)
+
+    def test_send_sms_queues_for_the_platform_phone(self):
+        result = send_sms(to=MOBILE, purpose="mobile_verify", text=CODE_TEXT)
+        self.assertEqual(result.outcome, sms.QUEUED)
+
+    def test_the_received_call_and_wanted_work(self):
+        self.assertTrue(storing.wanted(self.phone) in (True, False))
+        self.assertEqual(self.call("received", {"messages": []}).status_code, 204)

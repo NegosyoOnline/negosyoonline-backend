@@ -18,7 +18,7 @@ from django.core.cache import cache
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.notifications.models import SmsDevice, SmsMessage, SmsPolicy
+from apps.notifications.models import SmsDevice, SmsMessage, SmsPolicy, site_column_exists
 
 logger = logging.getLogger(__name__)
 
@@ -308,7 +308,10 @@ def token_hash(token):
 def pick_device():
     """The platform phone, the system phone: the first active phone that belongs to no Site. A
     phone with a Site can never become it, so a Site's phone is never handed other texts."""
-    return SmsDevice.objects.filter(is_active=True, site__isnull=True).order_by("pk").first()
+    phones = SmsDevice.objects.filter(is_active=True)
+    if site_column_exists():  # before notifications.0005 no phone has a Site
+        phones = phones.filter(site__isnull=True)
+    return phones.order_by("pk").first()
 
 
 def site_lines_on():
@@ -325,7 +328,7 @@ def site_has_line(site):
 
 def _lined(site):
     """The Site's own active phone when its texts go through it, else None."""
-    if site is None or not site_lines_on() or not site_has_line(site):
+    if site is None or not site_lines_on() or not site_column_exists() or not site_has_line(site):
         return None
     return SmsDevice.objects.filter(is_active=True, site=site).first()
 
@@ -346,7 +349,7 @@ def claimable(device):
         if site_lines_on() and site_has_line(device.site):
             return Q(site_id=device.site_id)
         return Q(pk__in=[])
-    if not site_lines_on():
+    if not site_lines_on() or not site_column_exists():
         return Q()
     sites = SmsDevice.objects.filter(is_active=True, site__isnull=False).select_related("site")
     lined = [phone.site_id for phone in sites if site_has_line(phone.site)]

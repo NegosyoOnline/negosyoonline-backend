@@ -1,7 +1,39 @@
 """A record of each message sent. Bodies are never stored: they can hold sign-in codes."""
-from django.db import models
+import time
+
+from django.db import connection, models
 
 from apps.common.ids import new_public_id
+
+_SITE_COLUMN = {"found": False, "checked": 0.0}
+_RECHECK_AFTER = 30  # seconds before a missing column is looked for again
+
+
+def site_column_exists():
+    """Whether notifications.0005 is applied (SmsDevice.site_id exists). Until it is, every
+    SmsDevice query leaves the column out and behaves as before the migration. A found column
+    is remembered for the life of the process; a missing one is looked for again every 30 s,
+    so a process notices the migration without a restart."""
+    if _SITE_COLUMN["found"]:
+        return True
+    now = time.monotonic()
+    if _SITE_COLUMN["checked"] and now - _SITE_COLUMN["checked"] < _RECHECK_AFTER:
+        return False
+    table = SmsDevice._meta.db_table
+    with connection.cursor() as cursor:
+        columns = {c.name for c in connection.introspection.get_table_description(cursor, table)}
+    _SITE_COLUMN.update(found="site_id" in columns, checked=now)
+    return _SITE_COLUMN["found"]
+
+
+def forget_site_column_check():
+    _SITE_COLUMN.update(found=False, checked=0.0)
+
+
+class SmsDeviceManager(models.Manager):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset if site_column_exists() else queryset.defer("site")
 
 
 class EmailMessage(models.Model):
@@ -45,7 +77,17 @@ class SmsDevice(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     rotated_at = models.DateTimeField(null=True, blank=True)
 
+    objects = SmsDeviceManager()
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        # Before notifications.0005 the column is not read: no phone has a Site.
+        instance.__dict__.setdefault("site_id", None)
+        return instance
+
     class Meta:
+        base_manager_name = "objects"
         verbose_name = "SMS phone"
         constraints = [
             models.UniqueConstraint(

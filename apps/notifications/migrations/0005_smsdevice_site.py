@@ -12,6 +12,10 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AlterModelOptions(
+            name='smsdevice',
+            options={'base_manager_name': 'objects', 'verbose_name': 'SMS phone'},
+        ),
         migrations.AddField(
             model_name='smsdevice',
             name='site',
