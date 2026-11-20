@@ -19,7 +19,8 @@ from apps.pack.models import CheckoutToken, PackOrder, PackProofSubmission, Pack
 
 PAGE_SIZE = 25
 # Six stages, in funnel order (Coach Ed, 2026-11-21, ruling 1100430000601591). A row reports the furthest
-# it reached. A visit with no order is Landing Page, Start Watching or Done Watching by the video; an
+# it reached. A visit with no order is Landing Page, Start Watching or Done Watching by the video, but
+# a visit that opened the checkout page is Checked Out (Coach Ed, 2026-11-21 correction); an
 # inquiry that is not merged into a visit is Landing Page. An order is Checked Out until its payment
 # details are in (bank: a proof was submitted, any review outcome; Xendit: paid), then Purchased, then
 # Activated once the buyer finished onboarding (a member session was issued, or the checkout token
@@ -88,6 +89,8 @@ def order_rows(site):
 
 
 def visit_stage(v):
+    if v["checkout_started_at"] is not None:
+        return "checked_out"
     if v["done_watching_at"] is not None:
         return "done_watching"
     if v["started_watching_at"] is not None or v["video_percent"] > 0:

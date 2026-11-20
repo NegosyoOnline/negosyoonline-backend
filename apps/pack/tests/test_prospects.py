@@ -251,11 +251,33 @@ class ProspectVisitTests(OwnerTestCase):
         self.visit(contact_name="Typed", contact_saved_at=now)
         got = {r["name"]: (r["stage"], r["video_percent"]) for r in self.rows()}
         self.assertEqual(got, {"Landed": ("landing_page", 0), "Started": ("start_watching", 25),
-                               "Done": ("done_watching", 90), "Cart": ("done_watching", 100),
+                               "Done": ("done_watching", 90), "Cart": ("checked_out", 100),
                                "Typed": ("landing_page", 0)})
         counts = self.get(self.path()).json()["stage_counts"]
         self.assertEqual((counts["landing_page"], counts["start_watching"], counts["done_watching"],
-                          counts["checked_out"]), (2, 1, 2, 0))
+                          counts["checked_out"]), (2, 1, 1, 1))
+
+    def test_a_visit_that_opened_checkout_is_checked_out_even_with_no_video(self):
+        self.visit(contact_name="Opened", checkout_started_at=timezone.now(), video_percent=0)
+        row = self.rows()[0]
+        self.assertEqual((row["stage"], row["video_percent"]), ("checked_out", 0))
+        self.assertEqual(self.get(self.path()).json()["stage_counts"]["checked_out"], 1)
+
+    def test_a_visit_whose_contact_was_saved_is_checked_out(self):
+        from apps.pack import visits
+        v = self.visit()
+        self.assertTrue(visits.save_contact(self.site, v.visitor_ref, "Saved Person", "09171234567", "", ip=""))
+        row = self.rows()[0]
+        self.assertEqual((row["name"], row["stage"]), ("Saved Person", "checked_out"))
+        self.assertEqual(self.get(self.path()).json()["stage_counts"]["checked_out"], 1)
+
+    def test_an_order_row_is_unaffected_by_its_visits_checkout_time(self):
+        order, _ = make_order(self.site)
+        self.visit(order=order, checkout_started_at=timezone.now())
+        rows = self.rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["kind"], "order")
+        self.assertEqual(rows[0]["stage"], prospects.order_rows(self.site)[0]["stage"])
 
     def test_every_row_shows_the_contact_it_already_has(self):
         self.visit(contact_name="Maria Cart", contact_mobile="09171234567", contact_email="maria@buyer.test",
