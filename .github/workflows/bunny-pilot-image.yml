@@ -1,0 +1,30 @@
+name: Bunny pilot image
+
+on:
+  push:
+    branches: [pilot/bunny-backend]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Build and check image
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}-bunny-pilot:${GITHUB_SHA}"
+          docker build --file deploy/bunny/Dockerfile --tag "$image" .
+          docker run --rm "$image" python manage.py check
+      - name: Publish private pilot image
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}-bunny-pilot:${GITHUB_SHA}"
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$image"
+          echo "Pilot image: `$image`" >> "$GITHUB_STEP_SUMMARY"

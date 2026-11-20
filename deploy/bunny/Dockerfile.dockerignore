@@ -1,0 +1,12 @@
+**
+!pyproject.toml
+!uv.lock
+!manage.py
+!gunicorn.conf.py
+!apps/
+!apps/**
+!config/
+!config/**
+!scripts/
+!scripts/start_worker.sh
+!scripts/start_beat.sh
