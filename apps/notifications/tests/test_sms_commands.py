@@ -116,13 +116,14 @@ class SmsDeviceCommandTests(SmsTestCase):
         self.run_command("disable", name="system")
 
         pk = str(SmsDevice.objects.get().pk)
+        via = {"device": int(pk), "name": "system", "via": "cli"}
         self.assertEqual(
             self.audit(),
             [
-                ("sms_device_add", self.actor, "sms_device", pk, {}),
-                ("sms_device_rotate", self.actor, "sms_device", pk, {}),
+                ("sms_device_add", self.actor, "sms_device", pk, via),
+                ("sms_device_rotate", self.actor, "sms_device", pk, via),
                 ("sms_device_incoming", self.actor, "sms_device", pk, {"forwards_incoming": True}),
-                ("sms_device_disable", self.actor, "sms_device", pk, {}),
+                ("sms_device_disable", self.actor, "sms_device", pk, via),
             ],
         )
 
