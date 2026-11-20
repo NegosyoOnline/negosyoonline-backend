@@ -1,0 +1,13 @@
+**
+!pyproject.toml
+!uv.lock
+!manage.py
+!gunicorn.conf.py
+!apps/
+!apps/**
+!config/
+!config/**
+!deploy/
+!deploy/bunny/
+!deploy/bunny/*.sh
+!deploy/bunny/*.py

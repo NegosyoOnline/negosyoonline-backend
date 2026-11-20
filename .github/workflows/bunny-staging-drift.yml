@@ -1,0 +1,35 @@
+name: Bunny staging drift check
+
+# Fails (red run, GitHub notification) when Bunny staging does not report main's HEAD commit and no
+# release run is in progress. Public endpoint only: no secrets. Set the repository variable
+# BUNNY_STAGING_URL (not only the environment one) to change the host.
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  drift:
+    name: Bunny equals main
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Compare /healthz/ commit with main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: ${{ vars.BUNNY_STAGING_URL || 'https://api-staging.negosyonline.com' }}
+        run: |
+          set -euo pipefail
+          head="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          running="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/bunny-staging.yml/runs?per_page=20" \
+            --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+          got="$(curl --silent --max-time 15 "${URL%/}/healthz/" | jq -r '.commit // empty')"
+          echo "main=${head:0:12} bunny=${got:-unreachable} release_runs_in_progress=$running"
+          if [ "$got" = "${head:0:12}" ]; then exit 0; fi
+          if [ "$running" -gt 0 ]; then echo "a release is in progress; not drift yet"; exit 0; fi
+          echo "DRIFT: Bunny staging is not running main's HEAD" >&2
+          exit 1
