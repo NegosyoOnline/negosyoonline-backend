@@ -115,6 +115,9 @@ SMS_GATEWAY_ENABLED = os.environ.get("SMS_GATEWAY_ENABLED", "").strip() == "1"
 # HQ -> Settings -> SMS Gateway: register, rotate and stop the platform phone. "1" turns on its
 # routes; off, they answer 404. Needs SMS_GATEWAY_ENABLED as well.
 SMS_GATEWAY_MGMT_ENABLED = os.environ.get("SMS_GATEWAY_MGMT_ENABLED", "").strip() == "1"
+# HQ -> Subscribers: the read-only list of subscriber sites. "1" turns on its routes; off, they
+# answer 404 and read nothing.
+HQ_SUBSCRIBERS_ENABLED = os.environ.get("HQ_SUBSCRIBERS_ENABLED", "").strip() == "1"
 # Phones that belong to a Site (a dedicated SMS line). "1" lets a Site's texts use its own phone.
 # Off, every text uses the platform phone. Only defined here for now.
 SMS_SITE_LINES_ENABLED = os.environ.get("SMS_SITE_LINES_ENABLED", "").strip() == "1"
