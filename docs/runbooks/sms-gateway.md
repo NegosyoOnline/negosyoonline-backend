@@ -213,6 +213,19 @@ The app can forward the texts the SIM receives. A phone's own switch is **off** 
 - The six routes under `/staff/v1/inbox/`, each a `POST`, are closed while `SMS_INBOX_ENABLED` is off and to a staff user without access.
 - There is still no screen: the pages are the next plan.
 
+## Store texts (SMS-OWNER, task z8uq9mhbf4)
+
+A Santé store writes to its own **verified** members from its dash Inbox, one member at a time. Built dark behind `INQUIRY_SMS_ENABLED` (needs `INQUIRIES_ENABLED` and `SMS_GATEWAY_ENABLED`, `inquiries.E008`); migrations `notifications.0006_store_sms` and `inquiries.0010_sms_channel` first (see `migrations.md`). Each store also turns it on itself (`sms_enabled` on the channels route); the default is off.
+
+- **Purposes** `store_compose` (a new conversation) and `store_reply`: category `store`, the same paced lane and priority as a staff text, one plain SMS of at most 160 characters, no web link, no email fallback. The text always starts with the store's name, `"Name: "` (the name cut to 30 characters; a name that cannot be texted gives "Your store: "), so the owner's room is `160 - len(prefix)`.
+- **Limits, in the order a store text is refused:** staff stop (`paused`); the store's day (`site_limit`, `SmsPolicy.store_daily_limit`, default 50); the store's clock hour in Manila time (`site_hour_limit`, `STORE_HOURLY_LIMIT` = 20 in `apps/notifications/sms.py`); all stores' day (`stores_limit`, `all_stores_daily_limit`, default 1000); the platform day less the 300 kept for codes (`staff_limit`); the phone offline (`gateway_offline`). A refusal gives back the slots already taken. The two store caps are changed in the staff SMS policy (`change_policy`, audited) like the other caps; a body that leaves them out keeps them. Codes are never counted against a store cap.
+- **Incoming.** With `SMS_INBOX_ENABLED` on, a text from a number goes to the store that texted that number last in the past 7 days (store or HQ texts of the purposes `store_reply`, `store_compose`, `inbox_reply`, `inbox_compose`, `inbox_bulk`; codes are ignored), when that last text was a store's, went out (queued, with the phone or sent), and the store is not closed and has texts on. Otherwise it goes to HQ exactly as before. Each text is stored in exactly one place; a repeated delivery is stored once.
+- **STOP.** A STOP routed to a store is that store's own opt-out (`InquirySmsOptOut`); the store can send the number no more texts, other stores and codes are unaffected. A STOP to HQ stays the global do-not-text list.
+- **Data.** The number is held in the conversation (blanked with its other personal fields 180 days after the last message, like the other stored channels) and in the opt-out row (deleted with the store's data). The thread shows the number masked.
+- **Deleting a person's texts:** `sms_inbox_delete` also deletes every store's text conversation with the number (with its reply audit rows) and the stores' send records to it, listing the store public ids; `--site SITE_PUBLIC_ID` deletes only that store's and touches nothing of HQ's. The store's opt-out of the number is kept.
+- **Removing a test member** (`pack_remove_test_member`) deletes that member's text conversation first.
+- **Turning on** (staging, Manager's go): apply the two migrations, set `INQUIRY_SMS_ENABLED=1` with `SMS_INBOX_ENABLED=1` and the phone passing texts on, run `check --deploy`, then switch a store on in its Inbox.
+
 ## Member one-time codes
 
 A Santé member's code goes by SMS through `send_sms` with no email fallback: `member_signin_code` (signing in by mobile) and `member_mobile_verify` (confirming the mobile after the first order). Both are codes: they count against the platform limit only, never a site limit, and are never paced. The code is sent only while `MEMBERS_ENABLED` and `SMS_GATEWAY_ENABLED` are both on; with the gateway off a sign-in by mobile answers 503 `sms_unavailable` for every input.

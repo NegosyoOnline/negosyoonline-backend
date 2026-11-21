@@ -1,8 +1,8 @@
 # Customer inquiries: switches, email replies and the contact form
 
-The Inbox of a Santé store (`apps/inquiries`). This runbook covers the outbound email half (G3 PR2a). Website chat is in `docs/runbooks/storefront.md`; the owner routes are in the docstring of `apps/inquiries/api_owner.py`. There is no provider connection: the Pancake integration was removed (task z8uq9mg1n9, migration `inquiries.0003_remove_pancake`), and the `InquiryConnection` table is kept, empty, for the direct Messenger inbox that comes next. **Inbound email waits on D2** (Coach Ed's decision on the receiving domain): there is no webhook, no `c-`/`s-` routing address and no bounce state yet, and nothing here needs a Railway variable beyond the switches.
+The Inbox of a Santé store (`apps/inquiries`). This runbook covers the outbound email half (G3 PR2a). Website chat is in `docs/runbooks/storefront.md`; the owner routes are in the docstring of `apps/inquiries/api_owner.py`. There is no provider connection: the Pancake integration was removed (task z8uq9mg1n9, migration `inquiries.0003_remove_pancake`), and the `InquiryConnection` table is kept, empty, for the direct Messenger inbox that comes next. **Inbound email waits on D2** (Coach Ed's decision on the receiving domain): there is no webhook, no `c-`/`s-` routing address and no bounce state yet, and nothing here needs an environment variable beyond the switches.
 
-## The three switches
+## The switches
 
 All are off by default. A switch is set on the `api` service only, by Coach Ed or the manager; no session changes one.
 
@@ -11,8 +11,9 @@ All are off by default. A switch is set on the `api` service only, by Coach Ed o
 | `INQUIRIES_ENABLED` | The owner's routes under `/v1/sites/{id}/inquiries/`, including email replies on a stored `em_` conversation | `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` (`inquiries.E001`) |
 | `INQUIRY_WEBCHAT_ENABLED` | The two storefront chat routes | `INQUIRIES_ENABLED` and `STOREFRONT_ENABLED` (`inquiries.E002`) |
 | `INQUIRY_CONTACT_INBOX_ENABLED` | A stored copy of each storefront contact-form message, as an `email` conversation | `INQUIRIES_ENABLED` and `STOREFRONT_ENABLED` (`inquiries.E003`) |
+| `INQUIRY_SMS_ENABLED` | A store's text (SMS) conversations with its own members: `sms/compose/` and `sms/status/`, the `sms_enabled` channel setting, and routing an incoming text to the store that texted the number last (SMS-OWNER, `docs/runbooks/sms-gateway.md`) | `INQUIRIES_ENABLED` and `SMS_GATEWAY_ENABLED` (`inquiries.E008`); also `notifications.0006` and `inquiries.0010` applied, and `SMS_INBOX_ENABLED` for a customer's answer to arrive |
 
-Email replies have no switch of their own: they need a conversation with an `em_` ref, and today only the contact form makes one. All three need `inquiries.0002` applied (staging: yes, 2026-11-15; production: not run). Run `manage.py check --deploy` after changing any of them.
+Email replies have no switch of their own: they need a conversation with an `em_` ref, and today only the contact form makes one. The first three need `inquiries.0002` applied (staging: yes, 2026-11-15; production: not run). Run `manage.py check --deploy` after changing any of them.
 
 ## The contact form in the Inbox
 
