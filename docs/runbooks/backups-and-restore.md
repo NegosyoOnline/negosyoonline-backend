@@ -133,6 +133,7 @@ SmsMessage.objects.filter(status__in=("queued", "dispatched")).values("public_id
 | `sms_queue` | no SMS row has been `queued` for more than 15 minutes. Counted only while `SMS_GATEWAY_ENABLED` is on; otherwise true. |
 | `email` | not (at least `READYZ_EMAIL_FAILURES` of the newest emails sent in the last `READYZ_EMAIL_WINDOW_MINUTES` failed and none sent). Defaults 3 failures and 30 minutes, both environment variables read in `config/settings.py`; change them in Railway without a code change. It reads the newest 20 `EmailMessage` rows by primary key (one query), ignores `pending`, and is true when there are no recent rows. The body says only `true` or `false`, never an address. |
 | `files_backup` | True while `FILE_BACKUP_ENABLED` is off (the field then builds and calls no client); it stays true on staging because the switch is off and the backup is not in use. Switched on, true while the last fully good backup run (no failure, no anomaly, every source file copied) is younger than `FILE_BACKUP_STALE_HOURS` (default 36). One cache read (`file_backup:last_ok`), no database query. Redis is not backed up, so after a Redis loss the field is false until the next daily run (at most a day; a false alarm, not a miss). A false field turns `/readyz/` into 503, which the uptime check emails. |
+| `db_backup` | Reported only while `DB_BACKUP_ENABLED=1`; with the switch off the field is absent. True while the newest encrypted database copy (section 8) is younger than `DB_BACKUP_STALE_HOURS` (default 30); false when the newest is older or none exists. Read from the cache (`db_backup:last_ok`); after a Redis loss it is rebuilt from one listing of the private store. A false field turns `/readyz/` into 503. |
 | `meta_queue` | no Meta Conversions delivery (`MetaDelivery`) has been `queued` or `retrying` for more than 30 minutes (`READYZ_META_QUEUE_MINUTES` in `apps/health/views.py`, well above the normal span of about 12 minutes). Always true while `META_EVENTS_ENABLED` is off. One `.exists()` query. |
 | `xendit_queue` | no Membership Pack order is still `awaiting_xendit` after the sweep should have expired it (invoice expiry plus 1 hour, or 3 hours after placement with no invoice, plus one 15-minute reconcile tick and a 15-minute margin). True while `XENDIT_ENABLED` is off. One query. |
 
@@ -250,3 +251,39 @@ Code: `apps/file_backup/`. No migration and no table: the bucket holds all state
 **Staging restore test (test files only).** `backup_private_files --selftest` creates three synthetic files (a tiny PNG, a tiny PDF, a 1 MB PNG-typed random file) under `backup-selftest/` in the staging private store, backs up only that prefix into the bucket under `selftest/`, checks the stored bytes are the plaintext plus 29 bytes and not the plaintext, deletes the live files, restores them, and compares byte for byte (and sha256). It then checks that a second restore changes nothing and that a tampered copy and a wrong key are refused, and removes the test files and the test copy. No real member file is read, copied or restored. It runs before the switch is turned on. Record: the PASS lines, the object counts and the times. The first full run after the switch is on copies real staging files from Vercel into the Railway bucket in the same staging project (the manager's reading of ruling 509745: Railway is already where staging's database lives).
 
 **Not done until proved on staging:** `--measure`, `--selftest`, and the switch, all waiting for Coach Ed's word (and the bucket, its variables and the key, which are his).
+
+## 8. Nightly encrypted database backup on Bunny (ClickUp z8uq9mhben)
+
+**Switched off until the Manager gives the go** (staging first, then production). Code: `apps/db_backup/`. No migration and no table. This is a copy that survives the loss of the Bunny volume; Bunny itself gives no database backup (sections 1 to 3 describe the Railway era and apply to the restore order and safety checks only).
+
+**What it does.** Every day at 04:30 Manila time (after the 04:00 file backup) the `worker` runs `pg_dump --format=custom --no-owner --no-acl` of the default database, encrypts the dump (AES-256-GCM, the copy's name bound in, the same code as section 7: `apps/file_backup/crypto.py`) and puts it in the private Vercel Blob store as `db-backups/<UTC time>.dump.enc`. Only after a good upload it applies retention. The password goes to the tools in environment variables, never on a command line; the tools' output is never logged. Logs hold counts and the exception type only. It runs once per Manila day and one at a time.
+
+**Retention.** Counted from the newest copy: the newest copy of each of the 14 newest days that have a copy, plus the newest copy of each of the 8 newest weeks (ISO weeks, UTC). Everything else named `db-backups/<time>.dump.enc` is deleted by the task. Other files in the store are never touched. A stopped backup deletes nothing.
+
+**Variables** (names only; on `worker`; the command also reads them wherever it runs):
+
+| Variable | Meaning |
+|---|---|
+| `DB_BACKUP_ENABLED` | `1` turns on the nightly run and the `/readyz/` field `db_backup`. Unset: off, nothing runs, readyz does not report it. |
+| `DB_BACKUP_ENCRYPTION_KEY` | Base64 of 32 random bytes (`openssl rand -base64 32`). New for each environment. **Lose it and the copies cannot be read**; Coach Ed keeps a copy in his password manager. |
+| `DB_BACKUP_STALE_HOURS` | How old the newest copy may be in `/readyz/`. Default 30. |
+| `DATABASE_URL` | The database that is dumped. |
+| `PRIVATE_BLOB_READ_WRITE_TOKEN` | Reused: the private store that receives the copies. |
+
+`manage.py check` warns (`db_backup.W001`, `W002`) when the switch is on and the token or the key is missing.
+
+**Client version.** The worker image (`deploy/bunny/Dockerfile`, target `worker`) installs `postgresql-client-18` from the PostgreSQL project's apt repository and fails its build unless `pg_dump` is version 18. Keep it equal to the server's major version. The `api` and `beat` images do not carry it.
+
+**Backup now (for example right before a cutover).** On the worker: `python manage.py backup_database`. It refuses, before dumping anything, when the key or the token is missing or bad. It runs with the switch off too. Output is the size and the number of old copies removed.
+
+**Restore drill (the Wednesday drill, and the monthly one after go-live).** Coach Ed's word is needed for each environment. Use a temporary separate Bunny app (or any scratch PostgreSQL 18), never the running database:
+
+1. Create the scratch PostgreSQL 18 database and an empty database in it. Take its URL (do not paste it anywhere but the command).
+2. On a worker-image container that holds `DB_BACKUP_ENCRYPTION_KEY` and `PRIVATE_BLOB_READ_WRITE_TOKEN` for the environment being drilled, list the copies: `python manage.py restore_database --list`.
+3. Restore a named copy: `python manage.py restore_database --name db-backups/<time>.dump.enc --target-url "$SCRATCH_DATABASE_URL"`. `--target-url` is required every time, and the command refuses a target that is the database the container itself runs on. The target must already exist and be empty; `pg_restore` stops at the first error. Output never shows the URL, the content or the tools' messages.
+4. Against the scratch database only: run `python manage.py migrate --check` with `DATABASE_URL` set to the scratch URL, compare row counts table by table with the source (`SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY relname;`, and `count(*)` on the tables that matter), and compare `django_migrations`.
+5. Delete the scratch app or database and confirm in the dashboard that it is gone. Record the copy's time, the versions, the counts side by side and the deletion time in ClickUp.
+
+A real restore of an environment follows section 2 (worker and beat stopped first) and the safety checks in section 3.
+
+**Local proof (2026-11-21, task z8uq9mhben).** A throwaway PostgreSQL 18 container: migrated database `src` plus 250 probe rows (133 tables, 972 rows), `backup_database` with the worker image's `pg_dump` 18.7, then `restore_database` into empty database `dst`: 133 tables and 972 rows, every table count equal. The stored copy is not a readable dump, and a restore into the running database was refused.
