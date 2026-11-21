@@ -37,7 +37,7 @@ READYZ_LIMIT = (30, 60)  # attempts per IP per window (seconds)
 
 
 def _client_ip(request):
-    """The address the proxy saw: the last entry Railway appended to X-Forwarded-For."""
+    """The address the proxy saw: the last entry the proxy appended to X-Forwarded-For."""
     forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
     last = forwarded.split(",")[-1].strip()
     return last or request.META.get("REMOTE_ADDR", "") or "unknown"

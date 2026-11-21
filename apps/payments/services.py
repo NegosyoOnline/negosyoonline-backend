@@ -313,11 +313,11 @@ def key_mode(api_key):
 
 
 def environment_allows(mode, site=None):
-    """Production takes live keys only; staging takes test keys only (Railway names the
+    """Production takes live keys only; staging takes test keys only (APP_ENVIRONMENT names the
     environment), except that a site whose public id is in XENDIT_LIVE_KEY_SITES may also save a
     live key there. With no environment name (a local run) either mode is allowed only while DEBUG
     is on; any other run without a name refuses both."""
-    env = settings.RAILWAY_ENVIRONMENT_NAME
+    env = settings.APP_ENVIRONMENT
     if env == "production":
         return mode == LIVE
     if env:

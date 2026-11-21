@@ -28,7 +28,16 @@ Environment `bunny-staging`:
 
 Repository variable `BUNNY_STAGING_URL` (optional, same value) is read by the drift check. GHCR login uses the workflow's own `GITHUB_TOKEN` (`packages: write` on the images job only). The Bunny app must already hold a registry credential that can pull the private `<repo>-staging` package.
 
-Bunny containers must keep `RAILWAY_ENVIRONMENT_NAME=staging` (read by Xendit key saving and staff test-order deletion; unchanged on purpose). `RAILWAY_GIT_COMMIT_SHA` on Bunny is now ignored because the image's `APP_COMMIT_SHA` wins (chain: `APP_COMMIT_SHA`, `RAILWAY_GIT_COMMIT_SHA`, `unknown`; used by `/healthz/` and Sentry's release).
+Bunny containers set `APP_ENVIRONMENT=staging`; production sets `APP_ENVIRONMENT=production` only. It is read by Xendit key saving, the fake-Xendit gate (deploy check `payments.E002`) and the staff test-order deletion commands (refused on production). For one release the code falls back to the old `RAILWAY_ENVIRONMENT_NAME` variable when `APP_ENVIRONMENT` is empty, so staging keeps working until the rename below is done. `/healthz/` and Sentry's release use the image's `APP_COMMIT_SHA` only (else `unknown`).
+
+## Variable rename
+
+After the release that adds `APP_ENVIRONMENT` is verified on staging (`/healthz/` shows its commit, `/readyz/` all true):
+
+1. In a quiet window, set `APP_ENVIRONMENT=staging` on the api, worker and beat containers, and restart them.
+2. Check the guards read-only. Run `manage.py shell -c "from django.conf import settings; print(repr(settings.APP_ENVIRONMENT))"` in the api container (expect `'staging'`), and confirm a deploy check run reports no `payments.E002`.
+3. Remove `RAILWAY_ENVIRONMENT_NAME` (and any other old platform variable) from all three containers, restart, and repeat step 2.
+4. A later change removes the fallback from `apps/common/environment.py`.
 
 ## Migrations and the lock
 

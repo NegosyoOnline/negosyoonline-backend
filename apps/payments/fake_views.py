@@ -1,7 +1,7 @@
 """The local pages that play Xendit's hosted invoice page and its callback, for the preview only.
 
 Routed by config/urls.py only while settings.XENDIT_FAKE is on (which needs DJANGO_DEBUG=true), so
-never on Railway. The buyer lands here from the storefront's pay page; "Pay" marks the fake invoice
+never on a server. The buyer lands here from the storefront's pay page; "Pay" marks the fake invoice
 PAID and delivers the same signed callback Xendit would POST to the site's webhook URL (the real
 webhook code runs, with the site's own token), then sends the buyer back to the invoice's success
 URL, exactly as Xendit does. "Expire" does the same with EXPIRED. Nothing leaves the machine.
@@ -60,7 +60,7 @@ def _local_return(url):
 
 @csrf_exempt
 def invoice(request, invoice_id):
-    if not settings.XENDIT_FAKE or settings.RAILWAY_ENVIRONMENT_NAME:
+    if not settings.XENDIT_FAKE or settings.APP_ENVIRONMENT:
         raise Http404()
     doc = fake_xendit.get(invoice_id)
     if doc is None:

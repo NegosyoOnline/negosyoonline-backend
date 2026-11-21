@@ -67,7 +67,7 @@ def check_messenger_dependencies(app_configs, **kwargs):
     if missing:
         found.append(Error(
             f"INQUIRY_MESSENGER_ENABLED is on but {', '.join(missing)} {'is' if len(missing) == 1 else 'are'} not set.",
-            hint="Set the variable(s) on the api service in Railway; the app secret goes straight from the Meta dashboard into Railway.",
+            hint="Set the variable(s) on the api service; the app secret goes straight from the Meta dashboard into the server variables.",
             id="inquiries.E005",
         ))
     return found
