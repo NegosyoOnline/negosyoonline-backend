@@ -385,6 +385,7 @@ def course_owner_out(course):
         "id": course.public_id, "title": course.title,
         "slug": course.slug, "description": course.description,
         "image_url": media.url_for(course.image_key), "order": course.order, "active": course.active,
+        "shared": course.shared, "copied_from": course.copied_from or None,
         "archived_at": course.archived_at, "created_at": course.created_at, "updated_at": course.updated_at,
         "module_count": course.modules.count(),
         "lesson_count": lessons.count(), "active_lesson_count": lessons.filter(
@@ -406,7 +407,7 @@ def lesson_owner_out(lesson):
         "id": lesson.public_id, "module_id": lesson.module.public_id, "title": lesson.title,
         "duration": lesson.duration, "description": lesson.description,
         "video_url": lesson.video_url or None, "image_url": media.url_for(lesson.image_key),
-        "order": lesson.order, "active": lesson.active,
+        "order": lesson.order, "active": lesson.active, "needs_video": lesson.needs_video,
     }
 
 
@@ -491,7 +492,10 @@ def update_course(site, public_id, data):
     _text(data, "description", errors, out, maximum=5000)
     _flag(data, "active", errors, out)
     _flag(data, "archived", errors, out)
+    _flag(data, "shared", errors, out)
     _number(data, "order", errors, out, low=1, high=100000)
+    if "shared" in out:
+        _check_shared(site, course, out, errors)
     _finish(errors)
     if "slug" in out:
         out["slug"] = _unique_slug(site, out["slug"], exclude_pk=course.pk)
@@ -501,6 +505,16 @@ def update_course(site, public_id, data):
     elif archived is False or out.get("active") is True:
         out["archived_at"] = None  # switching an archived course on brings it back
     return _apply(course, out)
+
+
+def _check_shared(site, course, out, errors):
+    """Only the content source store shares a course, and an archived one is never offered."""
+    from apps.sante import services as sante
+
+    if not sante.is_content_source(site):
+        errors["shared"] = "Only the content source store can share courses."
+    elif out["shared"] and (out.get("archived") is True or (course.archived_at and out.get("archived") is not False)):
+        errors["shared"] = "An archived course cannot be shared."
 
 
 def _delete_with_images(row, keys):
@@ -579,6 +593,8 @@ def update_lesson(site, public_id, data):
     errors, out = {}, {}
     _lesson_values(data, errors, out, creating=False)
     _finish(errors)
+    if out.get("video_url"):
+        out["needs_video"] = False  # the owner added a video: "Add your video" is done
     return _apply(lesson, out)
 
 

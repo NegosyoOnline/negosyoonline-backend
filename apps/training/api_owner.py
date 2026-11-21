@@ -66,6 +66,7 @@ class CoursePatch(StrictSchema):
     order: int | None = None
     active: bool | None = None
     archived: bool | None = None
+    shared: bool | None = None  # only the content source store may send this
 
 
 class ModuleIn(StrictSchema):
