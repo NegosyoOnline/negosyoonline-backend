@@ -118,20 +118,28 @@ JPEG, PNG or WebP of 2 MB or less; the same check as the seed, and one bad file 
 whole run. It needs `PUBLIC_BLOB_READ_WRITE_TOKEN` and `PUBLIC_MEDIA_BASE_URL` on the service
 for `--apply` only.
 
-1. Copy the files into a folder the `api` service can read (for example `/tmp/product-images/`
-   on the running container, copied in with `railway ssh`; the folder is not in the repo).
-2. Dry run. It writes nothing and prints one line per file, then a summary:
+Staging runs on Bunny Magic Containers (the Railway staging environment was deleted on
+2026-11-21; see `docs/runbooks/bunny-staging.md` for the app). Bunny has no exec, no ssh and no
+one-off job API, so the command runs as a temporary extra container:
+
+1. Stage the image files where the job can fetch them (for example the private Blob store),
+   with a sha256 for each file that the job checks. The folder is not in the repo.
+2. Add a temporary container to the staging app, with the `api` image (image tag and env copied
+   from the running `django-api` container, never printed). Its entry script runs the dry run
+   and writes its result to the private Blob store:
 
    ```
-   railway ssh -p <project-id> -e staging -s api -- uv run python manage.py catalog_set_images --images-dir /tmp/product-images
+   uv run python manage.py catalog_set_images --images-dir <folder the job fetched into>
    ```
 
-   `CODE: would set`, `CODE: skip (has image)` or `CODE: skip (no such product)`, then
-   `Dry run, would set N, skipped M.` Check the codes against the catalog.
-3. Only on Coach Ed's word, write (whole remote command single-quoted):
+   The dry run writes nothing and prints `CODE: would set`, `CODE: skip (has image)` or
+   `CODE: skip (no such product)` per file, then `Dry run, would set N, skipped M.` Check the
+   codes against the catalog, and check that N is the expected count of "would set" before any
+   apply.
+3. Only on Coach Ed's word with the Manager's go, the entry script runs the write instead:
 
    ```
-   railway ssh -p <project-id> -e staging -s api -- 'uv run python manage.py catalog_set_images --images-dir /tmp/product-images --apply --operator <staff username>'
+   uv run python manage.py catalog_set_images --images-dir <folder the job fetched into> --apply --operator <staff username>
    ```
 
    It refuses, writing nothing, without `--operator` (an active staff user), while
@@ -140,7 +148,14 @@ for `--apply` only.
    revision (source `seed`, naming the operator; the revision's file hash is the SHA-256 of the
    image). A product that already has an image is skipped unless `--replace` is added, and the
    replaced file is removed once the change is committed. Output never shows a key or token.
-4. Verify: the owner list shows `image_url` for those products and the storefront read does too.
+
+   After the command the script sleeps until the container is removed. It must never exit:
+   Bunny marks the whole app failed if a container exits.
+4. Quiet window. Adding or removing that container rolls the whole app (1-3 minutes of 503 on
+   api-staging today), so run it only at 02:00-05:00 HKT or with ads paused, announced to the
+   SANTE Supervisor first. The operator checks `/readyz/` before and after, and deletes the
+   container at the end.
+5. Verify: the owner list shows `image_url` for those products and the storefront read does too.
 
 ## Undo
 

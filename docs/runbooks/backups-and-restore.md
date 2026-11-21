@@ -140,7 +140,7 @@ It is limited to 30 calls a minute per client address (answers 429 `{"ok": false
 
 ## 5. Monitoring
 
-Tools approved by Coach Ed on 2026-11-13: one external uptime check with an email alert, and Sentry's free tier with personal data scrubbed. Accounts, the `SENTRY_DSN` value and any cost are not approved yet and are his to create. Alerts go to Coach Ed's email.
+Tools approved by Coach Ed on 2026-11-13: one external uptime check with an email alert, and Sentry's free tier with personal data scrubbed. The account now exists (org "NS", project python-django, free plan, created 2026-11-13); the `SENTRY_DSN` value is his to create and is not set anywhere. Alerts go to Coach Ed's email.
 
 Set up 2026-11-13: UptimeRobot free plan, Coach Ed's own account, 4 monitors at 5-minute intervals (the four URLs below), all green. The free plan sends HEAD and cannot pick the method or a keyword; `/readyz/` answers HEAD since BE #155 (8664aa5). The alert proof (stop the worker and beat, receive the Down and Up emails) was proved on 2026-11-13; see the ops B row in `docs/runbooks/launch-gates.md`.
 
@@ -160,6 +160,12 @@ Check every 1 to 5 minutes, alert after two failures in a row. Production gets t
 `apps/common/sentry.py`, started from `config/settings.py` only when `SENTRY_DSN` is set. With no DSN it does nothing. Set it on `api` and `worker` (and `beat`) by name, value from the Sentry project, with Coach Ed's word.
 
 Before SENTRY_DSN is set anywhere, staging included: Sentry is a new sub-processor, and the published Terms give Subscribers 30 days' notice. The Privacy page must first list "Sentry, error reports from our servers, in the United States;" (HQ's change; HQ records the date it goes live on ClickUp z8uq9mbreu). The DSN may be set no earlier than 30 days after that date. The Sentry account must be created in the US data region, or the Privacy line changes first.
+
+Dated step (2026-11-21). The Privacy line "Sentry, error reports from our servers, in the United States" went live with frontend release #66 (commit 1fe7d6d) on 2026-11-13, so the earliest date `SENTRY_DSN` may be set on staging is Sunday 2026-12-13 (the 30-day notice in the published Terms still decides when). Setting it on staging is approved: Coach Ed, "GATES D1-D5: yes", Saturday 2026-11-21, relayed by the Manager. Production is not covered. On or after that date, in a quiet window (02:00-05:00 HKT or ads paused), announced to the SANTE Supervisor first:
+
+1. Coach Ed creates a fresh client key named "staging" in the Sentry project.
+2. Set `SENTRY_DSN` and `SENTRY_ENVIRONMENT=staging` on `api`, `worker` and `beat`. The value is never printed or committed.
+3. Run the proof below.
 
 - Errors only: `traces_sample_rate=0`, `send_default_pii=False`.
 - `before_send` removes the request body, cookies, query string and headers (Authorization included) and the user, and masks anything that looks like an email address or a Philippine mobile number in messages, exception values and breadcrumbs.
