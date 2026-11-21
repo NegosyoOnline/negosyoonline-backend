@@ -331,6 +331,11 @@ META_COMMENTS_CONFIG_ID = os.environ.get("META_COMMENTS_CONFIG_ID", "").strip()
 # (`check --deploy` reports inquiries.E007 otherwise). Off, the rules routes answer 404 and no
 # queued automatic reply is sent. Default off.
 INQUIRY_COMMENT_AUTOMATION_ENABLED = os.environ.get("INQUIRY_COMMENT_AUTOMATION_ENABLED", "").strip() == "1"
+# A store's text (SMS) conversations with its own members, in the dash Inbox (SMS-OWNER, task
+# z8uq9mhbf4). "1" turns the compose, status and routing on, and only while INQUIRIES_ENABLED and
+# SMS_GATEWAY_ENABLED are on (`check --deploy` reports inquiries.E008 otherwise). Off, every text
+# route answers 404 and every incoming text goes to HQ. Default off.
+INQUIRY_SMS_ENABLED = os.environ.get("INQUIRY_SMS_ENABLED", "").strip() == "1"
 # The storefront surface (/storefront/v1/), called only by the storefronts server. "1" turns
 # it on, and only while STOREFRONT_SERVER_SECRET holds at least 32 characters. Off, every path
 # under it answers 404. The secret is read here and nowhere else.

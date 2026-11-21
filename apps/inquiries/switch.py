@@ -94,3 +94,30 @@ def automation_tables_exist():
 def automation_on():
     """INQUIRY_COMMENT_AUTOMATION_ENABLED: comment auto-replies. Only while comments are on too."""
     return bool(settings.INQUIRY_COMMENT_AUTOMATION_ENABLED and comments_on())
+
+
+SMS_TABLES = ("inquiries_inquirysmssettings", "inquiries_inquirysmsoptout")
+_SMS_SEEN = False
+
+
+def sms_tables_exist():
+    """True once inquiries.0010 (the text-conversation tables) is applied. The code is released
+    before its migration, so everything that touches those tables, even to delete, asks this first.
+    A positive answer is remembered for the life of the process."""
+    global _SMS_SEEN
+    if _SMS_SEEN:
+        return True
+    names = connection.introspection.table_names()
+    _SMS_SEEN = all(table in names for table in SMS_TABLES)
+    return _SMS_SEEN
+
+
+def sms_on():
+    """INQUIRY_SMS_ENABLED: a store's text conversations with its members (SMS-OWNER). Only while
+    INQUIRIES_ENABLED and SMS_GATEWAY_ENABLED are on too."""
+    return bool(settings.INQUIRY_SMS_ENABLED and settings.INQUIRIES_ENABLED and settings.SMS_GATEWAY_ENABLED)
+
+
+def sms_ready():
+    """The switches are on and the tables are there: the only state in which a text route works."""
+    return sms_on() and sms_tables_exist()
