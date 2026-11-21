@@ -118,8 +118,8 @@ JPEG, PNG or WebP of 2 MB or less; the same check as the seed, and one bad file 
 whole run. It needs `PUBLIC_BLOB_READ_WRITE_TOKEN` and `PUBLIC_MEDIA_BASE_URL` on the service
 for `--apply` only.
 
-Staging runs on Bunny Magic Containers (the Railway staging environment was deleted on
-2026-11-21; see `docs/runbooks/bunny-staging.md` for the app). Bunny has no exec, no ssh and no
+Staging runs on Bunny Magic Containers (see `docs/runbooks/bunny-staging.md` for the app).
+Bunny has no exec, no ssh and no
 one-off job API, so the command runs as a temporary extra container:
 
 1. Stage the image files where the job can fetch them (for example the private Blob store),
