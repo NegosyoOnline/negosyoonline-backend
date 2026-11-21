@@ -1,0 +1,185 @@
+name: Bunny production release
+
+# Runs on a push to the `production` branch, which promote-production.yml fast-forwards from a
+# v*.*.* tag on main. It never builds: it deploys the SAME images (by digest) that "Bunny staging
+# release" built and deployed for that commit, and fails if staging never ran the commit.
+#   plan -> staged (staging run + images exist, migrations listed in the summary)
+#        -> (environment `bunny-production` approval by the owner = release + migrations approval)
+#        -> update ONLY the api, worker and beat containers -> verify -> roll back on failure.
+# Manual dispatch (from the `production` branch only) with `sha` redeploys an earlier release's
+# images (rollback or re-run): no migration rollback.
+# Runbook: docs/runbooks/bunny-production.md
+
+on:
+  push:
+    branches: [production]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Full 40-character commit SHA on the production branch whose staging-built images are redeployed (rollback). Empty = this run's commit."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# One production release at a time; a running deploy is never cancelled mid-way.
+concurrency:
+  group: bunny-production-release
+  cancel-in-progress: false
+
+env:
+  # Production deploys the images staging built. There is no production image repository.
+  IMAGE_BASE: ghcr.io/${{ github.repository }}-staging
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.p.outputs.sha }}
+      mode: ${{ steps.p.outputs.mode }}
+      image_repo: ${{ steps.p.outputs.image_repo }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: p
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = "refs/heads/production" ] \
+            || { echo "production releases run only from the production branch (got $GITHUB_REF)" >&2; exit 1; }
+          sha="${INPUT_SHA:-$GITHUB_SHA}"
+          mode=release
+          if [ "$sha" != "$GITHUB_SHA" ]; then mode=redeploy; fi
+          printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$' || { echo "sha must be 40 lowercase hex characters" >&2; exit 1; }
+          if ! git cat-file -e "$sha^{commit}" || ! git merge-base --is-ancestor "$sha" "origin/main"; then
+            echo "$sha is not a commit on main" >&2; exit 1
+          fi
+          if [ "$mode" = redeploy ] && ! git merge-base --is-ancestor "$sha" "origin/production"; then
+            echo "$sha was never on the production branch" >&2; exit 1
+          fi
+          {
+            echo "sha=$sha"
+            echo "mode=$mode"
+            echo "image_repo=${IMAGE_BASE,,}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Production release $sha ($mode)" >> "$GITHUB_STEP_SUMMARY"
+
+  staged:
+    name: Staging-built images and migrations
+    needs: plan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+    outputs:
+      api: ${{ steps.d.outputs.api }}
+      worker: ${{ steps.d.outputs.worker }}
+      beat: ${{ steps.d.outputs.beat }}
+    env:
+      SHA: ${{ needs.plan.outputs.sha }}
+      REPO: ${{ needs.plan.outputs.image_repo }}
+      # Read before the gate, so it comes from the repository variable (an environment variable is
+      # not available until the approval). Default is the planned production API host.
+      PRODUCTION_URL: ${{ vars.BUNNY_PRODUCTION_URL || 'https://api.negosyonline.com' }}
+    steps:
+      - name: Check out source (scripts, history)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a successful staging release of this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: deploy/bunny/ci/require-staging-release.sh "$GITHUB_REPOSITORY" "$SHA"
+      - name: Log in to GHCR (read only)
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Look up the staging-built image digests (no rebuild)
+        id: d
+        run: |
+          echo "### Images that production will run (built and deployed by staging)" >> "$GITHUB_STEP_SUMMARY"
+          deploy/bunny/ci/resolve-staging-images.sh "$REPO" "$SHA"
+      - name: List the migrations this release would apply
+        run: deploy/bunny/ci/list-migrations.sh "$PRODUCTION_URL" "$SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy, migrate, verify
+    needs: [plan, staged]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # The owner is the only required reviewer of this environment. Approving this job approves the
+    # release and the migrations listed in the `staged` job summary.
+    environment: bunny-production
+    permissions:
+      contents: read
+    env:
+      SHA: ${{ needs.plan.outputs.sha }}
+      IMAGE_REPO: ${{ needs.plan.outputs.image_repo }}
+      BUNNY_APP_ID: ${{ vars.BUNNY_APP_ID }}
+      BUNNY_CONTAINER_API: ${{ vars.BUNNY_CONTAINER_API }}
+      BUNNY_CONTAINER_WORKER: ${{ vars.BUNNY_CONTAINER_WORKER }}
+      BUNNY_CONTAINER_BEAT: ${{ vars.BUNNY_CONTAINER_BEAT }}
+      BUNNY_PRODUCTION_URL: ${{ vars.BUNNY_PRODUCTION_URL || 'https://api.negosyonline.com' }}
+      BUNNY_HQ_URL: ${{ vars.BUNNY_HQ_URL }}
+    steps:
+      - name: Check out source (scripts)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Require configuration
+        env:
+          KEY_PRESENT: ${{ secrets.BUNNY_API_KEY != '' }}
+        run: |
+          [ "$KEY_PRESENT" = "true" ] || { echo "secret BUNNY_API_KEY is not set on the bunny-production environment" >&2; exit 1; }
+          for v in BUNNY_APP_ID BUNNY_CONTAINER_API BUNNY_CONTAINER_WORKER BUNNY_CONTAINER_BEAT; do
+            [ -n "${!v}" ] || { echo "variable $v is not set on the bunny-production environment" >&2; exit 1; }
+          done
+      - name: Record the images running now (rollback point)
+        id: snap
+        env:
+          BUNNY_API_KEY: ${{ secrets.BUNNY_API_KEY }}
+        run: |
+          deploy/bunny/ci/bunny-deploy.sh snapshot "$RUNNER_TEMP/previous.json"
+          cp "$RUNNER_TEMP/previous.json" previous-images.json
+          {
+            echo "### Previous images (rollback point)"
+            jq -r '.[] | "- \(.role): `\(.imageName):\(.imageTag)`"' previous-images.json
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save rollback point
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bunny-production-previous-images
+          path: previous-images.json
+          retention-days: 90
+      - name: Update the api, worker and beat containers
+        env:
+          BUNNY_API_KEY: ${{ secrets.BUNNY_API_KEY }}
+          DIG_API: ${{ needs.staged.outputs.api }}
+          DIG_WORKER: ${{ needs.staged.outputs.worker }}
+          DIG_BEAT: ${{ needs.staged.outputs.beat }}
+        # The api container migrates on start (advisory lock); worker and beat wait for a migrated schema.
+        run: deploy/bunny/ci/bunny-deploy.sh apply "$SHA" "$DIG_API" "$DIG_WORKER" "$DIG_BEAT"
+      - name: Verify the API host (commit, /readyz/ including beat)
+        run: deploy/bunny/ci/verify-release.sh "$BUNNY_PRODUCTION_URL" "$SHA" 900
+      - name: Verify the HQ API host
+        if: env.BUNNY_HQ_URL != ''
+        run: deploy/bunny/ci/verify-release.sh "$BUNNY_HQ_URL" "$SHA" 300
+      - name: Roll back the three containers to the previous images
+        if: ${{ failure() && steps.snap.outcome == 'success' }}
+        env:
+          BUNNY_API_KEY: ${{ secrets.BUNNY_API_KEY }}
+        # Images only. Migrations are never rolled back: they must be backward-compatible.
+        run: |
+          deploy/bunny/ci/bunny-deploy.sh restore "$RUNNER_TEMP/previous.json"
+          echo "### ROLLED BACK to the previous images; the production release failed." >> "$GITHUB_STEP_SUMMARY"
+          prev="$(jq -r '.[] | select(.role=="api") | .imageTag' "$RUNNER_TEMP/previous.json")"
+          deploy/bunny/ci/verify-release.sh "$BUNNY_PRODUCTION_URL" "${prev%-api}" 600 \
+            || echo "rollback did not verify; check the Bunny dashboard" >&2
