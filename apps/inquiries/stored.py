@@ -31,6 +31,7 @@ RECENT_REPLIES = 20
 SNIPPET = 100
 ANONYMOUS = "Website visitor"
 MESSENGER_CUSTOMER = "Messenger customer"
+SMS_CUSTOMER = "Customer"
 MAX_PAUSE = timedelta(days=90)
 
 CLOSED_CODE = "conversation_closed"
@@ -39,10 +40,13 @@ CONFLICT_CODE = "conflict"
 
 def providers():
     """The stored providers the owner may see now: Messenger only while its switch is on."""
-    from apps.inquiries.switch import messenger_on
-    if messenger_on():
-        return InquiryConversation.STORED_PROVIDERS
-    return tuple(p for p in InquiryConversation.STORED_PROVIDERS if p != InquiryConversation.MESSENGER)
+    from apps.inquiries.switch import messenger_on, sms_ready
+    shown = InquiryConversation.STORED_PROVIDERS
+    if not messenger_on():
+        shown = tuple(p for p in shown if p != InquiryConversation.MESSENGER)
+    if not sms_ready():  # texts need their switches and tables (inquiries.0010)
+        shown = tuple(p for p in shown if p != InquiryConversation.SMS)
+    return shown
 
 
 def is_stored_ref(ref):
@@ -63,7 +67,8 @@ def find(site, ref):
 
 
 def _name(conversation):
-    fallback = MESSENGER_CUSTOMER if conversation.provider == InquiryConversation.MESSENGER else ANONYMOUS
+    fallback = {InquiryConversation.MESSENGER: MESSENGER_CUSTOMER, InquiryConversation.SMS: SMS_CUSTOMER}.get(
+        conversation.provider, ANONYMOUS)
     return conversation.contact_name or conversation.display_name or fallback
 
 
@@ -110,14 +115,14 @@ def valid_query(text):
 
 
 def _matching(rows, text):
-    """The rows whose name, contact name, contact email, contact mobile or any message text contains `text`, ignoring
+    """The rows whose name, contact name, contact email, contact mobile (not a text conversation's: it is searched by name only) or any message text contains `text`, ignoring
     case. `rows` is already this site's; the message test is tied to the same conversation and site."""
     in_message = InquiryMessage.objects.filter(
         conversation=OuterRef("pk"), site=OuterRef("site"), body__icontains=text,
     )
     return rows.filter(
         Q(display_name__icontains=text) | Q(contact_name__icontains=text) | Q(contact_email__icontains=text)
-        | Q(contact_mobile__icontains=text)
+        | (Q(contact_mobile__icontains=text) & ~Q(provider=InquiryConversation.SMS))
         | Exists(in_message)
     )
 
@@ -242,6 +247,14 @@ def thread(site, ref):
         "next_cursor": None,
         "replies": [_reply_out(r) for r in replies],
     }
+    if conversation.provider == InquiryConversation.SMS:  # a text conversation: live send states, masked number, room
+        from apps.inquiries import sms_inbox
+        sms_inbox.refresh(conversation, latest)
+        for item, m in zip(out["messages"], latest):
+            item["delivery_state"] = m.delivery_state
+            if sms_inbox.message_error(m):
+                item["error_code"], item["error_message"] = m.error_code, sms_inbox.message_error(m)
+        out.update(sms_inbox.thread_extras(site, conversation))
     if window is not None:  # Messenger only: Meta's 24-hour window since the customer's last message
         out["reply_window"] = window
         if is_open and not window["open"]:
@@ -273,6 +286,9 @@ def reply(site, account, ref, text, idempotency_key):
     if conversation.provider == InquiryConversation.MESSENGER:
         from apps.inquiries import messenger_inbox
         return messenger_inbox.reply(site, account, conversation, text, idempotency_key)
+    if conversation.provider == InquiryConversation.SMS:
+        from apps.inquiries import sms_inbox
+        return sms_inbox.reply(site, account, conversation, text, idempotency_key)
     if conversation.provider == InquiryConversation.EMAIL:
         return _reply_email(site, account, conversation, text, idempotency_key)
     now = timezone.now()

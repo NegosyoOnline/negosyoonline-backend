@@ -13,10 +13,10 @@ from apps.common import retention
 from apps.inquiries import comment_media, profile
 from apps.inquiries.models import (
     InquiryChannelSettings, InquiryComment, InquiryCommentSettings, InquiryConnection, InquiryConversation,
-    InquiryMessage, InquiryPost, InquiryReply,
+    InquiryMessage, InquiryPost, InquiryReply, InquirySmsOptOut, InquirySmsSettings,
 )
 from apps.notifications.models import EmailMessage
-from apps.inquiries.switch import comment_tables_exist, inquiries_on, stored_tables_exist, tables_exist
+from apps.inquiries.switch import comment_tables_exist, inquiries_on, sms_tables_exist, stored_tables_exist, tables_exist
 from apps.sites.models import Site
 
 REPLY_RETENTION = timedelta(days=365)
@@ -117,6 +117,7 @@ CONNECTIONS, CONVERSATIONS = "inquiry_connections", "inquiry_conversations"
 MESSAGES, CHANNELS = "inquiry_messages", "inquiry_channel_settings"
 EMAIL_RECORDS = "inquiry_email_records"
 COMMENTS = "inquiry_comments"
+SMS_OPTOUTS = "inquiry_sms_optouts"
 
 
 def blanked():
@@ -129,6 +130,7 @@ def blanked():
         EMAIL_RECORDS: ["inquiry_reply rows to the sites' customers deleted"],
         COMMENTS: ["all comment, post and comment-action rows deleted"],
         CHANNELS: ["email_route_token", "webchat_enabled", "email_enabled", "paused_until"],
+        SMS_OPTOUTS: ["all rows deleted; the store's text switch turned off"],
     }
 
 
@@ -168,9 +170,17 @@ def blank_inquiries(sites, dry_run=False):
         found = comment_rows.count()
         if found:  # a site with no comments keeps the report's shape as it was
             counts[COMMENTS] = found
+    optouts = InquirySmsOptOut.objects.filter(site__in=sites) if sms_tables_exist() else None
+    if optouts is not None:
+        found = optouts.count()
+        if found:  # a site with no opt-outs keeps the report's shape as it was
+            counts[SMS_OPTOUTS] = found
     if not any(counts.values()):
         return {}
     if not dry_run:
+        if optouts is not None:
+            optouts.delete()
+            InquirySmsSettings.objects.filter(site__in=sites).update(enabled=False)
         if comment_rows is not None:
             comment_media.forget(list(comment_rows.values_list("pk", flat=True)))
             comment_rows.delete()

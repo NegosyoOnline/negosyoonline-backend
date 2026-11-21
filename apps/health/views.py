@@ -16,6 +16,7 @@ from django.views.decorators.http import require_safe
 
 from apps.common import throttle
 from apps.common.errors import ApiError
+from apps.db_backup import constants as db_backup_constants
 from apps.file_backup.constants import LAST_OK_KEY as FILES_BACKUP_KEY
 from apps.health.tasks import HEARTBEAT_KEY
 
@@ -173,6 +174,35 @@ def check_files_backup():
     return _bounded(_files_backup_fresh)
 
 
+def _db_backup_fresh():
+    """The newest copy's time comes from the cache, set by each good run. When the cache has none
+    (Redis was emptied), one listing of the private store finds it, and the answer is cached; a
+    failed listing is remembered for a few minutes so a down store is not asked on every call."""
+    from apps.db_backup import clients, service
+
+    max_age = settings.DB_BACKUP_STALE_HOURS * 3600
+    last = cache.get(db_backup_constants.LAST_OK_KEY)
+    if last is None:
+        if cache.get(db_backup_constants.PROBE_FAILED_KEY):
+            return False
+        try:
+            newest = service.newest_copy_time(clients.build_store())
+        except Exception:
+            cache.set(db_backup_constants.PROBE_FAILED_KEY, 1, db_backup_constants.PROBE_FAILED_SECONDS)
+            return False
+        if newest is None:
+            return False
+        last = newest.timestamp()
+        cache.set(db_backup_constants.LAST_OK_KEY, last, None)
+    return timezone.now().timestamp() - float(last) < max_age
+
+
+def check_db_backup():
+    """Only called while DB_BACKUP_ENABLED is on (the field is left out otherwise). True while
+    the newest encrypted copy is younger than DB_BACKUP_STALE_HOURS; false with none."""
+    return _bounded(_db_backup_fresh)
+
+
 @require_safe
 def readyz(request):
     limit, window = READYZ_LIMIT
@@ -192,5 +222,7 @@ def readyz(request):
         "meta_queue": check_meta_queue(),
         "xendit_queue": check_xendit_queue(),
     }
+    if settings.DB_BACKUP_ENABLED:
+        checks["db_backup"] = check_db_backup()
     ok = all(checks.values())
     return JsonResponse({"ok": ok, **checks}, status=200 if ok else 503)

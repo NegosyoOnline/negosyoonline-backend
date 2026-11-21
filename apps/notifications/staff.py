@@ -15,7 +15,7 @@ from django.http import JsonResponse
 
 from apps.common.errors import ApiError, error_body
 from apps.notifications import devices, services
-from apps.notifications.models import SmsPolicy
+from apps.notifications.models import SmsPolicy, store_limit_columns_exist
 from apps.operators import audit, two_step
 
 MAX_BODY = 2048
@@ -50,12 +50,16 @@ def _route(view, *, needs_mgmt=False):
 
 
 def _state(row):
-    return {
+    state = {
         "sending_stopped": row.sending_stopped,
         "platform_daily_limit": row.platform_daily_limit,
         "site_daily_limit": row.site_daily_limit,
         "updated_at": row.updated_at.isoformat(),
     }
+    if store_limit_columns_exist():
+        state["store_daily_limit"] = row.store_daily_limit
+        state["all_stores_daily_limit"] = row.all_stores_daily_limit
+    return state
 
 
 @_route

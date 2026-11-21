@@ -41,6 +41,30 @@ def blanked():
     }
 
 
+SMS_CONVERSATIONS = "inquiry_sms_conversations"
+
+
+def _sms_conversations(member):
+    """The store's text conversation with this member (SMS-OWNER), or None while the inquiries text
+    tables are not there yet. The member is found by store and mobile."""
+    from apps.inquiries.models import InquiryConversation
+    from apps.inquiries.switch import sms_tables_exist, stored_tables_exist
+    if not (sms_tables_exist() and stored_tables_exist()):
+        return None
+    return InquiryConversation.objects.filter(
+        site=member.site, provider=InquiryConversation.SMS, contact_mobile=member.mobile,
+    )
+
+
+def _delete_sms_conversations(rows):
+    """Delete the conversations with their messages and reply audit rows (PROTECT: audit rows first).
+    The store's opt-out of the number is kept, so a removed member who said STOP is still not texted."""
+    from apps.inquiries.models import InquiryConversation, InquiryReply
+    ids = list(rows.values_list("pk", flat=True))
+    InquiryReply.objects.filter(conversation_id__in=ids).delete()
+    InquiryConversation.objects.filter(pk__in=ids).delete()
+
+
 def blank_members_of(account, dry_run=False):
     """Delete every session and every sign-in code row of the members of the account's sites and
     blank each member's name, mobile, email and delivery address. The rows stay: an order will
@@ -68,7 +92,12 @@ def blank_members(sites, dry_run=False, *, ignore_switch=False, only_member=None
         order_logs = order_logs.filter(member=only_member)
     counts = {MEMBERS: members.count(), SESSIONS: sessions.count(), CHALLENGES: challenges.count(),
               ADDRESS_EVENTS: events.count(), ORDER_LOGS: order_logs.count()}
+    texts = _sms_conversations(only_member) if only_member is not None else None
+    if texts is not None and texts.exists():  # a key only when there is something (the report keeps its shape)
+        counts[SMS_CONVERSATIONS] = texts.count()
     if not dry_run:
+        if texts is not None:
+            _delete_sms_conversations(texts)  # before the mobile is blanked: it is how they are found
         sessions.delete()
         challenges.delete()
         order_logs.delete()  # nothing else needs the rows, and they name a third party

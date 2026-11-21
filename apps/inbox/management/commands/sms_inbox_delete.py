@@ -4,6 +4,13 @@ name is carried out. Works with SMS_INBOX_ENABLED on or off, wherever the tables
 
     manage.py sms_inbox_delete --actor USERNAME             count only
     manage.py sms_inbox_delete --actor USERNAME --confirm   delete
+    manage.py sms_inbox_delete --actor USERNAME --site SITE_PUBLIC_ID --confirm
+                                                            delete only that store's conversation
+
+A Santé store's own text conversation with the number (SMS-OWNER) is deleted too, with its reply
+audit rows, wherever the tables exist. With --site only that store's conversation is touched and
+nothing of HQ's is. The store's opt-out of the number (its STOP) is kept so that the store can
+never text the number again; no command removes it.
 
 The number is typed at the prompt. It is never an argument, and it must not be put into the
 command line through echo or a here-string either: all of those leave it in the shell's
@@ -19,7 +26,10 @@ from apps.common.phones import normalise_ph_mobile
 from apps.inbox.models import BulkRecipient, Contact, Conversation, ConversationMessage
 from apps.inbox.reading import NUMBER_DIGITS, is_a_number
 from apps.inbox.switch import SMS, bulk_tables_exist, contacts_tables_exist, tables_exist
+from apps.inquiries.models import InquiryConversation, InquiryMessage, InquiryReply
+from apps.inquiries.switch import sms_tables_exist, stored_tables_exist
 from apps.notifications import services
+from apps.sites.models import Site
 from apps.operators import audit
 
 TARGET = "conversation"
@@ -40,8 +50,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--actor", help="the staff user running this command, for the audit record")
         parser.add_argument("--confirm", action="store_true", help="delete; without it the command only counts")
+        parser.add_argument("--site", help="a store's public id: delete only that store's text conversation")
 
-    def handle(self, *args, actor, confirm, **options):
+    def handle(self, *args, actor, confirm, site=None, **options):
         if not tables_exist():
             raise CommandError("The inbox tables do not exist here, so no text is stored.")
         actor = get_user_model().objects.filter(username=actor or "", is_active=True, is_staff=True).first()
@@ -49,14 +60,28 @@ class Command(BaseCommand):
             raise CommandError("--actor must be an active staff user.")
         self.stderr.write("Type the full number, then Enter:")
         number, digits = self._typed(sys.stdin.readline())
+        one_store = None
+        if site:
+            one_store = Site.objects.filter(public_id=site).first()
+            if one_store is None:
+                raise CommandError("No store has that public id.")
         with transaction.atomic():
-            found = self._matching(number, digits)
-            messages = ConversationMessage.objects.filter(conversation__in=found).count()
-            records = self._staff_records(number)
-            contacts = self._contacts(number)
-            held = None if contacts is None else contacts.count()
-            waiting = self._bulk_rows(number)
-            waiting_count = None if waiting is None else waiting.count()
+            store_rows = self._store_conversations(number, one_store)  # {store public id: conversations}
+            if one_store is not None:  # one store only: nothing of HQ's is read or touched
+                found, contacts, waiting = [], None, None
+                records = self._send_records(number, one_store)
+                messages, held, waiting_count = 0, None, None
+            else:
+                found = self._matching(number, digits)
+                messages = ConversationMessage.objects.filter(conversation__in=found).count()
+                records = self._send_records(number, None)
+                contacts = self._contacts(number)
+                held = None if contacts is None else contacts.count()
+                waiting = self._bulk_rows(number)
+                waiting_count = None if waiting is None else waiting.count()
+            store_messages = sum(
+                InquiryMessage.objects.filter(conversation__in=rows).count() for rows in store_rows.values()
+            )
             if confirm:
                 Conversation.objects.filter(pk__in=found).delete()  # its messages go with it
                 for record in records:
@@ -65,10 +90,16 @@ class Command(BaseCommand):
                     contacts.delete()  # its group links go with it; the groups stay
                 if waiting is not None:
                     waiting.delete()  # the do-not-text list is never touched
+                for rows in store_rows.values():
+                    InquiryReply.objects.filter(conversation__in=rows).delete()  # PROTECT: audit rows first
+                    InquiryConversation.objects.filter(pk__in=[c.pk for c in rows]).delete()  # messages go with it
             detail = {
                 "platform": SMS, "change": "delete" if confirm else "count",
                 "conversations": len(found), "messages": messages, "send_records": len(records),
             }
+            if store_rows:
+                detail["store_conversations"] = sum(len(rows) for rows in store_rows.values())
+                detail["store_messages"] = store_messages
             if held is not None:
                 detail["contacts"] = held
             if waiting_count is not None:
@@ -77,7 +108,7 @@ class Command(BaseCommand):
         if confirm:
             for record in records:  # after the commit: a text still waiting is never sent
                 services.forget_sms(record)
-        if not (found or records or held or waiting_count):
+        if not (found or records or held or waiting_count or store_rows):
             self.stdout.write("Nothing is stored for that number.")
             return
         counts = (
@@ -88,10 +119,27 @@ class Command(BaseCommand):
             counts += f", {_count(held, 'contact')}"
         if waiting_count is not None:
             counts += f", {_count(waiting_count, 'bulk recipient')}"
+        for public_id, rows in sorted(store_rows.items()):
+            counts += f", {_count(len(rows), 'store text conversation')} of store {public_id}"
         if confirm:
             self.stdout.write(f"Deleted: {counts}.")
         else:
             self.stdout.write(f"Found: {counts}. Nothing was deleted. Run again with --confirm to delete them.")
+
+    def _store_conversations(self, number, one_store):
+        """{store public id: its text conversations with this exact Philippine mobile}, locked.
+        Empty when the text-conversation tables are not there yet or the number is no Philippine mobile."""
+        if number is None or not sms_tables_exist() or not stored_tables_exist():
+            return {}
+        rows = InquiryConversation.objects.select_for_update().filter(
+            provider=InquiryConversation.SMS, contact_mobile=number,
+        ).select_related("site")
+        if one_store is not None:
+            rows = rows.filter(site=one_store)
+        found = {}
+        for row in rows:
+            found.setdefault(row.site.public_id, []).append(row)
+        return found
 
     def _contacts(self, number):
         """The HQ contacts held under this exact Philippine mobile, locked, or None when
@@ -113,13 +161,16 @@ class Command(BaseCommand):
             return BulkRecipient.objects.none()
         return BulkRecipient.objects.select_for_update().filter(mobile=number)
 
-    def _staff_records(self, number):
-        """The send records of staff texts to a Philippine mobile, locked. None exist for any
-        other number: a staff text can go to no other. Refuses while one is with the phone,
-        before anything is deleted or recorded: the phone's report on it must still find it."""
+    def _send_records(self, number, one_store):
+        """The send records of staff texts, and of the stores' texts (one store's with `one_store`),
+        to a Philippine mobile, locked. None exist for any other number: a text can go to no other.
+        Refuses while one is with the phone, before anything is deleted or recorded: the phone's
+        report on it must still find it."""
         if number is None:
             return []
-        records = list(services.staff_send_records(number).select_for_update())
+        records = list(services.store_send_records(number, one_store).select_for_update())
+        if one_store is None:
+            records += list(services.staff_send_records(number).select_for_update())
         if any(record.status == "dispatched" for record in records):
             raise CommandError("A text to that number is with the phone right now. Run again in 10 minutes.")
         return records
