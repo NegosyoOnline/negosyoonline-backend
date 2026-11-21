@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 Priority = SmsMessage.Priority
 CODE, STATUS = SmsMessage.Category.CODE.value, SmsMessage.Category.STATUS.value
 INBOX = SmsMessage.Category.INBOX.value
+STORE = SmsMessage.Category.STORE.value
 QUEUED, EMAILED, REFUSED = "queued", "emailed", "refused"
 
 DEFAULT_LIFETIME = 600  # seconds a text is worth sending: a code's 10 minutes
@@ -37,6 +38,9 @@ STAFF_TEXT_LIFETIME = 3600  # seconds a staff text waits for the phone
 # Of the day's texts, this many are for codes only (Coach Ed, "Hold back 300"). A staff text
 # is refused once the day's count reaches the limit less this. Changing it is his ruling.
 RESERVED_FOR_CODES = 300
+# Texts one store may send in a clock hour (Manila time). The same pattern as the 20 emails an
+# hour a store may send from its Inbox (apps/inquiries/stored.py, EMAIL_HOUR).
+STORE_HOURLY_LIMIT = 20
 
 
 @dataclass(frozen=True)
@@ -60,7 +64,14 @@ PURPOSES = {
     # One announcement text of a Bulk SMS batch. MARKETING is the sending class (lowest, paced),
     # not a permission for other marketing: this closed list is what forbids that.
     "inbox_bulk": Purpose(category=INBOX, priority=Priority.MARKETING, paced=True),
+    # A Santé store's text to one of its own members, written in the store's dash Inbox (SMS-OWNER,
+    # Coach Ed 2026-11-21). One member at a time: there is no list send. It names its site and has
+    # no email fallback. The same sending class as a staff text, in the same paced lane.
+    "store_reply": Purpose(category=STORE, priority=Priority.REPLY, paced=True),
+    "store_compose": Purpose(category=STORE, priority=Priority.REPLY, paced=True),
 }
+
+STORE_PURPOSES = ("store_reply", "store_compose")
 
 
 def paced_purposes():
@@ -216,6 +227,23 @@ def _site_key(site):
     return f"sms:count:site:{site.pk}:{_today():%Y%m%d}"
 
 
+def _store_key(site):
+    return f"sms:count:store:{site.pk}:{_today():%Y%m%d}"
+
+
+def _store_hour_key(site, hour_start):
+    return f"sms:count:storehour:{site.pk}:{hour_start:%Y%m%d%H}"
+
+
+def _all_stores_key():
+    return f"sms:count:stores:{_today():%Y%m%d}"
+
+
+def hour_start():
+    """The start of the current clock hour (Manila time), which the hourly store cap counts from."""
+    return timezone.localtime().replace(minute=0, second=0, microsecond=0)
+
+
 def _claim(key, limit, recount):
     """Take one of the day's slots. The add is atomic, so two requests cannot both take the
     last one. An empty cache is started from the records."""
@@ -245,29 +273,60 @@ def platform_count():
     return _counted().count() if held is None else held
 
 
+def store_used_today(site):
+    """Today's store texts of this Site that used a slot, from the records."""
+    return _counted().filter(site=site, category=STORE).count()
+
+
+def store_used_this_hour(site):
+    return _counted().filter(site=site, category=STORE, created_at__gte=hour_start()).count()
+
+
 def refusal(message):
-    """Why this text is not sent now, or "" when it may be queued. Takes its daily slots."""
+    """Why this text is not sent now, or "" when it may be queued. Takes its daily slots.
+
+    A store text (4.2 of the SMS-OWNER plan) is refused in this order: sending stopped; the
+    store's day (`site_limit`); the store's hour (`site_hour_limit`); all stores' day
+    (`stores_limit`); the platform day less the texts kept for codes (`staff_limit`); the phone
+    offline (`gateway_offline`)."""
     rules = policy()
     if rules.sending_stopped:
         return "paused"
-    site_key = None
-    if message.category == STATUS and message.site_id:
-        site_key = _site_key(message.site)
-        of_site = _counted(message).filter(site=message.site, category=STATUS)
-        if not _claim(site_key, rules.site_daily_limit, of_site.count):
-            return "site_limit"
-    limit, reason = rules.platform_daily_limit, "platform_limit"
-    if message.category == INBOX:
-        limit, reason = max(limit - RESERVED_FOR_CODES, 0), "staff_limit"
-    if not _claim(_platform_key(), limit, _counted(message).count):
-        if site_key:
-            _release(site_key)
+    taken = []  # the slots claimed so far, given back when a later rule refuses
+
+    def refuse(reason):
+        for key in taken:
+            _release(key)
         return reason
+
+    def claim(key, limit, recount):
+        if not _claim(key, limit, recount):
+            return False
+        taken.append(key)
+        return True
+
+    if message.category == STATUS and message.site_id:
+        of_site = _counted(message).filter(site=message.site, category=STATUS)
+        if not claim(_site_key(message.site), rules.site_daily_limit, of_site.count):
+            return refuse("site_limit")
+    if message.category == STORE and message.site_id:
+        mine = _counted(message).filter(site=message.site, category=STORE)
+        if not claim(_store_key(message.site), rules.store_daily_limit, mine.count):
+            return refuse("site_limit")
+        start = hour_start()
+        this_hour = mine.filter(created_at__gte=start)
+        if not claim(_store_hour_key(message.site, start), STORE_HOURLY_LIMIT, this_hour.count):
+            return refuse("site_hour_limit")
+        stores = _counted(message).filter(category=STORE)
+        if not claim(_all_stores_key(), rules.all_stores_daily_limit, stores.count):
+            return refuse("stores_limit")
+    limit, reason = rules.platform_daily_limit, "platform_limit"
+    if message.category in (INBOX, STORE):
+        limit, reason = max(limit - RESERVED_FOR_CODES, 0), "staff_limit"
+    if not claim(_platform_key(), limit, _counted(message).count):
+        return refuse(reason)
     if not gateway_online(message.site):
-        _release(_platform_key())
-        if site_key:
-            _release(site_key)
-        return "gateway_offline"
+        return refuse("gateway_offline")
     return ""
 
 

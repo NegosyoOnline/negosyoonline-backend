@@ -30,6 +30,32 @@ def forget_site_column_check():
     _SITE_COLUMN.update(found=False, checked=0.0)
 
 
+_STORE_LIMITS = {"found": False, "checked": 0.0}
+
+
+def store_limit_columns_exist():
+    """Whether notifications.0006 is applied (SmsPolicy.store_daily_limit and
+    all_stores_daily_limit exist). Until it is, every SmsPolicy query leaves the two columns out
+    and the rest of the SMS code behaves as before: the code is released before its migration and
+    must not stop a sign-in code. Remembered once found; a missing one is looked for again every 30 s."""
+    if _STORE_LIMITS["found"]:
+        return True
+    now = time.monotonic()
+    if _STORE_LIMITS["checked"] and now - _STORE_LIMITS["checked"] < _RECHECK_AFTER:
+        return False
+    table = SmsPolicy._meta.db_table
+    with connection.cursor() as cursor:
+        columns = {c.name for c in connection.introspection.get_table_description(cursor, table)}
+    _STORE_LIMITS.update(
+        found={"store_daily_limit", "all_stores_daily_limit"} <= columns, checked=now
+    )
+    return _STORE_LIMITS["found"]
+
+
+def forget_store_limit_check():
+    _STORE_LIMITS.update(found=False, checked=0.0)
+
+
 class SmsDeviceManager(models.Manager):
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -117,6 +143,7 @@ class SmsMessage(models.Model):
         CODE = "code"
         STATUS = "status"
         INBOX = "inbox"
+        STORE = "store"  # a Santé store's text to its own member, from the store's dash Inbox
 
     class Priority(models.IntegerChoices):
         """The sending class. A lower number is handed to the phone first."""
@@ -157,8 +184,20 @@ class SmsMessage(models.Model):
         return f"{self.purpose} {self.public_id} ({self.status})"
 
 
+STORE_DAILY_LIMIT_DEFAULT = 50  # Coach Ed, 2026-11-21 (SO4): texts a store may send a day
+ALL_STORES_DAILY_LIMIT_DEFAULT = 1000  # ... and all stores together
+
+
+class SmsPolicyManager(models.Manager):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if store_limit_columns_exist():
+            return queryset
+        return queryset.defer("store_daily_limit", "all_stores_daily_limit")
+
+
 class SmsPolicy(models.Model):
-    """The one row of SMS settings: the kill switch and the two daily limits."""
+    """The one row of SMS settings: the kill switch and the daily limits."""
 
     sending_stopped = models.BooleanField(
         default=False, help_text="Stops every text at once. Texts already waiting expire unsent."
@@ -169,9 +208,28 @@ class SmsPolicy(models.Model):
     site_daily_limit = models.PositiveIntegerField(
         default=2000, help_text="Order-status texts a day (Manila time) for one site."
     )
+    store_daily_limit = models.PositiveIntegerField(
+        default=STORE_DAILY_LIMIT_DEFAULT,
+        help_text="Texts a day (Manila time) one store may send to its own members.",
+    )
+    all_stores_daily_limit = models.PositiveIntegerField(
+        default=ALL_STORES_DAILY_LIMIT_DEFAULT,
+        help_text="Texts a day (Manila time) all stores together may send to their members.",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = SmsPolicyManager()
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        # Before notifications.0006 the two columns are not read: the defaults stand in.
+        instance.__dict__.setdefault("store_daily_limit", STORE_DAILY_LIMIT_DEFAULT)
+        instance.__dict__.setdefault("all_stores_daily_limit", ALL_STORES_DAILY_LIMIT_DEFAULT)
+        return instance
+
     class Meta:
+        base_manager_name = "objects"
         verbose_name = "SMS settings"
         verbose_name_plural = "SMS settings"
 
