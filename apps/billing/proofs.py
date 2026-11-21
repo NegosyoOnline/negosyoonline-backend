@@ -6,7 +6,7 @@ Blob store in a shared environment, a local folder while DEBUG is on), under the
 `billing/proofs/`. Billing's other private files use sibling prefixes (Billing Build B5).
 """
 from django.conf import settings
-from django.core.checks import Error, Tags, register
+from django.core.checks import Error, Tags, Warning, register
 
 from apps.common import private_files
 
@@ -63,17 +63,26 @@ def check_bank_transfer(app_configs, **kwargs):
 
 @register(Tags.database)
 def check_receiving_account(app_configs, databases=None, **kwargs):
-    """The switch is on but no active receiving account is saved. It reads the database, so it
-    is a database-tagged check. Django calls every registered check with `databases=None` on
-    `migrate`, `runserver`, a plain `check` and `check --deploy`; only `check --database
-    default` passes the names. Like Django's own database checks, this one does nothing unless
-    it is given a database, so it never queries before the table exists (or in CI)."""
+    """The switch is on but no active receiving account is saved: a warning, never an error.
+    It reads the database, so it is a database-tagged check. In Django 5.2 `migrate` and
+    `check --database <name>` pass the database names; a plain `check`, `runserver` and
+    `check --deploy` pass `databases=None`. `migrate` must never fail on this (a fresh
+    database has no account yet), so it is a Warning, and it returns nothing while the
+    `billing_receivingaccount` table does not exist. Payment collection fails closed at
+    runtime (`plan.collection_live()`); `check --database default --fail-level WARNING`
+    makes this warning fail."""
+    from django.db import connections
+
     from apps.billing import plan
 
-    if not databases or not settings.BILLING_BANK_TRANSFER_ENABLED or plan.has_receiving_account():
+    if not databases or "default" not in databases or not settings.BILLING_BANK_TRANSFER_ENABLED:
         return []
-    return [Error(
+    if "billing_receivingaccount" not in connections["default"].introspection.table_names():
+        return []
+    if plan.has_receiving_account():
+        return []
+    return [Warning(
         "BILLING_BANK_TRANSFER_ENABLED is on but no active receiving account is saved.",
         hint="Add one in HQ, Finance, Accounts.",
-        id="billing.E001",
+        id="billing.W001",
     )]
