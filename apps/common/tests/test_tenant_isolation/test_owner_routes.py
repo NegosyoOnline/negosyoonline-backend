@@ -17,12 +17,12 @@ from apps.common.tests.test_tenant_isolation.owner_base import (
 )
 
 NOT_FOUND = {"error": {"code": "not_found", "message": "Not found."}}
-# What the guard expects from the URLconf today (12 + 16 + 2 + 10 + 7 + 13 + 10 + 4 + 31 + 6 + 24 + 11 = 146). The
+# What the guard expects from the URLconf today (12 + 16 + 2 + 10 + 7 + 13 + 10 + 4 + 31 + 6 + 24 + 11 + 2 = 148). The
 # "sites" count includes the 5 member-recovery routes under /sites/{site_id}/members/.
 EXPECTED_COUNTS = {
     "sites": 12, "billing": 16, "sante": 2, "catalog": 10, "payments": 7, "pack_owner": 13,
     "shop_owner": 10, "meta_ads": 4, "inquiries": 31, "member_notices": 6,
-    "training": 24, "media": 11,
+    "training": 24, "media": 11, "shared_content": 2,
 }
 
 
@@ -45,7 +45,7 @@ class RegistryGuardTests(TwoOwnersTestCase):
         for _, template in routes:
             counts[app_of(template)] = counts.get(app_of(template), 0) + 1
         self.assertEqual(counts, EXPECTED_COUNTS)
-        self.assertEqual(len(OWNER_ROUTES), 146)
+        self.assertEqual(len(OWNER_ROUTES), 148)
 
 
 class ForeignSiteTests(TwoOwnersTestCase):

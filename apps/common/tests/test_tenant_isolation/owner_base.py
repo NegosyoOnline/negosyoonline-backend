@@ -129,6 +129,9 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/media/{asset_id}/video/token/"): 200,
     ("POST", "/sites/{site_id}/media/{asset_id}/video/attach/"): 200,
     ("DELETE", "/sites/{site_id}/media/{asset_id}/"): 200,
+    # copy shared content from the content source store (CP-1)
+    ("GET", "/sites/{site_id}/shared-content/"): 200,
+    ("POST", "/sites/{site_id}/shared-content/copy/"): 202,
     # billing
     ("GET", "/sites/{site_id}/billing/"): 200,
     ("GET", "/sites/{site_id}/billing/payment/"): 200,
@@ -247,6 +250,7 @@ APP_PREFIXES = [
     ("/sites/{site_id}/member-notices/", "member_notices"),
     ("/sites/{site_id}/training/", "training"),
     ("/sites/{site_id}/media/", "media"),
+    ("/sites/{site_id}/shared-content/", "shared_content"),
 ]
 
 
@@ -622,6 +626,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             if method == "POST":
                 return {"kind": "announcement", "title": "Fixture notice"}
             return {"title": "Changed"} if method == "PATCH" else None
+        if "/shared-content/" in template:
+            return {"kind": "course", "all": True} if method == "POST" else None
         if "/media/" in template:
             if method == "POST" and template.endswith("/media/"):
                 return {"title": "Fixture media", "asset_type": "image"}

@@ -119,7 +119,7 @@ class QueueSetupTests(SimpleTestCase):
                 "inquiries.fetch_comment_avatar", "inquiries.fetch_messenger_profile", "inquiries.fetch_post_text",
                 "inquiries.send_comment_auto_reply", "invoices.daily_alert",
                 "invoices.ensure_items", "lifecycle.run_approved", "meta_ads.send_order_event", "meta_ads.send_page_event", "meta_ads.sweep",
-                "pack.buyer_notice", "pack.purge", "pack.registered_notice", "payments.xendit_reconcile", "retention.run", "statements.deliver", "statements.ensure",
+                "pack.buyer_notice", "pack.purge", "pack.registered_notice", "payments.xendit_reconcile", "retention.run", "sante.copy_content", "statements.deliver", "statements.ensure",
             ],
         )
         self.assertTrue(tasks.sweep.ignore_result)
