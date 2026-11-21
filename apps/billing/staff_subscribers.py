@@ -28,7 +28,6 @@ PAGE_SIZE = 50
 TRIAL_ENDING_DAYS = 7
 MAX_QUERY = 100
 FILTERS = ("all", "trial_ending", "unpaid", "suspended_ended")
-AUDIT_ACTION = "hq_subscriber_viewed"
 AUDIT_TARGET = "subscriber_site"
 State = Subscription.State
 
@@ -235,7 +234,7 @@ def detail(body, operator):
     )
     # Ids and counts only: the audit entry holds no email, host or amount.
     audit.record(
-        operator, AUDIT_ACTION, target_type=AUDIT_TARGET, target_id=site.public_id,
+        operator, "hq_subscriber_viewed", target_type=AUDIT_TARGET, target_id=site.public_id,
         detail={"payments": len(payments)},
     )
     return JsonResponse({**_row(site), "payments": [_payment(p) for p in payments]})
