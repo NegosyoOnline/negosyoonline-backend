@@ -1,0 +1,11 @@
+PREFIX = "db-backups/"
+SUFFIX = ".dump.enc"
+LAST_OK_KEY = "db_backup:last_ok"  # cache: epoch seconds of the newest known good copy
+PROBE_FAILED_KEY = "db_backup:probe_failed"  # cache: the store could not be listed a moment ago
+RUNNING_KEY = "db_backup:running"
+DAY_KEY = "db_backup:day:{date}"
+RUN_LOCK_SECONDS = 2 * 3600
+DAY_KEPT_SECONDS = 2 * 24 * 3600
+PROBE_FAILED_SECONDS = 300
+KEEP_DAILY = 14
+KEEP_WEEKLY = 8

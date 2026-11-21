@@ -236,6 +236,15 @@ FILE_BACKUP_ENCRYPTION_KEY = os.environ.get("FILE_BACKUP_ENCRYPTION_KEY", "").st
 # How long a copy outlives its source object, and how old the last good run may be in /readyz/.
 FILE_BACKUP_DELETED_KEEP_DAYS = int(os.environ.get("FILE_BACKUP_DELETED_KEEP_DAYS", "35"))
 FILE_BACKUP_STALE_HOURS = int(os.environ.get("FILE_BACKUP_STALE_HOURS", "36"))
+# Nightly encrypted database backup (apps/db_backup): pg_dump of the default database, encrypted
+# and put in the private Blob store under db-backups/. "1" turns on the nightly run and the
+# /readyz/ `db_backup` field; off, the task builds nothing and readyz does not report the field.
+# The key is base64 of 32 random bytes; lose it and the copies cannot be read. Set on the
+# `worker` service (the `backup_database` command also reads it wherever it is run).
+DB_BACKUP_ENABLED = os.environ.get("DB_BACKUP_ENABLED", "").strip() == "1"
+DB_BACKUP_ENCRYPTION_KEY = os.environ.get("DB_BACKUP_ENCRYPTION_KEY", "").strip()
+# How old the newest copy may be in /readyz/ before db_backup is false.
+DB_BACKUP_STALE_HOURS = int(os.environ.get("DB_BACKUP_STALE_HOURS", "30"))
 # Product photos (apps/catalog/media.py): the read-write token of the public Vercel Blob media
 # store and that store's public host (not a secret). Read here and nowhere else. With either
 # unset, no product photo can be uploaded; the rest of the catalog works.
@@ -382,6 +391,7 @@ INSTALLED_APPS = [
     'apps.ledger',
     'apps.lifecycle',
     'apps.file_backup',
+    'apps.db_backup',
 ]
 
 AUTH_USER_MODEL = "operators.User"
@@ -526,6 +536,13 @@ CELERY_BEAT_SCHEDULE = {
     "file-backup-daily": {
         "task": "file_backup.run",
         "schedule": crontab(hour=4, minute=0),
+        "options": {"expires": 3600},
+    },
+    # The nightly encrypted database backup, 04:30 Manila time. Does nothing, and builds no client,
+    # while DB_BACKUP_ENABLED is off. A tick not picked up within the hour is dropped.
+    "db-backup-daily": {
+        "task": "db_backup.run",
+        "schedule": crontab(hour=4, minute=30),
         "options": {"expires": 3600},
     },
     # The Membership Pack buyer purge and the day-76 buyer email, each hourly. Both do nothing
