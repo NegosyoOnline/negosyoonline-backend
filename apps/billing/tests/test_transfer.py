@@ -3,7 +3,7 @@ operator's confirmation and rejection, and how a confirmation settles a cycle.""
 from datetime import date
 from unittest import mock
 
-from django.core.checks import Error
+from django.core.checks import Error, Warning
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -627,18 +627,18 @@ class SwitchTests(TestCase):
         with override_settings(BILLING_BANK_TRANSFER_ENABLED=True):
             self.assertEqual(proofs.check_receiving_account(None), [])  # no database named
             errors = proofs.check_receiving_account(None, databases=["default"])
-            self.assertEqual([(type(e), e.id) for e in errors], [(Error, "billing.E001")])
+            self.assertEqual([(type(e), e.id) for e in errors], [(Warning, "billing.W001")])
             make_receiving_account()
             self.assertEqual(proofs.check_receiving_account(None, databases=["default"]), [])
             ReceivingAccount.objects.update(active=False)
             self.assertEqual(
                 [e.id for e in proofs.check_receiving_account(None, databases=["default"])],
-                ["billing.E001"],
+                ["billing.W001"],
             )
 
     def test_the_account_check_reads_the_database_only_when_asked_to(self):
-        # A database-tagged check does nothing on migrate, runserver or a plain check, so the
-        # table need not exist then. It runs on `check --database default`.
+        # A plain check passes no database, so it never queries. `check --database default`
+        # and `migrate` name one; the missing account is then a warning, not an error.
         from io import StringIO
 
         from django.core.management import call_command
@@ -650,6 +650,31 @@ class SwitchTests(TestCase):
             with CaptureQueriesContext(connection) as queries:
                 call_command("check", stdout=StringIO())
             self.assertEqual([q for q in queries if "receivingaccount" in q["sql"].lower()], [])
+            err = StringIO()
+            call_command("check", "--database", "default", stdout=StringIO(), stderr=err)
+            self.assertIn("billing.W001", err.getvalue())
             with self.assertRaises(SystemCheckError) as raised:
-                call_command("check", "--database", "default", stdout=StringIO(), stderr=StringIO())
-            self.assertIn("billing.E001", str(raised.exception))
+                call_command("check", databases=["default"], fail_level="WARNING",
+                             stdout=StringIO(), stderr=StringIO())
+            self.assertIn("billing.W001", str(raised.exception))
+
+    def test_migrate_succeeds_with_the_switch_on_and_no_receiving_account(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        self.assertFalse(ReceivingAccount.objects.exists())
+        with override_settings(BILLING_BANK_TRANSFER_ENABLED=True), mock.patch(
+            "apps.billing.proofs.available", return_value=True
+        ):
+            err = StringIO()
+            call_command("migrate", verbosity=0, skip_checks=False, stdout=StringIO(), stderr=err)
+            self.assertIn("billing.W001", err.getvalue())
+
+    def test_the_account_check_never_queries_a_missing_table(self):
+        with override_settings(BILLING_BANK_TRANSFER_ENABLED=True), mock.patch(
+            "django.db.backends.base.introspection.BaseDatabaseIntrospection.table_names",
+            return_value=["django_migrations"],
+        ), CaptureQueriesContext(connection) as queries:
+            self.assertEqual(proofs.check_receiving_account(None, databases=["default"]), [])
+        self.assertEqual([q for q in queries if "receivingaccount" in q["sql"].lower()], [])
