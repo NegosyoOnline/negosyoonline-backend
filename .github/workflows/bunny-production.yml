@@ -1,16 +1,23 @@
 name: Bunny production release
 
-# Runs on a push to the `production` branch, which promote-production.yml fast-forwards from a
-# v*.*.* tag on main. It never builds: it deploys the SAME images (by digest) that "Bunny staging
+# Runs when "Promote to production" completes successfully (workflow_run: a push made with the
+# workflow GITHUB_TOKEN does not start push workflows), and on a push to the `production` branch
+# (a human or deploy-key push). promote-production.yml fast-forwards `production` from a v*.*.* tag
+# on main. It never builds: it deploys the SAME images (by digest) that "Bunny staging
 # release" built and deployed for that commit, and fails if staging never ran the commit.
 #   plan -> staged (staging run + images exist, migrations listed in the summary)
 #        -> (environment `bunny-production` approval by the owner = release + migrations approval)
 #        -> update ONLY the api, worker and beat containers -> verify -> roll back on failure.
+# A push run and a workflow_run run for the same commit are serialised by `concurrency`; the second
+# finds production already serving the commit in `plan` (skip) and stops before another approval.
 # Manual dispatch (from the `production` branch only) with `sha` redeploys an earlier release's
 # images (rollback or re-run): no migration rollback.
 # Runbook: docs/runbooks/bunny-production.md
 
 on:
+  workflow_run:
+    workflows: ["Promote to production"]
+    types: [completed]
   push:
     branches: [production]
   workflow_dispatch:
@@ -35,44 +42,36 @@ env:
 jobs:
   plan:
     name: Plan
+    # A promotion that failed or was cancelled deploys nothing.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     outputs:
       sha: ${{ steps.p.outputs.sha }}
       mode: ${{ steps.p.outputs.mode }}
       image_repo: ${{ steps.p.outputs.image_repo }}
+      skip: ${{ steps.p.outputs.skip }}
     steps:
       - name: Check out source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          # workflow_run: the exact promoted commit (the run itself is on main's tip). push/dispatch: the run's commit.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - id: p
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          RUN_SHA: ${{ github.sha }}
           INPUT_SHA: ${{ inputs.sha }}
-        run: |
-          set -euo pipefail
-          [ "$GITHUB_REF" = "refs/heads/production" ] \
-            || { echo "production releases run only from the production branch (got $GITHUB_REF)" >&2; exit 1; }
-          sha="${INPUT_SHA:-$GITHUB_SHA}"
-          mode=release
-          if [ "$sha" != "$GITHUB_SHA" ]; then mode=redeploy; fi
-          printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$' || { echo "sha must be 40 lowercase hex characters" >&2; exit 1; }
-          if ! git cat-file -e "$sha^{commit}" || ! git merge-base --is-ancestor "$sha" "origin/main"; then
-            echo "$sha is not a commit on main" >&2; exit 1
-          fi
-          if [ "$mode" = redeploy ] && ! git merge-base --is-ancestor "$sha" "origin/production"; then
-            echo "$sha was never on the production branch" >&2; exit 1
-          fi
-          {
-            echo "sha=$sha"
-            echo "mode=$mode"
-            echo "image_repo=${IMAGE_BASE,,}"
-          } >> "$GITHUB_OUTPUT"
-          echo "Production release $sha ($mode)" >> "$GITHUB_STEP_SUMMARY"
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PRODUCTION_URL: ${{ vars.BUNNY_PRODUCTION_URL || 'https://api.negosyonline.com' }}
+        run: deploy/bunny/ci/plan-production.sh
 
   staged:
     name: Staging-built images and migrations
     needs: plan
+    if: needs.plan.outputs.skip != 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -92,6 +91,7 @@ jobs:
       - name: Check out source (scripts, history)
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Require a successful staging release of this exact commit
@@ -133,6 +133,7 @@ jobs:
       - name: Check out source (scripts)
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           persist-credentials: false
       - name: Require configuration
         env:

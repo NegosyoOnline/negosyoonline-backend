@@ -116,6 +116,42 @@ lacks "a rollback lists no new migration" "$out" "NEW"
 patch "deadbeef0000-api"
 out="$("$CI/list-migrations.sh" "$URL" "$C2")"
 contains "production commit not in history falls back to the full list" "$out" "could not be read"
+
+echo "== plan-production.sh"
+cd "$R" || exit 1
+git update-ref refs/remotes/origin/main "$C3"
+git update-ref refs/remotes/origin/production "$C2"
+plan() { # event ref run_sha input_sha run_head_sha -> prints outputs; honours PRODUCTION_URL
+  EVENT_NAME="$1" REF="$2" RUN_SHA="$3" INPUT_SHA="$4" RUN_HEAD_SHA="$5" IMAGE_BASE="ghcr.io/Negosyo/Repo-staging" \
+    GITHUB_OUTPUT=/dev/stdout GITHUB_STEP_SUMMARY=/dev/null "$CI/plan-production.sh"
+}
+patch "feedface0000-api"   # production serves something else
+export PRODUCTION_URL="$URL"
+out="$(plan push refs/heads/production "$C2" "" "")"
+contains "push: release of the production head" "$out" "mode=release"
+contains "push: sha is the pushed commit" "$out" "sha=$C2"
+contains "image repo is lower-cased" "$out" "image_repo=ghcr.io/negosyo/repo-staging"
+contains "not deployed yet: no skip" "$out" "skip=false"
+expect_fail "push from another branch is refused" plan push refs/heads/main "$C2" "" ""
+out="$(plan workflow_run refs/heads/main "$C3" "" "$C2")"
+contains "workflow_run: deploys the promoted sha, not main's tip" "$out" "sha=$C2"
+contains "workflow_run: mode release" "$out" "mode=release"
+expect_fail "workflow_run: a sha that is not the production head is refused" plan workflow_run refs/heads/main "$C3" "" "$C1"
+expect_fail "workflow_run: a sha not on main is refused" plan workflow_run refs/heads/main "$C3" "" "0000000000000000000000000000000000000001"
+expect_fail "workflow_run: missing head sha is refused" plan workflow_run refs/heads/main "$C3" "" ""
+out="$(plan workflow_dispatch refs/heads/production "$C2" "$C1" "")"
+contains "dispatch with an earlier production sha is a redeploy" "$out" "mode=redeploy"
+expect_fail "dispatch with a sha never on production is refused" plan workflow_dispatch refs/heads/production "$C2" "$C3" ""
+expect_fail "dispatch from main is refused" plan workflow_dispatch refs/heads/main "$C3" "" ""
+expect_fail "another event is refused" plan pull_request refs/heads/production "$C2" "" ""
+patch "${C2:0:12}-api"   # production already serves the release
+out="$(plan workflow_run refs/heads/main "$C3" "" "$C2")"
+contains "second trigger for the same release: skip=true" "$out" "skip=true"
+out="$(plan push refs/heads/production "$C2" "" "")"
+contains "push after workflow_run: skip=true too" "$out" "skip=true"
+out="$(PRODUCTION_URL="" plan push refs/heads/production "$C2" "" "")"
+contains "no production URL: never skips" "$out" "skip=false"
+unset PRODUCTION_URL
 cd "$HERE" || exit 1
 
 echo "== dry walk-through of the deploy job against the fake Bunny API"
