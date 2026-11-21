@@ -33,14 +33,24 @@ jobs:
       RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       - name: Require a successful Bunny staging release
+        id: gate
         run: |
-          if [ "$RELEASE_CONCLUSION" != "success" ]; then
+          if [ "$RELEASE_CONCLUSION" = "success" ]; then
+            echo "verify=true" >> "$GITHUB_OUTPUT"
+          elif { [ "$RELEASE_CONCLUSION" = "cancelled" ] || [ "$RELEASE_CONCLUSION" = "skipped" ]; } && [ "$RELEASE_SHA" != "$GITHUB_SHA" ]; then
+            # A queued release replaced by a newer one (bunny-staging.yml concurrency) ends cancelled
+            # or skipped; main has moved on, so the newer release owns the verification.
+            echo "::notice::Release for ${RELEASE_SHA::12} superseded by ${GITHUB_SHA::12}; nothing to verify"
+            echo "verify=false" >> "$GITHUB_OUTPUT"
+          else
             echo "::error::Bunny staging release for ${RELEASE_SHA::12} concluded '${RELEASE_CONCLUSION}', not success: ${RELEASE_RUN_URL}"
             exit 1
           fi
       - name: Check out source
+        if: steps.gate.outputs.verify == 'true'
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
       - name: Wait for staging to report the released commit
+        if: steps.gate.outputs.verify == 'true'
         run: scripts/verify_deploy.sh https://api-staging.negosyonline.com/healthz/ "${RELEASE_SHA::12}"
