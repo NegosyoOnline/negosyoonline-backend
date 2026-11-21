@@ -1,25 +1,46 @@
 name: Verify staging deploy
 
+# Runs after the "Bunny staging release" workflow finishes on main. The release takes 16-30 minutes
+# (checks, image build, approval, deploy), so verifying on push would always time out first.
+# A release that did not succeed fails this run and names the conclusion; on success, staging must
+# report the released commit from outside, over HTTPS.
 on:
-  push:
+  workflow_run:
+    workflows: ["Bunny staging release"]
+    types: [completed]
     branches: [main]
 
 permissions:
   contents: read
 
-# A newer push supersedes an older one, so an older run never fails
-# just because staging already moved on to a later commit.
+# A newer release supersedes an older verify run, so an older run is cancelled (not failed)
+# and never reports a failure against the newer commit.
 concurrency:
   group: verify-staging
   cancel-in-progress: true
 
 jobs:
   verify:
-    name: Staging reports the merged commit
+    name: Staging reports the released commit
+    # Only push-triggered releases: a manual redeploy (rollback) of an older commit would report
+    # that older commit, not the main head this event carries. That run verifies itself.
+    if: github.event.workflow_run.event == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 4
+    env:
+      RELEASE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      RELEASE_RUN_URL: ${{ github.event.workflow_run.html_url }}
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
+      - name: Require a successful Bunny staging release
+        run: |
+          if [ "$RELEASE_CONCLUSION" != "success" ]; then
+            echo "::error::Bunny staging release for ${RELEASE_SHA::12} concluded '${RELEASE_CONCLUSION}', not success: ${RELEASE_RUN_URL}"
+            exit 1
+          fi
       - name: Check out source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - name: Wait for staging to report this commit
-        run: scripts/verify_deploy.sh https://api-staging.negosyonline.com/healthz/ "${GITHUB_SHA::12}"
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Wait for staging to report the released commit
+        run: scripts/verify_deploy.sh https://api-staging.negosyonline.com/healthz/ "${RELEASE_SHA::12}"

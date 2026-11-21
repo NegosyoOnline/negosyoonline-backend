@@ -12,6 +12,8 @@ Every push to `main` runs `.github/workflows/bunny-staging.yml`:
 4. **deploy** (GitHub Environment `bunny-staging`; the owner adds required reviewers there, who approve each release): snapshot of the images now running (artifact `bunny-staging-previous-images`, run summary), then one `PATCH` per container (api, worker, beat) setting only the image tag and digest; then verification; then automatic rollback of the three containers if anything after the snapshot fails.
 5. **verify**: `/healthz/` must report `commit` = first 12 characters of the SHA (3 polls in a row), then `/readyz/` must answer 200 with every check true, beat included. Same for `BUNNY_HQ_URL` when set.
 
+The separate `Verify staging deploy` workflow (`verify-staging.yml`) starts on `workflow_run` when this release completes on main, not on push (the release takes 16-30 minutes). If the release did not conclude `success` it fails and names the conclusion; on success it checks out the release's `head_sha` and runs `scripts/verify_deploy.sh` against `https://api-staging.negosyonline.com/healthz/` for the first 12 characters of that SHA from outside, as a margin after the release's own verify. A newer release cancels an older verify run (cancelled, not failed). Manual redeploys (`workflow_dispatch`) are skipped there because they verify themselves.
+
 A failed step fails the run, which turns the main commit red. The workflow never touches the postgres or redis containers, volumes, env, endpoints or instance count (scripts: `deploy/bunny/ci/`). Releases are serialised (`concurrency`, never cancelled mid-way); if two merges queue, the older queued one is skipped and the newest wins.
 
 ## Settings (names only; no values in the repo)
