@@ -11,7 +11,7 @@ Every step below that touches staging or production needs Coach Ed's approval fo
 | `SMS_GATEWAY_ENABLED` | `1` turns on the send function, the three phone calls and the admin's SMS lists. Unset: no text is queued, the calls answer 404, and the SMS tables are not read or written. |
 | `SMS_GATEWAY_MGMT_ENABLED` | `1` turns on the HQ screens' phone routes (`/staff/v1/sms/device/...`). Needs `SMS_GATEWAY_ENABLED` as well. Unset: those routes answer 404 and the CLI below is the only way. |
 | `SMS_GATEWAY_PUBLIC_URL` | The address HQ shows beside a new token: an origin only, such as this environment's API host. Unset: HQ shows "not configured" (only local `DEBUG` falls back to `http://127.0.0.1:8000`). Never set a default in code. |
-| `SMS_SITE_LINES_ENABLED` | Defined for the later Site-phone work; nothing reads it yet. Leave unset. |
+| `SMS_SITE_LINES_ENABLED` | `1` lets a Site's own paired phone carry that Site's texts (see Site phones below). Unset: dark, every text goes from the NegosyoOnline phone as before. Needs `notifications.0005` and `0007` applied first. |
 | `REDIS_URL` | Must be set wherever the gateway is on. A text waits encrypted in Redis until the phone takes it. Without it `manage.py check` reports `notifications.E001` and the gateway stays off. |
 
 ## Release order
@@ -225,6 +225,16 @@ A Santé store writes to its own **verified** members from its dash Inbox, one m
 - **Deleting a person's texts:** `sms_inbox_delete` also deletes every store's text conversation with the number (with its reply audit rows) and the stores' send records to it, listing the store public ids; `--site SITE_PUBLIC_ID` deletes only that store's and touches nothing of HQ's. The store's opt-out of the number is kept.
 - **Removing a test member** (`pack_remove_test_member`) deletes that member's text conversation first.
 - **Turning on** (staging, Manager's go): apply the two migrations, set `INQUIRY_SMS_ENABLED=1` with `SMS_INBOX_ENABLED=1` and the phone passing texts on, run `check --deploy`, then switch a store on in its Inbox.
+
+## Site phones (SMS-INCLUDED, task z8uq9mhbpp)
+
+Built dark behind `SMS_SITE_LINES_ENABLED`. Texts are included in the website subscription, so a Site may pair its own phone while it is **serving**; nothing is granted by hand.
+
+- **Who has a line** (`sms.site_has_line`): the Site's billing position is serving (`billing.position(site).storefront_served`: trial, active, payment needing attention, billing-exempt) and HQ has no active `SmsLineDisable` for it. It fails closed: with `BILLING_ENABLED` off, no subscription, or an unreadable position, there is no line. Suspended or cancelled-after-service-ended Sites lose it at once, with no job; reactivated, the same phone works again.
+- **`SmsLineDisable`** (`notifications.0007`): one row per Disable (site, disabled_by, reason, disabled_at, `reenabled_at` empty while it holds). At most one active row per Site. No row, or only re-enabled rows, means not disabled. The HQ Disable and Re-enable screens come later; until then rows are written only from the shell, with the audit entry written by hand.
+- **Routing:** a Site's order-status and store texts go to its own phone; a Site with no line (switch off, billing ended, disabled, or no active phone of its own) uses the NegosyoOnline phone. A Site phone is handed only its own Site's texts, and nothing while its Site has no line. **Codes never go to a Site phone (D1):** a member's sign-in or mobile-confirm code names its Site but is always sent from, and handed only to, the NegosyoOnline phone.
+- **Offline (D2):** a store text from a Site whose own paired phone is offline is refused with `site_phone_offline` ("Your phone is offline right now. Nothing was sent."), never handed to the NegosyoOnline phone. A Site with no line of its own meets the NegosyoOnline phone's `gateway_offline`. The refusal comes last in the store text order, after the caps, and gives the slots back.
+- **Before turning it on** (staging, Manager's go): apply `notifications.0005` and `0007` (see `migrations.md`), set `SMS_SITE_LINES_ENABLED=1`, run `check --deploy`, then prove with two clearly named test Sites that each phone gets only its own Site's texts.
 
 ## Member one-time codes
 
