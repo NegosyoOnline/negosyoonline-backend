@@ -20,13 +20,16 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
-from apps.notifications.models import SmsDevice, SmsMessage, SmsPolicy, site_column_exists
+from apps.notifications.models import (
+    SmsDevice, SmsLineDisable, SmsMessage, SmsPolicy, site_column_exists,
+)
 
 logger = logging.getLogger(__name__)
 
 Priority = SmsMessage.Priority
 CODE, STATUS = SmsMessage.Category.CODE.value, SmsMessage.Category.STATUS.value
 INBOX = SmsMessage.Category.INBOX.value
+STORE = SmsMessage.Category.STORE.value
 QUEUED, EMAILED, REFUSED = "queued", "emailed", "refused"
 
 DEFAULT_LIFETIME = 600  # seconds a text is worth sending: a code's 10 minutes
@@ -37,6 +40,9 @@ STAFF_TEXT_LIFETIME = 3600  # seconds a staff text waits for the phone
 # Of the day's texts, this many are for codes only (Coach Ed, "Hold back 300"). A staff text
 # is refused once the day's count reaches the limit less this. Changing it is his ruling.
 RESERVED_FOR_CODES = 300
+# Texts one store may send in a clock hour (Manila time). The same pattern as the 20 emails an
+# hour a store may send from its Inbox (apps/inquiries/stored.py, EMAIL_HOUR).
+STORE_HOURLY_LIMIT = 20
 
 
 @dataclass(frozen=True)
@@ -60,7 +66,14 @@ PURPOSES = {
     # One announcement text of a Bulk SMS batch. MARKETING is the sending class (lowest, paced),
     # not a permission for other marketing: this closed list is what forbids that.
     "inbox_bulk": Purpose(category=INBOX, priority=Priority.MARKETING, paced=True),
+    # A Santé store's text to one of its own members, written in the store's dash Inbox (SMS-OWNER,
+    # Coach Ed 2026-11-21). One member at a time: there is no list send. It names its site and has
+    # no email fallback. The same sending class as a staff text, in the same paced lane.
+    "store_reply": Purpose(category=STORE, priority=Priority.REPLY, paced=True),
+    "store_compose": Purpose(category=STORE, priority=Priority.REPLY, paced=True),
 }
+
+STORE_PURPOSES = ("store_reply", "store_compose")
 
 
 def paced_purposes():
@@ -216,6 +229,23 @@ def _site_key(site):
     return f"sms:count:site:{site.pk}:{_today():%Y%m%d}"
 
 
+def _store_key(site):
+    return f"sms:count:store:{site.pk}:{_today():%Y%m%d}"
+
+
+def _store_hour_key(site, hour_start):
+    return f"sms:count:storehour:{site.pk}:{hour_start:%Y%m%d%H}"
+
+
+def _all_stores_key():
+    return f"sms:count:stores:{_today():%Y%m%d}"
+
+
+def hour_start():
+    """The start of the current clock hour (Manila time), which the hourly store cap counts from."""
+    return timezone.localtime().replace(minute=0, second=0, microsecond=0)
+
+
 def _claim(key, limit, recount):
     """Take one of the day's slots. The add is atomic, so two requests cannot both take the
     last one. An empty cache is started from the records."""
@@ -245,29 +275,64 @@ def platform_count():
     return _counted().count() if held is None else held
 
 
+def store_used_today(site):
+    """Today's store texts of this Site that used a slot, from the records."""
+    return _counted().filter(site=site, category=STORE).count()
+
+
+def store_used_this_hour(site):
+    return _counted().filter(site=site, category=STORE, created_at__gte=hour_start()).count()
+
+
 def refusal(message):
-    """Why this text is not sent now, or "" when it may be queued. Takes its daily slots."""
+    """Why this text is not sent now, or "" when it may be queued. Takes its daily slots.
+
+    A store text (4.2 of the SMS-OWNER plan) is refused in this order: sending stopped; the
+    store's day (`site_limit`); the store's hour (`site_hour_limit`); all stores' day
+    (`stores_limit`); the platform day less the texts kept for codes (`staff_limit`); the phone
+    offline (`gateway_offline`, or `site_phone_offline` when the store's own paired phone is the
+    one that is offline)."""
     rules = policy()
     if rules.sending_stopped:
         return "paused"
-    site_key = None
-    if message.category == STATUS and message.site_id:
-        site_key = _site_key(message.site)
-        of_site = _counted(message).filter(site=message.site, category=STATUS)
-        if not _claim(site_key, rules.site_daily_limit, of_site.count):
-            return "site_limit"
-    limit, reason = rules.platform_daily_limit, "platform_limit"
-    if message.category == INBOX:
-        limit, reason = max(limit - RESERVED_FOR_CODES, 0), "staff_limit"
-    if not _claim(_platform_key(), limit, _counted(message).count):
-        if site_key:
-            _release(site_key)
+    taken = []  # the slots claimed so far, given back when a later rule refuses
+
+    def refuse(reason):
+        for key in taken:
+            _release(key)
         return reason
-    if not gateway_online(message.site):
-        _release(_platform_key())
-        if site_key:
-            _release(site_key)
-        return "gateway_offline"
+
+    def claim(key, limit, recount):
+        if not _claim(key, limit, recount):
+            return False
+        taken.append(key)
+        return True
+
+    if message.category == STATUS and message.site_id:
+        of_site = _counted(message).filter(site=message.site, category=STATUS)
+        if not claim(_site_key(message.site), rules.site_daily_limit, of_site.count):
+            return refuse("site_limit")
+    if message.category == STORE and message.site_id:
+        mine = _counted(message).filter(site=message.site, category=STORE)
+        if not claim(_store_key(message.site), rules.store_daily_limit, mine.count):
+            return refuse("site_limit")
+        start = hour_start()
+        this_hour = mine.filter(created_at__gte=start)
+        if not claim(_store_hour_key(message.site, start), STORE_HOURLY_LIMIT, this_hour.count):
+            return refuse("site_hour_limit")
+        stores = _counted(message).filter(category=STORE)
+        if not claim(_all_stores_key(), rules.all_stores_daily_limit, stores.count):
+            return refuse("stores_limit")
+    limit, reason = rules.platform_daily_limit, "platform_limit"
+    if message.category in (INBOX, STORE):
+        limit, reason = max(limit - RESERVED_FOR_CODES, 0), "staff_limit"
+    if not claim(_platform_key(), limit, _counted(message).count):
+        return refuse(reason)
+    if not gateway_online(message.site, message.category):
+        # A store whose own paired phone is offline is told so; its text is not handed to the
+        # shared phone (D2). A store with no phone of its own meets the shared phone's offline.
+        own_phone = message.category == STORE and _lined(message.site) is not None
+        return refuse("site_phone_offline" if own_phone else "gateway_offline")
     return ""
 
 
@@ -362,10 +427,17 @@ def site_lines_on():
 
 
 def site_has_line(site):
-    """Whether this Site is entitled to its own phone. The entitlement model is not approved
-    yet, so this is a stub that answers False for every Site. The Dedicated SMS Line add-on
-    replaces the body of this one function; nothing else decides entitlement."""
-    return False
+    """Whether this Site is entitled to its own phone (SMS-INCLUDED): its billing position is
+    serving (`billing.position(site).storefront_served`: trial, active, payment needing
+    attention, billing-exempt) and HQ has not disabled its line. Nothing else decides
+    entitlement. It fails closed: with billing off, no subscription, or a position that cannot
+    be read, there is no line. A Site that goes to suspended or cancelled loses it at once;
+    reactivated, it has it again."""
+    from apps.billing import services as billing  # not at import: billing is a later layer
+
+    if not billing.position(site).storefront_served:
+        return False
+    return not SmsLineDisable.objects.filter(site=site, reenabled_at__isnull=True).exists()
 
 
 def _lined(site):
@@ -375,9 +447,12 @@ def _lined(site):
     return SmsDevice.objects.filter(is_active=True, site=site).first()
 
 
-def line_for(site):
+def line_for(site, category=None):
     """The phone that carries a text of this Site (None: a platform text): the Site's own active
-    phone when the switch is on and the Site is entitled, otherwise the platform phone."""
+    phone when the switch is on and the Site is entitled, otherwise the platform phone. A code
+    (`category` CODE) is never a Site's to send: it always goes from the platform phone (D1)."""
+    if category == CODE:
+        return pick_device()
     return _lined(site) or pick_device()
 
 
@@ -385,11 +460,13 @@ def claimable(device):
     """The condition on SmsMessage rows that this phone may take. Used by the waiting query and
     again in the claim UPDATE. It is the mirror of `line_for`.
 
-    Platform phone: texts of no Site, and texts of Sites that have no line. A Site phone: only
-    its own Site's texts, and nothing while its Site has no line (switch off or not entitled)."""
+    Platform phone: texts of no Site, texts of Sites that have no line, and every code (D1: a
+    sign-in code names its Site but always goes from this phone). A Site phone: only its own
+    Site's texts other than codes, and nothing while its Site has no line (switch off, billing
+    ended, or disabled by HQ)."""
     if device.site_id is not None:
         if site_lines_on() and site_has_line(device.site):
-            return Q(site_id=device.site_id)
+            return Q(site_id=device.site_id) & ~Q(category=CODE)
         return Q(pk__in=[])
     if not site_lines_on() or not site_column_exists():
         return Q()
@@ -397,7 +474,7 @@ def claimable(device):
     lined = [phone.site_id for phone in sites if site_has_line(phone.site)]
     if not lined:
         return Q()
-    return Q(site__isnull=True) | ~Q(site_id__in=lined)
+    return Q(site__isnull=True) | ~Q(site_id__in=lined) | Q(category=CODE)
 
 
 def may_be_handed_texts(device):
@@ -407,9 +484,9 @@ def may_be_handed_texts(device):
     return _lined(device.site) == device
 
 
-def gateway_online(site=None):
+def gateway_online(site=None, category=None):
     """The phone that would carry a text of this Site asked for texts in the last minute."""
-    device = line_for(site)
+    device = line_for(site, category)
     if device is None or device.last_contact_at is None:
         return False
     return device.last_contact_at >= timezone.now() - ONLINE_WITHIN

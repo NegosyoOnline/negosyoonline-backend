@@ -204,6 +204,10 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/inquiries/channels/"): 200,
     ("GET", "/sites/{site_id}/inquiries/unread/"): 200,
     ("PUT", "/sites/{site_id}/inquiries/channels/"): 200,
+    # text (SMS) conversations with a store's members (SMS-OWNER); the compose body names a member
+    # that does not exist, which answers the same 404 for Ana's own site as for Ben's
+    ("GET", "/sites/{site_id}/inquiries/sms/status/"): 200,
+    ("POST", "/sites/{site_id}/inquiries/sms/compose/"): 404,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/read/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/close/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reopen/"): 200,
@@ -289,6 +293,7 @@ def child_variants(template, own, foreign):
     BILLING_USAGE_ENABLED=True, SHOP_ENABLED=True, BILLING_INVOICE_REGISTER_ENABLED=True,
     MEMBERS_ENABLED=True, PACK_SHIPPING_ENABLED=True, BILLING_STATEMENTS_ENABLED=True,
     META_CREDENTIALS_KEY=KEY, INQUIRIES_ENABLED=True, INQUIRIES_CREDENTIALS_KEY=inquiries_base.KEY,
+    INQUIRY_SMS_ENABLED=True, SMS_GATEWAY_ENABLED=True,
     INQUIRY_MESSENGER_ENABLED=True, META_MESSENGER_APP_ID="123456", META_MESSENGER_APP_SECRET="test-secret",
     MESSENGER_VERIFY_TOKEN="test-verify", INQUIRY_COMMENTS_ENABLED=True, INQUIRY_COMMENT_AUTOMATION_ENABLED=True,
     XENDIT_ENABLED=True, XENDIT_FAKE=True, DEBUG=True, PAYMENT_CREDENTIALS_KEY=Fernet.generate_key().decode(),
@@ -663,6 +668,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             if method == "POST" or method == "PUT":
                 return {"public_text": "{Hi|Hello} {name}!"} if method == "POST" else {"enabled": False}
             return None
+        if template.endswith("/sms/compose/"):
+            return {"member_id": "mb_missing", "text": "Hello", "idempotency_key": "fixture-sms-000001"}
         if template.endswith("/messenger/connect/"):
             return {"page_id": "100000000000001"}
         if template.endswith(("/reply/", "/private-reply/")):

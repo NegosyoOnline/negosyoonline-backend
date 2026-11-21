@@ -97,3 +97,17 @@ def check_comment_automation_dependencies(app_configs, **kwargs):
         hint="Auto-replies answer stored comments: turn comments on, or turn auto-replies off.",
         id="inquiries.E007",
     )]
+
+
+@register(deploy=True)
+def check_sms_dependencies(app_configs, **kwargs):
+    if not settings.INQUIRY_SMS_ENABLED:
+        return []
+    missing = [name for name in ("INQUIRIES_ENABLED", "SMS_GATEWAY_ENABLED") if not getattr(settings, name)]
+    if not missing:
+        return []
+    return [Error(
+        f"INQUIRY_SMS_ENABLED is on but {' and '.join(missing)} {'is' if len(missing) == 1 else 'are'} off.",
+        hint="A store's text conversations are stored by the inquiries app and sent through the SMS gateway: turn both on, or turn this off.",
+        id="inquiries.E008",
+    )]

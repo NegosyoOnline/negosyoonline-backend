@@ -147,6 +147,8 @@ TURNED_OFF = [
     ("GET", "/sites/{site_id}/inquiries/conversations/"),
     ("GET", "/sites/{site_id}/inquiries/conversations/{ref}/"),
     ("GET", "/sites/{site_id}/inquiries/unread/"),
+    ("GET", "/sites/{site_id}/inquiries/sms/status/"),
+    ("POST", "/sites/{site_id}/inquiries/sms/compose/"),
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/close/"),
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/read/"),
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reopen/"),

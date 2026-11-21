@@ -27,7 +27,7 @@ class BulkPurposeTests(SmsTestCase):
         self.assertEqual(
             sorted(sms.PURPOSES), sorted([
                 "mobile_verify", "member_signin_code", "member_mobile_verify",
-                "inbox_reply", "inbox_compose", "inbox_bulk", "order_status",
+                "inbox_reply", "inbox_compose", "inbox_bulk", "order_status", "store_reply", "store_compose",
             ])
         )
 

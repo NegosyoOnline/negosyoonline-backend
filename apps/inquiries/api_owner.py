@@ -44,8 +44,11 @@ from pydantic import ConfigDict
 from apps.accounts.api import signed_in
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
-from apps.inquiries import outcomes, stored
-from apps.inquiries.switch import contact_inbox_on, inquiries_on, stored_tables_exist, tables_exist
+from apps.inquiries import outcomes, sms_inbox, stored
+from apps.inquiries.models import InquirySmsSettings
+from apps.inquiries.switch import (
+    contact_inbox_on, inquiries_on, sms_ready, stored_tables_exist, tables_exist,
+)
 from apps.sites import templates
 from apps.sites.api import _owner_site
 from apps.sites.services import site_for
@@ -71,6 +74,13 @@ def inquiries_site(request):
 router = Router(tags=["inquiries"], auth=inquiries_site)
 
 
+class ComposeIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    member_id: str
+    text: str
+    idempotency_key: str
+
+
 class ReplyIn(Schema):
     model_config = ConfigDict(extra="forbid")
     text: str
@@ -81,6 +91,7 @@ class ChannelsIn(Schema):
     model_config = ConfigDict(extra="forbid")
     webchat_enabled: bool | None = None
     email_enabled: bool | None = None
+    sms_enabled: bool | None = None
     paused_until: datetime | None = None
 
 
@@ -171,11 +182,44 @@ def conversation_reply(request, site_id: str, ref: str, payload: ReplyIn):
     return data
 
 
+# -- text (SMS) conversations with the store's members ------------------------------------------
+
+def _need_sms():
+    if not sms_ready() or not _stored_on():
+        raise _not_found()
+
+
+@router.post("/sites/{site_id}/inquiries/sms/compose/")
+def sms_compose(request, site_id: str, payload: ComposeIn):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_sms()
+    if not KEY_RE.match(payload.idempotency_key):
+        raise _invalid("idempotency_key", "That key does not look right.")
+    if not REF_RE.match(payload.member_id):
+        raise _not_found()
+    code, data = sms_inbox.compose(
+        request.inquiry_site, request.account, payload.member_id, payload.text, payload.idempotency_key,
+    )
+    if code == "idempotency_conflict":
+        raise ApiError("conflict", "That key was already used for another conversation.", status=409)
+    if code != outcomes.OK:
+        raise _not_found()
+    return data
+
+
+@router.get("/sites/{site_id}/inquiries/sms/status/")
+def sms_status(request, site_id: str):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_sms()
+    return sms_inbox.status(request.inquiry_site)
+
+
 # -- settings, close and reopen, read -----------------------------------------
 
 def _channels_out(site):
     return {**stored.settings_out(stored.channel_settings(site)), "webchat_available": bool(settings.INQUIRY_WEBCHAT_ENABLED),
-            "contact_inbox_available": contact_inbox_on()}
+            "contact_inbox_available": contact_inbox_on(),
+            "sms_available": sms_ready(), "sms_enabled": bool(sms_ready() and sms_inbox.enabled(site))}
 
 
 def _need_stored():
@@ -194,6 +238,8 @@ def channels_detail(request, site_id: str):
 def channels_update(request, site_id: str, payload: ChannelsIn):
     hit("inq-write", request.account.pk, limit=WRITE_LIMIT, window=WINDOW)
     _need_stored()
+    if payload.sms_enabled is not None and not sms_ready():
+        raise _not_found()  # the text switch is off, or its tables are not there yet
     set_pause = "paused_until" in payload.model_fields_set
     until = payload.paused_until
     if until is not None:
@@ -205,6 +251,8 @@ def channels_update(request, site_id: str, payload: ChannelsIn):
         request.inquiry_site, webchat_enabled=payload.webchat_enabled, email_enabled=payload.email_enabled,
         paused_until=until, set_pause=set_pause,
     )
+    if payload.sms_enabled is not None:
+        InquirySmsSettings.objects.update_or_create(site=request.inquiry_site, defaults={"enabled": payload.sms_enabled})
     return _channels_out(request.inquiry_site)
 
 

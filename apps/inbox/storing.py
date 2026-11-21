@@ -114,6 +114,7 @@ def store(device, body):
         return True
     now = timezone.now()
     listing = dnt_tables_exist()
+    from apps.inquiries import sms_inbox  # a store's own text conversations (SMS-OWNER)
     with transaction.atomic():
         # One call per phone at a time, so a repeat that overlaps the first cannot store twice.
         SmsDevice.objects.select_for_update().get(pk=device.pk)
@@ -123,12 +124,20 @@ def store(device, body):
                 gateway_ref__in=[ref for ref, *_ in texts],
             ).values_list("gateway_ref", flat=True)
         )
+        seen |= sms_inbox.seen_refs(device, [ref for ref, *_ in texts])  # already in a store's conversation
         for ref, sender, text, received_at, sim_slot in texts:
             if ref in seen:
                 continue
             seen.add(ref)
             contact, can_reply = _contact(sender)
             occurred_at = _when(received_at, now)
+            if can_reply:
+                # The store that texted this number last (7 days) gets the answer, STOP included:
+                # a STOP to a store is that store's opt-out, not HQ's. None: it goes to HQ below.
+                site = sms_inbox.route_incoming(contact, now)
+                if site is not None:
+                    sms_inbox.store_incoming(site, device, contact, ref, text, occurred_at, _is_stop(text))
+                    continue
             conversation, _ = Conversation.objects.get_or_create(
                 platform=SMS, line=device, contact=contact, **owner_of(device),
                 defaults={"can_reply": can_reply, "last_message_at": occurred_at},

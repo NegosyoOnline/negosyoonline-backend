@@ -224,7 +224,7 @@ class ChannelsTests(StoredOwnerTestCase):
 
     def test_other_fields_are_refused_and_one_site_never_changes_the_others(self):
         path = self.base + "channels/"
-        self.assertEqual(self.send("put", path, {"sms_enabled": True}).status_code, 400)
+        self.assertEqual(self.send("put", path, {"push_enabled": True}).status_code, 400)
         self.send("put", path, {"webchat_enabled": True})
         self.assertFalse(InquiryChannelSettings.objects.filter(site=self.ben_site).exists())
 

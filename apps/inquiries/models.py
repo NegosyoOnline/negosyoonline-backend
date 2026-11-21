@@ -61,10 +61,10 @@ class InquiryConversation(models.Model):
     from the provider on demand. For a stored channel (`stores_history`), the conversation
     itself: made by the visitor's first message, with its messages in InquiryMessage."""
 
-    WEBCHAT, EMAIL, MESSENGER = "webchat", "email", "messenger"
-    PROVIDERS = [(WEBCHAT, "Website chat"), (EMAIL, "Email"), (MESSENGER, "Messenger")]
-    STORED_PROVIDERS = (WEBCHAT, EMAIL, MESSENGER)
-    REF_PREFIX = {WEBCHAT: "wc_", EMAIL: "em_", MESSENGER: "fm_"}  # a stored channel's refs are recognised by prefix
+    WEBCHAT, EMAIL, MESSENGER, SMS = "webchat", "email", "messenger", "sms"
+    PROVIDERS = [(WEBCHAT, "Website chat"), (EMAIL, "Email"), (MESSENGER, "Messenger"), (SMS, "Text (SMS)")]
+    STORED_PROVIDERS = (WEBCHAT, EMAIL, MESSENGER, SMS)
+    REF_PREFIX = {WEBCHAT: "wc_", EMAIL: "em_", MESSENGER: "fm_", SMS: "sm_"}  # a stored channel's refs are recognised by prefix
     OPEN, CLOSED = "open", "closed"
     STATUSES = [(OPEN, "Open"), (CLOSED, "Closed")]
     UNVERIFIED_SENDER = "unverified_sender"
@@ -111,8 +111,16 @@ class InquiryConversation(models.Model):
             models.UniqueConstraint(
                 fields=["thread_token"], condition=~Q(thread_token=""), name="inquiry_conversation_thread_token_uniq",
             ),
+            # SMS-OWNER: one text conversation per store and number.
+            models.UniqueConstraint(
+                fields=["site", "contact_mobile"], condition=Q(provider="sms") & ~Q(contact_mobile=""),
+                name="inquiry_conversation_sms_mobile_uniq",
+            ),
         ]
-        indexes = [models.Index(fields=["site", "visitor_hash"], name="inquiry_conv_site_visitor")]
+        indexes = [
+            models.Index(fields=["site", "visitor_hash"], name="inquiry_conv_site_visitor"),
+            models.Index(fields=["provider", "contact_mobile"], name="inquiry_conv_provider_mobile"),
+        ]
 
     def __repr__(self):
         return f"<InquiryConversation site={self.site_id} pk={self.pk}>"
@@ -440,5 +448,43 @@ class InquiryAutoReply(models.Model):
 
     def __repr__(self):
         return f"<InquiryAutoReply site={self.site_id} action={self.action_id}>"
+
+    __str__ = __repr__
+
+
+class InquirySmsSettings(models.Model):
+    """One row per site: whether the owner has switched on text conversations with the store's
+    members (SMS-OWNER, z8uq9mhbf4). A table of its own, not a column on InquiryChannelSettings, so
+    that code released before its migration still reads the others. Nothing here is personal."""
+
+    site = models.OneToOneField("sites.Site", on_delete=models.PROTECT, related_name="inquiry_sms_settings")
+    enabled = models.BooleanField(default=False)  # the owner's choice; never turned on by the system
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __repr__(self):
+        return f"<InquirySmsSettings site={self.site_id}>"
+
+    __str__ = __repr__
+
+
+class InquirySmsOptOut(models.Model):
+    """A member's STOP to one store: that store sends the number no more texts. Per store: another
+    store's texts and the one-time codes are not affected. The number is personal: deleted with the
+    site's data and by the person's own deletion request."""
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="inquiry_sms_optouts")
+    mobile = models.CharField(max_length=16)  # +639XXXXXXXXX
+    message = models.ForeignKey(
+        "inquiries.InquiryMessage", null=True, blank=True, on_delete=models.SET_NULL, related_name="sms_optouts",
+    )  # the STOP text that did it
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["site", "mobile"], name="inquiry_sms_optout_site_mobile_uniq"),
+        ]
+
+    def __repr__(self):
+        return f"<InquirySmsOptOut site={self.site_id} pk={self.pk}>"
 
     __str__ = __repr__
