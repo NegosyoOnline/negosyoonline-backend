@@ -14,6 +14,7 @@ from django.utils import timezone
 from apps.db_backup import constants, dump, service, tasks
 from apps.file_backup import crypto
 from apps.file_backup.source import SourceError
+from apps.health.tasks import HEARTBEAT_KEY
 
 KEY = os.urandom(32)
 KEY_B64 = base64.b64encode(KEY).decode()
@@ -278,13 +279,15 @@ class DumpTests(SimpleTestCase):
 class ReadyzTests(TestCase):
     def setUp(self):
         cache.clear()
+        # A fresh beat heartbeat, as a running worker leaves; without Redis the check is skipped (eager mode).
+        cache.set(HEARTBEAT_KEY, timezone.now().timestamp(), 600)
         self.store = FakeStore()
         patch = mock.patch("apps.db_backup.clients.build_store", return_value=self.store)
         patch.start()
         self.addCleanup(patch.stop)
 
     def get(self):
-        return self.client.get("/readyz/")
+        return self.client.get("/readyz/", secure=True)
 
     def test_off_does_not_report_the_field_or_call_the_store(self):
         response = self.get()
