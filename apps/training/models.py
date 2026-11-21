@@ -37,6 +37,11 @@ class Course(models.Model):
     image_key = models.CharField(max_length=200, blank=True, default="")
     order = models.PositiveIntegerField(default=1)
     active = models.BooleanField(default=True)
+    # Only the content source store may set this: the course is then offered to other stores to
+    # copy. copied_from is the public id of the source course this one was copied from, a plain
+    # string and never a foreign key across stores.
+    shared = models.BooleanField(default=False)
+    copied_from = models.CharField(max_length=40, blank=True, default="")
     # The timestamp is the flag (TWCinc spec 2026-08-08): archiving also switches the course off.
     archived_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
@@ -80,6 +85,8 @@ class Lesson(models.Model):
     description = models.TextField(blank=True)
     video_url = models.CharField(max_length=500, blank=True)  # an allowlisted embed URL (services.py)
     image_key = models.CharField(max_length=200, blank=True, default="")
+    # True on a copy whose Bunny video was not copied: the dash shows "Add your video".
+    needs_video = models.BooleanField(default=False)
     order = models.PositiveIntegerField(default=1)
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)

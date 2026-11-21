@@ -24,7 +24,7 @@ from django.utils.text import slugify
 
 from apps.catalog import media
 from apps.catalog.services import IMAGE_MESSAGES
-from apps.common import private_files
+from apps.common import file_refs, private_files
 from apps.common.errors import ApiError
 from apps.members import notices
 
@@ -506,7 +506,7 @@ def update_course(site, public_id, data):
 def _delete_with_images(row, keys):
     with transaction.atomic():
         row.delete()
-        transaction.on_commit(lambda: [media.discard(key) for key in keys])
+        transaction.on_commit(lambda: [file_refs.discard_if_unreferenced(key) for key in keys])
 
 
 def delete_course(site, public_id):
@@ -693,9 +693,9 @@ def set_image(site, kind, public_id, upload):
             old = getattr(row, field)
             setattr(row, field, key)
             row.save(update_fields=[field, "updated_at"])
-            transaction.on_commit(lambda: media.discard(old))
+            transaction.on_commit(lambda: file_refs.discard_if_unreferenced(old))
     except BaseException:
-        media.discard(key)
+        file_refs.discard_if_unreferenced(key)
         raise
     return row
 
@@ -708,5 +708,5 @@ def clear_image(site, kind, public_id):
     if old:
         setattr(row, field, "")
         row.save(update_fields=[field, "updated_at"])
-        transaction.on_commit(lambda: media.discard(old))
+        transaction.on_commit(lambda: file_refs.discard_if_unreferenced(old))
     return row
