@@ -257,6 +257,9 @@ BUNNY_STREAM_API_BASE = os.environ.get("BUNNY_STREAM_API_BASE", "https://video.b
 BUNNY_STREAM_EMBED_BASE = os.environ.get(
     "BUNNY_STREAM_EMBED_BASE", "https://iframe.mediadelivery.net/embed"
 ).strip().rstrip("/")
+# Scheme of a library's CDN host for the source download of a copy. Always https; "http" only for
+# the local preview stand-in (docs/session-state/packets/cp1-copy-preview/stream-standin.py).
+BUNNY_STREAM_CDN_SCHEME = os.environ.get("BUNNY_STREAM_CDN_SCHEME", "https").strip()
 # Santé member sign-in (apps/members), on the storefront surface below. "1" turns on its four
 # routes. Off, they answer the 404 of an unknown site and no member table is read or written.
 # Sign-in codes and limits live in the cache, so it needs REDIS_URL outside local work.

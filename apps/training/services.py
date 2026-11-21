@@ -331,7 +331,7 @@ def record_watch(member, lesson_id, percent):
         watched_percent=percent, watched_at=timezone.now()
     )
     progress.refresh_from_db(fields=["watched_percent"])
-    return {"lesson_id": lesson.public_id, "watched_percent": progress.watched_percent}
+    return {"percent": progress.watched_percent}
 
 
 def course_watch(course):
@@ -352,7 +352,7 @@ def course_watch(course):
     return {
         "course_id": course.public_id,
         "lessons": [
-            {"id": x.public_id, "title": x.title, "module_id": x.module.public_id,
+            {"lesson_id": x.public_id, "title": x.title, "module_id": x.module.public_id,
              "module_title": x.module.title, "members": by_lesson.get(x.pk, [])}
             for x in lessons
         ],

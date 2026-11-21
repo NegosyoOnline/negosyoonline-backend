@@ -15,7 +15,7 @@ from apps.sites.models import Site
 from apps.training import stream, video
 from apps.training.models import StreamLibrary
 
-HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,118}[a-z0-9])?$")
+HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,118}[a-z0-9])?(:[0-9]{2,5})?$")
 
 
 class Command(BaseCommand):

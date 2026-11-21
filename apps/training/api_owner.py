@@ -21,7 +21,7 @@
     POST   .../lessons/{lesson_id}/video/upload/ -> 201 {upload: {endpoint, library_id, video_id, signature, expires}, video}
     GET    .../lessons/{lesson_id}/video/   -> {video}: asks Bunny while the video is still on its way
     DELETE .../lessons/{lesson_id}/video/   -> {video}: removes the Stream video through the delete guard
-    GET    .../courses/{course_id}/watch/   -> {course_id, lessons: [{id, title, module_id, module_title,
+    GET    .../courses/{course_id}/watch/   -> {course_id, lessons: [{lesson_id, title, module_id, module_title,
                                                 members: [{member_id, name, percent, completed}]}]}
     GET    .../live/                        -> {live: [live]}
     POST   .../live/                        {title, starts_at, duration_minutes?, description?, join_url?, active?} -> 201 live

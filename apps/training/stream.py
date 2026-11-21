@@ -195,7 +195,7 @@ def download_source(library, guid):
     No key is sent. The caller closes the file."""
     last = None
     for name in ("original", "play_720p.mp4"):
-        url = f"https://{library.cdn_host}/{guid}/{name}"
+        url = f"{settings.BUNNY_STREAM_CDN_SCHEME}://{library.cdn_host}/{guid}/{name}"
         try:
             return _download(url)
         except StreamError as error:

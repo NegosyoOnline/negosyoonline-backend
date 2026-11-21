@@ -200,7 +200,6 @@ def _apply(lesson, which, status, size):
         lesson.stream_status = status
         if status == READY:
             lesson.stream_bytes = size
-            lesson.video_url = ""
             lesson.needs_video = False
         lesson.save()
         return
@@ -216,7 +215,6 @@ def _apply(lesson, which, status, size):
     lesson.stream_pending_library_id = None
     lesson.stream_pending_video_id = ""
     lesson.stream_pending_status = ""
-    lesson.video_url = ""
     lesson.needs_video = False
     lesson.save()
     discard_pairs_on_commit([old])

@@ -11,7 +11,7 @@ member routes (apps/storefront/api.py mounts this router under /member/):
     POST /storefront/v1/member/training/lessons/{lesson_id}/complete/ {host, token}
          -> {lesson_id, completed, course: {id, completed_lessons, total_lessons, percent}, next_lesson}
     POST /storefront/v1/member/training/lessons/{lesson_id}/watch/    {host, token, percent}
-         -> {lesson_id, watched_percent}: keeps the furthest percent (0-100), never completes
+         -> {percent}: keeps the furthest percent (0-100), never completes
     POST /storefront/v1/member/training/live/                         {host, token}
          -> {live: {id, title, starts_at, duration_minutes, description, join_url, thumbnail_url} | null}
 
@@ -23,6 +23,7 @@ so another site's content answers the same 404 as a missing id.
 from datetime import datetime
 
 from ninja import Router, Schema
+from pydantic import StrictInt
 
 from apps.members.api import _session, _site
 
@@ -154,12 +155,11 @@ class CompleteOut(Schema):
 class WatchIn(Schema):
     host: str = ""
     token: str = ""
-    percent: int
+    percent: StrictInt
 
 
 class WatchOut(Schema):
-    lesson_id: str
-    watched_percent: int
+    percent: int
 
 
 class LiveOut(Schema):
