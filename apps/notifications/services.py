@@ -204,6 +204,13 @@ def staff_send_records(to):
     return SmsMessage.objects.filter(recipient=to, purpose__in=STAFF_PURPOSES)
 
 
+def store_send_records(to, site=None):
+    """The send records of the stores' texts to one number (of one store when `site` is given), for
+    the deletion command."""
+    rows = SmsMessage.objects.filter(recipient=to, purpose__in=sms.STORE_PURPOSES)
+    return rows.filter(site=site) if site is not None else rows
+
+
 def sms_statuses(public_ids):
     """{public id: (status, reason)} of these send records, in one query. A record that is
     gone is missing from the answer. Reads nothing for an empty list."""
