@@ -16,6 +16,7 @@ from apps.operators.models import OperatorAuditEntry
 from apps.sante import content_copy, services
 from apps.sante.models import SanteContentCopy, SanteContentSource
 from apps.sante.tests.base import operator, retemplate
+from apps.meta_ads.tests.base import setUpModule, tearDownModule  # noqa: F401 - Celery runs in-process here (see that module)
 from apps.sites.models import Site
 from apps.sites.tests.api_base import SitesApiTestCase
 from apps.training.models import Course, Lesson, Module

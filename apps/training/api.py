@@ -155,7 +155,7 @@ class CompleteOut(Schema):
 class WatchIn(Schema):
     host: str = ""
     token: str = ""
-    percent: StrictInt
+    percent: StrictInt | None = None  # checked after the host and session, so a refused host is a 404
 
 
 class WatchOut(Schema):

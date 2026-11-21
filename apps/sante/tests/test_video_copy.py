@@ -9,6 +9,7 @@ from django.utils import timezone
 from apps.sante import content_copy
 from apps.sante.models import SanteContentCopy
 from apps.sante.tests.test_content_copy import CopyCase, SHARED, YT
+from apps.meta_ads.tests.base import setUpModule, tearDownModule  # noqa: F401 - Celery runs in-process here (see that module)
 from apps.training import stream
 from apps.training.models import Course, Lesson, Module
 from apps.training.tests.stream_fake import FakeBunny, set_library
