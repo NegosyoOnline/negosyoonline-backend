@@ -20,7 +20,9 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
-from apps.notifications.models import SmsDevice, SmsMessage, SmsPolicy, site_column_exists
+from apps.notifications.models import (
+    SmsDevice, SmsLineDisable, SmsMessage, SmsPolicy, site_column_exists,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +290,8 @@ def refusal(message):
     A store text (4.2 of the SMS-OWNER plan) is refused in this order: sending stopped; the
     store's day (`site_limit`); the store's hour (`site_hour_limit`); all stores' day
     (`stores_limit`); the platform day less the texts kept for codes (`staff_limit`); the phone
-    offline (`gateway_offline`)."""
+    offline (`gateway_offline`, or `site_phone_offline` when the store's own paired phone is the
+    one that is offline)."""
     rules = policy()
     if rules.sending_stopped:
         return "paused"
@@ -325,8 +328,11 @@ def refusal(message):
         limit, reason = max(limit - RESERVED_FOR_CODES, 0), "staff_limit"
     if not claim(_platform_key(), limit, _counted(message).count):
         return refuse(reason)
-    if not gateway_online(message.site):
-        return refuse("gateway_offline")
+    if not gateway_online(message.site, message.category):
+        # A store whose own paired phone is offline is told so; its text is not handed to the
+        # shared phone (D2). A store with no phone of its own meets the shared phone's offline.
+        own_phone = message.category == STORE and _lined(message.site) is not None
+        return refuse("site_phone_offline" if own_phone else "gateway_offline")
     return ""
 
 
@@ -421,10 +427,17 @@ def site_lines_on():
 
 
 def site_has_line(site):
-    """Whether this Site is entitled to its own phone. The entitlement model is not approved
-    yet, so this is a stub that answers False for every Site. The Dedicated SMS Line add-on
-    replaces the body of this one function; nothing else decides entitlement."""
-    return False
+    """Whether this Site is entitled to its own phone (SMS-INCLUDED): its billing position is
+    serving (`billing.position(site).storefront_served`: trial, active, payment needing
+    attention, billing-exempt) and HQ has not disabled its line. Nothing else decides
+    entitlement. It fails closed: with billing off, no subscription, or a position that cannot
+    be read, there is no line. A Site that goes to suspended or cancelled loses it at once;
+    reactivated, it has it again."""
+    from apps.billing import services as billing  # not at import: billing is a later layer
+
+    if not billing.position(site).storefront_served:
+        return False
+    return not SmsLineDisable.objects.filter(site=site, reenabled_at__isnull=True).exists()
 
 
 def _lined(site):
@@ -434,9 +447,12 @@ def _lined(site):
     return SmsDevice.objects.filter(is_active=True, site=site).first()
 
 
-def line_for(site):
+def line_for(site, category=None):
     """The phone that carries a text of this Site (None: a platform text): the Site's own active
-    phone when the switch is on and the Site is entitled, otherwise the platform phone."""
+    phone when the switch is on and the Site is entitled, otherwise the platform phone. A code
+    (`category` CODE) is never a Site's to send: it always goes from the platform phone (D1)."""
+    if category == CODE:
+        return pick_device()
     return _lined(site) or pick_device()
 
 
@@ -444,11 +460,13 @@ def claimable(device):
     """The condition on SmsMessage rows that this phone may take. Used by the waiting query and
     again in the claim UPDATE. It is the mirror of `line_for`.
 
-    Platform phone: texts of no Site, and texts of Sites that have no line. A Site phone: only
-    its own Site's texts, and nothing while its Site has no line (switch off or not entitled)."""
+    Platform phone: texts of no Site, texts of Sites that have no line, and every code (D1: a
+    sign-in code names its Site but always goes from this phone). A Site phone: only its own
+    Site's texts other than codes, and nothing while its Site has no line (switch off, billing
+    ended, or disabled by HQ)."""
     if device.site_id is not None:
         if site_lines_on() and site_has_line(device.site):
-            return Q(site_id=device.site_id)
+            return Q(site_id=device.site_id) & ~Q(category=CODE)
         return Q(pk__in=[])
     if not site_lines_on() or not site_column_exists():
         return Q()
@@ -456,7 +474,7 @@ def claimable(device):
     lined = [phone.site_id for phone in sites if site_has_line(phone.site)]
     if not lined:
         return Q()
-    return Q(site__isnull=True) | ~Q(site_id__in=lined)
+    return Q(site__isnull=True) | ~Q(site_id__in=lined) | Q(category=CODE)
 
 
 def may_be_handed_texts(device):
@@ -466,9 +484,9 @@ def may_be_handed_texts(device):
     return _lined(device.site) == device
 
 
-def gateway_online(site=None):
+def gateway_online(site=None, category=None):
     """The phone that would carry a text of this Site asked for texts in the last minute."""
-    device = line_for(site)
+    device = line_for(site, category)
     if device is None or device.last_contact_at is None:
         return False
     return device.last_contact_at >= timezone.now() - ONLINE_WITHIN

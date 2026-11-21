@@ -48,6 +48,7 @@ OPTED_OUT, SMS_OFF, REPLIES_OFF = "opted_out", "sms_off", "replies_off"
 TEXT_INVALID, NOT_SENT = "text_invalid", "not_sent"
 REASON_TEXTS = {
     "gateway_offline": "The store's phone is offline right now. Try again shortly.",
+    "site_phone_offline": "Your phone is offline right now. Nothing was sent. Open the app on your phone and try again.",
     "gateway_off": "Texting is not available right now.",
     "paused": "Texting is paused right now. Try again later.",
     "site_limit": "This store has reached today's text limit. Try again tomorrow.",
@@ -60,7 +61,7 @@ REASON_TEXTS = {
 }
 # The audit row's code (InquiryReply.error_code has a fixed list of choices).
 AUDIT_CODE = {
-    "gateway_offline": outcomes.PROVIDER_DOWN, "gateway_off": outcomes.PROVIDER_DOWN, "paused": outcomes.PROVIDER_DOWN,
+    "gateway_offline": outcomes.PROVIDER_DOWN, "site_phone_offline": outcomes.PROVIDER_DOWN, "gateway_off": outcomes.PROVIDER_DOWN, "paused": outcomes.PROVIDER_DOWN,
     "site_limit": outcomes.RATE_LIMITED, "site_hour_limit": outcomes.RATE_LIMITED,
     "stores_limit": outcomes.RATE_LIMITED, "staff_limit": outcomes.RATE_LIMITED,
     "expired": outcomes.PROVIDER_DOWN, TEXT_INVALID: outcomes.BAD_RESPONSE, NOT_SENT: outcomes.PROVIDER_DOWN,

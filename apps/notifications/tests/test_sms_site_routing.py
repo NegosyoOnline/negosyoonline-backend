@@ -44,6 +44,13 @@ class RoutingCase(base.GatewayCase):
         self.phone_a = make_phone("line-a", SITE_TOKEN_A, site=self.site_a)
         self.phone_b = make_phone("line-b", SITE_TOKEN_B, site=self.site_b)
 
+    def queue(self, **fields):
+        """A text of a Site is an order-status text here: a code is never a Site phone's to
+        carry (D1), so a Site's waiting text must not be one."""
+        if fields.get("site") is not None:
+            fields.setdefault("priority", base.P.STATUS)
+        return super().queue(**fields)
+
     def state(self, message):
         message.refresh_from_db()
         return message.status, message.reason

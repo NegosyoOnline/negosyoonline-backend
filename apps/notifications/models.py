@@ -1,7 +1,9 @@
 """A record of each message sent. Bodies are never stored: they can hold sign-in codes."""
 import time
 
+from django.conf import settings
 from django.db import connection, models
+from django.utils import timezone
 
 from apps.common.ids import new_public_id
 
@@ -182,6 +184,36 @@ class SmsMessage(models.Model):
 
     def __str__(self):
         return f"{self.purpose} {self.public_id} ({self.status})"
+
+
+class SmsLineDisable(models.Model):
+    """HQ's audited Disable of a Site's own phone line (SMS-INCLUDED, Coach Ed 2026-11-21). A
+    Site with no row, or only rows with `reenabled_at` set, is not disabled. Disabling writes a
+    new row; re-enabling stamps `reenabled_at`, so the history is kept. Read only through
+    `sms.site_has_line`; the HQ Disable and Re-enable screens come later."""
+
+    site = models.ForeignKey(
+        "sites.Site", on_delete=models.PROTECT, related_name="sms_line_disables"
+    )
+    disabled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    reason = models.CharField(max_length=300)
+    disabled_at = models.DateTimeField(default=timezone.now)
+    reenabled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "SMS line disable"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["site"],
+                condition=models.Q(reenabled_at__isnull=True),
+                name="sms_line_one_active_disable_per_site",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.site_id} disabled {self.disabled_at:%Y-%m-%d}"
 
 
 STORE_DAILY_LIMIT_DEFAULT = 50  # Coach Ed, 2026-11-21 (SO4): texts a store may send a day
