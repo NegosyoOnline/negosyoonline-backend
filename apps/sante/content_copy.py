@@ -12,16 +12,23 @@ a Celery task does the file copying (apps/sante/tasks.py), never the web request
   state only counts while the target row still exists; deleting the copy reads "not_copied".
 - Copying again (`again`) makes a new, separate copy. Nothing is updated when the source changes.
 - A failed copy removes the files it stored and writes no row.
-- A lesson whose video is a Bunny (iframe.mediadelivery.net) link is copied with an empty video
-  and needs_video set; YouTube and Vimeo links are copied as links.
+- Lesson videos (R2, Bunny only): a lesson with a ready Stream video in the source store's own
+  library is copied into the TARGET store's own library: Create Video there, then this task
+  downloads the source from the source library's CDN host and PUTs the bytes into the new video.
+  The copy never references the source library. The item reads Copying until Bunny says every
+  new video is ready (poll_videos); a video that fails makes the whole copy fail and removes it.
+  YouTube, Vimeo, 744094 links, no video, or a source library that is not configured: the lesson
+  arrives empty with needs_video set. Links are no longer copied.
+- The target store has no usable library: a course with Stream videos is refused (503 when
+  nothing else is queued, else listed as skipped with reason "video_unavailable").
 """
 import logging
 import os
 import secrets
 from datetime import timedelta
-from urllib.parse import urlsplit
 
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 
 from apps.catalog import media
@@ -33,6 +40,7 @@ from apps.sante.models import SanteContentCopy
 from apps.sites import templates
 from apps.sites.models import Site
 from apps.training import services as training
+from apps.training import stream, video
 from apps.training.models import Course, Lesson, Module
 
 logger = logging.getLogger(__name__)
@@ -41,12 +49,13 @@ COURSE, MEDIA = "course", "media"
 KINDS = (COURSE, MEDIA)
 NOT_COPIED, COPYING, COPIED, FAILED = "not_copied", "copying", "copied", "failed"
 MAX_IDS = 100
-STALE_AFTER = timedelta(minutes=30)  # a copy still "copying" after this reads failed
-BUNNY_HOST = "iframe.mediadelivery.net"
+STALE_AFTER = timedelta(hours=2)  # a copy still "copying" after this reads failed (videos take a while)
+POLL_EVERY = 20  # seconds between checks of the new videos
 NOT_OFFERED_MSG = "Some of these items are not offered."
 COPY_FAILED_MSG = "The files could not be copied."
 GONE_MSG = "The item is no longer offered."
 STORE_MSG = "The media store is not configured."
+VIDEO_FAILED_MSG = "A video could not be copied."
 
 
 # -- what is offered ---------------------------------------------------------------------------
@@ -101,8 +110,12 @@ def _state(site, kind, row, now=None):
 
 
 def _course_bytes(course):
-    # Course and lesson pictures store no size, so only known sizes count: none for a course.
-    return 0
+    """What a copy brings in stored video: the Stream size of its ready videos. Course and lesson
+    pictures store no size, so they add nothing."""
+    modules = Module.objects.filter(course=course, active=True)
+    return Lesson.objects.filter(
+        module__in=modules, active=True, stream_status=video.READY
+    ).aggregate(total=Sum("stream_bytes"))["total"] or 0
 
 
 def list_for(site):
@@ -190,17 +203,46 @@ def request_copy(site, *, kind, ids=None, every=False, again=False):
             if any(i not in by_id for i in wanted):
                 raise _invalid("ids", NOT_OFFERED_MSG)
         latest = _latest(site, kind)
+        target_ready = video.configured_for(site)
+        refused = False
         for source_id in wanted:
             state, _ = _state(site, kind, latest.get(source_id))
             if state == COPYING:
                 skipped.append({"kind": kind, "id": source_id, "reason": "copying"})
             elif state == COPIED and not again:
                 skipped.append({"kind": kind, "id": source_id, "reason": "copied"})
+            elif kind == COURSE and not target_ready and _has_stream_videos(by_id[source_id]):
+                skipped.append({"kind": kind, "id": source_id, "reason": "video_unavailable"})
+                refused = True
             else:
                 row = SanteContentCopy.objects.create(site=site, kind=kind, source_public_id=source_id)
                 queued.append({"kind": kind, "id": source_id, "copy_state": COPYING})
                 transaction.on_commit(lambda pk=row.pk: _dispatch(pk))
+    if refused and not queued:
+        raise video.not_available()
     return {"queued": queued, "skipped": skipped}
+
+
+def _stream_lessons(course):
+    """The active lessons of a source course whose Stream video is ready and whose library is set."""
+    modules = Module.objects.filter(course=course, active=True)
+    found = []
+    for lesson in Lesson.objects.filter(module__in=modules, active=True).order_by("pk"):
+        if video.has_ready_stream(lesson) and _source_library(lesson) is not None:
+            found.append(lesson)
+    return found
+
+
+def _has_stream_videos(course):
+    return bool(_stream_lessons(course))
+
+
+def _source_library(lesson):
+    """The source lesson's library, or None when it has none set (the lesson arrives empty)."""
+    try:
+        return stream.library_by_id(lesson.stream_library_id)
+    except stream.NotConfigured:
+        return None
 
 
 def _dispatch(copy_pk):
@@ -226,6 +268,7 @@ class _Staged:
 
     def __init__(self):
         self.keys = []
+        self.videos = []  # (library id, video id) created in a target library
 
     def copy(self, src_key, dest_key):
         if not src_key:
@@ -236,6 +279,8 @@ class _Staged:
     def discard(self):
         for key in self.keys:
             media.discard(key)
+        for library_id, guid in self.videos:
+            video.discard_if_unreferenced(library_id, guid)  # not named by any lesson: deleted
 
 
 def _ext(key):
@@ -271,7 +316,7 @@ def run_copy(copy_pk):
     except BaseException as exc:  # noqa: BLE001 - nothing half-made stays behind
         staged.discard()
         logger.warning("A content copy failed (%s).", type(exc).__name__)
-        _fail(row, COPY_FAILED_MSG)
+        _fail(row, stream.NOT_AVAILABLE_MSG if isinstance(exc, _VideoUnavailable) else COPY_FAILED_MSG)
         if not isinstance(exc, Exception):
             raise
         return None
@@ -309,11 +354,17 @@ def _copy_media(row, src, staged):
     return asset.public_id
 
 
-def _is_bunny(url):
+def _copy_video(lesson, source_library, target_library, staged):
+    """Make a new video in the target library from the source lesson's video and return its id.
+    The source is downloaded from its library's CDN host and PUT into the new video."""
+    guid = stream.create_video(target_library, lesson.title)
+    staged.videos.append((target_library.id, guid))
+    source, length = stream.download_source(source_library, lesson.stream_video_id)
     try:
-        return (urlsplit(url).hostname or "").lower() == BUNNY_HOST
-    except ValueError:
-        return False
+        stream.upload_bytes(target_library, guid, source, length)
+    finally:
+        source.close()
+    return guid
 
 
 def _copy_course(row, src, staged):
@@ -323,11 +374,25 @@ def _copy_course(row, src, staged):
     lessons = {
         m.pk: list(Lesson.objects.filter(module=m, active=True).order_by("order", "pk")) for m in modules
     }
-    # Every lesson picture is copied before any row is written, so a failure leaves no rows.
+    # Every lesson picture and video is copied before any row is written, so a failure leaves no
+    # rows (the new files and videos are removed by the caller).
     lesson_images = {
         lesson.pk: staged.copy(lesson.image_key, _training_key(lesson.image_key))
         for items in lessons.values() for lesson in items
     }
+    new_videos = {}
+    wanted = [lesson for items in lessons.values() for lesson in items if video.has_ready_stream(lesson)]
+    target_library = None
+    for lesson in wanted:
+        source_library = _source_library(lesson)
+        if source_library is None:
+            continue  # the source library is not set: this lesson arrives as "Add your video"
+        if target_library is None:
+            try:
+                target_library = stream.library_for_site(site)
+            except stream.NotConfigured:
+                raise _VideoUnavailable() from None
+        new_videos[lesson.pk] = (target_library.id, _copy_video(lesson, source_library, target_library, staged))
     with transaction.atomic():
         course = Course.objects.create(
             site=site, title=src.title, description=src.description, image_key=image,
@@ -339,14 +404,93 @@ def _copy_course(row, src, staged):
                 course=course, title=module.title, order=module.order, active=True
             )
             for lesson in lessons[module.pk]:
-                bunny = bool(lesson.video_url) and _is_bunny(lesson.video_url)
+                library_id, guid = new_videos.get(lesson.pk, (None, ""))
                 Lesson.objects.create(
                     module=new_module, title=lesson.title, duration=lesson.duration,
-                    description=lesson.description, video_url="" if bunny else lesson.video_url,
-                    image_key=lesson_images[lesson.pk], needs_video=bunny, order=lesson.order, active=True,
+                    description=lesson.description, video_url="",
+                    image_key=lesson_images[lesson.pk], needs_video=not guid, order=lesson.order, active=True,
+                    stream_library_id=library_id, stream_video_id=guid,
+                    stream_status=video.PROCESSING if guid else "",
                 )
-        _finish_rows(row, course.public_id)
+        if new_videos:  # stays Copying until Bunny says every new video is ready
+            held = SanteContentCopy.objects.filter(pk=row.pk, state=SanteContentCopy.COPYING).update(
+                target_public_id=course.public_id
+            )
+            if not held:
+                raise RuntimeError("The copy request is no longer open.")
+            transaction.on_commit(lambda: _schedule_poll(row.pk, 0))
+        else:
+            _finish_rows(row, course.public_id)
     return course.public_id
+
+
+class _VideoUnavailable(Exception):
+    """The target store has no usable Stream library."""
+
+
+def _schedule_poll(copy_pk, attempt):
+    from apps.sante.tasks import poll_videos
+
+    try:
+        poll_videos.apply_async((copy_pk, attempt), countdown=POLL_EVERY)
+    except Exception:  # noqa: BLE001 - the queue is down: say so on the item instead of hanging
+        logger.warning("A video copy check could not be queued.")
+        _abort_video_copy(copy_pk, "The copy could not be finished. Try again.")
+
+
+def _abort_video_copy(copy_pk, message):
+    """Fail a copy whose course rows exist: remove the course (and, through the delete guards,
+    its pictures and new videos), then close the row as failed."""
+    row = SanteContentCopy.objects.select_related("site").filter(pk=copy_pk).first()
+    if row is None or row.state != SanteContentCopy.COPYING:
+        return
+    if row.target_public_id:
+        try:
+            training.delete_course(row.site, row.target_public_id)
+        except ApiError:
+            pass  # the owner already deleted it
+    _finish(copy_pk, SanteContentCopy.FAILED, error=message)
+
+
+def poll_videos(copy_pk, attempt=0):
+    """Check the new videos of a Copying course against Bunny. Everything ready: Copied. Any
+    failed, or the copy outlived STALE_AFTER: the copy is removed and reads failed. Otherwise
+    look again shortly. Never raises."""
+    row = SanteContentCopy.objects.select_related("site").filter(pk=copy_pk).first()
+    if row is None or row.state != SanteContentCopy.COPYING or not row.target_public_id:
+        return
+    if row.requested_at < timezone.now() - STALE_AFTER:
+        return _abort_video_copy(copy_pk, COPY_FAILED_MSG)
+    course = Course.objects.filter(site=row.site, public_id=row.target_public_id).first()
+    if course is None:
+        return _finish(copy_pk, SanteContentCopy.FAILED, error=GONE_MSG)
+    waiting = False
+    for lesson in Lesson.objects.filter(module__course=course).exclude(stream_video_id=""):
+        if lesson.stream_status == video.READY:
+            continue
+        try:
+            answer = stream.get_video(stream.library_by_id(lesson.stream_library_id), lesson.stream_video_id)
+        except (stream.StreamError, stream.NotConfigured):
+            waiting = True  # try again shortly; the age limit ends it
+            continue
+        status = stream.status_name(answer["status"])
+        if status == video.FAILED:
+            return _abort_video_copy(copy_pk, VIDEO_FAILED_MSG)
+        if status == video.READY:
+            Lesson.objects.filter(pk=lesson.pk).update(
+                stream_status=video.READY, stream_bytes=answer["storage_size"]
+            )
+        else:
+            waiting = True
+    if waiting:
+        return _schedule_poll(copy_pk, attempt + 1)
+    _finish_rows_open(copy_pk, course.public_id)
+
+
+def _finish_rows_open(copy_pk, target):
+    SanteContentCopy.objects.filter(pk=copy_pk, state=SanteContentCopy.COPYING).update(
+        state=SanteContentCopy.COPIED, target_public_id=target, error="", finished_at=timezone.now()
+    )
 
 
 def _finish_rows(row, target):

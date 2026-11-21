@@ -10,6 +10,8 @@ member routes (apps/storefront/api.py mounts this router under /member/):
          -> the lesson (409 lesson_locked until the one before it is complete)
     POST /storefront/v1/member/training/lessons/{lesson_id}/complete/ {host, token}
          -> {lesson_id, completed, course: {id, completed_lessons, total_lessons, percent}, next_lesson}
+    POST /storefront/v1/member/training/lessons/{lesson_id}/watch/    {host, token, percent}
+         -> {lesson_id, watched_percent}: keeps the furthest percent (0-100), never completes
     POST /storefront/v1/member/training/live/                         {host, token}
          -> {live: {id, title, starts_at, duration_minutes, description, join_url, thumbnail_url} | null}
 
@@ -109,12 +111,20 @@ class ModuleRefOut(Schema):
     first_lesson_id: str
 
 
+class VideoOut(Schema):
+    kind: str  # stream | legacy | none
+    status: str
+    embed_url: str | None
+    needs_video: bool
+
+
 class LessonOut(Schema):
     id: str
     title: str
     duration: str
     description: str
     video_url: str | None
+    video: VideoOut
     image_url: str | None
     completed: bool
     course: RefOut
@@ -139,6 +149,17 @@ class CompleteOut(Schema):
     completed: bool
     course: CourseProgressOut
     next_lesson: RefOut | None
+
+
+class WatchIn(Schema):
+    host: str = ""
+    token: str = ""
+    percent: int
+
+
+class WatchOut(Schema):
+    lesson_id: str
+    watched_percent: int
 
 
 class LiveOut(Schema):
@@ -177,6 +198,11 @@ def lesson(request, lesson_id: str, body: SessionIn):
 @router.post("/training/lessons/{lesson_id}/complete/", response=CompleteOut)
 def lesson_complete(request, lesson_id: str, body: SessionIn):
     return services.complete_lesson(_member(body), lesson_id)
+
+
+@router.post("/training/lessons/{lesson_id}/watch/", response=WatchOut)
+def lesson_watch(request, lesson_id: str, body: WatchIn):
+    return services.record_watch(_member(body), lesson_id, body.percent)
 
 
 @router.post("/training/live/", response=NextLiveOut)

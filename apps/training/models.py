@@ -87,6 +87,17 @@ class Lesson(models.Model):
     image_key = models.CharField(max_length=200, blank=True, default="")
     # True on a copy whose Bunny video was not copied: the dash shows "Add your video".
     needs_video = models.BooleanField(default=False)
+    # The Bunny Stream video (R2): the pair (library id, video id) identifies it, in the store's own
+    # library. stream_status is "", "uploading", "processing", "ready" or "failed". A replacement
+    # upload waits in the stream_pending_* columns until it is ready, then takes over. video_url
+    # holds a legacy link only (it can be cleared, never set).
+    stream_library_id = models.PositiveIntegerField(null=True, blank=True)
+    stream_video_id = models.CharField(max_length=64, blank=True, default="")
+    stream_status = models.CharField(max_length=12, blank=True, default="")
+    stream_bytes = models.BigIntegerField(default=0)  # Bunny's storageSize once ready
+    stream_pending_library_id = models.PositiveIntegerField(null=True, blank=True)
+    stream_pending_video_id = models.CharField(max_length=64, blank=True, default="")
+    stream_pending_status = models.CharField(max_length=12, blank=True, default="")
     order = models.PositiveIntegerField(default=1)
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
@@ -99,6 +110,21 @@ class Lesson(models.Model):
         return self.public_id
 
 
+class StreamLibrary(models.Model):
+    """The store's own Bunny Stream library. One row per site, written by the staff command
+    `stream_library` only. key_ref names the environment variable BUNNY_STREAM_KEY_<KEY_REF> that
+    holds the library's API key; the key itself is never stored here."""
+
+    site = models.OneToOneField("sites.Site", on_delete=models.CASCADE, related_name="stream_library")
+    library_id = models.PositiveIntegerField(unique=True)
+    cdn_host = models.CharField(max_length=120)
+    key_ref = models.CharField(max_length=40)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    def __str__(self):
+        return f"{self.site_id}:{self.library_id}"
+
+
 class LessonProgress(models.Model):
     """One row per member and lesson. A row with no completed_at is a lesson that was opened."""
 
@@ -106,9 +132,19 @@ class LessonProgress(models.Model):
     lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name="progress")
     started_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
+    # The furthest point of the video the member has watched (0-100) and when it last moved.
+    # It never changes completed_at: "Mark complete" is the member's own action.
+    watched_percent = models.PositiveSmallIntegerField(default=0)
+    watched_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["member", "lesson"], name="training_progress_once")]
+        constraints = [
+            models.UniqueConstraint(fields=["member", "lesson"], name="training_progress_once"),
+            models.CheckConstraint(
+                condition=models.Q(watched_percent__gte=0, watched_percent__lte=100),
+                name="training_progress_watched_pct",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.member_id}:{self.lesson_id}"

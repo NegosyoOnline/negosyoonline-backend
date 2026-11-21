@@ -24,10 +24,11 @@ from django.utils.text import slugify
 
 from apps.catalog import media
 from apps.catalog.services import IMAGE_MESSAGES
-from apps.common import file_refs, private_files
+from apps.common import file_refs, private_files, throttle
 from apps.common.errors import ApiError
 from apps.members import notices
 
+from . import video
 from .models import Course, Lesson, LessonProgress, LiveTraining, Module
 
 IMAGE_FOLDER = "training"
@@ -50,6 +51,7 @@ VIDEO_MESSAGE = (
     "or Bunny Stream (iframe.mediadelivery.net/embed/...)."
 )
 URL_MAX = 500
+UPLOAD_INSTEAD_MSG = "Upload your video instead."
 
 
 def video_url_ok(value):
@@ -259,7 +261,8 @@ def lesson_detail(member, lesson_id):
     nxt = lessons[index + 1] if index + 1 < len(lessons) else None
     return {
         "id": lesson.public_id, "title": lesson.title, "duration": lesson.duration,
-        "description": lesson.description, "video_url": lesson.video_url or None,
+        "description": lesson.description, "video_url": video.legacy_url_for_member(lesson),
+        "video": video.video_out(lesson),
         "image_url": media.url_for(lesson.image_key), "completed": lesson.pk in done,
         "course": {"id": course.public_id, "title": course.title},
         "module": {"id": module.public_id, "title": module.title, "module_number": position + 1},
@@ -302,6 +305,57 @@ def complete_lesson(member, lesson_id):
             "percent": _percent(finished, len(lessons)),
         },
         "next_lesson": _lesson_ref(lessons[index + 1] if index + 1 < len(lessons) else None),
+    }
+
+
+WATCH_LIMIT, WATCH_WINDOW = 60, 60  # posts per member per minute: about 11 are sent per viewing
+
+
+def record_watch(member, lesson_id, percent):
+    """Keep the furthest percent (0-100) of the video this member has watched. It only ever
+    goes up, creates the open row if there is none, and never touches completed_at."""
+    lesson = _visible_lesson(member, lesson_id)
+    if isinstance(percent, bool) or not isinstance(percent, int) or not 0 <= percent <= 100:
+        raise _invalid({"percent": "Send a whole number from 0 to 100."})
+    throttle.hit("lesson_watch", member.pk, limit=WATCH_LIMIT, window=WATCH_WINDOW)
+    course = lesson.module.course
+    lessons = _course_lessons([course.pk])[course.pk]
+    if _open_flags(lessons, _completed_ids(member, lessons))[lesson.pk]:
+        raise _locked()
+    try:
+        with transaction.atomic():
+            progress, _ = LessonProgress.objects.get_or_create(member=member, lesson=lesson)
+    except IntegrityError:  # two posts at once: the other one made the row
+        progress = LessonProgress.objects.get(member=member, lesson=lesson)
+    LessonProgress.objects.filter(pk=progress.pk, watched_percent__lt=percent).update(
+        watched_percent=percent, watched_at=timezone.now()
+    )
+    progress.refresh_from_db(fields=["watched_percent"])
+    return {"lesson_id": lesson.public_id, "watched_percent": progress.watched_percent}
+
+
+def course_watch(course):
+    """Per lesson of the course, each of the site's own members who opened it: the furthest
+    percent watched and whether they marked it complete. Members of any other site never appear."""
+    lessons = list(
+        Lesson.objects.filter(module__course=course).select_related("module").order_by("module__order", "module__pk", "order", "pk")
+    )
+    rows = LessonProgress.objects.filter(
+        lesson__in=lessons, member__site=course.site
+    ).select_related("member").order_by("member__full_name", "member__pk")
+    by_lesson = {}
+    for row in rows:
+        by_lesson.setdefault(row.lesson_id, []).append({
+            "member_id": row.member.public_id, "name": row.member.full_name,
+            "percent": row.watched_percent, "completed": row.completed_at is not None,
+        })
+    return {
+        "course_id": course.public_id,
+        "lessons": [
+            {"id": x.public_id, "title": x.title, "module_id": x.module.public_id,
+             "module_title": x.module.title, "members": by_lesson.get(x.pk, [])}
+            for x in lessons
+        ],
     }
 
 
@@ -406,7 +460,8 @@ def lesson_owner_out(lesson):
     return {
         "id": lesson.public_id, "module_id": lesson.module.public_id, "title": lesson.title,
         "duration": lesson.duration, "description": lesson.description,
-        "video_url": lesson.video_url or None, "image_url": media.url_for(lesson.image_key),
+        "video_url": lesson.video_url or None, "video": video.video_out(lesson),
+        "image_url": media.url_for(lesson.image_key),
         "order": lesson.order, "active": lesson.active, "needs_video": lesson.needs_video,
     }
 
@@ -517,16 +572,22 @@ def _check_shared(site, course, out, errors):
         errors["shared"] = "An archived course cannot be shared."
 
 
-def _delete_with_images(row, keys):
+def _delete_with_images(row, keys, videos=()):
     with transaction.atomic():
         row.delete()
         transaction.on_commit(lambda: [file_refs.discard_if_unreferenced(key) for key in keys])
+        video.discard_pairs_on_commit(videos)
+
+
+def _stream_pairs(lessons):
+    return [pair for lesson in lessons for pair in video.pairs_of(lesson)]
 
 
 def delete_course(site, public_id):
     course = get_course(site, public_id)
-    keys = [course.image_key, *Lesson.objects.filter(module__course=course).values_list("image_key", flat=True)]
-    _delete_with_images(course, keys)
+    lessons = list(Lesson.objects.filter(module__course=course))
+    keys = [course.image_key, *(lesson.image_key for lesson in lessons)]
+    _delete_with_images(course, keys, _stream_pairs(lessons))
 
 
 @transaction.atomic
@@ -556,7 +617,8 @@ def update_module(site, public_id, data):
 
 def delete_module(site, public_id):
     module = get_module(site, public_id)
-    _delete_with_images(module, list(module.lessons.values_list("image_key", flat=True)))
+    lessons = list(module.lessons.all())
+    _delete_with_images(module, [lesson.image_key for lesson in lessons], _stream_pairs(lessons))
 
 
 def _lesson_values(data, errors, out, *, creating):
@@ -568,11 +630,9 @@ def _lesson_values(data, errors, out, *, creating):
     if "video_url" in data:
         value = data["video_url"]
         if value is None or value == "":
-            out["video_url"] = ""
-        elif video_url_ok(value):
-            out["video_url"] = value
+            out["video_url"] = ""  # a legacy link can be cleared, never set again
         else:
-            errors["video_url"] = VIDEO_MESSAGE
+            errors["video_url"] = UPLOAD_INSTEAD_MSG
 
 
 @transaction.atomic
@@ -593,14 +653,12 @@ def update_lesson(site, public_id, data):
     errors, out = {}, {}
     _lesson_values(data, errors, out, creating=False)
     _finish(errors)
-    if out.get("video_url"):
-        out["needs_video"] = False  # the owner added a video: "Add your video" is done
     return _apply(lesson, out)
 
 
 def delete_lesson(site, public_id):
     lesson = get_lesson(site, public_id)
-    _delete_with_images(lesson, [lesson.image_key])
+    _delete_with_images(lesson, [lesson.image_key], video.pairs_of(lesson))
 
 
 @transaction.atomic

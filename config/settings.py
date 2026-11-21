@@ -250,6 +250,13 @@ DB_BACKUP_STALE_HOURS = int(os.environ.get("DB_BACKUP_STALE_HOURS", "30"))
 # unset, no product photo can be uploaded; the rest of the catalog works.
 PUBLIC_BLOB_READ_WRITE_TOKEN = os.environ.get("PUBLIC_BLOB_READ_WRITE_TOKEN", "").strip()
 PUBLIC_MEDIA_BASE_URL = os.environ.get("PUBLIC_MEDIA_BASE_URL", "").strip().rstrip("/")
+# Bunny Stream (apps/training/stream.py). Only the two public API hosts are global. Every store has
+# its own library: its id, CDN host and key name are a StreamLibrary row, and its key is read from
+# the variable BUNNY_STREAM_KEY_<KEY_REF> at the moment of use, never stored or logged.
+BUNNY_STREAM_API_BASE = os.environ.get("BUNNY_STREAM_API_BASE", "https://video.bunnycdn.com").strip().rstrip("/")
+BUNNY_STREAM_EMBED_BASE = os.environ.get(
+    "BUNNY_STREAM_EMBED_BASE", "https://iframe.mediadelivery.net/embed"
+).strip().rstrip("/")
 # Santé member sign-in (apps/members), on the storefront surface below. "1" turns on its four
 # routes. Off, they answer the 404 of an unknown site and no member table is read or written.
 # Sign-in codes and limits live in the cache, so it needs REDIS_URL outside local work.

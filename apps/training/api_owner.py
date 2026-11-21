@@ -18,6 +18,11 @@
     DELETE .../lessons/{lesson_id}/         -> {status: "deleted"}
     POST   .../lessons/{lesson_id}/image/   multipart `file` -> lesson
     DELETE .../lessons/{lesson_id}/image/   -> lesson
+    POST   .../lessons/{lesson_id}/video/upload/ -> 201 {upload: {endpoint, library_id, video_id, signature, expires}, video}
+    GET    .../lessons/{lesson_id}/video/   -> {video}: asks Bunny while the video is still on its way
+    DELETE .../lessons/{lesson_id}/video/   -> {video}: removes the Stream video through the delete guard
+    GET    .../courses/{course_id}/watch/   -> {course_id, lessons: [{id, title, module_id, module_title,
+                                                members: [{member_id, name, percent, completed}]}]}
     GET    .../live/                        -> {live: [live]}
     POST   .../live/                        {title, starts_at, duration_minutes?, description?, join_url?, active?} -> 201 live
     PATCH  .../live/{live_id}/              any of the same keys -> live
@@ -29,7 +34,7 @@ Same gates as the member notices (apps/members/api_notices.py): the owner sessio
 first through site_for (404 for a missing, foreign or non-Santé site), the Billing-only rule (403),
 404 everywhere while MEMBERS_ENABLED is off. Every row is read under the caller's own site, so a
 foreign id is 404. Errors: 400 invalid_request with `fields`, 404 not_found, 503
-image_store_not_configured. Every answer is Cache-Control: no-store.
+image_store_not_configured, 503 video_not_available (the store has no Stream library yet). Every answer is Cache-Control: no-store.
 """
 from datetime import datetime
 
@@ -41,6 +46,7 @@ from pydantic import ConfigDict
 from apps.members.api_owner import member_site
 
 from . import services as svc
+from . import video as vid
 
 router = Router(tags=["training"], auth=member_site)
 
@@ -229,6 +235,26 @@ def lesson_update(request, site_id: str, lesson_id: str, payload: LessonPatch):
 def lesson_delete(request, site_id: str, lesson_id: str):
     svc.delete_lesson(request.member_site, lesson_id)
     return _json(DELETED)
+
+
+@router.post("/sites/{site_id}/training/lessons/{lesson_id}/video/upload/")
+def lesson_video_upload(request, site_id: str, lesson_id: str):
+    return _json(vid.start_upload(request.member_site, lesson_id), 201)
+
+
+@router.get("/sites/{site_id}/training/lessons/{lesson_id}/video/")
+def lesson_video_get(request, site_id: str, lesson_id: str):
+    return _json({"video": vid.refresh(request.member_site, lesson_id)})
+
+
+@router.delete("/sites/{site_id}/training/lessons/{lesson_id}/video/")
+def lesson_video_delete(request, site_id: str, lesson_id: str):
+    return _json({"video": vid.remove(request.member_site, lesson_id)})
+
+
+@router.get("/sites/{site_id}/training/courses/{course_id}/watch/")
+def course_watch(request, site_id: str, course_id: str):
+    return _json(svc.course_watch(svc.get_course(request.member_site, course_id)))
 
 
 @router.post("/sites/{site_id}/training/lessons/{lesson_id}/image/")

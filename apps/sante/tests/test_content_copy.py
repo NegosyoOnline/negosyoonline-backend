@@ -317,23 +317,25 @@ class CopyTests(CopyCase):
         self.assertEqual(self.list()["courses"][0]["copy_state"], "copied")
         self.assertEqual(self.list()["courses"][0]["copy_id"], mine.public_id)
 
-    def test_the_bunny_link_is_left_empty_and_marked_other_links_are_copied(self):
+    def test_links_are_no_longer_copied_every_lesson_without_a_stream_video_needs_one(self):
         src = self.course()
         self.copy({"kind": "course", "ids": [src.public_id]})
         l1, l2 = Lesson.objects.filter(module__course__site=self.site).order_by("order")
-        self.assertEqual((l1.video_url, l1.needs_video), (YT, False))
+        self.assertEqual((l1.video_url, l1.needs_video), ("", True))
         self.assertEqual((l2.video_url, l2.needs_video), ("", True))
         out = self.get(f"/v1/sites/{self.site.public_id}/training/courses/{Course.objects.get(site=self.site).public_id}/")
         lessons = out.json()["modules"][0]["lessons"]
-        self.assertEqual([x["needs_video"] for x in lessons], [False, True])
+        self.assertEqual([x["needs_video"] for x in lessons], [True, True])
+        self.assertEqual([x["video"]["needs_video"] for x in lessons], [True, True])
 
-    def test_adding_a_video_clears_the_marker(self):
+    def test_adding_a_video_by_link_is_refused_so_the_marker_stays(self):
         src = self.course()
         self.copy({"kind": "course", "ids": [src.public_id]})
         lesson = Lesson.objects.get(module__course__site=self.site, title="L2")
         r = self.patch(f"/v1/sites/{self.site.public_id}/training/lessons/{lesson.public_id}/", {"video_url": YT})
-        self.assertEqual(r.status_code, 200, r.content)
-        self.assertIs(r.json()["needs_video"], False)
+        self.assertEqual(r.status_code, 400, r.content)
+        lesson.refresh_from_db()
+        self.assertTrue(lesson.needs_video)
 
     def test_copy_media_is_unpublished_with_new_keys_and_the_same_file_size(self):
         src = self.asset(size=4242)
