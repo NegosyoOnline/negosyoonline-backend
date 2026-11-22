@@ -1,0 +1,11 @@
+# Bunny data app: Redis 7 on a TLS port only, password required, append-only file on.
+# Build context: this directory (deploy/bunny/data). Version change: docs/runbooks/bunny-staging.md.
+FROM redis:7
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
+COPY redis-entrypoint.sh /usr/local/bin/negosyo-redis-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/negosyo-redis-entrypoint.sh
+# Mount the (optional) volume at /data: the append-only file and the certificate live there.
+ENTRYPOINT ["negosyo-redis-entrypoint.sh"]
+CMD ["redis-server"]

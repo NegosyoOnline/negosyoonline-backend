@@ -1,6 +1,7 @@
 """No network, no pg_dump, no Blob: a fake store and a fake dump."""
 import base64
 import io
+import json
 import os
 from datetime import datetime, timedelta, timezone as tz
 from unittest import mock
@@ -240,6 +241,56 @@ class CommandTests(SimpleTestCase):
         self.assertEqual(data, SECRET_DUMP)
         self.assertEqual((conn["host"], conn["port"], conn["name"]), ("other.host", "5433", "scratch"))
         self.assertNotIn("pw", text)
+
+    @override_settings(DB_BACKUP_ENCRYPTION_KEY=KEY_B64, PRIVATE_BLOB_READ_WRITE_TOKEN="vercel_blob_rw_abc123_s")
+    def test_restore_with_summary_writes_counts_only_under_ops(self):
+        store = FakeStore()
+        service.run_backup(store, KEY, lambda: SECRET_DUMP, at(2026, 11, 22))
+        name = next(iter(store.objects))
+        counts = {"public.accounts_user": 3, "public.billing_subscription": 0}
+        with mock.patch("apps.db_backup.clients.build_store", return_value=store), \
+                mock.patch("apps.db_backup.dump.restore_database"), \
+                mock.patch("apps.db_backup.summary.table_counts", return_value=counts) as counted:
+            text = self.run_command("restore_database", name=name, summary=True,
+                                    target_url="postgresql://u:pw@other.host:5433/scratch?sslmode=require")
+        self.assertEqual(counted.call_args.args[0]["sslmode"], "require")
+        written = [p for p in store.objects if p.startswith("ops/restore-summary-")]
+        self.assertEqual(len(written), 1)
+        document = json.loads(store.objects[written[0]])
+        self.assertEqual((document["tables"], document["total_rows"]), (2, 3))
+        self.assertEqual(document["rows"], counts)
+        self.assertEqual(set(document), {"at", "source_copy", "tables", "total_rows", "rows"})
+        self.assertIn("2 tables, 3 rows", text)
+        for secret in ("pw", "other.host", "ops/", SECRET_DUMP.decode()):
+            self.assertNotIn(secret, text.replace("written to ops/", ""))
+
+    @override_settings(DB_BACKUP_ENCRYPTION_KEY=KEY_B64, PRIVATE_BLOB_READ_WRITE_TOKEN="vercel_blob_rw_abc123_s")
+    def test_restore_without_summary_writes_nothing_to_ops(self):
+        store = FakeStore()
+        service.run_backup(store, KEY, lambda: SECRET_DUMP, at(2026, 11, 22))
+        name = next(iter(store.objects))
+        with mock.patch("apps.db_backup.clients.build_store", return_value=store), \
+                mock.patch("apps.db_backup.dump.restore_database"), \
+                mock.patch("apps.db_backup.summary.table_counts") as counted:
+            self.run_command("restore_database", name=name, target_url="postgresql://u:pw@other.host:5433/scratch")
+        counted.assert_not_called()
+        self.assertFalse([p for p in store.objects if p.startswith("ops/")])
+
+    @override_settings(DB_BACKUP_ENCRYPTION_KEY=KEY_B64, PRIVATE_BLOB_READ_WRITE_TOKEN="vercel_blob_rw_abc123_s")
+    def test_a_failed_count_reports_the_error_type_only(self):
+        import psycopg
+
+        store = FakeStore()
+        service.run_backup(store, KEY, lambda: SECRET_DUMP, at(2026, 11, 22))
+        name = next(iter(store.objects))
+        with mock.patch("apps.db_backup.clients.build_store", return_value=store), \
+                mock.patch("apps.db_backup.dump.restore_database"), \
+                mock.patch("apps.db_backup.summary.table_counts", side_effect=psycopg.OperationalError("host=secret.example")):
+            with self.assertRaises(CommandError) as raised:
+                self.run_command("restore_database", name=name, summary=True,
+                                 target_url="postgresql://u:pw@other.host:5433/scratch")
+        self.assertIn("OperationalError", str(raised.exception))
+        self.assertNotIn("secret.example", str(raised.exception))
 
     @override_settings(DB_BACKUP_ENCRYPTION_KEY=KEY_B64, PRIVATE_BLOB_READ_WRITE_TOKEN="vercel_blob_rw_abc123_s")
     def test_restore_list_prints_copies(self):
