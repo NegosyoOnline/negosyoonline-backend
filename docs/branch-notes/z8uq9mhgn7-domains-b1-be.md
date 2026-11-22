@@ -73,6 +73,15 @@ No other app's migration or file was touched.
 Registrar adapter, purchase guards, owner routes, `on_first_payment` hook, caps, Resend, any
 frontend, the `domain-probe` storefronts route, the PSL file.
 
-## Heads and suites
+## Suites (local, run on the code commit before this notes commit)
 
-See the final report and the ClickUp comment (heads and counts are written when the branch is final).
+* `apps.domains`: 150 tests, all pass (SQLite; also inside the full PG run).
+* Full suite SQLite: 5526 tests, OK (71 skipped, the PostgreSQL-only ones).
+* Full suite PostgreSQL 14 (own local instance, UTF8, fresh port) + Redis 7 (own instance, fresh port):
+  5526 tests, OK (1 skipped). CI uses postgres 16; not run locally.
+* `manage.py check --deploy`: only `domains.W001` (public suffix list missing, intended) plus the known
+  HSTS warnings (W005, W021). `makemigrations --check`: no changes.
+* Run serially: `--parallel` needs `tblib`, which is not a project dependency (CI adds it with `uv run --with`),
+  so it was not used.
+* The existing `apps/billing/tests/test_tasks.py` pins the task and schedule lists; it was updated for
+  the three domains tasks (a test edit outside apps/domains).
