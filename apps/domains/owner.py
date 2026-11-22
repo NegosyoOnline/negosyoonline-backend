@@ -18,7 +18,7 @@ from apps.common.errors import ApiError
 from apps.common.throttle import hit
 from apps.domains import events, gate, machine, names, purchase
 from apps.domains.models import (
-    ActorType, ClaimState, Domain, DomainRegistration, RegistrationState,
+    ActorType, ClaimState, Domain, DomainPurchaseLedger, DomainRegistration, RegistrationState,
 )
 from apps.domains.services import offered_tlds, tld_of
 
@@ -153,7 +153,9 @@ def buy(account, site, raw, now=None):
     """The owner presses Buy. Only writes: it never enqueues and never calls a provider."""
     now = now or timezone.now()
     _require_gate(site, now)
+    purchase.ledger()
     with transaction.atomic():
+        DomainPurchaseLedger.objects.select_for_update().get(pk=1)  # the lock order of every writer: ledger first
         reg = _registration(site)
         claim = active_claim(site, lock=True)
         reattach = reg.state == RegistrationState.SUCCEEDED
