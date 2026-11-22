@@ -17,6 +17,7 @@ import dj_database_url
 from celery.schedules import crontab
 
 from apps.common.database import require_database_tls
+from apps.common.redis_tls import redis_tls_options
 from config.celery import broker_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -463,12 +464,20 @@ DATABASES = {
 TEST_RUNNER = "config.test_runner.RedisIsolatedDiscoverRunner"
 
 REDIS_URL = os.environ.get("REDIS_URL")
+# A `rediss://` URL (the Bunny data app) needs TLS options for its self-signed certificate; see
+# apps/common/redis_tls.py for the two modes (pinned certificate, or encrypted without verification).
+REDIS_TLS_OPTIONS = redis_tls_options(
+    REDIS_URL, ca_file=os.environ.get("REDIS_TLS_CA_FILE", ""), ca_pem=os.environ.get("REDIS_TLS_CA_PEM", "")
+)
 if REDIS_URL:
     CACHES = {
         "default": {
             "BACKEND": "django_redis.cache.RedisCache",
             "LOCATION": REDIS_URL,
-            "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                **({"CONNECTION_POOL_KWARGS": REDIS_TLS_OPTIONS} if REDIS_TLS_OPTIONS else {}),
+            },
         }
     }
 
@@ -477,6 +486,8 @@ if REDIS_URL:
 # No result store. The schedule is this fixed list; no table holds it.
 if REDIS_URL:
     CELERY_BROKER_URL = broker_url(REDIS_URL)
+    if REDIS_TLS_OPTIONS:
+        CELERY_BROKER_USE_SSL = REDIS_TLS_OPTIONS
 else:
     CELERY_BROKER_URL = "memory://"
     CELERY_TASK_ALWAYS_EAGER = True

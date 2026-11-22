@@ -7,7 +7,10 @@ Run: python fake_bunny.py <port-file>. It binds 127.0.0.1 on a free port and wri
   PATCH /mc/apps/<app>/containers/<id>           merges imageTag/imageDigest/imageNamespace/imageName only
   GET   /healthz/                                {"status":"ok","commit":<first 12 of the api tag>}
   GET   /readyz/                                 200 all true, or 503 with beat false when broken
+  GET   /mc/apps/app-data                        the data app (postgres + redis, both with volumes)
+  PATCH /mc/apps/app-data/containers/<id>        accepted and LOGGED, so a test can prove it never happens
   POST  /_ctl/broken | /_ctl/fixed               toggle the broken readiness
+  POST  /_ctl/volume-on | /_ctl/volume-off       put a volume on / take it off the api container
   GET   /_ctl/log                                the API calls received (method path, no bodies)
 
 The AccessKey header must equal "test-key" on /mc/ calls, otherwise 401.
@@ -20,11 +23,16 @@ APP = "app-prod"
 STATE = {"broken": False, "log": []}
 CONTAINERS = [
     {"id": "c-api", "name": "api", "imageNamespace": "negosyoonline", "imageName": "pilot", "imageTag": "pilot-api", "imageDigest": "sha256:" + "0" * 64,
-     "env": [{"name": "DJANGO_SECRET_KEY", "value": "SECRET-SHOULD-NEVER-PRINT"}], "volumes": []},
+     "env": [{"name": "DJANGO_SECRET_KEY", "value": "SECRET-SHOULD-NEVER-PRINT"}], "volumeMounts": []},
     {"id": "c-worker", "name": "worker", "imageNamespace": "negosyoonline", "imageName": "pilot", "imageTag": "pilot-worker", "imageDigest": "sha256:" + "0" * 64, "env": []},
     {"id": "c-beat", "name": "beat", "imageNamespace": "negosyoonline", "imageName": "pilot", "imageTag": "pilot-beat", "imageDigest": "sha256:" + "0" * 64, "env": []},
-    {"id": "c-pg", "name": "postgres", "imageNamespace": "library", "imageName": "postgres", "imageTag": "18", "imageDigest": "", "env": [], "volumes": ["prod-pg18"]},
-    {"id": "c-redis", "name": "redis", "imageNamespace": "library", "imageName": "redis", "imageTag": "7", "imageDigest": "", "env": [], "volumes": ["prod-redis"]},
+    {"id": "c-pg", "name": "postgres", "imageNamespace": "library", "imageName": "postgres", "imageTag": "18", "imageDigest": "", "env": [], "volumeMounts": [{"name": "prod-pg18", "mountPath": "/var/lib/postgresql"}]},
+    {"id": "c-redis", "name": "redis", "imageNamespace": "library", "imageName": "redis", "imageTag": "7", "imageDigest": "", "env": [], "volumeMounts": [{"name": "prod-redis", "mountPath": "/data"}]},
+]
+DATA_APP = "app-data"
+DATA_CONTAINERS = [
+    {"id": "d-pg", "name": "postgres", "imageNamespace": "library", "imageName": "postgres", "imageTag": "18", "imageDigest": "", "env": [], "volumeMounts": [{"name": "data-pg18", "mountPath": "/var/lib/postgresql"}]},
+    {"id": "d-redis", "name": "redis", "imageNamespace": "library", "imageName": "redis", "imageTag": "7", "imageDigest": "", "env": [], "volumeMounts": [{"name": "data-redis", "mountPath": "/data"}]},
 ]
 ALLOWED = {"imageTag", "imageDigest", "imageNamespace", "imageName"}
 
@@ -53,6 +61,11 @@ class H(BaseHTTPRequestHandler):
                 return
             STATE["log"].append("GET " + self.path)
             return self._send(200, {"id": APP, "containerTemplates": CONTAINERS})
+        if self.path == f"/mc/apps/{DATA_APP}":
+            if not self._auth():
+                return
+            STATE["log"].append("GET " + self.path)
+            return self._send(200, {"id": DATA_APP, "containerTemplates": DATA_CONTAINERS})
         if self.path == "/healthz/":
             api = next(c for c in CONTAINERS if c["id"] == "c-api")
             return self._send(200, {"status": "ok", "commit": api["imageTag"][:12]})
@@ -69,12 +82,18 @@ class H(BaseHTTPRequestHandler):
             STATE["broken"] = True
         elif self.path == "/_ctl/fixed":
             STATE["broken"] = False
+        elif self.path in ("/_ctl/volume-on", "/_ctl/volume-off"):
+            api = next(c for c in CONTAINERS if c["id"] == "c-api")
+            api["volumeMounts"] = [{"name": "stray-volume", "mountPath": "/data"}] if self.path.endswith("on") else []
         else:
             return self._send(404, {"message": "not found"})
         self._send(200, {"ok": True})
 
     def do_PATCH(self):
         prefix = f"/mc/apps/{APP}/containers/"
+        if self.path.startswith(f"/mc/apps/{DATA_APP}/"):
+            STATE["log"].append(f"PATCH {self.path} (DATA APP)")
+            return self._send(200, {"message": "accepted by the fake so a guard failure shows in the log"})
         if not self.path.startswith(prefix):
             return self._send(404, {"message": "not found"})
         if not self._auth():
