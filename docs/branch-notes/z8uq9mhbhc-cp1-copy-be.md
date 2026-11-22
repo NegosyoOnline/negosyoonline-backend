@@ -103,3 +103,59 @@ TWCinc source paths (read only, adapted, nothing imported): `app/university/view
 
 ## Tests
 Watch post (89 no, 90 yes, ended below 90, never undone, last lesson, legacy/none/processing never complete, locked 409, strict `ended`), manual route 403 for every lesson and 404 foreign, owner view completed. The sequence tests write the completion record directly (the old manual route is gone). Tenant-isolation registry: no route added or removed, counts unchanged (owner 152).
+
+# R2 fix round 2: video required (Coach Ed, 22 Nov: "all lessons has video... so it must be trackable. make the video required in our lessons")
+TWCinc source: none used. Migration: none (no model change; `needs_video` the column is no longer read for output, it stays for the copy code).
+
+## The rule
+A course is shown to members (`Course.active`, the dash's "Show to members") only when every ACTIVE lesson of every ACTIVE module has a ready Stream video (`video.has_ready_stream`). Legacy links, pending, processing and failed videos do not count. Disabled lessons and modules are not counted. Where: `apps/training/video.py` (`lessons_missing_video`, `require_course_videos`, `video_required`).
+
+## Refusal (every enforcing route)
+HTTP 400, body (shape set by the Supervisor, 22 Nov):
+`{"code": "video_required", "detail": "Every lesson needs a video before members can see this course.", "lessons": [{"id": "lsn_...", "title": "..."}], "error": {"code": "video_required", "message": "<same text>"}}`
+The extra `error` envelope is only so a client reading the API's standard shape also works; `ApiError(body=...)` in `apps/common/errors.py` carries a ready body. Routes that enforce it (all owner, same auth):
+- `PATCH /sites/{site}/training/courses/{id}/` with `active: true` on a course that is off (also the unarchive-by-switching-on path). Turning off, and any other edit, are never blocked. `POST .../courses/` creates an empty course, so `active: true` there is allowed (no lessons yet).
+- `PATCH .../modules/{id}/` `active: true` on a module that is off, inside a published course: its active lessons must all have a video.
+- `PATCH .../lessons/{id}/` `active: true` on a lesson that is off, inside a published course whose module is on: it must have a video.
+- Copy-publish: a copy arrives Off and its only way on is the course PATCH above, so it is blocked until every lesson has a video. Copied lessons that only had a legacy link keep `video_url` untouched. Nothing else sets `Course.active` (checked: content_copy, services, API).
+
+## Edge cases (choice and why)
+- Adding a lesson/module to an already published course, or removing a video from one: allowed, the course is NOT unpublished and nothing is deleted. The lesson reads `needs_video: true` (lesson and `video.needs_video`) and the course tree reads `needs_video_count`, so the dash can flag it. Reason: auto-unpublishing would pull a live course from paying members mid-lesson; the member side already cannot complete a lesson without a video (R2 fix 1), so the lesson just waits. Re-publishing after turning it off is checked again.
+- `needs_video` is now computed, not the stored column: true when there is no ready Stream video and none uploading/processing (so legacy-link, failed and empty lessons read true, a video on its way reads false).
+- Turning a lesson/module back on is checked only in a published course (in an unpublished course the publish check covers it).
+
+## Commands (read-only unless said; never run by the builder outside tests)
+- `manage.py training_video_audit [--site site_.../subdomain/own domain]` writes nothing. Tab-separated columns: store, course, course_published, module, lesson, video_kind, library_id, video_guid. video_kind: stream-ready, stream-pending, bunny-embed-link, youtube, vimeo, other-link, none. Sample:
+```
+store	course	course_published	module	lesson	video_kind	library_id	video_guid
+site_ab12 (Live4More)	Ways to Earn	yes	Module 1	Welcome	stream-ready	816560	3f0c...-guid
+site_ab12 (Live4More)	Ways to Earn	yes	Module 1	Old intro	bunny-embed-link	816560	9a1b2c3d-1111-2222-3333-444455556666
+site_ab12 (Live4More)	Starter	no	Basics	Intro	youtube		
+site_ab12 (Live4More)	Starter	no	Basics	Draft	none		
+```
+- `manage.py training_stream_backfill --site <site> [--apply]`: dry run by default (prints "would set ..." lines, makes no Bunny call, writes nothing). Candidates: lessons with no stream or pending video whose `video_url` is a Bunny embed/play link whose library id equals the store's StreamLibrary `library_id` (other libraries, YouTube, other stores: untouched). `--apply` asks Bunny (Get Video) with the store's own key: ready -> sets stream library/video id, status `ready`, size, so the publish rule is met at once; Bunny says processing/uploading/failed -> that status; no answer or no key -> `processing`, and the dash's normal refresh (GET .../video/) settles it. `video_url` is never touched, nothing is deleted, the legacy link keeps playing until the Stream video is ready. No audit entry: the training app has no audit log (the printed lines are the record).
+
+## Staging shell snippet (read-only, current staging schema = origin/main cd34f47, no Stream fields)
+Run in `manage.py shell` on staging, before this release:
+```python
+import re
+from apps.training.models import Lesson
+rx = re.compile(r"mediadelivery\.net/(?:embed|play)/(\d+)/([0-9a-fA-F-]+)")
+def kind(u):
+    if not u: return "none"
+    m = rx.search(u)
+    if m: return "bunny-embed-link"
+    if "youtu" in u: return "youtube"
+    if "vimeo" in u: return "vimeo"
+    return "other-link"
+print("store\tcourse\tcourse_published\tmodule\tlesson\tvideo_kind\tlibrary_id\tvideo_guid")
+for l in Lesson.objects.select_related("module__course__site").order_by("module__course__site__public_id", "module__course__order", "module__order", "order", "pk"):
+    c = l.module.course
+    m = rx.search(l.video_url or "")
+    print("\t".join([c.site.public_id, c.title, "yes" if c.active and not c.archived_at else "no", l.module.title, l.title,
+                     kind(l.video_url), m.group(1) if m else "", m.group(2) if m else ""]))
+```
+
+## Tests
+`apps/training/tests/test_video_required.py` (refusal shape on every route, legacy/pending/failed do not count, disabled not counted, turn-off never blocked, edge cases, copy arrives Off and keeps its link, link parsing, audit columns and writes nothing, backfill dry run / apply / not-ready / already-set / other store / no library). Tenant-isolation registry: no route added or removed, counts unchanged (owner 152).
+Full suite 5512 tests: SQLite OK (skipped=71), PostgreSQL 14 + Redis OK (skipped=1); `check --deploy` shows only the two deferred HSTS warnings; `makemigrations --check --dry-run` clean.

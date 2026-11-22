@@ -86,7 +86,7 @@ class CourseTests(TrainingOwnerCase):
             set(course),
             {"id", "title", "slug", "description", "image_url", "order", "active", "shared", "copied_from",
              "archived_at", "created_at",
-             "updated_at", "module_count", "lesson_count", "active_lesson_count"},
+             "updated_at", "module_count", "needs_video_count", "lesson_count", "active_lesson_count"},
         )
         module = self.send("post", self.url(f"courses/{course['id']}/modules/"), {"title": "Start here"})
         self.assertEqual(module.status_code, 201, module.content)

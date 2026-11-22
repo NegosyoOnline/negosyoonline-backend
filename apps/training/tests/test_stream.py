@@ -431,7 +431,7 @@ class ReadTests(StreamCase):
         by_title = {x["title"]: x["video"] for x in tree["modules"][0]["lessons"]}
         self.assertEqual(by_title["S"], {"kind": "stream", "status": "ready", "needs_video": False,
                                          "embed_url": "https://iframe.mediadelivery.net/embed/111/g-12345678"})
-        self.assertEqual(by_title["L"], {"kind": "legacy", "status": "ready", "needs_video": False, "embed_url": None})
+        self.assertEqual(by_title["L"], {"kind": "legacy", "status": "ready", "needs_video": True, "embed_url": None})
         self.assertEqual(by_title["N"], {"kind": "none", "status": "", "needs_video": True, "embed_url": None})
         for lesson in (stream_lesson, legacy, none):
             self.assertNotIn("key", str(self.get(self.url(lesson)).content).lower().replace("keys", ""))

@@ -443,6 +443,7 @@ def course_owner_out(course):
         "shared": course.shared, "copied_from": course.copied_from or None,
         "archived_at": course.archived_at, "created_at": course.created_at, "updated_at": course.updated_at,
         "module_count": course.modules.count(),
+        "needs_video_count": len(video.lessons_missing_video(course=course)),
         "lesson_count": lessons.count(), "active_lesson_count": lessons.filter(
             active=True, module__active=True
         ).count(),
@@ -463,7 +464,7 @@ def lesson_owner_out(lesson):
         "duration": lesson.duration, "description": lesson.description,
         "video_url": lesson.video_url or None, "video": video.video_out(lesson),
         "image_url": media.url_for(lesson.image_key),
-        "order": lesson.order, "active": lesson.active, "needs_video": lesson.needs_video,
+        "order": lesson.order, "active": lesson.active, "needs_video": video.needs_video(lesson),
     }
 
 
@@ -553,6 +554,8 @@ def update_course(site, public_id, data):
     if "shared" in out:
         _check_shared(site, course, out, errors)
     _finish(errors)
+    if out.get("active") is True and not course.active:
+        video.require_course_videos(course)  # shown to members only when every lesson has a video
     if "slug" in out:
         out["slug"] = _unique_slug(site, out["slug"], exclude_pk=course.pk)
     archived = out.pop("archived", None)
@@ -613,7 +616,17 @@ def update_module(site, public_id, data):
     _flag(data, "active", errors, out)
     _number(data, "order", errors, out, low=1, high=100000)
     _finish(errors)
+    if out.get("active") is True and not module.active and module.course.active:
+        missing = video.lessons_missing_video(module=_active_copy(module))
+        if missing:
+            raise video.video_required(missing)
     return _apply(module, out)
+
+
+def _active_copy(module):
+    """The module as it would be once switched on (unsaved)."""
+    module.active = True
+    return module
 
 
 def delete_module(site, public_id):
@@ -654,6 +667,10 @@ def update_lesson(site, public_id, data):
     errors, out = {}, {}
     _lesson_values(data, errors, out, creating=False)
     _finish(errors)
+    if out.get("active") is True and not lesson.active:
+        course = lesson.module.course
+        if course.active and lesson.module.active and not video.has_ready_stream(lesson):
+            raise video.video_required([lesson])
     return _apply(lesson, out)
 
 

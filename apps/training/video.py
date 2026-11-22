@@ -7,6 +7,8 @@ replacement is ready it takes over and the previous Stream video is discarded th
 Responses carry the library id and the upload signature only, never the key or its name.
 """
 import logging
+import re
+from urllib.parse import urlsplit
 
 from django.db import transaction
 from django.db.models import Q
@@ -37,6 +39,91 @@ def completes_by_watching(lesson):
     return has_ready_stream(lesson)
 
 
+VIDEO_REQUIRED_MSG = "Every lesson needs a video before members can see this course."
+
+
+def _in_flight_any(lesson):
+    return bool(
+        (lesson.stream_video_id and lesson.stream_status in (UPLOADING, PROCESSING))
+        or (lesson.stream_pending_video_id and lesson.stream_pending_status in (UPLOADING, PROCESSING))
+    )
+
+
+def needs_video(lesson):
+    """True when the lesson has no ready Stream video and none on its way: the dash flags it."""
+    return not has_ready_stream(lesson) and not _in_flight_any(lesson)
+
+
+def video_required(lessons):
+    """The refusal when a course (or lesson/module) would be shown to members without a ready video.
+    Body is exactly {code, detail, lessons: [{id, title}]} (Supervisor, 22 Nov); the standard `error`
+    envelope rides along so a client that reads either shape still works."""
+    listed = [{"id": lesson.public_id, "title": lesson.title} for lesson in lessons]
+    body = {
+        "code": "video_required", "detail": VIDEO_REQUIRED_MSG, "lessons": listed,
+        "error": {"code": "video_required", "message": VIDEO_REQUIRED_MSG},
+    }
+    return ApiError("video_required", VIDEO_REQUIRED_MSG, status=400, body=body)
+
+
+def lessons_missing_video(course=None, module=None):
+    """The active lessons of active modules (of the course, or just this module) with no ready Stream
+    video, in sequence order."""
+    if module is not None:
+        modules = [module] if module.active else []
+        found = Lesson.objects.filter(module__in=modules, active=True)
+    else:
+        found = Lesson.objects.filter(module__course=course, module__active=True, active=True)
+    found = found.select_related("module").order_by("module__order", "module__pk", "order", "pk")
+    return [lesson for lesson in found if not has_ready_stream(lesson)]
+
+
+def require_course_videos(course):
+    missing = lessons_missing_video(course=course)
+    if missing:
+        raise video_required(missing)
+
+
+_BUNNY_PATH = re.compile(r"^/(?:embed|play)/(\d+)/([0-9a-fA-F-]{8,64})/?$")
+
+
+def parse_bunny_link(url):
+    """(library id, video guid) of a Bunny player link such as https://iframe.mediadelivery.net/embed/<library>/<guid>
+    (also /play/), else None."""
+    try:
+        parts = urlsplit((url or "").strip())
+    except ValueError:
+        return None
+    host = (parts.hostname or "").lower()
+    if not (host == "mediadelivery.net" or host.endswith(".mediadelivery.net")):
+        return None
+    found = _BUNNY_PATH.match(parts.path)
+    return (int(found.group(1)), found.group(2).lower()) if found else None
+
+
+def link_kind(url):
+    """How a legacy video_url reads: bunny-embed-link, youtube, vimeo, other-link or none."""
+    if not url:
+        return "none"
+    if parse_bunny_link(url):
+        return "bunny-embed-link"
+    host = (urlsplit(url).hostname or "").lower() if url.startswith(("http://", "https://")) else ""
+    if host == "youtu.be" or host == "youtube.com" or host.endswith((".youtube.com", ".youtube-nocookie.com")) or host == "youtube-nocookie.com":
+        return "youtube"
+    if host == "vimeo.com" or host.endswith(".vimeo.com"):
+        return "vimeo"
+    return "other-link"
+
+
+def video_kind(lesson):
+    """The audit's kind for a lesson: stream-ready, stream-pending, or how its legacy link reads."""
+    if has_ready_stream(lesson):
+        return "stream-ready"
+    if lesson.stream_video_id or lesson.stream_pending_video_id:
+        return "stream-pending"
+    return link_kind(lesson.video_url)
+
+
 def _has_playable(lesson):
     return has_ready_stream(lesson) or bool(lesson.video_url)
 
@@ -56,7 +143,7 @@ def video_out(lesson):
     embed = stream.embed_url(lesson.stream_library_id, lesson.stream_video_id) if has_ready_stream(lesson) else None
     return {
         "kind": kind, "status": status, "embed_url": embed,
-        "needs_video": bool(lesson.needs_video and not lesson.stream_video_id),
+        "needs_video": needs_video(lesson),
     }
 
 
