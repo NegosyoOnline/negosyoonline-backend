@@ -188,6 +188,56 @@ out="$($D restore "$T/prev.json" 2>&1)"; rc=$?
 expect_ok "rollback verifies as the previous commit" "$CI/verify-release.sh" "$URL" "1111111111111111111111111111111111111111" 30
 expect_fail "wrong BUNNY_API_KEY is refused" env BUNNY_API_KEY=wrong "$D" snapshot "$T/x.json"
 
+echo "== data-app guard (ZD-1): the data app is never written to; a volume on a target container is refused"
+export BUNNY_DATA_APP_ID=app-data
+log0="$(/usr/bin/curl -s "$URL/_ctl/log" | jq 'length')"
+# the release still works with the data app configured
+GOOD=cccccccccccccccccccccccccccccccccccccccc
+DG2="sha256:$(printf 'c%.0s' $(seq 64))"
+out="$($D apply "$GOOD" "$DG2" "$DG2" "$DG2" 2>&1)"; rc=$?
+[ $rc -eq 0 ] && ok "apply works with BUNNY_DATA_APP_ID set" || bad "apply with data app id set" "$out"
+log="$(/usr/bin/curl -s "$URL/_ctl/log")"
+lacks "the data app was never patched or read by a release" "$log" "app-data"
+lacks "the data containers were never patched" "$log" "d-pg"
+# the same id for the app and the data app is refused before any call
+before="$(/usr/bin/curl -s "$URL/_ctl/log" | jq 'length')"
+expect_fail "BUNNY_APP_ID equal to BUNNY_DATA_APP_ID is refused (snapshot)" env BUNNY_APP_ID=app-data BUNNY_DATA_APP_ID=app-data "$D" snapshot "$T/y.json"
+expect_fail "BUNNY_APP_ID equal to BUNNY_DATA_APP_ID is refused (apply)" env BUNNY_APP_ID=app-data BUNNY_DATA_APP_ID=app-data "$D" apply "$GOOD" "$DG2" "$DG2" "$DG2"
+[ "$(/usr/bin/curl -s "$URL/_ctl/log" | jq 'length')" = "$before" ] && ok "no Bunny call was made by the refused runs" || bad "a refused run still called Bunny"
+# pointing the release at the data app by mistake: the containers are not found, nothing is written
+out="$(env BUNNY_APP_ID=app-data "$D" apply "$GOOD" "$DG2" "$DG2" "$DG2" 2>&1)"; rc=$?
+[ $rc -ne 0 ] && ok "a release aimed at the data app (api/worker/beat not there) fails" || bad "release aimed at the data app passed" "$out"
+lacks "...and wrote nothing to it" "$(/usr/bin/curl -s "$URL/_ctl/log")" "DATA APP"
+# a volume on a target container refuses the release before it patches anything
+/usr/bin/curl -s -o /dev/null -X POST "$URL/_ctl/volume-on"
+before="$(/usr/bin/curl -s "$URL/_ctl/log" | jq 'length')"
+out="$($D apply "$GOOD" "$DG2" "$DG2" "$DG2" 2>&1)"; rc=$?
+[ $rc -ne 0 ] && ok "a target container with a volume fails the deploy" || bad "volume on api did not fail the deploy" "$out"
+contains "...with the reason" "$out" "has a volume"
+after="$(/usr/bin/curl -s "$URL/_ctl/log" | jq '[.[] | select(startswith("PATCH"))] | length')"
+patched_before="$(/usr/bin/curl -s "$URL/_ctl/log" | jq '[.[0:'"$before"'][] | select(startswith("PATCH"))] | length')"
+[ "$after" = "$patched_before" ] && ok "...and nothing was patched" || bad "a patch went out with a volume present"
+expect_fail "snapshot refuses it too" "$D" snapshot "$T/z.json"
+/usr/bin/curl -s -o /dev/null -X POST "$URL/_ctl/volume-off"
+expect_ok "without the volume the snapshot passes again" "$D" snapshot "$T/z.json"
+unset BUNNY_DATA_APP_ID
+
+echo "== static: only bunny-deploy.sh writes to Bunny; workflows hold no Bunny write"
+ROOT="$(cd "$CI/../../.." && pwd)"
+hits="$(grep -rIl 'api\.bunny\.net' "$ROOT/.github" "$ROOT/deploy/bunny/ci" "$ROOT/scripts" 2>/dev/null | grep -v '/tests/' | sed "s#$ROOT/##" | sort | tr '\n' ' ')"
+[ "$hits" = "deploy/bunny/ci/bunny-deploy.sh " ] && ok "only deploy/bunny/ci/bunny-deploy.sh names the Bunny API" || bad "other files name the Bunny API" "$hits"
+if grep -rEn 'curl[^|]*(-X|--request)[ =]*(PATCH|POST|PUT|DELETE)' "$ROOT/.github/workflows" >/dev/null 2>&1; then bad "a workflow sends a write with curl"; else ok "no workflow sends a write with curl"; fi
+for wf in bunny-staging bunny-production; do
+  uses="$(grep -n 'BUNNY_DATA_APP_ID' "$ROOT/.github/workflows/$wf.yml" | grep -v 'BUNNY_DATA_APP_ID: \${{ vars.BUNNY_DATA_APP_ID }}' | grep -v '^[0-9]*: *#')"
+  [ -z "$uses" ] && ok "$wf.yml only passes BUNNY_DATA_APP_ID through to the guard" || bad "$wf.yml uses BUNNY_DATA_APP_ID elsewhere" "$uses"
+  grep -q 'BUNNY_DATA_APP_ID: ${{ vars.BUNNY_DATA_APP_ID }}' "$ROOT/.github/workflows/$wf.yml" && ok "$wf.yml passes BUNNY_DATA_APP_ID to the deploy job" || bad "$wf.yml does not pass BUNNY_DATA_APP_ID"
+  grep -Eq 'bunny-deploy\.sh (snapshot|apply|restore)' "$ROOT/.github/workflows/$wf.yml" && ok "$wf.yml changes Bunny only through bunny-deploy.sh" || bad "$wf.yml does not call bunny-deploy.sh"
+done
+for f in "$CI"/*.sh; do
+  [ "$(basename "$f")" = bunny-deploy.sh ] && continue
+  if grep -Eq -- '--request|-X ' "$f"; then bad "$(basename "$f") sends a request method"; else ok "$(basename "$f") sends no write"; fi
+done
+
 echo
 echo "passed=$pass failed=$fail"
 [ "$fail" -eq 0 ]

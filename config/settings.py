@@ -17,6 +17,7 @@ import dj_database_url
 from celery.schedules import crontab
 
 from apps.common.database import require_database_tls
+from apps.common.redis_tls import redis_tls_options
 from config.celery import broker_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -405,6 +406,7 @@ INSTALLED_APPS = [
     'apps.lifecycle',
     'apps.file_backup',
     'apps.db_backup',
+    'apps.domains',
 ]
 
 AUTH_USER_MODEL = "operators.User"
@@ -462,12 +464,20 @@ DATABASES = {
 TEST_RUNNER = "config.test_runner.RedisIsolatedDiscoverRunner"
 
 REDIS_URL = os.environ.get("REDIS_URL")
+# A `rediss://` URL (the Bunny data app) needs TLS options for its self-signed certificate; see
+# apps/common/redis_tls.py for the two modes (pinned certificate, or encrypted without verification).
+REDIS_TLS_OPTIONS = redis_tls_options(
+    REDIS_URL, ca_file=os.environ.get("REDIS_TLS_CA_FILE", ""), ca_pem=os.environ.get("REDIS_TLS_CA_PEM", "")
+)
 if REDIS_URL:
     CACHES = {
         "default": {
             "BACKEND": "django_redis.cache.RedisCache",
             "LOCATION": REDIS_URL,
-            "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                **({"CONNECTION_POOL_KWARGS": REDIS_TLS_OPTIONS} if REDIS_TLS_OPTIONS else {}),
+            },
         }
     }
 
@@ -476,6 +486,8 @@ if REDIS_URL:
 # No result store. The schedule is this fixed list; no table holds it.
 if REDIS_URL:
     CELERY_BROKER_URL = broker_url(REDIS_URL)
+    if REDIS_TLS_OPTIONS:
+        CELERY_BROKER_USE_SSL = REDIS_TLS_OPTIONS
 else:
     CELERY_BROKER_URL = "memory://"
     CELERY_TASK_ALWAYS_EAGER = True
@@ -556,6 +568,23 @@ CELERY_BEAT_SCHEDULE = {
     "db-backup-daily": {
         "task": "db_backup.run",
         "schedule": crontab(hour=4, minute=30),
+        "options": {"expires": 3600},
+    },
+    # Custom domains: the state-machine sweep each minute, the hourly live check, the daily sweep
+    # and registration read. Each does nothing while DOMAINS_ENABLED is off.
+    "domains-sweep": {
+        "task": "domains.sweep",
+        "schedule": 60,
+        "options": {"expires": 60},
+    },
+    "domains-hourly-check": {
+        "task": "domains.hourly_check",
+        "schedule": 3600,
+        "options": {"expires": 3600},
+    },
+    "domains-daily-sweep": {
+        "task": "domains.daily_sweep",
+        "schedule": crontab(hour=5, minute=0),
         "options": {"expires": 3600},
     },
     # The Membership Pack buyer purge and the day-76 buyer email, each hourly. Both do nothing
@@ -668,6 +697,33 @@ def parse_site_id_list(raw):
 
 
 XENDIT_LIVE_KEY_SITES = parse_site_id_list(os.environ.get("XENDIT_LIVE_KEY_SITES", ""))
+
+# Custom domains (apps/domains; ClickUp z8uq9mhgn7, design z8uq9mcyu0). Everything is off by
+# default: with DOMAINS_ENABLED unset no table is read and no provider is called. DOMAINS_PROVIDER
+# is "off" (default), "fake" (in-process fakes, DEBUG only) or "real" (the worker container only).
+# DOMAINS_PROVIDER_PAUSED=1 stops every provider call. Only names are read here; the token values
+# are never logged or returned.
+DOMAINS_ENABLED = os.environ.get("DOMAINS_ENABLED", "").strip() == "1"
+DOMAINS_PROVIDER = os.environ.get("DOMAINS_PROVIDER", "off").strip().lower()
+if DOMAINS_PROVIDER not in ("off", "fake", "real"):
+    DOMAINS_PROVIDER = "off"
+DOMAINS_PROVIDER_PAUSED = os.environ.get("DOMAINS_PROVIDER_PAUSED", "").strip() == "1"
+# The zones the DNS adapter must never write in (platform zones), comma-separated names.
+DOMAINS_PLATFORM_ZONES = tuple(
+    part.strip().lower().strip(".")
+    for part in os.environ.get("DOMAINS_PLATFORM_ZONES", "").split(",")
+    if part.strip()
+)
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
+CLOUDFLARE_DNS_API_TOKEN = os.environ.get("CLOUDFLARE_DNS_API_TOKEN", "").strip()
+VERCEL_API_TOKEN = os.environ.get("VERCEL_API_TOKEN", "").strip()
+VERCEL_STOREFRONTS_PROJECT_ID = os.environ.get("VERCEL_STOREFRONTS_PROJECT_ID", "").strip()
+# The Public Suffix List data file, vendored in the repo (source https://publicsuffix.org/list/public_suffix_list.dat,
+# licence MPL-2.0, downloaded 2026-11-22; refresh steps in docs/runbooks/custom-domains.md). This code never
+# downloads it; if the file is absent, every name is refused (fails closed).
+DOMAINS_PSL_FILE = os.environ.get(
+    "DOMAINS_PSL_FILE", str(BASE_DIR / "apps" / "domains" / "data" / "public_suffix_list.dat")
+)
 
 # Access denials go to the console, so the server logs hold them (apps/common/security_log.py).
 # Only the `security` logger is configured here; Django's own logging stays as it is.

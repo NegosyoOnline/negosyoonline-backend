@@ -1,0 +1,10 @@
+// A small hand-written Public Suffix List fixture for tests. Not the real list.
+com
+net
+org
+store
+shop
+uk
+co.uk
+*.ck
+!www.ck

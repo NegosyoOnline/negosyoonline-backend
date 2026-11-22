@@ -1,0 +1,14 @@
+# Bunny data app: PostgreSQL 18 reachable only over TLS with SCRAM passwords.
+# Build context: this directory (deploy/bunny/data). A version change means changing the FROM tag
+# and following docs/runbooks/bunny-staging.md ("Upgrade Postgres or Redis"); a normal release
+# never rebuilds or redeploys it.
+FROM postgres:18
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
+COPY postgres-entrypoint.sh /usr/local/bin/negosyo-postgres-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/negosyo-postgres-entrypoint.sh
+# Mount the volume at /var/lib/postgresql (the PostgreSQL 18 image's own VOLUME): the data
+# directory and the self-signed certificate (/var/lib/postgresql/tls) then both survive restarts.
+ENTRYPOINT ["negosyo-postgres-entrypoint.sh"]
+CMD ["postgres"]

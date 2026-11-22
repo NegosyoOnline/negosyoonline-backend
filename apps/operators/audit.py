@@ -55,6 +55,10 @@ ACTIONS = {
     "billing_exempt_set": KEPT,
     # HQ -> Subscribers: one detail read of a subscriber site. Ids and counts only.
     "hq_subscriber_viewed": KEPT,
+    # HQ -> Subscribers: Disable / Re-enable of a Site's own SMS line. Site id and reason only.
+    "hq_sms_line_disabled": KEPT,
+    "hq_sms_line_reenabled": KEPT,
+    "hq_sms_line_reauth_failed": KEPT,
     "billing_payment_confirmed": KEPT,
     "billing_payment_rejected": KEPT,
     "billing_usage_admitted": KEPT,

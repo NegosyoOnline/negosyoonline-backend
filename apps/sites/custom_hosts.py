@@ -101,10 +101,14 @@ def active_row_for_host(host):
 
 
 def active_host(site):
-    if not _table_ready():
-        return None
-    row = site.custom_hosts.filter(state=SiteCustomHost.State.ACTIVE).first()
-    return None if row is None else row.host
+    if _table_ready():
+        row = site.custom_hosts.filter(state=SiteCustomHost.State.ACTIVE).first()
+        if row is not None:
+            return row.host
+    # A custom domain connected by apps.domains, only while its claim is live (off by default).
+    from apps.domains import hosts as domain_hosts
+
+    return domain_hosts.canonical_host(site) or None
 
 
 def custom_host_if_asked(site, host):

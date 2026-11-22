@@ -124,6 +124,8 @@ jobs:
       SHA: ${{ needs.plan.outputs.sha }}
       IMAGE_REPO: ${{ needs.plan.outputs.image_repo }}
       BUNNY_APP_ID: ${{ vars.BUNNY_APP_ID }}
+      # The data app (Postgres, Redis). Optional; read only by the guard in bunny-deploy.sh, which refuses to write to it.
+      BUNNY_DATA_APP_ID: ${{ vars.BUNNY_DATA_APP_ID }}
       BUNNY_CONTAINER_API: ${{ vars.BUNNY_CONTAINER_API }}
       BUNNY_CONTAINER_WORKER: ${{ vars.BUNNY_CONTAINER_WORKER }}
       BUNNY_CONTAINER_BEAT: ${{ vars.BUNNY_CONTAINER_BEAT }}
