@@ -1,62 +1,74 @@
 # Database Migrations Runbook
 
-Migrations are an explicit, reviewed release step (see `CLAUDE.md`). They never run automatically on deploy, and they do not run from CI.
+Migrations are an explicit, reviewed release step (see `CLAUDE.md`). On Bunny staging they are applied by the `api` container when it starts, under a database lock, as part of a reviewed release; CI never runs them against a shared database. Staging runs on Bunny Magic Containers (`docs/runbooks/bunny-staging.md`); production on Bunny is described in `docs/runbooks/bunny-production.md` and is not provisioned yet.
 
 ## Why not CI
 
-On 2026-11-10 we tested a Railway project token scoped to the staging environment. The token was valid (`railway status` resolved the project and environment), but Railway rejected it for `railway ssh` with "Unauthorized". Running migrations from CI would need an account-level credential that can reach every project in the workspace, so we decided against it. Migrations are run by Coach Ed, or by an agent session after Coach Ed approves that specific run.
+CI does not run `migrate` against staging or production, and no account-level credential is held in CI for it. Bunny has no shell, exec or one-off job API (`docs/runbooks/bunny-staging.md`), so the migration runs inside the `api` container at start (next section), after the release is approved. CI still fails a model change that has no migration (`makemigrations --check`).
+
+History: before the move to Bunny, migrations were run by hand over an SSH command to the old platform's `api` service. A project token scoped to staging was rejected for that SSH command on 2026-11-10, which is why CI was never given that job. None of those commands is a current step.
 
 ## Identifiers (not secrets)
 
 | Item | Value |
 |---|---|
-| Project | `negosyoonline-backend` (`f94bedb8-86c5-4c66-8ee5-5d9ce9dad172`) |
-| Environments | `staging`, `production` |
-| Service | `api` |
+| Staging app | Bunny Magic Containers app `negosyoonline-backend-staging` (containers `api`, `worker`, `beat`, plus `postgres` and `redis` while staging is still one app; ZD-1 moves those two to `negosyoonline-data-staging`, see `docs/runbooks/bunny-staging.md`) |
+| Migration code | `deploy/bunny/init-api.sh`, `deploy/bunny/migrate.sh`, `deploy/bunny/migrate_locked.py` |
+| Env names | `MIGRATE_ON_START`, `MIGRATE_LOCK_WAIT_SECONDS`, `DATABASE_URL` |
 
-Access uses your logged-in Railway account and the SSH key registered to it. No token is stored anywhere.
+No credential or id is stored in this repository.
 
 ## Preconditions
 
 - The migration file is in a merged pull request. CI already fails when a model change has no migration (`makemigrations --check`).
-- The code that expects the new schema is deployed to the target environment, or the migration is backward compatible with the code that is running (add first, remove in a later release).
-- Coach Ed has approved running it against this environment.
+- The migration is backward compatible with the code that is still running (add first, remove in a later release): the old pod runs against the new schema during a rolling update, and a rollback restores images only.
+- The release is approved: on staging by the `bunny-staging` environment reviewers, and Coach Ed has approved the run (his standing approval covers a staging migration that an approved plan specifies; production is never covered). The release summary lists the migration files the release adds (`deploy/bunny/ci/list-migrations.sh`).
+
+## What happens when the api container starts
+
+The api image's entrypoint is `init-api.sh`. It waits for `DATABASE_URL` to accept a connection (up to 60 s), then:
+
+1. If `MIGRATE_ON_START` is `1` (the default when unset), it runs `migrate.sh`, which runs `migrate_locked.py`. Any other value, `0` included, skips the migration. Then it starts `start-api.sh` (Gunicorn), which never migrates. If the migration step fails, `set -e` stops the script before Gunicorn starts, the container exits non-zero and the platform restarts it, so the same sequence retries.
+2. `migrate_locked.py` requires `DATABASE_URL` to be a PostgreSQL URL (otherwise it exits 2). It opens one connection and takes the PostgreSQL session advisory lock with the fixed key `7340021551` (the same in every environment) using `pg_try_advisory_lock`, retrying every 3 seconds. The lock belongs to that session: it is released at the end of the run, and also if the process dies, so a crashed run cannot leave it held.
+3. If the lock is not acquired within `MIGRATE_LOCK_WAIT_SECONDS` (default 600), it prints `migrate: lock not acquired within <n>s` and exits 1. Another run holding the lock is the normal reason; when it finishes this run finds nothing to do.
+4. With the lock held it runs `manage.py migrate --noinput`. A non-zero result prints `migrate: migrate failed` and exits 1.
+5. It then runs `manage.py migrate --check`, which exits non-zero while any migration is unapplied. A non-zero result prints `migrate: a migration plan is still pending` and exits 1. Only when both pass does it print `migrate: done, no plan left` and exit 0, and Gunicorn starts.
+6. The lock is released in a `finally` block on every path.
+
+So an api container never serves traffic until the schema is fully migrated, and a failed check keeps it in a restart loop instead of serving on a half-migrated schema. Repeated or concurrent starts are safe: later runs wait for the lock and then find nothing to apply. The `worker` and `beat` start scripts run no migration; `wait-migrated.sh` makes them wait (up to 15 minutes, `WAIT_MIGRATED_SECONDS`) until `migrate --check` passes, then exit non-zero so the platform restarts them. The migration output goes to the api container's logs; it prints no environment values.
 
 ## Procedure
 
-Replace `<env>` with `staging` or `production`.
+1. Read what the release would add, before approving. `deploy/bunny/ci/list-migrations.sh` (its output is in the release run summary) lists the migration files the release adds on top of what the target serves now, from files only. It reads no database, so it shows what the release brings, not what is applied.
+2. Review that list. Stop if it names a migration you did not review, or a changed or deleted existing migration.
+3. Apply: approve the release. The `api` container applies the migrations on start, as described above. There is no separate apply command.
+4. Verify: `/healthz/` shows the release commit and `/readyz/` answers 200 with every check true (`docs/runbooks/bunny-staging.md`, "Verify a release by hand"). The api starts serving only after `migrate --check` passed, so a healthy new api is the proof that nothing was left pending.
+5. Record the run (date, environment, commit, the migration list) in the pull request that introduced the migration.
 
-1. Show what would run. This changes nothing:
+## Reading the migration state on staging (read-only)
 
-   ```bash
-   railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e <env> -s api -- uv run python manage.py migrate --plan
+Use this when the list in step 1 is not enough, for example to see which migrations the database has applied (`showmigrations`) or what is still planned (`migrate --plan`). Both only read.
+
+Bunny has no shell, exec, ssh or one-off job API, so the commands cannot be run in the running containers. The route this repository documents for running a command in the api image is a temporary extra container, the same pattern as `docs/runbooks/catalog-seed.md` ("Adding images to existing products"):
+
+1. Add a temporary container to the staging app from the `api` image, with the tag and env copied from the running `api` container (never printed). Override its startup command so it does not use `init-api.sh` (that entrypoint would migrate, or start Gunicorn). The command is a short script that runs, from `/app` (`python` is the project's environment):
+
+   ```
+   python manage.py showmigrations
+   python manage.py migrate --plan
    ```
 
-2. Read the plan. Stop if it lists anything you did not review.
-3. Apply:
+   writes the output to the private Blob store (migration names only, no values; `apps/common/private_files.py` holds the store, and `deploy/bunny/data/restore-job.sh` writes its summary the same way), then sleeps until the container is removed. It must never exit: Bunny marks the whole app failed if a container exits. Neither command writes to the database. Do not run `migrate` itself in this container: apply only through the api start.
+2. Quiet window. Adding or removing that container rolls the whole app out. While Postgres and Redis share the pod that is 1 to 3 minutes of 503, so do it only at 02:00-05:00 HKT, announced to the SANTE Supervisor first, and check `/readyz/` before and after. Once staging uses the separate data app (ZD-1, `docs/runbooks/bunny-staging.md`), a rollout of the release app no longer restarts Postgres, but keep the announcement and the window until that cutover is proven.
+3. Read the output from the private store, then delete the temporary container. Removing it rolls the app out again, in the same window.
 
-   ```bash
-   railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e <env> -s api -- uv run python manage.py migrate --noinput
-   ```
-
-4. Confirm nothing is pending. Expected output: `No planned migration operations.`
-
-   ```bash
-   railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e <env> -s api -- uv run python manage.py migrate --plan
-   ```
-
-5. Verify the environment:
-
-   ```bash
-   scripts/verify_deploy.sh https://api-staging.negosyonline.com/healthz/
-   ```
-
-6. Record the run (date, environment, commit, plan output summary) in the pull request that introduced the migration.
+Expected: `migrate --plan` prints `No planned migration operations.` and `showmigrations` shows every listed migration applied. Not confirmed from code: whether a ready script exists for the job container's command (none was found in `deploy/bunny/`), so the entry script is written for the run.
 
 ## Notes
 
-- Migrations do not roll back automatically. Keep each release backward compatible with the previous one.
-- Production has not been migrated and has no verified health URL yet. Do not run this against `production` until that environment is set up and Coach Ed approves.
+- Migrations do not roll back automatically, and a release rollback restores images only. Keep each release backward compatible with the previous one.
+- Production has not been migrated and is not provisioned on Bunny yet. Do not run any migration against `production` until that environment is set up and Coach Ed approves; his approval of a production release also approves the migrations listed in its summary (`docs/runbooks/bunny-production.md`).
+- The History section below records how each migration was applied at the time. Where it names reading the plan with `migrate --plan`, that was done over SSH to the old platform and is historical; read it as "the plan was read, and was empty afterwards".
 
 ## Pending
 
