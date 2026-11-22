@@ -20,6 +20,7 @@ class _Fake:
     def _split(self, url):
         path = url.split("://", 1)[1].split("/", 1)[1]
         path, _, query = ("/" + path).partition("?")
+        path = path.removeprefix("/client/v4")
         from urllib.parse import parse_qs
         return path, {k: v[0] for k, v in parse_qs(query).items()}
 
@@ -99,11 +100,11 @@ class FakeCloudflare(_Fake):
         self.requests.append((method, path, body))
         if self._fail:
             return self._fail.pop(0), {}
-        if path == "/client/v4/zones" or path == "/zones":
+        if path == "/zones":
             found = [z for z in self.zones.values()
                      if query.get("name") in (None, z["name"]) and z["account"]["id"] == query.get("account.id", z["account"]["id"])]
             return 200, {"result": found}
-        m = re.fullmatch(r"(?:/client/v4)?/zones/([0-9a-f]{32})/dns_records(?:/([0-9a-f]{32}))?", path)
+        m = re.fullmatch(r"/zones/([0-9a-f]{32})/dns_records(?:/([0-9a-f]{32}))?", path)
         if m:
             zid, rid = m.groups()
             store = self.records.get(zid)

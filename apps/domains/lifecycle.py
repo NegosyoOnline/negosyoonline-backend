@@ -26,11 +26,11 @@ def removal_reason(site, now):
     """Why the site's domain must be removed now, or "". Unknown never removes."""
     if site.deleted_at is not None:
         return "site_deleted"
+    if not settings.BILLING_ENABLED:
+        return ""  # billing is not being read: unknown never removes
     subscription = Subscription.objects.filter(site=site).first()
     if subscription is None:
         return "no_subscription"
-    if not settings.BILLING_ENABLED:
-        return ""
     if subscription.state == Subscription.State.CANCELLED_NO_PAYMENT_METHOD:
         return "cancelled_no_payment_method"
     if (
