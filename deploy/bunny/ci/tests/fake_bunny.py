@@ -23,16 +23,16 @@ APP = "app-prod"
 STATE = {"broken": False, "log": []}
 CONTAINERS = [
     {"id": "c-api", "name": "api", "imageNamespace": "negosyoonline", "imageName": "pilot", "imageTag": "pilot-api", "imageDigest": "sha256:" + "0" * 64,
-     "env": [{"name": "DJANGO_SECRET_KEY", "value": "SECRET-SHOULD-NEVER-PRINT"}], "volumes": []},
+     "env": [{"name": "DJANGO_SECRET_KEY", "value": "SECRET-SHOULD-NEVER-PRINT"}], "volumeMounts": []},
     {"id": "c-worker", "name": "worker", "imageNamespace": "negosyoonline", "imageName": "pilot", "imageTag": "pilot-worker", "imageDigest": "sha256:" + "0" * 64, "env": []},
     {"id": "c-beat", "name": "beat", "imageNamespace": "negosyoonline", "imageName": "pilot", "imageTag": "pilot-beat", "imageDigest": "sha256:" + "0" * 64, "env": []},
-    {"id": "c-pg", "name": "postgres", "imageNamespace": "library", "imageName": "postgres", "imageTag": "18", "imageDigest": "", "env": [], "volumes": ["prod-pg18"]},
-    {"id": "c-redis", "name": "redis", "imageNamespace": "library", "imageName": "redis", "imageTag": "7", "imageDigest": "", "env": [], "volumes": ["prod-redis"]},
+    {"id": "c-pg", "name": "postgres", "imageNamespace": "library", "imageName": "postgres", "imageTag": "18", "imageDigest": "", "env": [], "volumeMounts": [{"name": "prod-pg18", "mountPath": "/var/lib/postgresql"}]},
+    {"id": "c-redis", "name": "redis", "imageNamespace": "library", "imageName": "redis", "imageTag": "7", "imageDigest": "", "env": [], "volumeMounts": [{"name": "prod-redis", "mountPath": "/data"}]},
 ]
 DATA_APP = "app-data"
 DATA_CONTAINERS = [
-    {"id": "d-pg", "name": "postgres", "imageNamespace": "library", "imageName": "postgres", "imageTag": "18", "imageDigest": "", "env": [], "volumes": ["data-pg18"]},
-    {"id": "d-redis", "name": "redis", "imageNamespace": "library", "imageName": "redis", "imageTag": "7", "imageDigest": "", "env": [], "volumes": ["data-redis"]},
+    {"id": "d-pg", "name": "postgres", "imageNamespace": "library", "imageName": "postgres", "imageTag": "18", "imageDigest": "", "env": [], "volumeMounts": [{"name": "data-pg18", "mountPath": "/var/lib/postgresql"}]},
+    {"id": "d-redis", "name": "redis", "imageNamespace": "library", "imageName": "redis", "imageTag": "7", "imageDigest": "", "env": [], "volumeMounts": [{"name": "data-redis", "mountPath": "/data"}]},
 ]
 ALLOWED = {"imageTag", "imageDigest", "imageNamespace", "imageName"}
 
@@ -84,7 +84,7 @@ class H(BaseHTTPRequestHandler):
             STATE["broken"] = False
         elif self.path in ("/_ctl/volume-on", "/_ctl/volume-off"):
             api = next(c for c in CONTAINERS if c["id"] == "c-api")
-            api["volumes"] = ["stray-volume"] if self.path.endswith("on") else []
+            api["volumeMounts"] = [{"name": "stray-volume", "mountPath": "/data"}] if self.path.endswith("on") else []
         else:
             return self._send(404, {"message": "not found"})
         self._send(200, {"ok": True})

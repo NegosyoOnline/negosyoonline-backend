@@ -80,7 +80,7 @@ Why: Bunny stops the whole pod of an app that has volumes before it starts the n
 | `negosyoonline-data-staging` (data app) | postgres (18), redis (7) | the Postgres volume, optionally a Redis volume | never by a release; only by a version or settings change, in a quiet window |
 | `negosyoonline-backend-staging` (release app) | api, worker, beat | none | every release (`bunny-staging.yml`) |
 
-Guards, all tested by `deploy/bunny/ci/tests/test-production-scripts.sh`: `bunny-deploy.sh` is the only thing that writes to Bunny, and it writes only `PATCH /apps/<BUNNY_APP_ID>/containers/<id>` for api, worker and beat. It refuses when `BUNNY_DATA_APP_ID` equals `BUNNY_APP_ID`, when a write path names the data app, and when a target container has any volume field with content. The workflows only pass the `BUNNY_DATA_APP_ID` variable through to that guard. Add it as a variable on `bunny-staging` (later `bunny-production`) when the data app is created; it is optional until then.
+Guards, all tested by `deploy/bunny/ci/tests/test-production-scripts.sh`: `bunny-deploy.sh` is the only thing that writes to Bunny, and it writes only `PATCH /apps/<BUNNY_APP_ID>/containers/<id>` for api, worker and beat. It refuses when `BUNNY_DATA_APP_ID` equals `BUNNY_APP_ID`, when a write path names the data app, and when a target container has a non-empty `volumeMounts`. The workflows only pass the `BUNNY_DATA_APP_ID` variable through to that guard. Add it as a variable on `bunny-staging` (later `bunny-production`) when the data app is created; it is optional until then.
 
 ### Data app
 
@@ -93,7 +93,7 @@ Reaching it: Bunny documents no private network between apps, so the data app is
 
 App settings on api, worker and beat (names only):
 
-- `DATABASE_URL=postgresql://<user>:<password>@<data endpoint>:<port>/<db>?sslmode=require`. `settings.py` already refuses `disable`, `allow` and `prefer` for a non-local host. `require` encrypts but does not check the server's certificate (a self-signed one cannot be checked against a public authority), so an active man in the middle is not excluded; the password stays SCRAM-protected. Pinning (`sslmode=verify-ca` with the server certificate as `sslrootcert`) needs the certificate delivered as a file. It is a follow-up and is not part of this change.
+- `DATABASE_URL=postgresql://<user>:<password>@<data endpoint>:<port>/<db>?sslmode=require`. `settings.py` already refuses `disable`, `allow` and `prefer` for a non-local host. `require` encrypts but does not check the server's certificate (a self-signed one cannot be checked against a public authority), so an active man in the middle is not excluded; the password stays SCRAM-protected. Pinning (`sslmode=verify-ca` with the server certificate as `sslrootcert`) needs the certificate delivered as a file. It is a follow-up (Coach Ed's call, no code in this change).
 - `REDIS_URL=rediss://:<password>@<data endpoint>:<port>/0`. For a `rediss://` URL, `apps/common/redis_tls.py` sets the TLS options for both the cache (django-redis) and Celery. With `REDIS_TLS_CA_FILE` (a path) or `REDIS_TLS_CA_PEM` (the certificate text) set, that one certificate is the only trusted anchor (`ssl_cert_reqs=CERT_REQUIRED`; the hostname check is off because the anchor is the pinned certificate and the data app is reached by an address). With neither set it uses `ssl_cert_reqs=CERT_NONE`, an explicit choice: encrypted and password-protected, but the server is not authenticated. To pin, read `/data/tls/redis.crt` (a public certificate) from the Redis container after its first start and put its text in `REDIS_TLS_CA_PEM` on api, worker and beat. The Celery broker uses database number cache plus 1, as before.
 
 ### Restore job (data app)
@@ -105,7 +105,7 @@ App settings on api, worker and beat (names only):
 1. Take a verified backup first (newest `db-backups/` copy under 30 hours old, `/readyz/` `db_backup` true).
 2. Create the data app from the two image digests, with its volume(s) and Anycast TCP endpoints; set the secrets from the 0600 files.
 3. Run the restore job into it and compare the summary with the live database's own counts.
-4. Set `DATABASE_URL` and `REDIS_URL` on api, worker and beat to the data app. Remove postgres, redis and their volumes from the release app. Add probes (api: startup and readiness on `/readyz/`, liveness on `/healthz/`). Expected one-time downtime: 5 to 10 minutes.
+4. Read the Redis certificate from the data app's redis container (`/data/tls/redis.crt`, public) and, in the same env update that sets `DATABASE_URL` and `REDIS_URL` on api, worker and beat, set `REDIS_TLS_CA_PEM` to its text. `CERT_NONE` (no `REDIS_TLS_CA_PEM`) is only the documented fallback. Set `DATABASE_URL` and `REDIS_URL` to the data app. Remove postgres, redis and their volumes from the release app. Add probes (api: startup and readiness on `/readyz/`, liveness on `/healthz/`). Expected one-time downtime: 5 to 10 minutes.
 5. Keep the old volume until the switch is proven; remove it only afterwards, with Coach Ed's approval.
 6. Proof: one real release (or an image re-tag) while a loop polls `/healthz/` once a second from outside. Zero non-200 responses, and `/readyz/` all true.
 

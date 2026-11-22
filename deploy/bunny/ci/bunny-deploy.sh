@@ -69,10 +69,10 @@ cid() {
   case "$role" in api) var="$BUNNY_CONTAINER_API";; worker) var="$BUNNY_CONTAINER_WORKER";; beat) var="$BUNNY_CONTAINER_BEAT";; esac
   ref="$(jq -r --arg v "$var" '[.containerTemplates[] | select(.id==$v or .name==$v) | .id] | if length==1 then .[0] else empty end' "$WORK/app.json")"
   [ -n "$ref" ] || { echo "container for role $role not found (or ambiguous) in the app" >&2; return 1; }
-  # Any volume-looking field with content: a stateful container does not belong on the release app.
+  # Bunny container templates carry `volumeMounts` (array of {name, mountPath}); anything but an empty
+  # (or absent) array means a stateful container, which does not belong on the release app.
   if jq -e --arg id "$ref" '.containerTemplates[] | select(.id==$id)
-        | to_entries | map(select((.key | test("volume"; "i")) and (.value != null) and (.value != []) and (.value != {}) and (.value != ""))) | length > 0' \
-        "$WORK/app.json" >/dev/null; then
+        | (.volumeMounts // []) | if type == "array" then length > 0 else true end' "$WORK/app.json" >/dev/null; then
     echo "refused: the $role container has a volume; the release app must be stateless (data lives in the data app)" >&2
     return 1
   fi
