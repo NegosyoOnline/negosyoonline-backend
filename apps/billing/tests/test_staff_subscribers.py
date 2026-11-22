@@ -120,7 +120,10 @@ class GateTests(SubscribersTestCase):
 
     def test_only_post_and_no_write_route(self):
         self.signed_in()
-        self.assertEqual(sorted(staff_subscribers.ROUTES), ["subscribers/detail/", "subscribers/list/"])
+        self.assertEqual(sorted(staff_subscribers.ROUTES), [
+            "subscribers/detail/", "subscribers/list/", "subscribers/sms-line/disable/",
+            "subscribers/sms-line/reenable/",
+        ])
         self.assertEqual(self.call("GET", LIST).status_code, 405)
 
 
@@ -260,7 +263,8 @@ class DetailTests(SubscribersTestCase):
         response = self.call("POST", DETAIL, {"site_id": subscription.site.public_id})
         self.assertEqual(response.status_code, 200, response.content)
         body = response.json()
-        self.assertEqual(sorted(set(body) - {"payments"}), ROW_KEYS)
+        self.assertEqual(sorted(set(body) - {"payments", "sms_line"}), ROW_KEYS)
+        self.assertIsNone(body["sms_line"])  # SMS_SITE_LINES_ENABLED is off
         self.assertEqual(len(body["payments"]), 1)
         shown = body["payments"][0]
         self.assertEqual(shown["id"], payment.public_id)

@@ -231,10 +231,20 @@ A Santé store writes to its own **verified** members from its dash Inbox, one m
 Built dark behind `SMS_SITE_LINES_ENABLED`. Texts are included in the website subscription, so a Site may pair its own phone while it is **serving**; nothing is granted by hand.
 
 - **Who has a line** (`sms.site_has_line`): the Site's billing position is serving (`billing.position(site).storefront_served`: trial, active, payment needing attention, billing-exempt) and HQ has no active `SmsLineDisable` for it. It fails closed: with `BILLING_ENABLED` off, no subscription, or an unreadable position, there is no line. Suspended or cancelled-after-service-ended Sites lose it at once, with no job; reactivated, the same phone works again.
-- **`SmsLineDisable`** (`notifications.0007`): one row per Disable (site, disabled_by, reason, disabled_at, `reenabled_at` empty while it holds). At most one active row per Site. No row, or only re-enabled rows, means not disabled. The HQ Disable and Re-enable screens come later; until then rows are written only from the shell, with the audit entry written by hand.
+- **`SmsLineDisable`** (`notifications.0007`): one row per Disable (site, disabled_by, reason, disabled_at, `reenabled_at` empty while it holds). At most one active row per Site. No row, or only re-enabled rows, means not disabled. HQ writes them through the Disable and Re-enable routes below.
 - **Routing:** a Site's order-status and store texts go to its own phone; a Site with no line (switch off, billing ended, disabled, or no active phone of its own) uses the NegosyoOnline phone. A Site phone is handed only its own Site's texts, and nothing while its Site has no line. **Codes never go to a Site phone (D1):** a member's sign-in or mobile-confirm code names its Site but is always sent from, and handed only to, the NegosyoOnline phone.
 - **Offline (D2):** a store text from a Site whose own paired phone is offline is refused with `site_phone_offline` ("Your phone is offline right now. Nothing was sent."), never handed to the NegosyoOnline phone. A Site with no line of its own meets the NegosyoOnline phone's `gateway_offline`. The refusal comes last in the store text order, after the caps, and gives the slots back.
 - **Before turning it on** (staging, Manager's go): apply `notifications.0005` and `0007` (see `migrations.md`), set `SMS_SITE_LINES_ENABLED=1`, run `check --deploy`, then prove with two clearly named test Sites that each phone gets only its own Site's texts.
+
+## HQ Disable / Re-enable of a Site's line (SMS-INCLUDED, task z8uq9mhgn6)
+
+Built dark. Two staff routes on the Subscribers detail, under `/staff/v1/subscribers/sms-line/`: `disable/` and `reenable/`. Each is a POST with `{site_id, reason, code}`: the Site's public id, a reason (required, trimmed, up to 300 characters) and a fresh 6-digit authenticator code (one already used, a wrong one, a locked one and a recovery code all give the same 403 `reauth_failed`; the failure is audited as `hq_sms_line_reauth_failed` with counts only).
+
+- **Switches:** both `HQ_SUBSCRIBERS_ENABLED` and `SMS_SITE_LINES_ENABLED`. With either off the routes answer 404 and nothing is read or written. No migration: `SmsLineDisable` is `notifications.0007`.
+- **Disable** writes one active `SmsLineDisable` (site, the staff user, reason, time) and the audit entry `hq_sms_line_disabled` (Site id and reason). A Site that is already disabled answers 409 `already_disabled`, with no second row. **Re-enable** stamps `reenabled_at` on the active row and writes `hq_sms_line_reenabled`; a Site that is not disabled answers 409 `not_disabled`. Re-enable also needs a reason and a code. History is kept: a later Disable writes a new row.
+- **Effect** (through `sms.site_has_line`): the Site's texts go to the NegosyoOnline phone, its own phone is handed nothing, and the owner's SMS Gateway routes answer 404 (no pair, rotate or disable) until HQ re-enables. The phone is not unpaired: re-enabled, the same phone works again.
+- **Subscribers detail** carries `sms_line`: `{has_line, has_phone, disabled, reason, disabled_at}`, or `null` while `SMS_SITE_LINES_ENABLED` is off. Never a token, hash, phone name or number.
+- A staff action names one Site's `site_id` and touches only that Site's row.
 
 ## Owner SMS Gateway API and the two-Site isolation proof (SMS-INCLUDED, task z8uq9mhg8w)
 
