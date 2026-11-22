@@ -108,19 +108,12 @@ call, token, variable or staging change.
 
 ## Suites
 
-Run locally on code commit cdf9113 (before this notes commit), serially (`--parallel` needs `tblib`, which
-is not a project dependency):
+Run locally on code commit 404b453 (re-run after the review change), serially (`--parallel` needs `tblib`):
 
-* `apps.domains`: 260 tests, OK on SQLite (3 PostgreSQL-only lock tests skipped there); the same 260 on
-  PostgreSQL, 0 skipped.
-* Full suite SQLite: 5636 tests, OK (74 skipped, the PostgreSQL-only ones).
-* Full suite PostgreSQL 14 (own local instance, UTF8, fresh port 55432) + Redis 7 (own instance, fresh
-  port 56379), non-debug settings: 5636 tests, OK (1 skipped). Both instances were stopped and their
-  data removed afterwards. CI uses postgres 16; not run locally.
-* `manage.py check --deploy` (with `REDIS_URL` and a long secret key): only `domains.W001` (public suffix
-  list missing, intended) plus the known HSTS warnings (W005, W021). `makemigrations --check`: no changes.
-* The first full SQLite run found one pinned staff-route count in `apps/inbox/tests/test_staff.py`; it was
-  updated (one more test file outside apps/domains) and the full runs above were repeated on the final code.
+* `apps.domains`: 265 tests, OK on SQLite (3 PostgreSQL-only lock tests skipped); the same on PostgreSQL.
+* Full suite SQLite: 5641 tests, OK (74 skipped). Full suite PostgreSQL 14 (own instance, port 55432) + Redis 7
+  (port 56379): 5641 tests, OK (1 skipped). Both stopped and removed afterwards. CI uses postgres 16.
+* `check --deploy`: only `domains.W001` plus the known HSTS warnings; `makemigrations --check`: no changes.
 
 ## Review rulings applied
 
