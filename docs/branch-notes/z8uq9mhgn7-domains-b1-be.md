@@ -6,7 +6,7 @@ the design is NegosyoOnline's own (ClickUp z8uq9mcyu0).
 ## Design sources used
 
 Folder `design-z8uq9mcyu0-custom-domains` (Supervisor side-session notes): `bunny-addendum-r12-2026-11-21.md`
-(supersedes every Railway line), `plan.md` r4.1 to r4.5 (the "Superseded r3 plan" was not built),
+(supersedes every older hosting line), `plan.md` r4.1 to r4.5 (the "Superseded r3 plan" was not built),
 `design.md` R4.0 to R4.14, `approvals.md` and `decisions.md` (what is not allowed). `audit.md` was
 not read in full.
 
