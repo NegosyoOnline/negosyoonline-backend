@@ -82,4 +82,10 @@ frontend, DMARC, any provider call, key, variable or staging change.
 
 ## Suites
 
-See the final lines of the Supervisor report (filled in when the runs finished).
+Run locally on the code commits, serially (`--parallel` needs `tblib`):
+
+* New files: `test_resend_adapter.py` (9 tests) and `test_resend_flow.py` (50 tests); `apps.domains` now 324 tests.
+* Full suite SQLite: 5700 tests, OK (74 skipped). Full suite PostgreSQL 14 (own instance, port 55461, UTF8)
+  + Redis (port 56461): 5700 tests, OK (1 skipped). Both stopped and removed afterwards. CI uses postgres 16.
+* `check --deploy`: only `domains.W001` plus the known HSTS warnings (W005 and W009 are HSTS and the throwaway
+  local secret key; `common.E001` is the missing local REDIS_URL); `makemigrations --check`: no changes.
