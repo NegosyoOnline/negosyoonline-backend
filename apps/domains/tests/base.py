@@ -16,7 +16,8 @@ from apps.domains.probe import ProbeResult
 from apps.domains.providers import Providers
 from apps.domains.providers.cloudflare_dns import CloudflareDnsAdapter
 from apps.domains.providers.cloudflare_registrar import RegistrarAdapter
-from apps.domains.providers.fake import FakeCloudflare, FakeRegistrar, FakeRegistrarRead, FakeVercel
+from apps.domains.providers.fake import FakeCloudflare, FakeRegistrar, FakeRegistrarRead, FakeResend, FakeVercel
+from apps.domains.providers.resend_domains import ResendDomainsAdapter
 from apps.domains.providers.vercel import VercelAdapter
 from apps.sites.tests.base import make_account, make_site
 
@@ -29,12 +30,14 @@ PROJECT = "prj_test"
 def make_bundle():
     vercel, cloudflare = FakeVercel(project_id=PROJECT), FakeCloudflare(account_id=ACCOUNT)
     registrar_fake = FakeRegistrar(account_id=ACCOUNT)
+    resend_fake = FakeResend()
     return Providers(
         vercel=VercelAdapter(token="tok-vercel", project_id=PROJECT, transport=vercel),
         dns=CloudflareDnsAdapter(token="tok-dns", account_id=ACCOUNT, transport=cloudflare),
         registrar_read=FakeRegistrarRead(),
         registrar=RegistrarAdapter(token="tok-registrar", account_id=ACCOUNT, transport=registrar_fake),
-        fakes={"vercel": vercel, "cloudflare": cloudflare, "registrar": registrar_fake},
+        resend=ResendDomainsAdapter(token="tok-resend", region="us-east-1", transport=resend_fake),
+        fakes={"vercel": vercel, "cloudflare": cloudflare, "registrar": registrar_fake, "resend": resend_fake},
     )
 
 

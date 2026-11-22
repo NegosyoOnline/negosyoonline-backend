@@ -49,6 +49,20 @@ def check_domains(app_configs, **kwargs):
                 + ", ".join(unset) + ".",
                 id="domains.W004",
             ))
+    if settings.DOMAINS_EMAIL_ENABLED:
+        unset = [
+            name for name, value in (
+                ("RESEND_DOMAINS_API_KEY", settings.RESEND_DOMAINS_API_KEY),
+                ("RESEND_REGION", settings.RESEND_REGION),
+                ("DOMAINS_MAX_EMAIL_DOMAINS", settings.DOMAINS_MAX_EMAIL_DOMAINS),
+            ) if not value
+        ]
+        if unset:
+            found.append(Warning(
+                "DOMAINS_EMAIL_ENABLED is on but these settings are empty or 0, so no store email domain "
+                "can be set up: " + ", ".join(unset) + ".",
+                id="domains.W005",
+            ))
     return found
 
 

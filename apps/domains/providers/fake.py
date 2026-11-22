@@ -126,6 +126,70 @@ class FakeCloudflare(_Fake):
         return 404, {}
 
 
+class FakeResend(_Fake):
+    """The Resend domains list. `template` makes the records an answer carries (a test sets its own
+    values to prove nothing is hard-coded); `capacity_error` is the status a create answers with
+    when the plan is full; `status_script` is the statuses a get answers with in turn."""
+
+    def __init__(self):
+        super().__init__()
+        self.domains = {}  # id -> {"id", "name", "status", "region", "records"}
+        self.verify_calls = 0
+        self.capacity_error = None
+        self.auto_status = "pending"  # what a verify leaves a domain at
+        self.template = None  # callable(name) -> list of record dicts
+
+    def default_records(self, name):
+        token = uuid.uuid4().hex[:12]
+        return [
+            {"record": "DKIM", "name": "resend._domainkey", "type": "TXT", "ttl": "Auto",
+             "status": "not_started", "value": f"p=FAKEDKIM{token}"},
+            {"record": "SPF", "name": "send", "type": "MX", "ttl": "Auto", "status": "not_started",
+             "value": f"feedback-smtp.{token}.example", "priority": 10},
+            {"record": "SPF", "name": "send", "type": "TXT", "ttl": "Auto", "status": "not_started",
+             "value": f"v=spf1 include:{token}.example ~all"},
+        ]
+
+    def set_status(self, domain_id, status):
+        self.domains[domain_id]["status"] = status
+
+    def __call__(self, method, url, headers, body):
+        path, _ = self._split(url)
+        self.calls.append((method, path))
+        self.requests.append((method, path, body))
+        if self._fail:
+            return self._fail.pop(0), {}
+        if path == "/domains" and method == "POST":
+            if self.capacity_error:
+                return self.capacity_error, {}
+            if any(d["name"] == body["name"] for d in self.domains.values()):
+                return 409, {}
+            did = str(uuid.uuid4())
+            records = (self.template or self.default_records)(body["name"])
+            self.domains[did] = {"id": did, "name": body["name"], "status": "not_started",
+                                 "region": body["region"], "records": records,
+                                 "capabilities": body.get("capabilities")}
+            return 201, self.domains[did]
+        if path == "/domains" and method == "GET":
+            return 200, {"data": [{"id": d["id"], "name": d["name"], "status": d["status"]} for d in self.domains.values()]}
+        m = re.fullmatch(r"/domains/([A-Za-z0-9-]+)(/verify)?", path)
+        if m:
+            did, verify = m.groups()
+            if did not in self.domains:
+                return 404, {}
+            if method == "DELETE":
+                del self.domains[did]
+                return 200, {"object": "domain", "id": did, "deleted": True}
+            if verify and method == "POST":
+                self.verify_calls += 1
+                if self.domains[did]["status"] in ("not_started", "pending"):
+                    self.domains[did]["status"] = self.auto_status
+                return 200, {"object": "domain", "id": did}
+            if method == "GET":
+                return 200, self.domains[did]
+        return 404, {}
+
+
 class FakeRegistrarRead:
     """The one registrar read B1 uses (`registration read`): name -> {expires_at, auto_renew}."""
 
