@@ -481,49 +481,91 @@ def cancel_request(operator, claim, *, now=None):
         raise ApiError("not_cancellable", "Only a request that was never sent can be cancelled.", status=409)
 
 
-def _refused(claim, reg, operator, code, now):
-    events.log(
-        claim.site, "conflict_confirm_refused", claim=claim, registration=reg, actor_type=ActorType.OPERATOR,
-        actor_id=operator.pk, detail={"reason": code}, now=now,
-    )
-    return ApiError("confirm_refused", "The registrar does not show this name in our account.", status=409,
-                    fields={"reason": [code]})
+CONFIRM_KINDS = ("confirm_requested", "conflict_confirmed_registered", "conflict_confirm_refused")
 
 
-def confirmed_registered(operator, claim, providers, *, now=None):
-    """HQ "confirmed registered": the only way out of a registration's `conflict`. It records what
-    already exists and spends nothing: no `register` call, no change to `register_sent_at`,
-    `send_count`, the name or any cap count. Refused unless (a) the row is in `conflict`, (b) a live
-    read of the registration under our account returns this very name, (c) the status read does not
-    say in_progress, failed, action_required or blocked, and (d) the provider is configured and
-    not paused. Any failed or ambiguous read refuses. Audited either way."""
+def last_confirm(reg):
+    """The newest confirm event of this registration, or None."""
+    if reg is None:
+        return None
+    return DomainEvent.objects.filter(registration=reg, kind__in=CONFIRM_KINDS).order_by("-pk").first()
+
+
+def confirm_pending(reg):
+    last = last_confirm(reg)
+    return last is not None and last.kind == "confirm_requested"
+
+
+def request_confirmed_registered(operator, claim, *, now=None):
+    """The staff route's half (the api holds no Registrar token): validate, write the
+    `confirm_requested` event, and say whether a request is now pending. No provider call. A second
+    request while one is pending writes nothing new. Returns "requested" or "pending"."""
     now = now or timezone.now()
     reg = claim.registration()
     if reg is None or reg.state != RegistrationState.CONFLICT or reg.name is None:
         raise ApiError("confirm_refused", "Only a registration in conflict can be confirmed.", status=409,
                        fields={"reason": ["not_in_conflict"]})
-    if providers is None or getattr(providers, "registrar", None) is None or settings.DOMAINS_PROVIDER_PAUSED:
-        raise _refused(claim, reg, operator, "provider_unavailable", now)
-    try:
-        found = providers.registrar.get(reg.name)
-    except ProviderError as error:
-        raise _refused(claim, reg, operator, "read_failed_" + error.code, now) from None
-    if not found or found["name"] != reg.name:
-        raise _refused(claim, reg, operator, "not_in_our_account", now)
-    try:
-        status = providers.registrar.status(reg.name)
-    except ProviderError as error:
-        if error.code != "not_found":
-            raise _refused(claim, reg, operator, "status_failed_" + error.code, now) from None
-        status = {"state": "unknown"}
-    if status["state"] in ("in_progress",) + BAD_STATUSES:
-        raise _refused(claim, reg, operator, "status_" + status["state"], now)
+    if confirm_pending(reg):
+        return "pending"
+    events.log(claim.site, "confirm_requested", claim=claim, registration=reg, actor_type=ActorType.OPERATOR,
+               actor_id=operator.pk, now=now)
+    return "requested"
+
+
+def _refuse_confirm(claim, reg, operator_id, reason, now):
+    events.log(claim.site, "conflict_confirm_refused", claim=claim, registration=reg, actor_type=ActorType.OPERATOR,
+               actor_id=operator_id, detail={"reason": reason}, now=now)
+    return reason
+
+
+def process_confirm(claim_id, providers, *, now=None):
+    """The worker's half of "confirmed registered", the only way out of a registration's `conflict`.
+    It records what already exists and spends nothing: no `register` call, and no change to
+    `register_sent_at`, `send_count`, the name or any cap count. Under the purchase lock it re-checks
+    the row is still in `conflict` and a request is pending; then it reads the provider: (b) the
+    registration under our account returns this very name, (c) the status is not in_progress, failed,
+    action_required or blocked, (d) the provider is configured and not paused. Any failed or
+    ambiguous read refuses. Returns "done", "none" (nothing pending) or the refusal reason."""
+    now = now or timezone.now()
+    claim = Domain.objects.select_related("site").filter(pk=claim_id).first()
+    reg = claim.registration() if claim else None
     ledger()
     with transaction.atomic():
+        if reg is None:
+            return "none"
+        locked, _ = lock_rows(reg.pk)
+        last = last_confirm(locked)
+        if last is None or last.kind != "confirm_requested":
+            return "none"
+        operator_id = last.actor_id
+        if locked.state != RegistrationState.CONFLICT or locked.name is None:
+            return _refuse_confirm(claim, locked, operator_id, "not_in_conflict", now)
+    if settings.DOMAINS_PROVIDER_PAUSED:
+        return _refuse_confirm(claim, reg, operator_id, "paused", now)
+    if providers is None or getattr(providers, "registrar", None) is None:
+        return _refuse_confirm(claim, reg, operator_id, "provider_unavailable", now)
+    try:
+        found = providers.registrar.get(reg.name)
+    except Paused:
+        return _refuse_confirm(claim, reg, operator_id, "paused", now)
+    except ProviderError as error:
+        return _refuse_confirm(claim, reg, operator_id, "read_failed_" + error.code, now)
+    if not found or found["name"] != reg.name:
+        return _refuse_confirm(claim, reg, operator_id, "not_in_our_account", now)
+    try:
+        status = providers.registrar.status(reg.name)
+    except Paused:
+        return _refuse_confirm(claim, reg, operator_id, "paused", now)
+    except ProviderError as error:
+        if error.code != "not_found":
+            return _refuse_confirm(claim, reg, operator_id, "status_failed_" + error.code, now)
+        status = {"state": "unknown"}
+    if status["state"] in ("in_progress",) + BAD_STATUSES:
+        return _refuse_confirm(claim, reg, operator_id, "status_" + status["state"], now)
+    with transaction.atomic():
         locked, fresh = lock_rows(reg.pk, claim.pk)
-        if locked.state != RegistrationState.CONFLICT:
-            raise ApiError("confirm_refused", "Only a registration in conflict can be confirmed.", status=409,
-                           fields={"reason": ["not_in_conflict"]})
+        if locked.state != RegistrationState.CONFLICT or not confirm_pending(locked):
+            return "none"
         locked.state, locked.completed_at = RegistrationState.SUCCEEDED, now
         locked.provider_status, locked.provider_code = "succeeded", ""
         locked.expires_at, locked.auto_renew, locked.auto_renew_checked_at = (
@@ -534,8 +576,18 @@ def confirmed_registered(operator, claim, providers, *, now=None):
             machine.move(fresh, ClaimState.REGISTERED, now=now)
         events.log(
             fresh.site, "conflict_confirmed_registered", claim=fresh, registration=locked,
-            actor_type=ActorType.OPERATOR, actor_id=operator.pk, detail={"name": locked.name}, now=now,
+            actor_type=ActorType.OPERATOR, actor_id=operator_id, detail={"name": locked.name}, now=now,
         )
+    return "done"
+
+
+def pending_confirms():
+    """Claim ids with a confirm request nobody has answered (the sweep's backstop for a lost task)."""
+    out = []
+    for claim in Domain.objects.filter(state=ClaimState.CONFLICT):
+        if confirm_pending(claim.registration()):
+            out.append(claim.pk)
+    return out
 
 
 # --- the daily sentinel Check (design R4.14.4) ------------------------------------------------

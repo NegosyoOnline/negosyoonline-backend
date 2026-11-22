@@ -8,7 +8,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
-from apps.domains import names, purchase, staff
+from apps.domains import names, purchase, staff, tasks
 from apps.domains.models import (
     ClaimState, Domain, DomainEvent, DomainRegistration, RegistrationState,
 )
@@ -157,24 +157,61 @@ class CancelRequestTests(StaffDomainCase):
 
 
 class ConfirmedRegisteredTests(StaffDomainCase):
-    def refused(self, claim, reason):
+    """Route side: validate, audit, 202. Worker side (`purchase.process_confirm`): the lock, the
+    provider read and every refusal."""
+
+    def ask(self, claim):
         response = self.act("confirmed-registered/", claim)
-        self.assertError(response, 409, "confirm_refused")
-        self.assertEqual(response.json()["error"]["fields"]["reason"], [reason])
+        self.assertEqual(response.status_code, 202, response.content)
+        return response
+
+    def work(self, claim):
+        result = purchase.process_confirm(claim.pk, self.bundle, now=self.now)
+        tasks._audit_confirm(claim.pk, result)
+        return result
+
+    def refused(self, claim, reason):
+        self.ask(claim)
+        self.assertEqual(self.work(claim), reason)
         reg = DomainRegistration.objects.get(site=claim.site)
         self.assertEqual(reg.state, RegistrationState.CONFLICT)
+        self.assertFalse(purchase.confirm_pending(reg))
         return reg
 
-    def test_it_is_refused_unless_the_row_is_in_conflict(self):
+    def test_the_route_refuses_unless_the_row_is_in_conflict_and_never_calls_a_provider(self):
         for state, extra in (("intent", {}), ("sent", {"register_sent_at": self.now, "send_count": 1}),
                              ("succeeded", {"register_sent_at": self.now, "send_count": 1})):
             claim = self.request(f"{state}.com")
             DomainRegistration.objects.filter(site=claim.site).update(state=state, **extra)
             self.assertError(self.act("confirmed-registered/", claim), 409, "confirm_refused")
-        self.assertEqual(self.audits("domains_confirmed_registered"), [])
+        self.assertEqual(DomainEvent.objects.filter(kind="confirm_requested").count(), 0)
         self.assertEqual(self.fake.calls, [])
 
-    def test_it_is_refused_unless_the_provider_read_shows_the_name_in_our_account(self):
+    def test_the_route_writes_the_request_and_the_audit_entry_and_answers_202(self):
+        claim = self.conflicted()
+        calls = len(self.fake.calls)
+        response = self.ask(claim)
+        self.assertEqual(response.json(), {"claim": claim.public_id, "status": "requested"})
+        event = DomainEvent.objects.get(kind="confirm_requested")
+        self.assertEqual((event.actor_type, event.actor_id), ("operator", self.operator.pk))
+        self.assertEqual(len(self.audits("domains_confirm_requested")), 1)
+        self.assertEqual(len(self.fake.calls), calls)  # nothing read here: the api has no token
+        listed = self.call("POST", BASE + "list/").json()["claims"][0]["confirm"]
+        self.assertEqual(listed["state"], "pending")
+
+    def test_a_second_request_while_one_is_pending_is_idempotent(self):
+        claim = self.conflicted()
+        self.ask(claim)
+        self.assertEqual(self.ask(claim).json()["status"], "pending")
+        self.assertEqual(DomainEvent.objects.filter(kind="confirm_requested").count(), 1)
+        self.assertEqual(len(self.audits("domains_confirm_requested")), 1)
+
+    def test_the_worker_with_nothing_pending_does_nothing(self):
+        claim = self.conflicted()
+        self.assertEqual(self.work(claim), "none")
+        self.assertEqual(self.fake.get_calls if hasattr(self.fake, "get_calls") else 0, 0)
+
+    def test_the_worker_refuses_unless_the_provider_read_shows_the_name_in_our_account(self):
         claim = self.conflicted()
         before = self.fake.register_calls
         self.refused(claim, "not_in_our_account")  # 404
@@ -186,15 +223,25 @@ class ConfirmedRegisteredTests(StaffDomainCase):
         self.fake.get_error = 500
         self.refused(claim, "read_failed_unavailable")
         self.fake.get_error = None
-        with override_settings(DOMAINS_PROVIDER_PAUSED=True):
-            self.refused(claim, "provider_unavailable")
-        with mock.patch.object(staff.providers, "current", return_value=None):
-            self.refused(claim, "provider_unavailable")
         self.assertEqual(self.fake.register_calls, before)
-        self.assertEqual(len(self.audits("domains_confirm_refused")), 6)
-        self.assertEqual(DomainEvent.objects.filter(kind="conflict_confirm_refused").count(), 6)
+        self.assertEqual(DomainEvent.objects.filter(kind="conflict_confirm_refused").count(), 4)
+        self.assertEqual(len(self.audits("domains_confirm_refused")), 4)
 
-    def test_it_is_refused_while_the_status_is_not_settled(self):
+    def test_paused_and_no_provider_record_a_refusal_and_change_nothing(self):
+        claim = self.conflicted()
+        self.fake.registrations["brand.com"] = {"expires_at": None, "auto_renew": None, "account_id": "acct_test"}
+        calls = len(self.fake.calls)
+        with override_settings(DOMAINS_PROVIDER_PAUSED=True):
+            self.refused(claim, "paused")
+        self.ask(claim)
+        self.assertEqual(purchase.process_confirm(claim.pk, None, now=self.now), "provider_unavailable")
+        self.assertEqual(len(self.fake.calls), calls)
+        reg = DomainRegistration.objects.get(site=claim.site)
+        self.assertEqual((reg.state, reg.send_count), (RegistrationState.CONFLICT, 1))
+        last = self.call("POST", BASE + "list/").json()["claims"][0]["confirm"]
+        self.assertEqual((last["state"], last["reason"]), ("refused", "provider_unavailable"))
+
+    def test_the_worker_refuses_while_the_status_is_not_settled(self):
         claim = self.conflicted()
         self.fake.registrations["brand.com"] = {"expires_at": None, "auto_renew": None, "account_id": "acct_test"}
         for state in ("in_progress", "failed", "action_required", "blocked"):
@@ -204,21 +251,30 @@ class ConfirmedRegisteredTests(StaffDomainCase):
         self.fake.status_error = 500
         self.refused(claim, "status_failed_unavailable")
 
-    def test_it_records_what_exists_spends_nothing_and_changes_no_send_state(self):
+    def test_the_worker_records_what_exists_spends_nothing_and_changes_no_send_state(self):
         claim = self.conflicted()
         reg = DomainRegistration.objects.get(site=claim.site)
         sent_at, count, name = reg.register_sent_at, reg.send_count, reg.name
         sends = DomainEvent.objects.filter(kind="register_sent").count()
         calls = self.fake.register_calls
         self.fake.registrations["brand.com"] = {"expires_at": "2027-11-22T00:00:00Z", "auto_renew": True, "account_id": "acct_test"}
-        response = self.act("confirmed-registered/", claim)
-        self.assertEqual(response.json()["state"], "registered")
+        self.ask(claim)
+        self.assertEqual(self.work(claim), "done")
+        claim.refresh_from_db()
         reg.refresh_from_db()
+        self.assertEqual(claim.state, ClaimState.REGISTERED)
         self.assertEqual((reg.state, reg.register_sent_at, reg.send_count, reg.name), ("succeeded", sent_at, count, name))
         self.assertEqual((reg.auto_renew, reg.expires_at.year), (True, 2027))
-        self.assertEqual(self.fake.register_calls, calls)  # no register call
-        self.assertEqual(DomainEvent.objects.filter(kind="register_sent").count(), sends)  # the cap counts are unchanged
+        self.assertEqual(self.fake.register_calls, calls)
+        self.assertEqual(DomainEvent.objects.filter(kind="register_sent").count(), sends)
         event = DomainEvent.objects.get(kind="conflict_confirmed_registered")
         self.assertEqual((event.actor_type, event.actor_id), ("operator", self.operator.pk))
         self.assertEqual(len(self.audits("domains_confirmed_registered")), 1)
-        self.assertError(self.act("confirmed-registered/", claim), 409, "confirm_refused")  # not in conflict any more
+        self.assertError(self.act("confirmed-registered/", claim), 409, "confirm_refused")  # no longer in conflict
+        self.assertEqual(self.work(claim), "none")
+
+    def test_the_sweep_finds_a_request_whose_task_was_lost(self):
+        claim = self.conflicted()
+        self.assertEqual(purchase.pending_confirms(), [])
+        self.ask(claim)
+        self.assertEqual(purchase.pending_confirms(), [claim.pk])

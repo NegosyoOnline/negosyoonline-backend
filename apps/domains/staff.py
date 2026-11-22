@@ -12,6 +12,7 @@ import json
 from datetime import timedelta
 
 from django.conf import settings
+from django.db import transaction
 from django.http import JsonResponse
 from django.utils import timezone
 
@@ -61,8 +62,17 @@ def _iso(value):
     return value.isoformat() if value else None
 
 
+def _confirm_row(registration):
+    last = purchase.last_confirm(registration)
+    if last is None:
+        return None
+    state = {"confirm_requested": "pending", "conflict_confirmed_registered": "done"}.get(last.kind, "refused")
+    return {"state": state, "reason": last.detail.get("reason", ""), "at": _iso(last.created_at)}
+
+
 def _claim_row(claim, registration):
     return {
+        "confirm": _confirm_row(registration),
         "claim": claim.public_id, "site": claim.site.public_id, "name": claim.name, "state": claim.state,
         "reason": claim.reason, "state_changed_at": _iso(claim.state_changed_at),
         "registration": registration.state if registration else None,
@@ -129,17 +139,34 @@ def cancel_request(body, operator):
     return {"claim": claim.public_id, "state": claim.state}
 
 
-@_route
-def confirmed_registered(body, operator):
-    claim = _claim(body)
+def confirmed_registered(request, operator):
+    """202: validates, writes the request and enqueues the worker task. The provider read, the lock
+    and the move to `succeeded` happen in the worker (the api holds no Registrar token)."""
     try:
-        purchase.confirmed_registered(operator, claim, providers.current())
+        if not settings.DOMAINS_ENABLED:
+            raise ApiError("not_found", "Not found.", status=404)
+        claim = _claim(_body(request))
+        outcome = purchase.request_confirmed_registered(operator, claim)
+        if outcome == "requested":
+            _audit(operator, "domains_confirm_requested", claim)
+        _enqueue_confirm(claim.pk)
+        response = JsonResponse({"claim": claim.public_id, "status": outcome}, status=202)
     except ApiError as refusal:
-        _audit(operator, "domains_confirm_refused", claim, reason=(refusal.fields or {}).get("reason", [""])[0])
-        raise
-    claim.refresh_from_db()
-    _audit(operator, "domains_confirmed_registered", claim)
-    return {"claim": claim.public_id, "state": claim.state}
+        response = JsonResponse(error_body(refusal.code, refusal.message, refusal.fields), status=refusal.status)
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def _enqueue_confirm(claim_id):
+    def run():
+        try:
+            from apps.domains import tasks  # noqa: PLC0415
+
+            tasks.confirm_registered.delay(claim_id)
+        except Exception:  # noqa: BLE001 - the minute sweep picks the request up
+            pass
+
+    transaction.on_commit(run, robust=True)
 
 
 ROUTES = {

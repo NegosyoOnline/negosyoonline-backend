@@ -37,7 +37,7 @@ built** (it needs Coach Ed's go).
   `retry/`. Buy only writes rows and never enqueues. A Buy of the name of a `succeeded` registration is a
   re-attach (claim at `registered`; no `register`, no caps, works with the purchase switch off).
 * `staff.py`: `domains/list/`, `retry/`, `disconnect/` (the two B1 staff actions), `cancel-request/`,
-  `confirmed-registered/`. All audited (an operator audit entry and a `DomainEvent` with the operator).
+  `confirmed-registered/` (route half: validate, audit, `confirm_requested` event, queue, 202; worker half `purchase.process_confirm` in task `domains.confirm_registered`, with the lock, the provider read and every refusal; the HQ list shows the last result). All audited (an operator audit entry and a `DomainEvent` with the operator).
 * `services.py`: `after_confirm` (the one hook line's target, a robust `on_commit`), `on_first_payment`
   (idempotent: the `eligible` event once, one notice), `safety_net` (run by the minute sweep),
   `offered_tlds`. `events.py`: the append-only event writer. `tasks.py`: the minute sweep also runs the
@@ -76,9 +76,7 @@ built** (it needs Coach Ed's go).
    `GET .../registrations/{name}/registration-status`, `GET .../registrations/{name}`. Step 0 part A must
    confirm them; the adapter reduces every answer to whitelisted fields and reads prices as dollars rounded
    up to cents.
-3. **"Confirmed registered" needs a process that holds the Registrar token.** The staff routes run in the
-   `api` container, which must hold no token, so there the action is refused (`provider_unavailable`) and
-   audited. See the open question.
+3. **"Confirmed registered" runs in the worker** (Supervisor ruling on review): the api route only requests it; see the runbook. The audit action `domains_confirm_requested` was added to `apps/operators/audit.py`, and `domains.confirm_registered` to the task list pin in `apps/billing/tests/test_tasks.py`.
 4. Buy while the registration is `sent` or `conflict` is refused outright ("your domain is being set up")
    and starts no claim, instead of a claim that waits (same effect: nothing registers, nothing past
    `registered`).
@@ -124,12 +122,6 @@ is not a project dependency):
 * The first full SQLite run found one pinned staff-route count in `apps/inbox/tests/test_staff.py`; it was
   updated (one more test file outside apps/domains) and the full runs above were repeated on the final code.
 
-## Open questions for the Supervisor
+## Review rulings applied
 
-1. "Confirmed registered" cannot run in the `api` container (no Registrar token there by design). Which
-   process runs it: give `api` a read-only Registrar token and `DOMAINS_PROVIDER=real`, or a worker-side
-   management command? Until then the action is refused and audited.
-2. The Registrar paths and answer shapes (deviation 2) must be confirmed by step 0 part A before any real run.
-3. The Subscriber notice text and the screen wording need Coach Ed's approval (deviation 13); SD1's
-   "first year included, then billed" is not stated anywhere in what Subscribers see.
-4. Money settings default to 0 (deviation 1): confirm that is wanted instead of the plan's 12.00, 3 and 40.
+Q1 answered (worker half, above). Q2: Registrar paths and shapes stay unverified until step 0 Part A/C. Q3: wording goes to Coach Ed in the F2 packet; placeholder kept, nothing about price or renewal. Q4: unset money values mean 0 (accepted); the plan values 12.00 / 3 / 40 are in the runbook as the values to set at Part C.

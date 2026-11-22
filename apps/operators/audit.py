@@ -96,6 +96,7 @@ ACTIONS = {
     "domains_retry": KEPT,
     "domains_disconnect": KEPT,
     "domains_request_cancelled": KEPT,
+    "domains_confirm_requested": KEPT,
     "domains_confirmed_registered": KEPT,
     "domains_confirm_refused": KEPT,
 }

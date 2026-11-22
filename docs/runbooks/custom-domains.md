@@ -113,9 +113,9 @@ not built** and needs Coach Ed's go. One registration per site for life; one sit
 |---|---|---|
 | `DOMAINS_PURCHASE_ENABLED` | worker | `1` allows a purchase. Off: a Check still works, a Buy for a new name is refused, the worker sends nothing. A re-attach of a `succeeded` registration ignores it (it spends nothing). |
 | `CLOUDFLARE_REGISTRAR_API_TOKEN` | worker only | Secret. Coach Ed enters it himself, and only when step 0 part C1 is reached. The `api` and `beat` containers must not hold it: it is what keeps `register` out of a web request. |
-| `DOMAINS_MAX_COST_USD` | worker | The price ceiling in dollars (plan: 12.00). Both the registration price and the renewal price must be at or under it, at purchase. Unset or 0 refuses everything. |
+| `DOMAINS_MAX_COST_USD` | worker | The price ceiling in dollars. **Value to set at step 0 Part C: 12.00.** Both the registration price and the renewal price must be at or under it, at purchase. Unset or 0 refuses everything. |
 | `DOMAINS_ALLOWED_TLDS` | worker, api | Comma-separated extensions that may be offered (for example `com,net`). Empty offers none. |
-| `DOMAINS_DAILY_PURCHASE_CAP`, `DOMAINS_DAILY_SPEND_CAP_USD` | worker | Caps over the last 24 hours, counted from `register_sent` events. 0 or unset means no purchase at all. |
+| `DOMAINS_DAILY_PURCHASE_CAP`, `DOMAINS_DAILY_SPEND_CAP_USD` | worker | Caps over the last 24 hours, counted from `register_sent` events. 0 or unset means no purchase at all. **Values to set at Part C: 3 purchases and 40 dollars.** |
 | `DOMAINS_CHECKS_PER_HOUR_SITE`, `DOMAINS_CHECKS_PER_HOUR_ACCOUNT` | api | Owner Check rate limits (default 20 and 200). |
 | `DOMAINS_REGISTER_AUTO_RENEW` | worker | `1` adds `auto_renew: true` to the register body. Set only if step 0 shows the API accepts it. |
 
@@ -149,12 +149,19 @@ manual purchase anywhere.
 
 * **Cancel request**: only a registration in `intent` with nothing sent and the claim not in
   `conflict`. It releases the name, ends the claim and writes `request_cancelled`.
-* **Confirmed registered**: the only way out of a registration's `conflict`. It reads the
-  registration from the provider first and is refused unless the name is in our account, the status
-  is not `in_progress`, `failed`, `action_required` or `blocked`, and the provider is configured and
-  not paused. It spends nothing and changes no send state or cap count. It needs a process that holds
-  the Registrar token (see the open question in the branch notes); the `api` container does not.
-  Anything else in `conflict` waits for Coach Ed, through the Manager.
+* **Confirmed registered**: the only way out of a registration's `conflict`. It runs in two halves,
+  because the `api` container holds no Registrar token. The staff route validates (the row is in
+  `conflict`), writes the audit entry and a `confirm_requested` event, queues the worker task
+  `domains.confirm_registered` and answers 202 `requested` (a second request while one is pending
+  answers `pending` and writes nothing new). The worker takes the purchase lock, re-checks the row is
+  still in `conflict`, then reads the provider and refuses unless the name is in our account, the
+  status is not `in_progress`, `failed`, `action_required` or `blocked`, and the provider is
+  configured and not paused. On a pass the row becomes `succeeded` and the claim continues from
+  `registered`; otherwise a `conflict_confirm_refused` event names the reason (`paused`,
+  `provider_unavailable`, `not_in_our_account`, `read_failed_*`, `status_*`). It never calls
+  `register` and never touches `register_sent_at`, `send_count`, the name or the caps. The HQ list
+  shows the last request and its result (`pending`, `done`, `refused`); the minute sweep re-runs a
+  request whose task was lost. Anything else in `conflict` waits for Coach Ed, through the Manager.
 
 ### The price ceiling and the sentinel
 
