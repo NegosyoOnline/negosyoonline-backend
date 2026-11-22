@@ -147,10 +147,7 @@ def _step(claim, reg, providers, now):
         if word != "dns":
             return word
     if claim.email_state == EmailState.DNS:
-        word = _dns(claim, reg, providers, now)
-        if word != "verifying":
-            return word
-        return "verifying"
+        return _dns(claim, reg, providers, now)
     if claim.email_state == EmailState.VERIFYING:
         return _verifying(claim, reg, providers, now)
     return "idle"
