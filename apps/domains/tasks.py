@@ -10,7 +10,7 @@ from celery import shared_task
 from django.contrib.auth import get_user_model
 from django.conf import settings
 
-from apps.domains import lifecycle, machine, providers, purchase, services, sweeps
+from apps.domains import email_track, lifecycle, machine, providers, purchase, services, sweeps
 from apps.domains.models import Domain
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,9 @@ def run_sweep(*, bundle, now=None, probe_fn=None):
     ids = list(Domain.objects.filter(state__in=machine.STEP_STATES).order_by("pk").values_list("pk", flat=True))
     for claim_id in ids:
         word = machine.advance(claim_id, providers=bundle, now=now, probe_fn=probe_fn)
+        results[word] = results.get(word, 0) + 1
+    for claim_id in email_track.due_ids():  # the email track, beside the website (only while its switch is on)
+        word = "email_" + email_track.advance(claim_id, providers=bundle, now=now)
         results[word] = results.get(word, 0) + 1
     return results
 
@@ -47,6 +50,8 @@ def run_daily(*, bundle, now=None):
     out["vercel"] = sweeps.vercel_compare(bundle)
     out["registrations"] = sweeps.registration_read(bundle, now)
     out["prices"] = purchase.sentinel(bundle, now)
+    if settings.DOMAINS_EMAIL_ENABLED:
+        out["resend"] = sweeps.resend_daily(bundle, now)
     return out
 
 

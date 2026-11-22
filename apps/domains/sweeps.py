@@ -7,7 +7,9 @@ from django.conf import settings
 from django.utils import timezone
 
 from apps.domains import machine, names
-from apps.domains.models import ClaimState, DomainHostname, DomainRegistration, RegistrationState
+from apps.domains.models import (
+    ClaimState, Domain, DomainHostname, DomainRegistration, EmailState, NameMismatch, RegistrationState,
+)
 from apps.domains.providers.base import NotConfigured, Paused, ProviderError
 
 EXPIRY_WARNING = timedelta(days=60)
@@ -92,3 +94,58 @@ def registration_read(providers, now=None):
             machine.alert("expires_soon", name=reg.name)
         read += 1
     return {"read": read}
+
+
+def resend_daily(providers, now=None):
+    """The daily Resend read (design R4.14.7 (a)): re-read the status of every verified domain of
+    ours, so the sender lookup sees a `temporary_failure` or `failed` at once (it falls back) and a
+    stale reading falls back too; then compare Resend's list with the recorded ids. Reads only."""
+    now = now or timezone.now()
+    resend = getattr(providers, "resend", None)
+    if resend is None:
+        return {"skipped": "no resend adapter"}
+    read = 0
+    for claim in Domain.objects.select_related("site").filter(
+        email_state__in=(EmailState.VERIFIED, EmailState.ACTIVE)
+    ).exclude(state__in=(ClaimState.ENDED, ClaimState.REMOVAL_PENDING)).exclude(resend_domain_id=""):
+        try:
+            reg = machine._registration(claim)
+            claim.assert_name_bound()
+            if reg is None:
+                continue
+            data = resend.get(claim.resend_domain_id)
+        except (NameMismatch, Paused, NotConfigured):
+            continue
+        except ProviderError as error:
+            machine.alert("resend_read_failed", claim, code=error.code)  # the old reading ages out
+            continue
+        if data["name"] != reg.name:
+            machine.alert("resend_name_mismatch", claim)
+            claim.resend_status = ""  # unknown: the sender falls back
+        else:
+            if data["status"] in ("temporary_failure", "failed", "partially_failed"):
+                machine.alert("resend_not_verified", claim, status=data["status"])
+            claim.resend_status = data["status"]
+            if data["status"] == "verified" and claim.email_state == EmailState.VERIFIED:
+                claim.email_state = EmailState.ACTIVE
+        claim.resend_checked_at = now
+        claim.save(update_fields=["resend_status", "resend_checked_at", "email_state", "updated_at"])
+        read += 1
+    try:
+        listed = resend.list()
+    except ProviderError as error:
+        machine.alert("resend_list_failed", code=error.code)
+        return {"read": read, "error": error.code}
+    platform = settings.DOMAINS_PLATFORM_ZONES
+    ours = {n for n in (i["name"] for i in listed)
+            if not any(n == z or n.endswith("." + z) for z in platform)}
+    recorded_ids = set(Domain.objects.exclude(resend_domain_id="").values_list("resend_domain_id", flat=True))
+    extra = sorted(i["name"] for i in listed if i["name"] in ours and i["id"] not in recorded_ids)
+    missing = sorted(set(
+        Domain.objects.exclude(resend_domain_id="").exclude(state=ClaimState.ENDED).values_list("resend_domain_id", flat=True)
+    ) - {i["id"] for i in listed})
+    for name in extra:
+        machine.alert("resend_unrecorded", name=name)
+    for _ in missing:
+        machine.alert("resend_missing")
+    return {"read": read, "unrecorded": extra, "missing": len(missing)}

@@ -77,6 +77,46 @@ def sender_address(site):
     return ""
 
 
+def domain_sender(site):
+    """The From address on the store's own custom domain, or "" (the platform address). Keyed on
+    the site's own claim row, never on a hostname from a request. It is built here, at send time,
+    as `<sender_local_part>@<the site's succeeded registration name>` and only while all of this
+    holds: DOMAINS_ENABLED and STORE_EMAILS_BRANDED are on, the claim is in a holding state (not
+    being removed), its name is the registration's name, Resend's status is `verified` and was
+    read within 72 hours (the daily read; `temporary_failure` and `failed` fall back at once).
+    Never raises; any doubt is the platform address."""
+    if not (settings.DOMAINS_ENABLED and settings.STORE_EMAILS_BRANDED):
+        return ""
+    try:
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from apps.domains.models import (
+            HOLDING_STATES, ClaimState, Domain, DomainRegistration, EmailState, RegistrationState,
+        )
+
+        claim = Domain.objects.filter(
+            site=site, state__in=[s for s in HOLDING_STATES if s != ClaimState.REMOVAL_PENDING],
+            email_state__in=(EmailState.VERIFIED, EmailState.ACTIVE), resend_status="verified",
+        ).exclude(resend_domain_id="").first()
+        if claim is None or claim.resend_checked_at is None:
+            return ""
+        if timezone.now() - claim.resend_checked_at > timedelta(hours=72):
+            return ""
+        reg = DomainRegistration.objects.filter(site=site, state=RegistrationState.SUCCEEDED).first()
+        if reg is None or not reg.name or reg.name != claim.name:
+            return ""
+        address = f"{claim.sender_local_part}@{reg.name}"
+        if parseaddr(address)[1] != address:
+            return ""
+        validate_email(address)
+        return address
+    except Exception:  # noqa: BLE001 - a doubt is the platform address, never a failed email
+        logger.warning("Store domain sender lookup failed; using the platform address.")
+        return ""
+
+
 def safe_color(value):
     """`#rrggbb` or the NegosyoOnline blue. Checked before it can enter CSS."""
     return value if _HEX_COLOR.match(value or "") else DEFAULT_COLOR
@@ -199,6 +239,6 @@ def send_store_email(
     )
     return send_email(
         to=to, category=category, subject=subject, body=text, html_body=html,
-        sender_name=safe_from_name(from_name), reply_to=reply_to, from_address=sender_address(site),
+        sender_name=safe_from_name(from_name), reply_to=reply_to, from_address=sender_address(site) or domain_sender(site),
         **extra,
     )

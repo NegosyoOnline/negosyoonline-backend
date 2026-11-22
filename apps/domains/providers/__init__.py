@@ -9,7 +9,8 @@ from django.conf import settings
 
 from apps.domains.providers.cloudflare_dns import CloudflareDnsAdapter
 from apps.domains.providers.cloudflare_registrar import RegistrarAdapter
-from apps.domains.providers.fake import FakeCloudflare, FakeRegistrar, FakeVercel
+from apps.domains.providers.fake import FakeCloudflare, FakeRegistrar, FakeResend, FakeVercel
+from apps.domains.providers.resend_domains import ResendDomainsAdapter
 from apps.domains.providers.vercel import VercelAdapter
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class Providers:
     dns: object
     registrar_read: object = None  # the registration read of the daily sweep (the Registrar adapter)
     registrar: object = None  # the Registrar adapter: check, register, status, get
+    resend: object = None  # the Resend domains adapter (B3; used only while DOMAINS_EMAIL_ENABLED)
     fakes: object = None
 
 
@@ -34,11 +36,13 @@ def fake_bundle():
         vercel, cloudflare = FakeVercel(project_id="prj_fake"), FakeCloudflare(account_id="acct_fake")
         registrar_fake = FakeRegistrar(account_id="acct_fake")
         registrar = RegistrarAdapter(token="fake", account_id="acct_fake", transport=registrar_fake)
+        resend_fake = FakeResend()
         _fake_bundle = Providers(
             vercel=VercelAdapter(token="fake", project_id="prj_fake", transport=vercel),
             dns=CloudflareDnsAdapter(token="fake", account_id="acct_fake", transport=cloudflare),
             registrar_read=registrar, registrar=registrar,
-            fakes={"vercel": vercel, "cloudflare": cloudflare, "registrar": registrar_fake},
+            resend=ResendDomainsAdapter(token="fake", region="us-east-1", transport=resend_fake),
+            fakes={"vercel": vercel, "cloudflare": cloudflare, "registrar": registrar_fake, "resend": resend_fake},
         )
     return _fake_bundle
 
@@ -57,5 +61,6 @@ def current():
         return fake_bundle() if settings.DEBUG else None
     if mode == "real":
         registrar = RegistrarAdapter()
-        return Providers(vercel=VercelAdapter(), dns=CloudflareDnsAdapter(), registrar_read=registrar, registrar=registrar)
+        return Providers(vercel=VercelAdapter(), dns=CloudflareDnsAdapter(), registrar_read=registrar, registrar=registrar,
+                         resend=ResendDomainsAdapter())
     return None

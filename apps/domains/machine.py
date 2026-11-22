@@ -19,7 +19,7 @@ from django.utils import timezone
 from apps.domains import gate, names, probe as probe_module
 from apps.domains.models import (
     HOLDING_STATES, ClaimState, Domain, DomainDnsRecord, DomainEvent, DomainHostname,
-    NameMismatch, RegistrationState,
+    EmailState, NameMismatch, RegistrationState,
 )
 from apps.domains.providers.base import Paused, ProviderError
 
@@ -340,7 +340,8 @@ def retry(claim, *, now=None):
     """Setup steps only: `failed` goes back to `zone` (never to a purchase step). Returns True if moved."""
     now = now or timezone.now()
     if claim.state != ClaimState.FAILED:
-        return False
+        from apps.domains import email_track  # noqa: PLC0415
+        return email_track.retry(claim, now=now)  # a failed email track, the website untouched
     reg = claim.registration()
     if reg is None or reg.state != RegistrationState.SUCCEEDED:
         return False
@@ -369,6 +370,12 @@ def _remove(claim, reg, providers, now):
         except ProviderError as error:
             if error.code != "not_found":  # the entry's own not-found counts as removed
                 raise
+    resend_done, resend_error = False, None
+    try:  # the email track's Resend domain: independent of the DNS step below, finished before `ended`
+        from apps.domains import email_track  # noqa: PLC0415 - email_track imports this module
+        resend_done = email_track.remove(claim, reg, providers, now)
+    except ProviderError as error:
+        resend_error = error
     pending = claim.dns_records.filter(removed_at__isnull=True)
     if pending.exists():
         zone = providers.dns.zone_for(claim.site, reg.name)
@@ -383,6 +390,12 @@ def _remove(claim, reg, providers, now):
                     raise
             rec.removed_at = now
             rec.save()
+    if resend_error is not None:
+        raise resend_error
+    if not resend_done:
+        return "stuck"
+    if claim.resend_domain_id:
+        claim.email_state, claim.resend_status = EmailState.NONE, ""
     claim.hostnames.update(vercel_verified=False, vercel_cert_state="")
     move(claim, ClaimState.ENDED, reason=claim.reason, now=now)
     return "ended"

@@ -738,6 +738,16 @@ DOMAINS_ALLOWED_TLDS = tuple(
 )
 DOMAINS_CHECKS_PER_HOUR_SITE = _int_setting("DOMAINS_CHECKS_PER_HOUR_SITE") or 20
 DOMAINS_CHECKS_PER_HOUR_ACCOUNT = _int_setting("DOMAINS_CHECKS_PER_HOUR_ACCOUNT") or 200
+# Store email on the customer's domain (B3). Off by default. The Resend key is the worker's; the
+# region is one fixed value (an unknown one is read as unset, so the adapter refuses to create);
+# DOMAINS_MAX_EMAIL_DOMAINS is how many Subscriber domains the Resend plan can hold beyond the
+# platform's own (unset = 0 = every email track waits; the website and the purchase never wait).
+DOMAINS_EMAIL_ENABLED = os.environ.get("DOMAINS_EMAIL_ENABLED", "").strip() == "1"
+RESEND_DOMAINS_API_KEY = os.environ.get("RESEND_DOMAINS_API_KEY", "").strip()
+RESEND_REGION = os.environ.get("RESEND_REGION", "").strip().lower()
+if RESEND_REGION not in ("us-east-1", "eu-west-1", "sa-east-1", "ap-northeast-1"):
+    RESEND_REGION = ""
+DOMAINS_MAX_EMAIL_DOMAINS = _int_setting("DOMAINS_MAX_EMAIL_DOMAINS")
 # The Public Suffix List data file. Not downloaded by this code; absent means every name is refused.
 DOMAINS_PSL_FILE = os.environ.get(
     "DOMAINS_PSL_FILE", str(BASE_DIR / "apps" / "domains" / "data" / "public_suffix_list.dat")
