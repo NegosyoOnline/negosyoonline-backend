@@ -48,7 +48,8 @@ built** (it needs Coach Ed's go).
 ## Files outside apps/domains (every one)
 
 * `apps/billing/services.py`: `has_paid_cycle(subscription)` (public wrapper of `_ever_paid`) and one hook
-  call (plus a function-local import) in `confirm_transfer`, after `audit.record`.
+  call in `confirm_transfer`, after `audit.record`, inside a `try/except` that logs (so even registering
+  the callback can never fail a confirmation; the callback itself is a robust `on_commit`).
 * `apps/operators/audit.py`: five declared actions (`domains_retry`, `domains_disconnect`,
   `domains_request_cancelled`, `domains_confirmed_registered`, `domains_confirm_refused`).
 * `apps/operators/staff_views.py`: import and one `ROUTES.update` for the domains staff routes.
@@ -108,3 +109,27 @@ The year-2 renewal charge; Resend email (B3); every frontend; the Public Suffix 
 call, token, variable or staging change.
 
 ## Suites
+
+Run locally on code commit cdf9113 (before this notes commit), serially (`--parallel` needs `tblib`, which
+is not a project dependency):
+
+* `apps.domains`: 260 tests, OK on SQLite (3 PostgreSQL-only lock tests skipped there); the same 260 on
+  PostgreSQL, 0 skipped.
+* Full suite SQLite: 5636 tests, OK (74 skipped, the PostgreSQL-only ones).
+* Full suite PostgreSQL 14 (own local instance, UTF8, fresh port 55432) + Redis 7 (own instance, fresh
+  port 56379), non-debug settings: 5636 tests, OK (1 skipped). Both instances were stopped and their
+  data removed afterwards. CI uses postgres 16; not run locally.
+* `manage.py check --deploy` (with `REDIS_URL` and a long secret key): only `domains.W001` (public suffix
+  list missing, intended) plus the known HSTS warnings (W005, W021). `makemigrations --check`: no changes.
+* The first full SQLite run found one pinned staff-route count in `apps/inbox/tests/test_staff.py`; it was
+  updated (one more test file outside apps/domains) and the full runs above were repeated on the final code.
+
+## Open questions for the Supervisor
+
+1. "Confirmed registered" cannot run in the `api` container (no Registrar token there by design). Which
+   process runs it: give `api` a read-only Registrar token and `DOMAINS_PROVIDER=real`, or a worker-side
+   management command? Until then the action is refused and audited.
+2. The Registrar paths and answer shapes (deviation 2) must be confirmed by step 0 part A before any real run.
+3. The Subscriber notice text and the screen wording need Coach Ed's approval (deviation 13); SD1's
+   "first year included, then billed" is not stated anywhere in what Subscribers see.
+4. Money settings default to 0 (deviation 1): confirm that is wanted instead of the plan's 12.00, 3 and 40.
