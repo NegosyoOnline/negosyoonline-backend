@@ -21,10 +21,10 @@ def check_xendit_dependencies(app_configs, **kwargs):
 @register(deploy=True)
 def check_xendit_fake_is_local(app_configs, **kwargs):
     """The fake Xendit is for a local run only: the variable must not be set without DEBUG, and
-    never on Railway (settings.py then ignores it, but it should not be there)."""
+    never on a server (settings.py then ignores it, but it should not be there)."""
     if os.environ.get("XENDIT_FAKE", "").strip() != "1":
         return []
-    if settings.DEBUG and not settings.RAILWAY_ENVIRONMENT_NAME:
+    if settings.DEBUG and not settings.APP_ENVIRONMENT:
         return []
     return [Error(
         "XENDIT_FAKE is on outside a local DEBUG run.",

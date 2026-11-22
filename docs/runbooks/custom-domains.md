@@ -23,9 +23,20 @@ Nothing in this file has been done on any environment. Staging runs on Bunny con
 
 ## The Public Suffix List
 
-The list is a data file that this code never downloads (its download needs Coach Ed's permission).
-While the file is missing every name is refused and `manage.py check --deploy` shows `domains.W001`.
-Install it only when he has approved the download, then restart the worker and api.
+The list is vendored in the repo at `apps/domains/data/public_suffix_list.dat` (Coach Ed approved the
+download on 2026-11-22, ClickUp comment 1100430000610401). This code never downloads it at run time.
+
+* Source: https://publicsuffix.org/list/public_suffix_list.dat
+* Licence: MPL-2.0
+* Downloaded: 2026-11-22; 342871 bytes; sha256 `017501d3fa7911c60ac7e0f68df4122b07216c585c15dc30e0f0c74b8d13a2b9`
+
+If the file is ever absent, every name is refused (fail closed) and `manage.py check --deploy` shows
+`domains.W001`.
+
+To refresh it: download the same URL to a scratch folder, confirm it is plain text and contains
+`// ===BEGIN ICANN DOMAINS===`, copy it over the vendored file, update the date, size and sha256 above
+(`shasum -a 256`) and in the branch notes, run `uv run python manage.py test apps.domains`, and ship it
+through a reviewed branch. Then restart the worker and api (the loader caches by file mtime).
 
 ## What the worker does
 

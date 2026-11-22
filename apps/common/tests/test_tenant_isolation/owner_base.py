@@ -197,6 +197,12 @@ OWNER_ROUTES = {
     ("PUT", "/sites/{site_id}/meta/"): 200,
     ("POST", "/sites/{site_id}/meta/test/"): 200,
     ("DELETE", "/sites/{site_id}/meta/token/"): 200,
+    # the Site's own SMS phone (SMS-INCLUDED). In this order: the owner pairs, a rotate with no
+    # step-up code is refused 400 (the foreign callers never get that far: 404), then switches it off
+    ("GET", "/sites/{site_id}/sms-gateway/"): 200,
+    ("POST", "/sites/{site_id}/sms-gateway/register/"): 201,
+    ("POST", "/sites/{site_id}/sms-gateway/rotate/"): 400,
+    ("POST", "/sites/{site_id}/sms-gateway/disable/"): 200,
     # inquiries (the stored channels: website chat and the contact form as email)
     ("GET", "/sites/{site_id}/inquiries/conversations/"): 200,
     ("GET", "/sites/{site_id}/inquiries/conversations/{ref}/"): 200,
@@ -242,6 +248,7 @@ APP_PREFIXES = [
     ("/sites/{site_id}/billing/", "billing"), ("/sites/{site_id}/sante/", "sante"),
     ("/sites/{site_id}/catalog/", "catalog"), ("/sites/{site_id}/payment-methods/", "payments"),
     ("/sites/{site_id}/pack/", "pack_owner"), ("/sites/{site_id}/meta/", "meta_ads"),
+    ("/sites/{site_id}/sms-gateway/", "sms_line"),
     ("/sites/{site_id}/inquiries/", "inquiries"),
     ("/sites/{site_id}/shop/", "shop_owner"),
     ("/sites/{site_id}/member-notices/", "member_notices"),
@@ -293,7 +300,7 @@ def child_variants(template, own, foreign):
     BILLING_USAGE_ENABLED=True, SHOP_ENABLED=True, BILLING_INVOICE_REGISTER_ENABLED=True,
     MEMBERS_ENABLED=True, PACK_SHIPPING_ENABLED=True, BILLING_STATEMENTS_ENABLED=True,
     META_CREDENTIALS_KEY=KEY, INQUIRIES_ENABLED=True, INQUIRIES_CREDENTIALS_KEY=inquiries_base.KEY,
-    INQUIRY_SMS_ENABLED=True, SMS_GATEWAY_ENABLED=True,
+    INQUIRY_SMS_ENABLED=True, SMS_GATEWAY_ENABLED=True, SMS_SITE_LINES_ENABLED=True,
     INQUIRY_MESSENGER_ENABLED=True, META_MESSENGER_APP_ID="123456", META_MESSENGER_APP_SECRET="test-secret",
     MESSENGER_VERIFY_TOKEN="test-verify", INQUIRY_COMMENTS_ENABLED=True, INQUIRY_COMMENT_AUTOMATION_ENABLED=True,
     XENDIT_ENABLED=True, XENDIT_FAKE=True, DEBUG=True, PAYMENT_CREDENTIALS_KEY=Fernet.generate_key().decode(),

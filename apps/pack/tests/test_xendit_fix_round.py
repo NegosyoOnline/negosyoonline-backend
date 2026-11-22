@@ -81,7 +81,7 @@ class TimeoutTests(XenditPackCase):
 
 
 class FakeModeTests(XenditPackCase):
-    @override_settings(RAILWAY_ENVIRONMENT_NAME="staging")
+    @override_settings(APP_ENVIRONMENT="staging")
     def test_f6_the_fake_page_is_404_on_a_railway_environment(self):
         from django.http import Http404
         with self.assertRaises(Http404):
@@ -90,11 +90,11 @@ class FakeModeTests(XenditPackCase):
     def test_f6_the_deploy_check_refuses_the_fake_without_debug_or_on_railway(self):
         from apps.payments.checks import check_xendit_fake_is_local
         with mock.patch.dict("os.environ", {"XENDIT_FAKE": "1"}):
-            with override_settings(DEBUG=False, RAILWAY_ENVIRONMENT_NAME=""):
+            with override_settings(DEBUG=False, APP_ENVIRONMENT=""):
                 self.assertEqual([e.id for e in check_xendit_fake_is_local(None)], ["payments.E002"])
-            with override_settings(DEBUG=True, RAILWAY_ENVIRONMENT_NAME="staging"):
+            with override_settings(DEBUG=True, APP_ENVIRONMENT="staging"):
                 self.assertEqual([e.id for e in check_xendit_fake_is_local(None)], ["payments.E002"])
-            with override_settings(DEBUG=True, RAILWAY_ENVIRONMENT_NAME=""):
+            with override_settings(DEBUG=True, APP_ENVIRONMENT=""):
                 self.assertEqual(check_xendit_fake_is_local(None), [])
         with mock.patch.dict("os.environ", {"XENDIT_FAKE": ""}):
             with override_settings(DEBUG=False):
@@ -127,10 +127,10 @@ class FakeModeTests(XenditPackCase):
         with mock.patch.dict(os.environ, {"XENDIT_FAKE_RETURN_ORIGIN": "http://localhost:3002", "XENDIT_FAKE": ""}):
             reloaded = importlib.reload(cfg)
             self.assertEqual(reloaded.XENDIT_FAKE_RETURN_ORIGIN, "")
-        with mock.patch.dict(os.environ, {"XENDIT_FAKE_RETURN_ORIGIN": "http://localhost:3002/", "XENDIT_FAKE": "1", "DJANGO_DEBUG": "true", "RAILWAY_ENVIRONMENT_NAME": ""}):
+        with mock.patch.dict(os.environ, {"XENDIT_FAKE_RETURN_ORIGIN": "http://localhost:3002/", "XENDIT_FAKE": "1", "DJANGO_DEBUG": "true", "APP_ENVIRONMENT": ""}):
             reloaded = importlib.reload(cfg)
             self.assertEqual(reloaded.XENDIT_FAKE_RETURN_ORIGIN, "http://localhost:3002")
-        with mock.patch.dict(os.environ, {"XENDIT_FAKE_RETURN_ORIGIN": "http://localhost:3002", "XENDIT_FAKE": "1", "DJANGO_DEBUG": "true", "RAILWAY_ENVIRONMENT_NAME": "staging"}):
+        with mock.patch.dict(os.environ, {"XENDIT_FAKE_RETURN_ORIGIN": "http://localhost:3002", "XENDIT_FAKE": "1", "DJANGO_DEBUG": "true", "APP_ENVIRONMENT": "staging"}):
             reloaded = importlib.reload(cfg)
             self.assertEqual((reloaded.XENDIT_FAKE, reloaded.XENDIT_FAKE_RETURN_ORIGIN), (False, ""))
         importlib.reload(cfg)

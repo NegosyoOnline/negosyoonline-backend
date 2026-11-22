@@ -236,6 +236,49 @@ Built dark behind `SMS_SITE_LINES_ENABLED`. Texts are included in the website su
 - **Offline (D2):** a store text from a Site whose own paired phone is offline is refused with `site_phone_offline` ("Your phone is offline right now. Nothing was sent."), never handed to the NegosyoOnline phone. A Site with no line of its own meets the NegosyoOnline phone's `gateway_offline`. The refusal comes last in the store text order, after the caps, and gives the slots back.
 - **Before turning it on** (staging, Manager's go): apply `notifications.0005` and `0007` (see `migrations.md`), set `SMS_SITE_LINES_ENABLED=1`, run `check --deploy`, then prove with two clearly named test Sites that each phone gets only its own Site's texts.
 
+## Owner SMS Gateway API and the two-Site isolation proof (SMS-INCLUDED, task z8uq9mhg8w)
+
+Built dark. A store's owner pairs their own phone under `/v1/sites/{site_id}/sms-gateway/` (`apps/notifications/api_owner.py`); the dash tab that calls it is a later task.
+
+| Route | Does |
+|---|---|
+| `GET .../sms-gateway/` | `{server_address, device}`; `device` is the Site's own phone (name, enabled, last poll, battery, `connection`: waiting, connected, offline, disabled) or `null`. Never a token or a hash. |
+| `POST .../register/` | Pairs a phone. 201 with `token`, once. 409 `phone_exists` while the Site has an active phone. |
+| `POST .../rotate/` `{step_up_code}` | A new token; the old one gets the 401 at once. The code comes from `POST /v1/account/step-up/` with `purpose: "sms_line_rotate"` (email, or the verified mobile) and is used up. 409 `no_phone` / `phone_disabled`. |
+| `POST .../disable/` | Switches the Site's phone off for good (pair a new one to start again). |
+
+- **Always 404** (never 403) while `SMS_GATEWAY_ENABLED` or `SMS_SITE_LINES_ENABLED` is off, for a missing, removed, foreign or non-Santé Site, and for a Site that has no line now (`sms.site_has_line`: billing serving and not disabled by HQ; a Billing-only Site is therefore 404 too). Signed out is 401 once the switches are on.
+- No route takes a device id or name: the phone is always found through the Site. Every answer is `Cache-Control: no-store`. Only the register and rotate answers hold the token; only its hash is stored.
+- **Audit** (the account's history, `AccountAuditEvent`): `sms_line_register`, `sms_line_rotate`, `sms_line_disable`, each `{site, device}`; the step-up request is `sms_line_rotate_step_up`. No token or hash is written to the audit, a log or an error body.
+- Incoming forwarding is never touched. Rotate needs `ACCOUNT_EMAIL_CHANGE_HARDENED` on, the same as the step-up for an email or mobile change.
+
+### Two-Site isolation proof
+
+Run before any subscriber sees a token control (task 598401). The steps below are the **local** proof. Do not run them as written on staging: see "On staging" after step 9. Locally nothing is texted: the number in step 5 is a fake, local-only value and no phone exists that could send it.
+
+1. **Local set-up.** Your own Redis on a fresh port (`redis-server --port 6391 --save '' --daemonize yes`; a text is held in the cache, so the server and the shell must share it) and a SQLite file. In the shell that runs the server and the steps: `DJANGO_DEBUG=true DJANGO_SECRET_KEY=<any> REDIS_URL=redis://127.0.0.1:6391/0 SMS_GATEWAY_ENABLED=1 SMS_SITE_LINES_ENABLED=1 BILLING_ENABLED=1 ACCOUNT_EMAIL_CHANGE_HARDENED=1 SITE_PARENT_HOST=negosyotest.com API_ALLOWED_ORIGINS=http://localhost:3000 DATABASE_URL=sqlite:///proof.sqlite3`. Then `manage.py migrate` and `manage.py runserver 127.0.0.1:8765 --noreload`. Stop only the Redis you started (`redis-cli -p 6391 shutdown nosave`).
+2. **Two Sites, two owners.** Sign each owner in with the email code (local: the code is printed in the server log) and `POST /v1/sites/` `{"template":"sante","subdomain":"test-isolation-a","display_name":"Test Isolation A"}`, then the same for B. A new Site starts its trial, so it has a line.
+3. **Platform phone.** `manage.py sms_device add --name proof-platform --actor STAFF_USER` (prints its token once).
+4. **Pair.** Each owner: `POST /v1/sites/{site_id}/sms-gateway/register/`; keep the `token`. Check `GET` shows `connection: waiting` and the other owner's `GET` of this Site is 404.
+5. **Queue texts, send nothing.** In `manage.py shell` (same environment): for A, B and the platform create an `SmsMessage(category="status", priority=STATUS, site=<site or None>, expires_at=now+30 min, recipient="+639171234567" (a fake number, local only: never use it on staging), purpose="proof")` and `sms.hold_text(message, "TEXT-FOR-SITE-A", 1800)` (B, PLATFORM likewise). Nothing leaves: the text is only handed to the polling phone.
+6. **Poll as each phone.** `curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}' http://127.0.0.1:8765/gateway/v1/poll`, once with each token, then `report` the ids as `sent`.
+7. **Expect:** the A phone is handed only `TEXT-FOR-SITE-A`; the B phone only `TEXT-FOR-SITE-B`; the platform phone only `TEXT-FOR-PLATFORM`, and none of the Site texts. A second text queued for B goes to B's phone only. B's `GET` and `disable` of A's phone answer 404 and A's phone stays enabled.
+8. **Rotate.** Owner A: `POST /v1/account/step-up/` `{"channel":"email","purpose":"sms_line_rotate"}`, then `POST .../rotate/` `{"step_up_code":"<code>"}`. The old A token polls 401, the new one 200, B's still 200; a wrong code is 400 `step_up_required`.
+9. **Audit and logs.** `AccountAuditEvent` rows `sms_line_register` (twice) and `sms_line_rotate`, each `{site, device}`; no token in the server log.
+
+Locally, leave nothing behind: delete the SQLite file and stop only the Redis you started.
+
+#### On staging
+
+Needs the Manager's go. Staging already has the live NegosyoOnline phone polling, and a text it claims is really sent. So:
+
+- **Skip step 3.** Never add a "proof-platform" phone, and no session holds or uses the live phone's token.
+- **Queue Site A and Site B texts only, never a platform text.** A platform text would be claimed by the live phone and sent to the recipient. Queue the two Site texts as in step 5, but with a non-routable test recipient agreed with the Manager (not the number in step 5) and a short expiry (for example 5 minutes), so a text that is not handed out simply expires.
+- **Simulate only the two Site phones**, with `curl` as in step 6, using the two owner-paired tokens. Do not poll with any other token.
+- **The platform-side proof is read-only.** Read the two `SmsMessage` rows: each is `queued` or handed to its own Site's phone (`device` is that Site's phone, `dispatched` or `sent` after the simulated report), and neither ever shows the live phone as its `device`. Also check that each simulated phone received only its own Site's text (step 7, without the platform text).
+- Steps 2, 4, 8 and 9 run as written, with test Sites named "Test Isolation A" and "Test Isolation B".
+- **Afterwards:** `POST .../disable/` for both test phones, then remove the two test Sites with the existing `dispose_account` for each test owner account (dry run first; see `docs/runbooks/retention.md`), under the Manager's go. Never in production.
+
 ## Member one-time codes
 
 A Santé member's code goes by SMS through `send_sms` with no email fallback: `member_signin_code` (signing in by mobile) and `member_mobile_verify` (confirming the mobile after the first order). Both are codes: they count against the platform limit only, never a site limit, and are never paced. The code is sent only while `MEMBERS_ENABLED` and `SMS_GATEWAY_ENABLED` are both on; with the gateway off a sign-in by mobile answers 503 `sms_unavailable` for every input.

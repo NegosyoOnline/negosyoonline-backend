@@ -190,7 +190,7 @@ def _back(code=None):
 def _log(outcome, detail=""):
     """One line per callback: the outcome word only, never the code, state, tokens or Page data.
     LOGGING in settings.py configures only the `security` logger, so INFO from this module is dropped
-    on Railway; failures go out as warnings, which the root handler prints, and a pick as info."""
+    on a server; failures go out as warnings, which the root handler prints, and a pick as info."""
     text = f"{outcome} ({detail})" if detail else outcome
     (logger.info if outcome == "pick" else logger.warning)("Messenger callback: %s", text)
 

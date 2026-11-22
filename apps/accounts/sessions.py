@@ -39,7 +39,7 @@ def _token_hash(token):
 
 
 def client_ip(request):
-    """The caller's IP as Railway's proxy reports it, or "" when it is not a valid address."""
+    """The caller's IP as the proxy reports it, or "" when it is not a valid address."""
     value = (request.headers.get("X-Real-IP") or request.META.get("REMOTE_ADDR") or "").strip()
     try:
         return str(ipaddress.ip_address(value))
