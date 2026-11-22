@@ -115,7 +115,8 @@ class QueueSetupTests(SimpleTestCase):
         self.assertEqual(
             sorted(name for name in celery_app.tasks if not name.startswith("celery.")),
             [
-                "billing.notices", "billing.sweep", "db_backup.run", "file_backup.run", "health.heartbeat", "inquiries.evaluate_comment_rules",
+                "billing.notices", "billing.sweep", "db_backup.run", "domains.daily_sweep", "domains.hourly_check", "domains.sweep",
+                "file_backup.run", "health.heartbeat", "inquiries.evaluate_comment_rules",
                 "inquiries.fetch_comment_avatar", "inquiries.fetch_messenger_profile", "inquiries.fetch_post_text",
                 "inquiries.send_comment_auto_reply", "invoices.daily_alert",
                 "invoices.ensure_items", "lifecycle.run_approved", "meta_ads.send_order_event", "meta_ads.send_page_event", "meta_ads.sweep",
@@ -133,7 +134,8 @@ class QueueSetupTests(SimpleTestCase):
             [
                 "billing-sweep", "invoices-ensure-items", "invoices-daily-alert",
                 "statements-ensure", "statements-deliver", "meta-ads-sweep",
-                "billing-notices", "retention-daily", "file-backup-daily", "db-backup-daily", "pack-purge", "pack-buyer-notice",
+                "billing-notices", "retention-daily", "file-backup-daily", "db-backup-daily",
+                "domains-sweep", "domains-hourly-check", "domains-daily-sweep", "pack-purge", "pack-buyer-notice",
                 "pack-registered-notice", "payments-xendit-reconcile",
                 "lifecycle-run-approved", "health-heartbeat",
             ],
