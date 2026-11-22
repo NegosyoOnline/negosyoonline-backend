@@ -27,7 +27,7 @@ from apps.shop.models import (
 from apps.shop.tests.owner_base import make_order
 
 STAGING = override_settings(
-    RAILWAY_ENVIRONMENT_NAME="staging", SHOP_ENABLED=True, PAYMENT_METHODS_ENABLED=True,
+    APP_ENVIRONMENT="staging", SHOP_ENABLED=True, PAYMENT_METHODS_ENABLED=True,
     PACK_ENABLED=True, MEMBERS_ENABLED=True, BILLING_ENABLED=True,
 )
 
@@ -282,7 +282,7 @@ class DeleteTestShopOrderTests(TestCase):
     def test_production_is_refused_before_any_database_read(self):
         before = snapshot()
         for name, debug in (("production", False), ("production", True), ("", False), ("preview", False)):
-            with override_settings(RAILWAY_ENVIRONMENT_NAME=name, DEBUG=debug):
+            with override_settings(APP_ENVIRONMENT=name, DEBUG=debug):
                 with self.assertNumQueries(0):
                     with self.assertRaisesMessage(CommandError, "staging and local only"):
                         run(self.site, self.order, flags=["--apply"])
@@ -290,9 +290,9 @@ class DeleteTestShopOrderTests(TestCase):
         self.assertEqual(audit_count(), 0)
 
     def test_local_debug_and_staging_are_allowed(self):
-        with override_settings(RAILWAY_ENVIRONMENT_NAME="", DEBUG=True):
+        with override_settings(APP_ENVIRONMENT="", DEBUG=True):
             self.assertTrue(command.environment_allows())
-        with override_settings(RAILWAY_ENVIRONMENT_NAME="Staging", DEBUG=False):
+        with override_settings(APP_ENVIRONMENT="Staging", DEBUG=False):
             self.assertTrue(command.environment_allows())
 
     # -- the guards stay in force --------------------------------------------------------------
