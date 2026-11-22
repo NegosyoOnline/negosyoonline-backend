@@ -30,7 +30,7 @@ class HealthCheckTests(TestCase):
 
 @override_settings(SECURE_SSL_REDIRECT=True)
 class HealthCheckHttpsRedirectTests(TestCase):
-    """Railway's health check calls /healthz/ over plain HTTP. Only that path skips the redirect."""
+    """The platform health check calls /healthz/ over plain HTTP. Only that path skips the redirect."""
 
     def test_healthz_answers_over_plain_http(self):
         response = self.client.get("/healthz/")

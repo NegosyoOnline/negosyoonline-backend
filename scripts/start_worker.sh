@@ -1,8 +1,8 @@
 #!/bin/sh
 # Task z8uq9mevfy: start the Celery worker as a non-root user.
 # Why: Celery warns when run as root, and a bug in a task would then run as root.
-# No file in this repository sets a service's start command, so the Railway
-# "Custom Start Command" of the `worker` service is `sh scripts/start_worker.sh`.
+# No file in this repository sets a service's start command, so the
+# start command of the `worker` service is `sh scripts/start_worker.sh`.
 # If the user `nobody` is missing, or we are not root, it starts without the drop.
 set -eu
 

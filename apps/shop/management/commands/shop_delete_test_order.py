@@ -6,8 +6,8 @@
 
 SITE is the site's public id; each ORDER is a shop order's number or public id. Unlike
 `shop_remove_test_order` (which only blanks), this removes the rows. STAGING AND LOCAL ONLY: it
-refuses, writing nothing, unless DEBUG is on or Railway names the environment "staging", and it
-refuses on a Railway environment named "production" whatever DEBUG says. The check comes before
+refuses, writing nothing, unless DEBUG is on or APP_ENVIRONMENT is "staging", and it
+refuses when APP_ENVIRONMENT is "production" whatever DEBUG says. The check comes before
 any database read.
 
 It refuses all of the orders, writing nothing, when the site is not found, any named order is not

@@ -141,7 +141,7 @@ class SaveTests(XenditApiCase):
         self.error(self.send("put", self.xurl, {"api_key": 5, "webhook_token": TOKEN}), 400, "invalid_request")
         self.error(self.send("put", self.xurl, {"api_key": KEY}), 400, "invalid_request")
 
-    @override_settings(RAILWAY_ENVIRONMENT_NAME="staging")
+    @override_settings(APP_ENVIRONMENT="staging")
     def test_staging_takes_test_keys_only(self):
         self.assertEqual(self.fields(self.put(api_key="xnd_production_livekey1"))["api_key"], [services.KEY_TEST_ONLY])
         self.assertEqual(fake_xendit.calls, [])
@@ -150,14 +150,14 @@ class SaveTests(XenditApiCase):
     def test_staging_live_key_for_a_listed_site_only(self):
         live = "xnd_production_livekey1"
         pid = self.site.public_id
-        with override_settings(RAILWAY_ENVIRONMENT_NAME="staging", XENDIT_LIVE_KEY_SITES=(pid,)):
+        with override_settings(APP_ENVIRONMENT="staging", XENDIT_LIVE_KEY_SITES=(pid,)):
             self.assertEqual(self.saved(api_key=live)["xendit"]["key_mode"], "live")
             self.assertEqual(self.saved()["xendit"]["key_mode"], "test")
         for listed in ((), ("site_other",)):
-            with self.subTest(listed=listed), override_settings(RAILWAY_ENVIRONMENT_NAME="staging", XENDIT_LIVE_KEY_SITES=listed):
+            with self.subTest(listed=listed), override_settings(APP_ENVIRONMENT="staging", XENDIT_LIVE_KEY_SITES=listed):
                 self.assertEqual(self.fields(self.put(api_key=live))["api_key"], [services.KEY_TEST_ONLY])
 
-    @override_settings(RAILWAY_ENVIRONMENT_NAME="staging")
+    @override_settings(APP_ENVIRONMENT="staging")
     def test_whitespace_and_blank_entries_in_the_list_are_ignored(self):
         from config.settings import parse_site_id_list
         pid = self.site.public_id
@@ -169,18 +169,18 @@ class SaveTests(XenditApiCase):
         with override_settings(XENDIT_LIVE_KEY_SITES=parse_site_id_list(f"  ,{pid} ")):
             self.assertTrue(services.environment_allows(services.LIVE, self.site))
 
-    @override_settings(RAILWAY_ENVIRONMENT_NAME="production", XENDIT_LIVE_KEY_SITES=())
+    @override_settings(APP_ENVIRONMENT="production", XENDIT_LIVE_KEY_SITES=())
     def test_production_is_unchanged_by_the_list(self):
         with override_settings(XENDIT_LIVE_KEY_SITES=("*", self.site.public_id)):
             self.assertTrue(services.environment_allows(services.LIVE, self.site))
             self.assertFalse(services.environment_allows(services.TEST, self.site))
 
-    @override_settings(RAILWAY_ENVIRONMENT_NAME="", DEBUG=False)
+    @override_settings(APP_ENVIRONMENT="", DEBUG=False)
     def test_the_list_does_not_open_a_run_without_an_environment_name(self):
         with override_settings(XENDIT_LIVE_KEY_SITES=(self.site.public_id,)):
             self.assertFalse(services.environment_allows(services.LIVE, self.site))
 
-    @override_settings(RAILWAY_ENVIRONMENT_NAME="", DEBUG=False)
+    @override_settings(APP_ENVIRONMENT="", DEBUG=False)
     def test_no_environment_name_and_no_debug_refuses_either_key(self):
         for key in (KEY, "xnd_production_livekey1"):
             with self.subTest(key=key):
@@ -188,12 +188,12 @@ class SaveTests(XenditApiCase):
         self.assertEqual(fake_xendit.calls, [])
         self.assertFalse(SiteXenditCredential.objects.exists())
 
-    @override_settings(RAILWAY_ENVIRONMENT_NAME="", DEBUG=True)
+    @override_settings(APP_ENVIRONMENT="", DEBUG=True)
     def test_no_environment_name_with_debug_takes_either_key(self):
         self.saved()
         self.assertEqual(self.saved(api_key="xnd_production_livekey1")["xendit"]["key_mode"], "live")
 
-    @override_settings(RAILWAY_ENVIRONMENT_NAME="production")
+    @override_settings(APP_ENVIRONMENT="production")
     def test_production_takes_live_keys_only(self):
         self.assertEqual(self.fields(self.put())["api_key"], [services.KEY_LIVE_ONLY])
         self.assertEqual(self.saved(api_key="xnd_production_livekey1")["xendit"]["key_mode"], "live")
