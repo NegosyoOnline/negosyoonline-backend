@@ -74,6 +74,7 @@ class AssetPatch(StrictSchema):
     duration_seconds: int | None = None
     order: int | None = None
     active: bool | None = None
+    shared: bool | None = None  # only the content source store may send this
 
 
 class PublishIn(StrictSchema):

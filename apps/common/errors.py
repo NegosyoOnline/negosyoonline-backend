@@ -21,7 +21,7 @@ STATUS_CODES = {
 class ApiError(Exception):
     """Raise from a view or service to answer with a specific code and status."""
 
-    def __init__(self, code, message, *, status=400, fields=None, event=None, reason=None):
+    def __init__(self, code, message, *, status=400, fields=None, event=None, reason=None, body=None):
         super().__init__(message)
         self.event = event  # a denial worth a `security` log line (apps/common/security_log.py)
         self.reason = reason
@@ -29,6 +29,7 @@ class ApiError(Exception):
         self.message = message
         self.status = status
         self.fields = fields
+        self.body = body  # a complete response body that replaces the standard one (video_required)
 
 
 def error_body(code, message, fields=None):
@@ -44,7 +45,7 @@ def register_error_handlers(api):
         if exc.event:
             security_log.log_denial(request, exc.event, exc.reason or "missing")
         return api.create_response(
-            request, error_body(exc.code, exc.message, exc.fields), status=exc.status
+            request, exc.body or error_body(exc.code, exc.message, exc.fields), status=exc.status
         )
 
     @api.exception_handler(ValidationError)

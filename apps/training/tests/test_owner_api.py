@@ -84,21 +84,22 @@ class CourseTests(TrainingOwnerCase):
         self.assertTrue(course["id"].startswith("crs_"))
         self.assertEqual(
             set(course),
-            {"id", "title", "slug", "description", "image_url", "order", "active", "archived_at", "created_at",
-             "updated_at", "module_count", "lesson_count", "active_lesson_count"},
+            {"id", "title", "slug", "description", "image_url", "order", "active", "shared", "copied_from",
+             "archived_at", "created_at",
+             "updated_at", "module_count", "needs_video_count", "lesson_count", "active_lesson_count"},
         )
         module = self.send("post", self.url(f"courses/{course['id']}/modules/"), {"title": "Start here"})
         self.assertEqual(module.status_code, 201, module.content)
         module = module.json()
         self.assertEqual((module["course_id"], module["order"], module["lessons"]), (course["id"], 1, []))
         lesson = self.send("post", self.url(f"modules/{module['id']}/lessons/"), {
-            "title": "Welcome", "duration": "6:30", "description": "Hi", "video_url": YT,
+            "title": "Welcome", "duration": "6:30", "description": "Hi",
         })
         self.assertEqual(lesson.status_code, 201, lesson.content)
         lesson = lesson.json()
         self.assertEqual(
             (lesson["module_id"], lesson["duration"], lesson["video_url"], lesson["order"], lesson["image_url"]),
-            (module["id"], "6:30", YT, 1, None),
+            (module["id"], "6:30", None, 1, None),
         )
         full = self.get(self.url(f"courses/{course['id']}/")).json()
         self.assertEqual((full["module_count"], full["lesson_count"]), (1, 1))
@@ -132,15 +133,25 @@ class CourseTests(TrainingOwnerCase):
         back = self.send("patch", path, {"active": True}).json()
         self.assertEqual((back["active"], back["archived_at"]), (True, None))
 
-    def test_a_video_outside_the_allowlist_is_a_field_error_and_nothing_is_stored(self):
+    def test_a_video_link_can_no_longer_be_set_only_cleared(self):
+        """R2: every dashboard video is Bunny Stream. Any link, allowlisted or not, is refused."""
         module = make_module(make_course(self.site))
-        for bad in ("http://www.youtube.com/embed/dQw4w9WgXcQ", "https://evil.example/embed/x",
-                    "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "javascript:alert(1)"):
+        for bad in (YT, "https://player.vimeo.com/video/12345", "https://iframe.mediadelivery.net/embed/744094/abc-12345",
+                    "http://www.youtube.com/embed/dQw4w9WgXcQ", "https://evil.example/embed/x", "javascript:alert(1)"):
             with self.subTest(video=bad):
                 response = self.send("post", self.url(f"modules/{module.public_id}/lessons/"), {"title": "L", "video_url": bad})
                 self.assertEqual(response.status_code, 400, response.content)
-                self.assertIn("video_url", response.json()["error"]["fields"])
+                self.assertEqual(response.json()["error"]["fields"]["video_url"], ["Upload your video instead."])
         self.assertFalse(Lesson.objects.exists())
+        lesson = make_lesson(module, "Old", video_url=YT)
+        path = self.url(f"lessons/{lesson.public_id}/")
+        self.assertEqual(self.send("patch", path, {"video_url": "https://www.youtube.com/embed/aaaaaaaaaaa"}).status_code, 400)
+        lesson.refresh_from_db()
+        self.assertEqual(lesson.video_url, YT)
+        cleared = self.send("patch", path, {"video_url": ""})
+        self.assertEqual((cleared.status_code, cleared.json()["video_url"]), (200, None))
+        lesson.refresh_from_db()
+        self.assertEqual(lesson.video_url, "")
 
     def test_bad_values_unknown_keys_and_nulls_are_refused(self):
         course = make_course(self.site)
