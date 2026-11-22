@@ -1,0 +1,56 @@
+name: Bunny data images
+
+# Builds the two images of the Bunny data app (PostgreSQL 18 and Redis 7, TLS only) into the private
+# GitHub Container Registry, tagged with the full commit SHA, and records their digests. It NEVER
+# deploys: no Bunny call, no secret other than the workflow's own GITHUB_TOKEN. Putting a digest on
+# the data app is a manual, announced step (docs/runbooks/bunny-staging.md, "Data app").
+# Runs only when deploy/bunny/data/ changes on main, or by hand. A normal release never runs it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/bunny/data/**"
+      - ".github/workflows/bunny-data-images.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bunny-data-images
+  cancel-in-progress: false
+
+jobs:
+  images:
+    name: Build and publish the data images
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_BASE: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Prove both images accept TLS connections only
+        run: deploy/bunny/data/tests/tls-check.sh
+      - name: Log in to GHCR
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build, push and record digests (tag = full SHA)
+        run: |
+          set -euo pipefail
+          base="${IMAGE_BASE,,}"
+          for kind in postgres redis; do
+            image="$base-data-$kind:$GITHUB_SHA"
+            docker build --file "deploy/bunny/data/Dockerfile.$kind" --tag "$image" deploy/bunny/data
+            docker push "$image"
+            digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+            printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' || { echo "no digest for the $kind image" >&2; exit 1; }
+            echo "- $kind: \`$base-data-$kind:$GITHUB_SHA@$digest\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo "Not deployed. Use the digests above when the data app is created or upgraded." >> "$GITHUB_STEP_SUMMARY"
