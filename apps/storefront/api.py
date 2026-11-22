@@ -29,6 +29,7 @@ from ninja import NinjaAPI, Schema
 
 from apps.catalog.storefront_api import router as catalog_storefront_router
 from apps.common.errors import ApiError, error_body, register_error_handlers
+from apps.domains.storefront_api import router as domains_storefront_router
 from apps.inquiries.api_storefront import router as inquiries_storefront_router
 from apps.members.api import router as members_router
 from apps.members.api_content import router as member_content_router
@@ -151,6 +152,7 @@ api.add_router("", catalog_storefront_router)  # the catalog reads (apps/catalog
 api.add_router("", shop_router)  # the Santé shop (apps/shop/api.py)
 api.add_router("", shop_reviews_router)  # its product reviews (apps/shop/api_reviews.py)
 api.add_router("", meta_storefront_router)  # the Meta Conversions API events (apps/meta_ads)
+api.add_router("", domains_storefront_router)  # the custom-domain probe (apps/domains/storefront_api.py)
 api.add_router("", inquiries_storefront_router)  # the website chat (apps/inquiries/api_storefront.py)
 
 

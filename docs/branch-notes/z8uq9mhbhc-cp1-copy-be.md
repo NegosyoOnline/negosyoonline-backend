@@ -159,3 +159,5 @@ for l in Lesson.objects.select_related("module__course__site").order_by("module_
 ## Tests
 `apps/training/tests/test_video_required.py` (refusal shape on every route, legacy/pending/failed do not count, disabled not counted, turn-off never blocked, edge cases, copy arrives Off and keeps its link, link parsing, audit columns and writes nothing, backfill dry run / apply / not-ready / already-set / other store / no library). Tenant-isolation registry: no route added or removed, counts unchanged (owner 152).
 Full suite 5512 tests: SQLite OK (skipped=71), PostgreSQL 14 + Redis OK (skipped=1); `check --deploy` shows only the two deferred HSTS warnings; `makemigrations --check --dry-run` clean.
+
+- Merged origin/main 222a39b (domains B1, ZD-1 data app, SMS line disable, redis TLS, Bunny deploy). One conflict, in the owner-route counts test: both sides kept, owner routes now 156 (training 28, shared_content 2, sms_line 4). Full suite 5744 tests: SQLite OK (skipped=71), PostgreSQL 14 + Redis OK (skipped=1); `makemigrations --check --dry-run` clean.

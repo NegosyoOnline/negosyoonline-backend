@@ -68,6 +68,9 @@ jobs:
       - name: Run system checks
         if: steps.scope.outputs.full == 'true'
         run: uv run python manage.py check
+      - name: Run the Bunny deploy guard tests (fake Bunny API, no network)
+        if: steps.scope.outputs.full == 'true'
+        run: bash deploy/bunny/ci/tests/test-production-scripts.sh
       - name: Run tests against SQLite
         if: steps.scope.outputs.full == 'true'
         run: uv run --with tblib python manage.py test --parallel

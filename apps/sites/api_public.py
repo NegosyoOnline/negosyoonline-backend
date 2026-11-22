@@ -63,7 +63,11 @@ def site_for_host(host):
         return custom.site
     label = site_label(host)
     if label is None:
-        return None
+        # The second branch, only for a host that is not under the parent host: a custom domain
+        # connected by apps.domains (a `live` or `attention` claim; off unless DOMAINS_ENABLED).
+        from apps.domains import hosts as domain_hosts
+
+        return domain_hosts.site_for_hostname(host)
     row = (
         Subdomain.objects.filter(
             name=label, state=Subdomain.State.ACTIVE,
