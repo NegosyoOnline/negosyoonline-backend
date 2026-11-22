@@ -6,8 +6,8 @@
 
 SITE is the site's public id; each ORDER is a Pack order's order number or public id. Unlike
 `pack_remove_test_member` (which only blanks), this removes the rows. STAGING AND LOCAL ONLY: it
-refuses, writing nothing, unless DEBUG is on or Railway names the environment "staging", and it
-refuses on a Railway environment named "production" whatever DEBUG says.
+refuses, writing nothing, unless DEBUG is on or APP_ENVIRONMENT is "staging", and it
+refuses when APP_ENVIRONMENT is "production" whatever DEBUG says.
 
 It refuses all of the orders, writing nothing, when the site is not found, any named order is not
 found, or any is on another site. No bulk mode, no "all". Without --apply it runs the whole

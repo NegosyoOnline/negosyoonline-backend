@@ -1,4 +1,4 @@
-"""The Railway Storage Bucket (S3-compatible) as the backup writes it.
+"""The storage bucket (S3-compatible) as the backup writes it.
 
 A small interface the service codes against: put, get, delete, list. boto3 is imported only
 when a client is built, so nothing loads it (or calls the network) while the switch is off.

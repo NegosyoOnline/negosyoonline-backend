@@ -53,6 +53,8 @@ ACTIONS = {
     "pack_test_order_deleted": KEPT,
     "shop_test_order_deleted": KEPT,
     "billing_exempt_set": KEPT,
+    # HQ -> Subscribers: one detail read of a subscriber site. Ids and counts only.
+    "hq_subscriber_viewed": KEPT,
     "billing_payment_confirmed": KEPT,
     "billing_payment_rejected": KEPT,
     "billing_usage_admitted": KEPT,
