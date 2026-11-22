@@ -136,3 +136,92 @@ class FakeRegistrarRead:
     def get(self, name):
         self.calls.append(name)
         return self.registrations.get(name)
+
+
+class FakeRegistrar(_Fake):
+    """The Cloudflare Registrar API for one account: Check prices by extension, a register that
+    answers 201, 202 or an error, a status per name, and the registrations held.
+
+    `register_calls` counts every POST to `registrations` (a money test asserts it never exceeds
+    one per site). `register_mode` is "201", "202", an error status as a string ("409"), or
+    "timeout" (the transport raises, as a lost connection would).
+    """
+
+    def __init__(self, account_id="acct_fake"):
+        super().__init__()
+        self.account_id = account_id
+        self.prices = {}  # tld -> (registration cents, renewal cents)
+        self.default_price = (857, 857)
+        self.tier = {}  # name or tld -> tier (default "standard")
+        self.currency = "USD"
+        self.taken = set()  # names that are not registrable
+        self.registrations = {}  # name -> {"expires_at", "auto_renew", "account_id"}
+        self.statuses = {}  # name -> list of statuses answered in turn (the last repeats)
+        self.register_mode = "201"
+        self.register_calls = 0
+        self.register_bodies = []
+        self.status_error = None  # an HTTP status the status call answers with
+        self.get_error = None
+
+    @staticmethod
+    def _dollars(cents):
+        return f"{cents // 100}.{cents % 100:02d}"
+
+    def __call__(self, method, url, headers, body):
+        path, _ = self._split(url)
+        self.calls.append((method, path))
+        self.requests.append((method, path, body))
+        root = f"/accounts/{self.account_id}/registrar"
+        if self._fail:
+            return self._fail.pop(0), {}
+        if method == "POST" and path == f"{root}/domain-check":
+            rows = []
+            for name in body["domains"]:
+                tld = name.rsplit(".", 1)[-1]
+                reg, ren = self.prices.get(tld, self.default_price)
+                taken = name in self.taken or name in self.registrations
+                rows.append({
+                    "name": name, "registrable": not taken,
+                    "tier": self.tier.get(name) or self.tier.get(tld) or "standard",
+                    "pricing": {"currency": self.currency, "registration_cost": self._dollars(reg),
+                                "renewal_cost": self._dollars(ren)},
+                })
+            return 200, {"result": {"domains": rows}}
+        if method == "POST" and path == f"{root}/registrations":
+            self.register_calls += 1
+            self.register_bodies.append(body)
+            name = body["domain_name"]
+            mode = self.register_mode
+            if mode == "timeout":
+                from apps.domains.providers.base import ProviderError
+                raise ProviderError("unavailable", retryable=True)
+            if mode in ("201", "202"):
+                if mode == "201":
+                    self.registrations[name] = {"expires_at": "2027-11-22T00:00:00Z", "auto_renew": False,
+                                                "account_id": self.account_id}
+                else:
+                    self.statuses.setdefault(name, ["in_progress"])
+                return int(mode), {"result": {"domain_name": name}}
+            return int(mode), {}
+        m = re.fullmatch(rf"{re.escape(root)}/registrations/([a-z0-9.-]+)/registration-status", path)
+        if method == "GET" and m:
+            if self.status_error:
+                return self.status_error, {}
+            name = m.group(1)
+            script = self.statuses.get(name)
+            if script:
+                state = script[0] if len(script) == 1 else script.pop(0)
+            elif name in self.registrations:
+                state = "succeeded"
+            else:
+                return 404, {}
+            return 200, {"result": {"status": state}}
+        m = re.fullmatch(rf"{re.escape(root)}/registrations/([a-z0-9.-]+)", path)
+        if method == "GET" and m:
+            if self.get_error:
+                return self.get_error, {}
+            found = self.registrations.get(m.group(1))
+            if found is None:
+                return 404, {}
+            return 200, {"result": {"domain_name": m.group(1), **found}}
+        return 404, {}

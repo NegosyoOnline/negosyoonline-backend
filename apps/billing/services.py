@@ -181,6 +181,11 @@ def _ever_paid(subscription):
     return subscription.cycles.filter(settlement=Settlement.PAID).exists()
 
 
+def has_paid_cycle(subscription):
+    """True once any cycle of the subscription is settled PAID (the custom-domain purchase gate)."""
+    return _ever_paid(subscription)
+
+
 def state_filter(now, states):
     """A condition on Site rows: the site's subscription is in one of `states` at `now`.
 
@@ -1205,6 +1210,12 @@ def confirm_transfer(payment, operator, *, amount_received_centavos, now=None):
                 **({"usage_centavos": row.usage_centavos} if row.usage_centavos else {}),
             },
         )
+        try:  # custom domains: a callback after the commit; whatever goes wrong here never fails this
+            from apps.domains import services as domains  # noqa: PLC0415
+
+            domains.after_confirm(subscription.site_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("domains hook could not be registered")
         return row
 
     return _write(Subscription(pk=payment.subscription_id), now, change)

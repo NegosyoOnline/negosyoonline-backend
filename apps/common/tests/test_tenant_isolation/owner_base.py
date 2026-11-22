@@ -135,6 +135,11 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/media/{asset_id}/video/token/"): 200,
     ("POST", "/sites/{site_id}/media/{asset_id}/video/attach/"): 200,
     ("DELETE", "/sites/{site_id}/media/{asset_id}/"): 200,
+    # domains (the Subscriber's Domain screen; both owners are still on their trial, so the gate answers 409)
+    ("GET", "/sites/{site_id}/domain/"): 200,
+    ("POST", "/sites/{site_id}/domain/check/"): 409,
+    ("POST", "/sites/{site_id}/domain/buy/"): 409,
+    ("POST", "/sites/{site_id}/domain/retry/"): 409,
     # copy shared content from the content source store (CP-1)
     ("GET", "/sites/{site_id}/shared-content/"): 200,
     ("POST", "/sites/{site_id}/shared-content/copy/"): 202,
@@ -263,6 +268,7 @@ APP_PREFIXES = [
     ("/sites/{site_id}/member-notices/", "member_notices"),
     ("/sites/{site_id}/training/", "training"),
     ("/sites/{site_id}/media/", "media"),
+    ("/sites/{site_id}/domain/", "domains"),
     ("/sites/{site_id}/shared-content/", "shared_content"),
 ]
 
@@ -313,7 +319,7 @@ def child_variants(template, own, foreign):
     INQUIRY_SMS_ENABLED=True, SMS_GATEWAY_ENABLED=True, SMS_SITE_LINES_ENABLED=True,
     INQUIRY_MESSENGER_ENABLED=True, META_MESSENGER_APP_ID="123456", META_MESSENGER_APP_SECRET="test-secret",
     MESSENGER_VERIFY_TOKEN="test-verify", INQUIRY_COMMENTS_ENABLED=True, INQUIRY_COMMENT_AUTOMATION_ENABLED=True,
-    XENDIT_ENABLED=True, XENDIT_FAKE=True, DEBUG=True, PAYMENT_CREDENTIALS_KEY=Fernet.generate_key().decode(),
+    XENDIT_ENABLED=True, XENDIT_FAKE=True, DOMAINS_ENABLED=True, DEBUG=True, PAYMENT_CREDENTIALS_KEY=Fernet.generate_key().decode(),
 )
 class TwoOwnersTestCase(SitesApiTestCase):
     """Ana (self.client, self.site) and Ben (self.ben, self.ben_site), each with a Santé site and
@@ -661,6 +667,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             if method == "POST":
                 return {"title": "Fixture"}
             return {"title": "Changed"} if method == "PATCH" else None
+        if "/domain/" in template:
+            return {"name": "brand.com"} if template.endswith(("/check/", "/buy/")) else None
         if template.endswith("/billing/profile/"):
             return {**PROFILE, "company_name": "Fixture Co"}
         if template.endswith("/payment-methods/"):

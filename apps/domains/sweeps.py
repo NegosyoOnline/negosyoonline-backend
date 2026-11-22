@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from apps.domains import machine, names
 from apps.domains.models import ClaimState, DomainHostname, DomainRegistration, RegistrationState
-from apps.domains.providers.base import ProviderError
+from apps.domains.providers.base import NotConfigured, Paused, ProviderError
 
 EXPIRY_WARNING = timedelta(days=60)
 
@@ -69,7 +69,15 @@ def registration_read(providers, now=None):
         return {"skipped": "no registrar adapter (B2)"}
     read = 0
     for reg in DomainRegistration.objects.filter(state=RegistrationState.SUCCEEDED).exclude(name=None):
-        data = reader.get(reg.name)
+        try:
+            data = reader.get(reg.name)
+        except Paused:
+            return {"skipped": "paused"}
+        except NotConfigured:
+            return {"skipped": "no registrar token"}
+        except ProviderError as error:
+            machine.alert("registration_read_failed", name=reg.name, code=error.code)
+            continue
         if data is None:
             machine.alert("registration_not_found", name=reg.name)
             continue

@@ -728,6 +728,42 @@ CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
 CLOUDFLARE_DNS_API_TOKEN = os.environ.get("CLOUDFLARE_DNS_API_TOKEN", "").strip()
 VERCEL_API_TOKEN = os.environ.get("VERCEL_API_TOKEN", "").strip()
 VERCEL_STOREFRONTS_PROJECT_ID = os.environ.get("VERCEL_STOREFRONTS_PROJECT_ID", "").strip()
+# The purchase (B2). Off by default; a purchase also needs DOMAINS_ENABLED, a provider that is not
+# paused and the worker-only Registrar token. A re-attach of a succeeded registration spends nothing
+# and ignores DOMAINS_PURCHASE_ENABLED. Every money value is unset = 0 = no purchase at all.
+DOMAINS_PURCHASE_ENABLED = os.environ.get("DOMAINS_PURCHASE_ENABLED", "").strip() == "1"
+CLOUDFLARE_REGISTRAR_API_TOKEN = os.environ.get("CLOUDFLARE_REGISTRAR_API_TOKEN", "").strip()
+DOMAINS_REGISTER_AUTO_RENEW = os.environ.get("DOMAINS_REGISTER_AUTO_RENEW", "").strip() == "1"
+
+
+def _usd_cents(name):
+    """A dollar amount in the environment as integer cents; unset, invalid or negative is 0."""
+    from decimal import ROUND_FLOOR, Decimal, InvalidOperation
+
+    try:
+        amount = Decimal(os.environ.get(name, "").strip() or "0")
+    except InvalidOperation:
+        return 0
+    if not amount.is_finite() or amount < 0:
+        return 0
+    return int((amount * 100).to_integral_value(rounding=ROUND_FLOOR))
+
+
+def _int_setting(name):
+    raw = os.environ.get(name, "").strip()
+    return int(raw) if raw.isdigit() else 0
+
+
+DOMAINS_MAX_COST_CENTS = _usd_cents("DOMAINS_MAX_COST_USD")
+DOMAINS_DAILY_SPEND_CAP_CENTS = _usd_cents("DOMAINS_DAILY_SPEND_CAP_USD")
+DOMAINS_DAILY_PURCHASE_CAP = _int_setting("DOMAINS_DAILY_PURCHASE_CAP")
+DOMAINS_ALLOWED_TLDS = tuple(
+    part.strip().lower().strip(".")
+    for part in os.environ.get("DOMAINS_ALLOWED_TLDS", "").split(",")
+    if part.strip()
+)
+DOMAINS_CHECKS_PER_HOUR_SITE = _int_setting("DOMAINS_CHECKS_PER_HOUR_SITE") or 20
+DOMAINS_CHECKS_PER_HOUR_ACCOUNT = _int_setting("DOMAINS_CHECKS_PER_HOUR_ACCOUNT") or 200
 # The Public Suffix List data file, vendored in the repo (source https://publicsuffix.org/list/public_suffix_list.dat,
 # licence MPL-2.0, downloaded 2026-11-22; refresh steps in docs/runbooks/custom-domains.md). This code never
 # downloads it; if the file is absent, every name is refused (fails closed).
