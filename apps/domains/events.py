@@ -5,7 +5,7 @@ from django.utils import timezone
 from apps.domains.models import ActorType, DomainEvent
 
 
-def record(site, kind, *, claim=None, registration=None, actor_type=ActorType.SYSTEM, actor_id=None,
+def log(site, kind, *, claim=None, registration=None, actor_type=ActorType.SYSTEM, actor_id=None,
            from_state="", to_state="", detail=None, now=None):
     return DomainEvent.objects.create(
         site=site, claim=claim, registration=registration, kind=kind, actor_type=actor_type,

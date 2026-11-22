@@ -105,7 +105,7 @@ def retry(body, operator):
     claim = _claim(body)
     if not machine.retry(claim):
         raise ApiError("nothing_to_retry", "Only a failed claim can be retried.", status=409)
-    events.record(claim.site, "operator_retry", claim=claim, actor_type=ActorType.OPERATOR, actor_id=operator.pk)
+    events.log(claim.site, "operator_retry", claim=claim, actor_type=ActorType.OPERATOR, actor_id=operator.pk)
     _audit(operator, "domains_retry", claim)
     return {"claim": claim.public_id, "state": claim.state}
 
@@ -115,7 +115,7 @@ def disconnect(body, operator):
     claim = _claim(body)
     if not machine.request_removal(claim, reason="operator_disconnect"):
         raise ApiError("already_ending", "This claim is already being removed.", status=409)
-    events.record(claim.site, "operator_disconnect", claim=claim, actor_type=ActorType.OPERATOR, actor_id=operator.pk)
+    events.log(claim.site, "operator_disconnect", claim=claim, actor_type=ActorType.OPERATOR, actor_id=operator.pk)
     _audit(operator, "domains_disconnect", claim)
     return {"claim": claim.public_id, "state": claim.state}
 

@@ -23,12 +23,12 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from apps.common.errors import ApiError
-from apps.domains import events, gate, machine
+from apps.domains import context, events, gate, machine
 from apps.domains.models import (
     ActorType, ClaimState, Domain, DomainEvent, DomainPurchaseLedger, DomainRegistration, DomainTldPrice,
     NameMismatch, RegistrationState,
@@ -163,7 +163,7 @@ def _owner_check(claim, providers, now):
     reason = evaluate(row, name)
     if reason:
         machine.move(claim, ClaimState.ENDED, reason=reason, now=now)
-        events.record(claim.site, "check_refused", claim=claim, registration=reg, detail={"name": name}, now=now)
+        events.log(claim.site, "check_refused", claim=claim, registration=reg, detail={"name": name}, now=now)
         return "refused"
     with transaction.atomic():
         fresh = Domain.objects.select_for_update().get(pk=claim.pk)
@@ -205,6 +205,8 @@ def _purchase(claim, providers, now):
         return "conflict"
     if reg.state == RegistrationState.SUCCEEDED:
         return "idle"
+    if context.in_request():  # never from a web request, not even to consume step 1
+        return "in_request"
     if not settings.DOMAINS_PURCHASE_ENABLED:
         return "purchase_off"
     refusal = gate.refusal(claim.site, now)
@@ -225,7 +227,11 @@ def _purchase(claim, providers, now):
         return "stale"
     _wait(claim, "", now)
     ledger()
-    outcome = _step1(reg.pk, claim.pk, now)
+    try:
+        outcome = _step1(reg.pk, claim.pk, now)
+    except IntegrityError:  # a second `register_sent` event for this row: the row already sent once
+        alert("second_send_refused", claim)
+        return "refused"
     if outcome[0] != "sent":
         return _wait(Domain.objects.get(pk=claim.pk), outcome[1], now)
     return _send(claim.pk, reg.pk, outcome[1], providers, now)
@@ -247,7 +253,7 @@ def _step1(reg_id, claim_id, now):
         if sent != 1:
             return ("wait", "not_updated")
         reg.refresh_from_db()
-        events.record(
+        events.log(
             site, "register_sent", claim=claim, registration=reg, now=now,
             detail={
                 "name": reg.name, "check_registration_cost_cents": reg.check_registration_cost_cents,
@@ -364,7 +370,7 @@ def finalize(claim_id, reg_id, providers, now, *, adopted=False):
         reg.save()
         if claim.state == ClaimState.REGISTERING:
             machine.move(claim, ClaimState.REGISTERED, now=now)
-        events.record(
+        events.log(
             claim.site, "registered", claim=claim, registration=reg, now=now,
             detail={"name": reg.name, "adopted": adopted},
         )
@@ -398,7 +404,7 @@ def to_conflict(claim_id, reg_id, why, *, status="", code="", now=None):
         reg.save()
         if claim.state in (ClaimState.REGISTERING, ClaimState.CONFIRMED, ClaimState.AWAITING_GATE):
             machine.move(claim, ClaimState.CONFLICT, reason="Waiting for the NegosyoOnline team.", now=now)
-        events.record(
+        events.log(
             claim.site, "registration_conflict", claim=claim, registration=reg, now=now,
             detail={"why": why, "status": status[:32], "code": code[:64]},
         )
@@ -426,7 +432,7 @@ def release(claim, reg, reason, *, kind, actor_type=ActorType.SYSTEM, actor_id=N
         locked.name = None
         clear_check(locked)
         locked.save()
-        events.record(
+        events.log(
             fresh.site, kind, claim=fresh, registration=locked, actor_type=actor_type, actor_id=actor_id,
             detail={"name": fresh.name}, now=now,
         )
@@ -451,7 +457,7 @@ def rename_intent(claim, reg, new_name, *, actor_id, now=None):
         locked.name = new_name
         clear_check(locked)
         locked.save()
-        events.record(
+        events.log(
             fresh.site, "request_renamed", claim=fresh, registration=locked, actor_type=ActorType.SUBSCRIBER,
             actor_id=actor_id, detail={"from": old, "to": new_name}, now=now,
         )
@@ -476,7 +482,7 @@ def cancel_request(operator, claim, *, now=None):
 
 
 def _refused(claim, reg, operator, code, now):
-    events.record(
+    events.log(
         claim.site, "conflict_confirm_refused", claim=claim, registration=reg, actor_type=ActorType.OPERATOR,
         actor_id=operator.pk, detail={"reason": code}, now=now,
     )
@@ -526,7 +532,7 @@ def confirmed_registered(operator, claim, providers, *, now=None):
         locked.save()
         if fresh.state == ClaimState.CONFLICT:
             machine.move(fresh, ClaimState.REGISTERED, now=now)
-        events.record(
+        events.log(
             fresh.site, "conflict_confirmed_registered", claim=fresh, registration=locked,
             actor_type=ActorType.OPERATOR, actor_id=operator.pk, detail={"name": locked.name}, now=now,
         )

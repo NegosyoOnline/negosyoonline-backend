@@ -128,7 +128,7 @@ def check(account, site, raw, now=None):
             raise _error("request_in_progress", "You already have a domain request in progress.") from None
         purchase.clear_check(reg)  # a quote of another name never carries over
         reg.save()
-        events.record(site, "check_requested", claim=claim, registration=reg, actor_type=ActorType.SUBSCRIBER,
+        events.log(site, "check_requested", claim=claim, registration=reg, actor_type=ActorType.SUBSCRIBER,
                       actor_id=account.pk, detail={"name": name}, now=now)
         _enqueue_check(claim.pk)
     return status(site, now)
@@ -184,7 +184,7 @@ def buy(account, site, raw, now=None):
         except IntegrityError:
             raise _error("name_taken", "That name is taken. Please choose another.") from None
         machine.move(claim, ClaimState.CONFIRMED, now=now)
-        events.record(
+        events.log(
             site, "buy", claim=claim, registration=reg, actor_type=ActorType.SUBSCRIBER, actor_id=account.pk, now=now,
             detail={"name": name, "shown_registration_cents": shown[0], "shown_renewal_cents": shown[1]},
         )
@@ -203,7 +203,7 @@ def _reattach(account, site, reg, claim, name, now):
             raise _error("request_in_progress", "You already have a domain request in progress.")
     except IntegrityError:
         raise _error("request_in_progress", "You already have a domain request in progress.") from None
-    events.record(site, "reattach", claim=claim, registration=reg, actor_type=ActorType.SUBSCRIBER,
+    events.log(site, "reattach", claim=claim, registration=reg, actor_type=ActorType.SUBSCRIBER,
                   actor_id=account.pk, detail={"name": name}, now=now)
 
 
@@ -215,7 +215,7 @@ def retry(account, site, now=None):
         claim = active_claim(site, lock=True)
         if claim is None or claim.state != ClaimState.FAILED or not machine.retry(claim, now=now):
             raise _error("nothing_to_retry", "There is nothing to try again.")
-        events.record(site, "retry", claim=claim, actor_type=ActorType.SUBSCRIBER, actor_id=account.pk, now=now)
+        events.log(site, "retry", claim=claim, actor_type=ActorType.SUBSCRIBER, actor_id=account.pk, now=now)
     return status(site, now)
 
 

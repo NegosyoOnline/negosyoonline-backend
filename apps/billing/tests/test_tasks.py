@@ -115,7 +115,7 @@ class QueueSetupTests(SimpleTestCase):
         self.assertEqual(
             sorted(name for name in celery_app.tasks if not name.startswith("celery.")),
             [
-                "billing.notices", "billing.sweep", "db_backup.run", "domains.daily_sweep", "domains.hourly_check", "domains.sweep",
+                "billing.notices", "billing.sweep", "db_backup.run", "domains.check_name", "domains.daily_sweep", "domains.hourly_check", "domains.sweep",
                 "file_backup.run", "health.heartbeat", "inquiries.evaluate_comment_rules",
                 "inquiries.fetch_comment_avatar", "inquiries.fetch_messenger_profile", "inquiries.fetch_post_text",
                 "inquiries.send_comment_auto_reply", "invoices.daily_alert",

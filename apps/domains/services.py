@@ -51,7 +51,7 @@ def on_first_payment(site, now=None):
         return "not_eligible"
     try:
         with transaction.atomic():  # a savepoint: a duplicate insert is "already eligible"
-            events.record(site, "eligible", now=now)
+            events.log(site, "eligible", now=now)
     except IntegrityError:
         return "already"
     _notify(site)

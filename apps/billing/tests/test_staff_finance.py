@@ -30,6 +30,7 @@ from apps.operators.tests.base import HQ, HqAdminMixin
 from apps.operators.tests.test_staff_routes import STAFF, StaffTestCase, on_staff
 from apps.sites.tests.test_concurrency import run_together
 from apps.lifecycle import staff as lifecycle_staff
+from apps.domains import staff as domains_staff
 from apps.notifications import staff as notifications_staff
 from apps.sante import staff as sante_staff
 from apps.statements import staff as statements_staff
@@ -82,7 +83,7 @@ class FinanceGateTests(FinanceTestCase):
         self.assertEqual(
             sorted(set(staff_views.ROUTES) - set(staff.ROUTES) - set(inbox_staff.ROUTES) - set(contacts_staff.ROUTES) - set(bulk_staff.ROUTES)
                    - set(statements_staff.ROUTES) - set(invoices_staff.ROUTES) - set(sante_staff.ROUTES)
-                   - set(notifications_staff.ROUTES) - set(lifecycle_staff.ROUTES)),
+                   - set(notifications_staff.ROUTES) - set(lifecycle_staff.ROUTES) - set(domains_staff.ROUTES)),
             ["console/", "me/", "sign-in/", "sign-in/code/", "sign-in/verify/", "sign-out/"],
         )
 
@@ -96,7 +97,7 @@ class FinanceGateTests(FinanceTestCase):
         self.assertIs(staff_views.ROUTES["console/"][1], staff_views.console)
         self.assertEqual(len(staff_views.ROUTES), len(sign_in_routes) + len(staff.ROUTES) + len(inbox_staff.ROUTES) + len(contacts_staff.ROUTES) + len(bulk_staff.ROUTES)
             + len(statements_staff.ROUTES) + len(invoices_staff.ROUTES) + len(sante_staff.ROUTES)
-            + len(notifications_staff.ROUTES) + len(lifecycle_staff.ROUTES))
+            + len(notifications_staff.ROUTES) + len(lifecycle_staff.ROUTES) + len(domains_staff.ROUTES))
 
     def test_the_finance_module_imports_nothing_from_the_staff_routes(self):
         with open(staff.__file__) as source:
