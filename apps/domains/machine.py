@@ -16,7 +16,7 @@ from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from apps.domains import names, probe as probe_module
+from apps.domains import gate, names, probe as probe_module
 from apps.domains.models import (
     HOLDING_STATES, ClaimState, Domain, DomainDnsRecord, DomainEvent, DomainHostname,
     NameMismatch, RegistrationState,
@@ -53,14 +53,16 @@ def sync_holding(claim):
     claim.hostnames.update(holding=claim.state in HOLDING_STATES)
 
 
-def move(claim, state, *, reason="", now=None, **fields):
-    """Write a state change with its event. `fields` are timer columns set at the same time."""
+def move(claim, state, *, reason="", now=None, allow_name_release=False, **fields):
+    """Write a state change with its event. `fields` are timer columns set at the same time.
+    `allow_name_release` is the explicit exemption of the name assertion (cancel, a refused
+    worker Check, a rename of an unsent request); nothing else passes it."""
     now = now or timezone.now()
     old = claim.state
     claim.state, claim.reason, claim.state_changed_at = state, reason[:200], now
     for key, value in fields.items():
         setattr(claim, key, value)
-    claim.save()
+    claim.save(allow_name_release=allow_name_release)
     sync_holding(claim)
     record_event(claim, "state", from_state=old, to_state=state, detail={"reason": reason[:200]}, now=now)
 
@@ -79,7 +81,9 @@ def _registration(claim):
 
 
 def _site_ok(site):
-    return site.deleted_at is None and not site.operator_hold
+    """The setup steps run only while the payment gate holds (state ACTIVE with a paid cycle, not
+    on hold, not exempt): a re-attach on a suspended, cancelled or held site waits (R8-m1)."""
+    return not gate.refusal(site)
 
 
 def advance(claim_id, *, providers, now=None, probe_fn=None):

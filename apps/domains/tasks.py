@@ -9,7 +9,7 @@ import logging
 from celery import shared_task
 from django.conf import settings
 
-from apps.domains import lifecycle, machine, providers, sweeps
+from apps.domains import lifecycle, machine, providers, purchase, services, sweeps
 from apps.domains.models import Domain
 
 logger = logging.getLogger(__name__)
@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 def run_sweep(*, bundle, now=None, probe_fn=None):
     results = {}
+    ids = list(Domain.objects.filter(state__in=purchase.PURCHASE_STATES).order_by("pk").values_list("pk", flat=True))
+    for claim_id in ids:  # the purchase states: a Check, the purchase steps, the polling of a sent row
+        word = purchase.advance(claim_id, providers=bundle, now=now)
+        results[word] = results.get(word, 0) + 1
     ids = list(Domain.objects.filter(state__in=machine.STEP_STATES).order_by("pk").values_list("pk", flat=True))
     for claim_id in ids:
         word = machine.advance(claim_id, providers=bundle, now=now, probe_fn=probe_fn)
@@ -40,6 +44,7 @@ def run_daily(*, bundle, now=None):
     out["zone_audit"] = sweeps.zone_audit(bundle)
     out["vercel"] = sweeps.vercel_compare(bundle)
     out["registrations"] = sweeps.registration_read(bundle, now)
+    out["prices"] = purchase.sentinel(bundle, now)
     return out
 
 
@@ -48,7 +53,16 @@ def sweep():
     if not settings.DOMAINS_ENABLED:
         return {"skipped": "switched off"}
     lifecycle.sweep()  # queues removals even while the provider is paused
+    services.safety_net()  # a first payment whose hook was skipped still marks the site eligible
     return run_sweep(bundle=providers.current())
+
+
+@shared_task(name="domains.check_name", ignore_result=True)
+def check_name(claim_id):
+    """The owner's Check: read only. It never advances a claim past `quoted`."""
+    if not settings.DOMAINS_ENABLED:
+        return "switched off"
+    return purchase.advance(claim_id, providers=providers.current(), only_check=True)
 
 
 @shared_task(name="domains.hourly_check", ignore_result=True)
