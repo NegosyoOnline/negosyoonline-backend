@@ -278,9 +278,29 @@ def lesson_detail(member, lesson_id):
     }
 
 
+COMPLETE_AT = 90  # percent watched that completes a lesson (TWCinc lesson-watch.js COMPLETE_AT = 0.90)
+BY_WATCHING_MSG = "A lesson completes by watching its video. It is marked complete once you have watched at least 90% of it."
+
+
 def complete_lesson(member, lesson_id):
-    """Mark an open lesson complete (again is not an error). A locked one is 409 lesson_locked."""
+    """The old manual route. A lesson completes only from the watch post (see record_watch), so this
+    answers 403 complete_by_watching for every lesson. A foreign or missing lesson is still 404."""
+    _visible_lesson(member, lesson_id)
+    raise ApiError("complete_by_watching", BY_WATCHING_MSG, status=403)
+
+
+WATCH_LIMIT, WATCH_WINDOW = 60, 60  # posts per member per minute: about 11 are sent per viewing
+
+
+def record_watch(member, lesson_id, percent, ended=False):
+    """Keep the furthest percent (0-100) of the video this member has watched. It only ever goes up.
+    When the stored percent reaches 90, or the player says `ended`, a lesson that completes by
+    watching (video.completes_by_watching) is marked complete in the same transaction; a completion is
+    never undone. Answers {percent, completed, next_unlocked, next_lesson_id}."""
     lesson = _visible_lesson(member, lesson_id)
+    if isinstance(percent, bool) or not isinstance(percent, int) or not 0 <= percent <= 100:
+        raise _invalid({"percent": "Send a whole number from 0 to 100."})
+    throttle.hit("lesson_watch", member.pk, limit=WATCH_LIMIT, window=WATCH_WINDOW)
     course = lesson.module.course
     with transaction.atomic():
         lessons = _course_lessons([course.pk])[course.pk]
@@ -290,48 +310,29 @@ def complete_lesson(member, lesson_id):
         try:
             with transaction.atomic():
                 progress, _ = LessonProgress.objects.get_or_create(member=member, lesson=lesson)
-        except IntegrityError:  # two taps at once: the other one made the row
+        except IntegrityError:  # two posts at once: the other one made the row
             progress = LessonProgress.objects.get(member=member, lesson=lesson)
-        if progress.completed_at is None:
-            progress.completed_at = timezone.now()
-            progress.save(update_fields=["completed_at"])
-            done.add(lesson.pk)
+        LessonProgress.objects.filter(pk=progress.pk, watched_percent__lt=percent).update(
+            watched_percent=percent, watched_at=timezone.now()
+        )
+        progress.refresh_from_db(fields=["watched_percent", "completed_at"])
+        if (
+            progress.completed_at is None
+            and video.completes_by_watching(lesson)
+            and (progress.watched_percent >= COMPLETE_AT or ended is True)
+        ):
+            LessonProgress.objects.filter(pk=progress.pk, completed_at__isnull=True).update(
+                completed_at=timezone.now()
+            )
+            progress.refresh_from_db(fields=["completed_at"])
+    completed = progress.completed_at is not None
     index = lessons.index(lesson)
-    finished = sum(1 for x in lessons if x.pk in done)
+    nxt = lessons[index + 1] if index + 1 < len(lessons) else None
+    unlocked = completed and nxt is not None
     return {
-        "lesson_id": lesson.public_id, "completed": True,
-        "course": {
-            "id": course.public_id, "completed_lessons": finished, "total_lessons": len(lessons),
-            "percent": _percent(finished, len(lessons)),
-        },
-        "next_lesson": _lesson_ref(lessons[index + 1] if index + 1 < len(lessons) else None),
+        "percent": progress.watched_percent, "completed": completed,
+        "next_unlocked": unlocked, "next_lesson_id": nxt.public_id if unlocked else None,
     }
-
-
-WATCH_LIMIT, WATCH_WINDOW = 60, 60  # posts per member per minute: about 11 are sent per viewing
-
-
-def record_watch(member, lesson_id, percent):
-    """Keep the furthest percent (0-100) of the video this member has watched. It only ever
-    goes up, creates the open row if there is none, and never touches completed_at."""
-    lesson = _visible_lesson(member, lesson_id)
-    if isinstance(percent, bool) or not isinstance(percent, int) or not 0 <= percent <= 100:
-        raise _invalid({"percent": "Send a whole number from 0 to 100."})
-    throttle.hit("lesson_watch", member.pk, limit=WATCH_LIMIT, window=WATCH_WINDOW)
-    course = lesson.module.course
-    lessons = _course_lessons([course.pk])[course.pk]
-    if _open_flags(lessons, _completed_ids(member, lessons))[lesson.pk]:
-        raise _locked()
-    try:
-        with transaction.atomic():
-            progress, _ = LessonProgress.objects.get_or_create(member=member, lesson=lesson)
-    except IntegrityError:  # two posts at once: the other one made the row
-        progress = LessonProgress.objects.get(member=member, lesson=lesson)
-    LessonProgress.objects.filter(pk=progress.pk, watched_percent__lt=percent).update(
-        watched_percent=percent, watched_at=timezone.now()
-    )
-    progress.refresh_from_db(fields=["watched_percent"])
-    return {"percent": progress.watched_percent}
 
 
 def course_watch(course):

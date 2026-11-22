@@ -29,6 +29,14 @@ def has_ready_stream(lesson):
     return bool(lesson.stream_video_id and lesson.stream_library_id and lesson.stream_status == READY)
 
 
+def completes_by_watching(lesson):
+    """THE rule for which lessons can ever be completed: only a lesson with a ready Stream video, and
+    only from the player's 90% or ended signal. Nothing else completes a lesson (TWCinc has no manual
+    path), so a lesson without such a video never completes and the ones after it stay locked.
+    Change the rule here only."""
+    return has_ready_stream(lesson)
+
+
 def _has_playable(lesson):
     return has_ready_stream(lesson) or bool(lesson.video_url)
 
