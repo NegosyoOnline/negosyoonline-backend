@@ -21,7 +21,13 @@ TEST_REDIS_PORT="${TEST_REDIS_PORT:-$((26000 + RANDOM % 5000))}"; export TEST_RE
 cleanup() { [ -n "${KEEP:-}" ] || "${C[@]}" down --volumes --remove-orphans >/dev/null 2>&1; }
 trap cleanup EXIT
 
-"${C[@]}" up -d --build >/dev/null 2>&1 || { echo "compose up failed"; "${C[@]}" logs --no-color 2>&1 | sed 's/password=[^ ]*/password=***/' | tail -20; exit 1; }
+# Start fresh every run: a volume or container left by KEEP=1 or an interrupted run would make Postgres skip
+# init, so the new random test password would not match.
+"${C[@]}" down --volumes --remove-orphans >/dev/null 2>&1
+docker rm -f negosyo-data-check-allow >/dev/null 2>&1
+
+MASK() { sed 's/password=[^ ]*/password=***/'; }
+"${C[@]}" up -d --build >/dev/null 2>&1 || { echo "compose up failed"; "${C[@]}" logs --no-color 2>&1 | MASK | tail -20; exit 1; }
 
 PGC() { "${C[@]}" ps -q postgres; }
 RDC() { "${C[@]}" ps -q redis; }
@@ -31,10 +37,37 @@ pg() { docker exec -e PGPASSWORD="${PGPW:-$TEST_PG_PASSWORD}" "$(PGC)" psql "$@"
 rcli() { docker exec -e REDISCLI_AUTH="${RPW:-}" "$(RDC)" redis-cli "$@" 2>&1; }
 PGURL="host=127.0.0.1 port=15432 user=app dbname=app"
 
-for _ in $(seq 60); do
-  pg "$PGURL sslmode=require" -tAc 'select 1' 2>/dev/null | grep -q '^1$' && break
-  sleep 2
-done
+WAIT_TRIES=60; WAIT_SLEEP=2   # 120 s
+not_ready() {  # $1 = what; the rest is a command that prints the recent log lines
+  echo "$1 not ready after $((WAIT_TRIES * WAIT_SLEEP)) s"
+  shift
+  "$@" 2>&1 | MASK | tail -20
+  exit 1
+}
+wait_pg() {
+  local i ok=
+  for i in $(seq "$WAIT_TRIES"); do
+    docker exec "$(PGC)" pg_isready -h 127.0.0.1 -p 15432 >/dev/null 2>&1 && { ok=1; break; }
+    sleep "$WAIT_SLEEP"
+  done
+  [ -n "$ok" ] || not_ready "Postgres (pg_isready)" "${C[@]}" logs --no-color --tail 20 postgres
+  ok=
+  for i in $(seq "$WAIT_TRIES"); do
+    pg "$PGURL sslmode=require" -tAc 'select 1' 2>/dev/null | grep -q '^1$' && { ok=1; break; }
+    sleep "$WAIT_SLEEP"
+  done
+  [ -n "$ok" ] || not_ready "Postgres (authenticated select 1 over TLS)" "${C[@]}" logs --no-color --tail 20 postgres
+}
+wait_redis() {
+  local i
+  for i in $(seq "$WAIT_TRIES"); do
+    [ "$(RPW="$TEST_REDIS_PASSWORD" rcli --tls --insecure -h 127.0.0.1 -p 16379 ping)" = "PONG" ] && return 0
+    sleep "$WAIT_SLEEP"
+  done
+  not_ready "Redis (TLS + password PING)" "${C[@]}" logs --no-color --tail 20 redis
+}
+
+wait_pg
 
 echo "== PostgreSQL"
 out="$(pg "$PGURL sslmode=disable" -tAc 'select 1')"
@@ -60,15 +93,18 @@ fp1="$("${C[@]}" exec -T postgres openssl x509 -in /var/lib/postgresql/tls/serve
 echo "== PostgreSQL allow-list (PG_ALLOW_CIDRS)"
 docker run -d --rm --name negosyo-data-check-allow -e POSTGRES_USER=app -e POSTGRES_PASSWORD="$TEST_PG_PASSWORD" -e POSTGRES_DB=app \
   -e PG_LISTEN_PORT=15433 -e PG_ALLOW_CIDRS=203.0.113.0/24 "$COMPOSE_PROJECT_NAME-postgres" >/dev/null 2>&1
-for _ in $(seq 60); do
-  docker exec negosyo-data-check-allow pg_isready -h 127.0.0.1 -p 15433 >/dev/null 2>&1 && break
-  sleep 2
+allow_ok=
+for _ in $(seq "$WAIT_TRIES"); do
+  docker exec negosyo-data-check-allow pg_isready -h 127.0.0.1 -p 15433 >/dev/null 2>&1 && { allow_ok=1; break; }
+  sleep "$WAIT_SLEEP"
 done
+[ -n "$allow_ok" ] || not_ready "Postgres allow-list container (pg_isready)" docker logs --tail 20 negosyo-data-check-allow
 out="$(docker exec -e PGPASSWORD="$TEST_PG_PASSWORD" negosyo-data-check-allow psql "host=127.0.0.1 port=15433 user=app dbname=app sslmode=require" -tAc 'select 1' 2>&1)"
 case "$out" in *"no pg_hba.conf entry"*) ok "a source outside PG_ALLOW_CIDRS is refused even with TLS + password";; *) bad "allow-list did not refuse" "$out";; esac
 docker rm -f negosyo-data-check-allow >/dev/null 2>&1
 
 echo "== Redis"
+wait_redis
 out="$(rcli -h 127.0.0.1 -p 16379 ping)"
 case "$out" in PONG*) bad "plain (non-TLS) connection to the TLS port answered";; *) ok "non-TLS connection to the TLS port is refused";; esac
 out="$(rcli -h 127.0.0.1 -p 6379 ping)"
@@ -91,10 +127,8 @@ fr1="$("${C[@]}" exec -T redis openssl x509 -in /data/tls/redis.crt -noout -fing
 
 echo "== Certificates survive a restart (kept on the volume)"
 "${C[@]}" restart postgres redis >/dev/null 2>&1
-for _ in $(seq 60); do
-  pg "$PGURL sslmode=require" -tAc 'select 1' 2>/dev/null | grep -q '^1$' && break
-  sleep 2
-done
+wait_pg
+wait_redis
 fp2="$("${C[@]}" exec -T postgres openssl x509 -in /var/lib/postgresql/tls/server.crt -noout -fingerprint -sha256)"
 fr2="$("${C[@]}" exec -T redis openssl x509 -in /data/tls/redis.crt -noout -fingerprint -sha256)"
 [ -n "$fp1" ] && [ "$fp1" = "$fp2" ] && ok "Postgres certificate unchanged after restart" || bad "Postgres certificate changed"
