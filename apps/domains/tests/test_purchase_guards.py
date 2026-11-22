@@ -9,7 +9,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from apps.billing.models import Subscription
-from apps.domains import purchase
+from apps.domains import context, purchase
 from apps.domains.models import (
     ClaimState, Domain, DomainEvent, DomainRegistration, DomainTldPrice, RegistrationState,
 )
@@ -445,13 +445,12 @@ class SentinelTests(PurchaseCase):
 
 class WebRequestTests(PurchaseCase):
     def test_the_purchase_refuses_inside_a_web_request_before_step_one(self):
-        from django.core.signals import request_finished, request_started
         claim = self.request()
-        request_started.send(sender=None)
+        context._started(None)
         try:
             self.assertEqual(self.advance(claim), "in_request")
         finally:
-            request_finished.send(sender=None)
+            context._finished(None)
         self.assertEqual(self.fake.calls, [])
         self.assertSentNothing(claim)
         self.assertEqual(self.advance(claim, 1), "registered")  # the worker, outside a request

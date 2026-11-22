@@ -3,10 +3,10 @@ network. A fake transport under the real adapter; no network."""
 import logging
 from decimal import Decimal
 
-from django.core.signals import request_finished, request_started
 from django.test import override_settings
 from django.utils import timezone
 
+from apps.domains import context
 from apps.domains.models import DomainRegistration
 from apps.domains.providers.base import NotConfigured, Paused, ProviderError, Refused
 from apps.domains.providers.cloudflare_registrar import RegistrarAdapter, cents
@@ -69,13 +69,13 @@ class RegistrarAdapterTests(DomainsTestCase):
 
     def test_register_refuses_inside_a_web_request(self):
         self.sent_row()
-        request_started.send(sender=None)
+        context._started(None)
         try:
             with self.assertRaises(Refused) as caught:
                 self.adapter.register("brand.com")
             self.assertEqual(caught.exception.code, "in_request")
         finally:
-            request_finished.send(sender=None)
+            context._finished(None)
         self.assertEqual(self.fake.calls, [])
         self.adapter.register("brand.com")  # outside a request it goes through
 

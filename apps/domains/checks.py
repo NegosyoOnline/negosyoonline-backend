@@ -33,6 +33,22 @@ def check_domains(app_configs, **kwargs):
                 "DOMAINS_PROVIDER is real but DOMAINS_PLATFORM_ZONES is empty, so the DNS adapter refuses to run.",
                 hint="List every platform zone name.", id="domains.W003",
             ))
+    if settings.DOMAINS_PURCHASE_ENABLED:
+        unset = [
+            name for name, value in (
+                ("CLOUDFLARE_REGISTRAR_API_TOKEN", settings.CLOUDFLARE_REGISTRAR_API_TOKEN),
+                ("DOMAINS_MAX_COST_USD", settings.DOMAINS_MAX_COST_CENTS),
+                ("DOMAINS_DAILY_PURCHASE_CAP", settings.DOMAINS_DAILY_PURCHASE_CAP),
+                ("DOMAINS_DAILY_SPEND_CAP_USD", settings.DOMAINS_DAILY_SPEND_CAP_CENTS),
+                ("DOMAINS_ALLOWED_TLDS", settings.DOMAINS_ALLOWED_TLDS),
+            ) if not value
+        ]
+        if unset:
+            found.append(Warning(
+                "DOMAINS_PURCHASE_ENABLED is on but these settings are empty or 0, so nothing can be bought: "
+                + ", ".join(unset) + ".",
+                id="domains.W004",
+            ))
     return found
 
 
