@@ -73,7 +73,8 @@ def _confirm_row(registration):
 def _claim_row(claim, registration):
     return {
         "confirm": _confirm_row(registration),
-        "claim": claim.public_id, "site": claim.site.public_id, "name": claim.name, "state": claim.state,
+        "claim": claim.public_id, "site": claim.site.public_id, "site_name": claim.site.display_name,
+        "name": claim.name, "state": claim.state,
         "reason": claim.reason, "state_changed_at": _iso(claim.state_changed_at),
         "registration": registration.state if registration else None,
         "registration_name": registration.name if registration else None,
@@ -100,7 +101,7 @@ def domain_list(body, operator):
     eligible = DomainEvent.objects.filter(kind="eligible").select_related("site").order_by("-pk")[:LIST_LIMIT]
     return {
         "claims": [_claim_row(c, regs.get(c.site_id)) for c in claims],
-        "eligible_sites": [e.site.public_id for e in eligible],
+        "eligible_sites": [{"id": e.site.public_id, "name": e.site.display_name} for e in eligible],
         "counters": _counters(now),
     }
 
