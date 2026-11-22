@@ -37,9 +37,11 @@ No other app's migration or file was touched.
 
 ## Deviations from plan r4 and choices made (smaller, fail-closed option)
 
-1. **Public Suffix List not shipped.** Per approvals D1 it is not downloaded. Missing file: every name
-   refused, `domains.W001` warning (shown even with the switch off, so `check --deploy` shows it).
-   Tests use a hand-written fixture.
+1. **Public Suffix List vendored (updated 2026-11-22).** Coach Ed approved the download (ClickUp comment
+   1100430000610401, "PSL: yes"). File: `apps/domains/data/public_suffix_list.dat`; source
+   https://publicsuffix.org/list/public_suffix_list.dat; licence MPL-2.0; downloaded 2026-11-22; 342871
+   bytes; sha256 `017501d3fa7911c60ac7e0f68df4122b07216c585c15dc30e0f0c74b8d13a2b9`. Missing file still fails closed: every name refused, `domains.W001`. Tests keep
+   the hand-written fixture, plus one test that the vendored file loads.
 2. **Reuse of `custom_hosts` (addendum (c)):** no second resolution path. `served()` keeps the manual
    `SiteCustomHost` first, then the subdomain, then the domains branch; a name already connected on the
    manual path is refused as a claim name.
@@ -71,7 +73,7 @@ No other app's migration or file was touched.
 ## Not done (out of B1)
 
 Registrar adapter, purchase guards, owner routes, `on_first_payment` hook, caps, Resend, any
-frontend, the `domain-probe` storefronts route, the PSL file.
+frontend, the `domain-probe` storefronts route.
 
 ## Suites (local, run on the code commit before this notes commit)
 
@@ -79,7 +81,7 @@ frontend, the `domain-probe` storefronts route, the PSL file.
 * Full suite SQLite: 5526 tests, OK (71 skipped, the PostgreSQL-only ones).
 * Full suite PostgreSQL 14 (own local instance, UTF8, fresh port) + Redis 7 (own instance, fresh port):
   5526 tests, OK (1 skipped). CI uses postgres 16; not run locally.
-* `manage.py check --deploy`: only `domains.W001` (public suffix list missing, intended) plus the known
+* `manage.py check --deploy`: (before the list was vendored: only `domains.W001`, list missing) plus the known
   HSTS warnings (W005, W021). `makemigrations --check`: no changes.
 * Run serially: `--parallel` needs `tblib`, which is not a project dependency (CI adds it with `uv run --with`),
   so it was not used.

@@ -1,7 +1,7 @@
 """A fake Xendit for tests and for the local preview. It makes no network call.
 
 It is used only when settings.XENDIT_FAKE is on, which settings.py allows only while DJANGO_DEBUG
-is true (so never on Railway). Invoices live in this process's memory. It answers the four calls
+is true (so never on a server). Invoices live in this process's memory. It answers the four calls
 apps/payments/xendit_client.py makes, in Xendit's shapes, and offers `pay`, `expire` and
 `webhook_body` so a test or the local pages can play Xendit's side:
 

@@ -98,6 +98,11 @@ class ListRetryDisconnectTests(StaffDomainCase):
         body = self.call("POST", BASE + "list/").json()
         self.assertEqual([c["claim"] for c in body["claims"]], [claim.public_id])
         self.assertEqual(body["claims"][0]["registration"], "conflict")
+        self.assertEqual((body["claims"][0]["site"], body["claims"][0]["site_name"]),
+                         (claim.site.public_id, claim.site.display_name))
+        DomainEvent.objects.create(site=claim.site, kind="eligible")
+        self.assertEqual(self.call("POST", BASE + "list/").json()["eligible_sites"],
+                         [{"id": claim.site.public_id, "name": claim.site.display_name}])
         self.assertEqual(body["counters"], {"purchases_24h": 1, "spend_24h_cents": 857, "purchase_cap": 3,
                                             "spend_cap_cents": 4000, "purchase_enabled": True})
 

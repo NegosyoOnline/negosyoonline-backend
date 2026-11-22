@@ -327,7 +327,7 @@ def _throttle_email_change(account):
     throttle.hit("email-change", account.pk, limit=EMAIL_CHANGE_STARTS_PER_HOUR, window=codes.HOUR)
 
 
-STEP_UP_PURPOSES = ("email_change", "mobile_change")
+STEP_UP_PURPOSES = ("email_change", "mobile_change", "sms_line_rotate")
 STEP_UP_CHANNELS = ("email", "mobile")
 STEP_UP_SMS = "Your NegosyoOnline code is {code}. It expires in 10 minutes. Do not share it."
 

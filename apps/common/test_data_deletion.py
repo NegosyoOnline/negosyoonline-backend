@@ -14,9 +14,9 @@ from apps.training.models import LessonProgress
 
 
 def environment_allows():
-    """True on a local run (DEBUG) or on the Railway environment named "staging". Railway sets
-    RAILWAY_ENVIRONMENT_NAME itself (no variable change). Unknown or "production" refuses."""
-    name = (getattr(settings, "RAILWAY_ENVIRONMENT_NAME", "") or "").strip().lower()
+    """True on a local run (DEBUG) or on the environment named "staging" (settings.APP_ENVIRONMENT).
+    Unknown or "production" refuses."""
+    name = (getattr(settings, "APP_ENVIRONMENT", "") or "").strip().lower()
     if name == "production":
         return False
     return bool(settings.DEBUG) or name == "staging"

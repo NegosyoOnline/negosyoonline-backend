@@ -115,6 +115,9 @@ SMS_GATEWAY_ENABLED = os.environ.get("SMS_GATEWAY_ENABLED", "").strip() == "1"
 # HQ -> Settings -> SMS Gateway: register, rotate and stop the platform phone. "1" turns on its
 # routes; off, they answer 404. Needs SMS_GATEWAY_ENABLED as well.
 SMS_GATEWAY_MGMT_ENABLED = os.environ.get("SMS_GATEWAY_MGMT_ENABLED", "").strip() == "1"
+# HQ -> Subscribers: the read-only list of subscriber sites. "1" turns on its routes; off, they
+# answer 404 and read nothing.
+HQ_SUBSCRIBERS_ENABLED = os.environ.get("HQ_SUBSCRIBERS_ENABLED", "").strip() == "1"
 # Phones that belong to a Site (a dedicated SMS line). "1" lets a Site's texts use its own phone.
 # Off, every text uses the platform phone. Only defined here for now.
 SMS_SITE_LINES_ENABLED = os.environ.get("SMS_SITE_LINES_ENABLED", "").strip() == "1"
@@ -201,13 +204,18 @@ PAYMENT_METHODS_ENABLED = os.environ.get("PAYMENT_METHODS_ENABLED", "").strip() 
 XENDIT_ENABLED = os.environ.get("XENDIT_ENABLED", "").strip() == "1"
 PAYMENT_CREDENTIALS_KEY = os.environ.get("PAYMENT_CREDENTIALS_ENCRYPTION_KEY", "").strip()
 # A fake Xendit for the local preview and tests (apps/payments/fake_xendit.py): no network call, and
-# a local page that plays Xendit's side. Honoured only with DJANGO_DEBUG=true and no Railway
-# environment name, so never on Railway; a deploy check (payments.E002) refuses the variable there.
+# a local page that plays Xendit's side. Honoured only with DJANGO_DEBUG=true and no environment
+# name (APP_ENVIRONMENT), so never on a server; a deploy check (payments.E002) refuses the variable there.
+from apps.common.environment import app_environment  # noqa: E402
+
+# "production" or "staging" on a server; empty on a local run. Read by the Xendit key choice, the
+# fake Xendit gate and the staff test-data commands that must never run on production.
+APP_ENVIRONMENT = app_environment(os.environ)
 XENDIT_FAKE = (
     DEBUG and os.environ.get("XENDIT_FAKE", "").strip() == "1"
-    and not os.environ.get("RAILWAY_ENVIRONMENT_NAME", "").strip()
+    and not APP_ENVIRONMENT
 )
-# Local env only, never a Railway variable: in fake mode the fake page's return links go to this
+# Local env only, never a server variable: in fake mode the fake page's return links go to this
 # origin (e.g. http://localhost:3002, the storefront run locally) instead of the site's public host.
 # Ignored unless the fake is on; never applied to a real invoice.
 XENDIT_FAKE_RETURN_ORIGIN = (
@@ -221,8 +229,8 @@ PRIVATE_BLOB_READ_WRITE_TOKEN = os.environ.get("PRIVATE_BLOB_READ_WRITE_TOKEN", 
 PRIVATE_FILES_DIR = os.environ.get("PRIVATE_FILES_DIR", "").strip() or str(
     BASE_DIR / ".private-files"
 )
-# Private file backup (apps/file_backup): a daily copy of the private Blob store to a Railway
-# Storage Bucket, encrypted before upload. "1" turns on the daily run and the /readyz/
+# Private file backup (apps/file_backup): a daily copy of the private Blob store to a private
+# storage bucket, encrypted before upload. "1" turns on the daily run and the /readyz/
 # `files_backup` field. Off, the task and the field call no client. All read here and nowhere
 # else; the values are set on the `worker` service only.
 FILE_BACKUP_ENABLED = os.environ.get("FILE_BACKUP_ENABLED", "").strip() == "1"
@@ -320,7 +328,7 @@ INQUIRY_CONTACT_INBOX_ENABLED = os.environ.get("INQUIRY_CONTACT_INBOX_ENABLED", 
 # INQUIRIES_ENABLED (`check --deploy` reports inquiries.E004/E005 otherwise). Off, the owner's
 # Messenger routes answer 404 and incoming events are dropped; the webhook verify GET and the two
 # Meta callbacks (deauthorize, data deletion) still answer when their own values are set. The app
-# secret goes straight into Railway; it is never printed or committed.
+# secret goes straight into the server variables; it is never printed or committed.
 INQUIRY_MESSENGER_ENABLED = os.environ.get("INQUIRY_MESSENGER_ENABLED", "").strip() == "1"
 META_MESSENGER_APP_ID = os.environ.get("META_MESSENGER_APP_ID", "").strip()
 META_MESSENGER_APP_SECRET = os.environ.get("META_MESSENGER_APP_SECRET", "").strip()
@@ -655,7 +663,7 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-# Railway's health check calls /healthz/ over plain HTTP. Only this exact path skips the redirect.
+# The platform health check calls /healthz/ over plain HTTP. Only this exact path skips the redirect.
 SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]
 if not DEBUG:
     if SECRET_KEY == "development-only-not-for-deployment":
@@ -666,13 +674,10 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31_536_000
 
 # Short commit of the running release, used by /healthz/ to prove which build is live.
-# APP_COMMIT_SHA (Bunny image), then RAILWAY_GIT_COMMIT_SHA, then "unknown": apps/common/release.py.
+# APP_COMMIT_SHA (baked into the Bunny image), else "unknown": apps/common/release.py.
 from apps.common.release import release_commit  # noqa: E402
 
 RELEASE_COMMIT = release_commit(os.environ)
-# Railway names the environment itself (no variable to set). Only the staff test-data commands
-# that must never run on production read it (pack_delete_test_order); empty off Railway.
-RAILWAY_ENVIRONMENT_NAME = os.environ.get("RAILWAY_ENVIRONMENT_NAME", "").strip().lower()
 # Staging only: site public ids (comma-separated) that may save a live Xendit key (xnd_production_)
 # there. Blank entries and spaces are ignored; empty (the default) changes nothing. Production and
 # local runs ignore it. Set by the Manager after approval, never in code.
@@ -748,12 +753,14 @@ RESEND_REGION = os.environ.get("RESEND_REGION", "").strip().lower()
 if RESEND_REGION not in ("us-east-1", "eu-west-1", "sa-east-1", "ap-northeast-1"):
     RESEND_REGION = ""
 DOMAINS_MAX_EMAIL_DOMAINS = _int_setting("DOMAINS_MAX_EMAIL_DOMAINS")
-# The Public Suffix List data file. Not downloaded by this code; absent means every name is refused.
+# The Public Suffix List data file, vendored in the repo (source https://publicsuffix.org/list/public_suffix_list.dat,
+# licence MPL-2.0, downloaded 2026-11-22; refresh steps in docs/runbooks/custom-domains.md). This code never
+# downloads it; if the file is absent, every name is refused (fails closed).
 DOMAINS_PSL_FILE = os.environ.get(
     "DOMAINS_PSL_FILE", str(BASE_DIR / "apps" / "domains" / "data" / "public_suffix_list.dat")
 )
 
-# Access denials go to the console, so Railway's logs hold them (apps/common/security_log.py).
+# Access denials go to the console, so the server logs hold them (apps/common/security_log.py).
 # Only the `security` logger is configured here; Django's own logging stays as it is.
 LOGGING = {
     "version": 1,

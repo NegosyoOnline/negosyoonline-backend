@@ -34,7 +34,7 @@ from apps.shop.tests.owner_base import make_order as make_shop_order
 from apps.training.models import Course, Lesson, LessonProgress, Module
 
 STAGING = override_settings(
-    RAILWAY_ENVIRONMENT_NAME="staging", PACK_ENABLED=True, MEMBERS_ENABLED=True, BILLING_ENABLED=True,
+    APP_ENVIRONMENT="staging", PACK_ENABLED=True, MEMBERS_ENABLED=True, BILLING_ENABLED=True,
 )
 
 # Every model that points at a Pack order or a Member, directly or through what the command
@@ -328,16 +328,16 @@ class DeleteTestOrderTests(TestCase):
     def test_production_is_refused_writing_nothing(self):
         before = snapshot()
         for name, debug in (("production", False), ("production", True), ("", False), ("preview", False)):
-            with override_settings(RAILWAY_ENVIRONMENT_NAME=name, DEBUG=debug):
+            with override_settings(APP_ENVIRONMENT=name, DEBUG=debug):
                 with self.assertRaisesMessage(CommandError, "staging and local only"):
                     run(self.site, self.order, flags=["--apply"])
         self.assertEqual(snapshot(), before)
         self.assertEqual(OperatorAuditEntry.objects.filter(action="pack_test_order_deleted").count(), 0)
 
     def test_local_debug_and_staging_are_allowed(self):
-        with override_settings(RAILWAY_ENVIRONMENT_NAME="", DEBUG=True):
+        with override_settings(APP_ENVIRONMENT="", DEBUG=True):
             self.assertTrue(command.environment_allows())
-        with override_settings(RAILWAY_ENVIRONMENT_NAME="Staging", DEBUG=False):
+        with override_settings(APP_ENVIRONMENT="Staging", DEBUG=False):
             self.assertTrue(command.environment_allows())
 
     # -- the append-only guards stay in force -------------------------------------------------

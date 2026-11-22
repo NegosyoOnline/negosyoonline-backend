@@ -225,7 +225,7 @@ class GatewayIdentityTests(GatewayCase):
 
     def test_15_the_calls_are_not_in_the_published_api(self):
         paths = self.client.get("/v1/openapi.json", secure=True).json()["paths"]
-        self.assertFalse([path for path in paths if "gateway" in path or "poll" in path])
+        self.assertFalse([path for path in paths if "gateway/v1" in path or "poll" in path])
         self.assertEqual(self.client.post("/v1/gateway/v1/poll", secure=True).status_code, 404)
 
 

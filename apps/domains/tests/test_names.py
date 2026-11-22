@@ -88,3 +88,22 @@ class RefusalTests(DomainsTestCase):
         site = self.site()
         SiteCustomHost.objects.create(site=site, host="www.manual.store", state=SiteCustomHost.State.ACTIVE)
         self.assertNotEqual(names.refusal("manual.store"), "")
+
+
+class VendoredPublicSuffixListTests(SimpleTestCase):
+    """The list shipped in the repo (the default DOMAINS_PSL_FILE), not the fixture."""
+
+    def test_vendored_file_loads_and_resolves(self):
+        from django.conf import settings
+        vendored = str(settings.BASE_DIR / "apps" / "domains" / "data" / "public_suffix_list.dat")
+        with override_settings(DOMAINS_PSL_FILE=vendored):
+            names._cache.update(key=None, rules=None)
+            try:
+                self.assertTrue(names.psl_available())
+                self.assertEqual(names.registrable_domain("example.com"), "example.com")
+                self.assertEqual(names.registrable_domain("www.example.com"), "example.com")
+                self.assertEqual(names.registrable_domain("foo.co.uk"), "foo.co.uk")
+                self.assertEqual(names.registrable_domain("a.b.foo.co.uk"), "foo.co.uk")
+                self.assertIsNone(names.registrable_domain("co.uk"))
+            finally:
+                names._cache.update(key=None, rules=None)
