@@ -85,6 +85,7 @@ ACTIONS = {
     "billing_record_edit_refused": KEPT,
     "billing_record_delete_refused": KEPT,
     "sante_catalog_owner_set": KEPT,
+    "sante_content_source_set": KEPT,
     "sante_agreement_version_created": KEPT,
     "sante_agreement_version_updated": KEPT,
     "sante_agreement_version_deleted": KEPT,

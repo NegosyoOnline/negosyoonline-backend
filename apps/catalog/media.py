@@ -114,3 +114,55 @@ def discard(key):
         delete(key)
     except Exception:  # noqa: BLE001 - a failed clean-up never hides the error that led to it
         logger.warning("A product photo clean-up failed.")
+
+
+COPY_MAX_BYTES = 100 * 1024 * 1024
+COPY_TIMEOUT = 120
+
+
+def _read_public(key):
+    """The bytes and content type of a stored file, read from its public URL (no token sent)."""
+    url = url_for(key)
+    if not url:
+        raise StoreError("The media store is not configured.")
+    request = urllib.request.Request(url, method="GET")
+    request.add_header("user-agent", USER_AGENT)
+    try:
+        with urllib.request.urlopen(request, timeout=COPY_TIMEOUT) as response:
+            content_type = response.headers.get("content-type", "").split(";")[0].strip()
+            content = response.read(COPY_MAX_BYTES + 1)
+    except (urllib.error.URLError, TimeoutError, OSError):
+        logger.warning("Public media store read failed.")
+        raise StoreError("The media store read failed.") from None
+    if not content or len(content) > COPY_MAX_BYTES:
+        raise StoreError("The stored file is empty or too large to copy.")
+    return content, content_type or "application/octet-stream"
+
+
+def copy(src_key, dest_key):
+    """Copy one stored file to a new key of its own and return that key. The copy is a separate
+    object: deleting either never touches the other. Downloads the public file and puts it again
+    (the store's server-side copy is not used: its API is not confirmed here). Raises StoreError."""
+    if not src_key or not dest_key:
+        raise StoreError("A copy needs a source and a destination.")
+    if src_key == dest_key:
+        raise StoreError("A copy never reuses the source key.")
+    if not configured():
+        raise StoreError("The media store is not configured.")
+    content, content_type = _read_public(src_key)
+    query = urllib.parse.urlencode({"pathname": dest_key})
+    body = _send(
+        "put", f"{BLOB_API}/?{query}", method="PUT", data=content,
+        headers={
+            "x-vercel-blob-access": "public",
+            "x-content-type": content_type,
+            "x-add-random-suffix": "0",
+        },
+    )
+    try:
+        stored = json.loads(body).get("pathname")
+    except (ValueError, AttributeError):
+        stored = None
+    if stored != dest_key:
+        raise StoreError("The media store put was not confirmed.")
+    return dest_key

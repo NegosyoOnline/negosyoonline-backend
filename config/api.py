@@ -24,6 +24,7 @@ from apps.notifications.api_owner import router as sms_line_router
 from apps.payments.api import router as payments_router
 from apps.payments.api_xendit import public as xendit_public_router, router as xendit_router
 from apps.training.api_owner import router as training_owner_router
+from apps.sante.api_shared import router as sante_shared_router
 from apps.media_library.api_owner import router as media_library_owner_router
 from apps.sante.api import router as sante_router
 from apps.shop.api_owner import router as shop_owner_router
@@ -57,6 +58,7 @@ api.add_router("", member_recovery_router)
 api.add_router("", member_notices_router)
 api.add_router("", training_owner_router)
 api.add_router("", media_library_owner_router)
+api.add_router("", sante_shared_router)
 api.add_router("", shop_owner_router)
 api.add_router("", meta_router)
 api.add_router("", sms_line_router)

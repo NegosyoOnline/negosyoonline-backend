@@ -17,12 +17,12 @@ from apps.common.tests.test_tenant_isolation.owner_base import (
 )
 
 NOT_FOUND = {"error": {"code": "not_found", "message": "Not found."}}
-# What the guard expects from the URLconf today (12 + 16 + 2 + 10 + 7 + 13 + 10 + 4 + 31 + 6 + 24 + 11 + 4 + 4 = 154). The
+# What the guard expects from the URLconf today (12 + 16 + 2 + 10 + 7 + 13 + 10 + 4 + 31 + 6 + 28 + 11 + 2 + 4 + 4 = 160). The
 # "sites" count includes the 5 member-recovery routes under /sites/{site_id}/members/.
 EXPECTED_COUNTS = {
     "sites": 12, "billing": 16, "sante": 2, "catalog": 10, "payments": 7, "pack_owner": 13,
     "shop_owner": 10, "meta_ads": 4, "inquiries": 31, "member_notices": 6,
-    "training": 24, "media": 11, "domains": 4, "sms_line": 4,
+    "training": 28, "media": 11, "shared_content": 2, "domains": 4, "sms_line": 4,
 }
 
 
@@ -45,7 +45,7 @@ class RegistryGuardTests(TwoOwnersTestCase):
         for _, template in routes:
             counts[app_of(template)] = counts.get(app_of(template), 0) + 1
         self.assertEqual(counts, EXPECTED_COUNTS)
-        self.assertEqual(len(OWNER_ROUTES), 154)
+        self.assertEqual(len(OWNER_ROUTES), 160)
 
 
 class ForeignSiteTests(TwoOwnersTestCase):
@@ -95,6 +95,7 @@ class ForeignChildTests(TwoOwnersTestCase):
             ("DELETE", "/sites/{site_id}/training/courses/{course_id}/image/"),
             ("DELETE", "/sites/{site_id}/training/lessons/{lesson_id}/"),
             ("DELETE", "/sites/{site_id}/training/lessons/{lesson_id}/image/"),
+            ("DELETE", "/sites/{site_id}/training/lessons/{lesson_id}/video/"),
             ("DELETE", "/sites/{site_id}/training/live/{live_id}/"),
             ("DELETE", "/sites/{site_id}/training/live/{live_id}/thumbnail/"),
             ("DELETE", "/sites/{site_id}/training/modules/{module_id}/"),
@@ -112,6 +113,8 @@ class ForeignChildTests(TwoOwnersTestCase):
             ("GET", "/sites/{site_id}/shop/orders/{order_id}/"),
             ("GET", "/sites/{site_id}/shop/orders/{order_id}/proofs/{proof_id}/"),
             ("GET", "/sites/{site_id}/training/courses/{course_id}/"),
+            ("GET", "/sites/{site_id}/training/courses/{course_id}/watch/"),
+            ("GET", "/sites/{site_id}/training/lessons/{lesson_id}/video/"),
             ("PATCH", "/sites/{site_id}/media/{asset_id}/"),
             ("PATCH", "/sites/{site_id}/member-notices/{notice_id}/"),
             ("PATCH", "/sites/{site_id}/training/courses/{course_id}/"),
@@ -152,6 +155,7 @@ class ForeignChildTests(TwoOwnersTestCase):
             ("POST", "/sites/{site_id}/training/courses/{course_id}/modules/"),
             ("POST", "/sites/{site_id}/training/courses/{course_id}/modules/reorder/"),
             ("POST", "/sites/{site_id}/training/lessons/{lesson_id}/image/"),
+            ("POST", "/sites/{site_id}/training/lessons/{lesson_id}/video/upload/"),
             ("POST", "/sites/{site_id}/training/live/{live_id}/thumbnail/"),
             ("POST", "/sites/{site_id}/training/modules/{module_id}/lessons/"),
             ("POST", "/sites/{site_id}/training/modules/{module_id}/lessons/reorder/"),
