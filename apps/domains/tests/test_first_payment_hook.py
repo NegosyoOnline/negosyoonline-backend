@@ -75,6 +75,13 @@ class HookTests(DomainsTestCase):
         self.assertEqual(payment.status, "confirmed")
         self.assertEqual(self.eligible(), 0)
 
+    def test_a_failure_while_registering_the_hook_never_fails_the_confirmation(self):
+        with mock.patch.object(services, "after_confirm", side_effect=RuntimeError("bug")), \
+                self.assertLogs("apps.billing.services", level="ERROR"):
+            payment = self.confirm()
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, "confirmed")
+
     def test_a_refused_confirmation_marks_nothing(self):
         subscription = Subscription.objects.get(pk=self.subscription.pk)
         payment = submit(subscription, timezone.now())

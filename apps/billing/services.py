@@ -1210,10 +1210,12 @@ def confirm_transfer(payment, operator, *, amount_received_centavos, now=None):
                 **({"usage_centavos": row.usage_centavos} if row.usage_centavos else {}),
             },
         )
-        # Custom domains: after the commit, never failing it (apps.domains.services.after_confirm).
-        from apps.domains import services as domains  # noqa: PLC0415
+        try:  # custom domains: a callback after the commit; whatever goes wrong here never fails this
+            from apps.domains import services as domains  # noqa: PLC0415
 
-        domains.after_confirm(subscription.site)
+            domains.after_confirm(subscription.site_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("domains hook could not be registered")
         return row
 
     return _write(Subscription(pk=payment.subscription_id), now, change)

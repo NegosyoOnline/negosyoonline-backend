@@ -31,9 +31,9 @@ NOTICE = (
 )
 
 
-def after_confirm(site):
+def after_confirm(site_id):
     """Called inside `confirm_transfer`. Runs `on_first_payment` after the commit, never failing it."""
-    transaction.on_commit(partial(_run_hook, site.pk), robust=True)
+    transaction.on_commit(partial(_run_hook, site_id), robust=True)
 
 
 def _run_hook(site_id):
