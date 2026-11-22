@@ -254,19 +254,30 @@ Built dark. A store's owner pairs their own phone under `/v1/sites/{site_id}/sms
 
 ### Two-Site isolation proof
 
-Run before any subscriber sees a token control (task 598401). Local needs no real text; on staging it needs the Manager's go, two clearly named test Sites ("Test Isolation A" and "Test Isolation B"), and no real recipient: nothing is texted.
+Run before any subscriber sees a token control (task 598401). The steps below are the **local** proof. Do not run them as written on staging: see "On staging" after step 9. Locally nothing is texted: the number in step 5 is a fake, local-only value and no phone exists that could send it.
 
 1. **Local set-up.** Your own Redis on a fresh port (`redis-server --port 6391 --save '' --daemonize yes`; a text is held in the cache, so the server and the shell must share it) and a SQLite file. In the shell that runs the server and the steps: `DJANGO_DEBUG=true DJANGO_SECRET_KEY=<any> REDIS_URL=redis://127.0.0.1:6391/0 SMS_GATEWAY_ENABLED=1 SMS_SITE_LINES_ENABLED=1 BILLING_ENABLED=1 ACCOUNT_EMAIL_CHANGE_HARDENED=1 SITE_PARENT_HOST=negosyotest.com API_ALLOWED_ORIGINS=http://localhost:3000 DATABASE_URL=sqlite:///proof.sqlite3`. Then `manage.py migrate` and `manage.py runserver 127.0.0.1:8765 --noreload`. Stop only the Redis you started (`redis-cli -p 6391 shutdown nosave`).
 2. **Two Sites, two owners.** Sign each owner in with the email code (local: the code is printed in the server log) and `POST /v1/sites/` `{"template":"sante","subdomain":"test-isolation-a","display_name":"Test Isolation A"}`, then the same for B. A new Site starts its trial, so it has a line.
 3. **Platform phone.** `manage.py sms_device add --name proof-platform --actor STAFF_USER` (prints its token once).
 4. **Pair.** Each owner: `POST /v1/sites/{site_id}/sms-gateway/register/`; keep the `token`. Check `GET` shows `connection: waiting` and the other owner's `GET` of this Site is 404.
-5. **Queue texts, send nothing.** In `manage.py shell` (same environment): for A, B and the platform create an `SmsMessage(category="status", priority=STATUS, site=<site or None>, expires_at=now+30 min, recipient="+639171234567", purpose="proof")` and `sms.hold_text(message, "TEXT-FOR-SITE-A", 1800)` (B, PLATFORM likewise). Nothing leaves: the text is only handed to the polling phone.
+5. **Queue texts, send nothing.** In `manage.py shell` (same environment): for A, B and the platform create an `SmsMessage(category="status", priority=STATUS, site=<site or None>, expires_at=now+30 min, recipient="+639171234567" (a fake number, local only: never use it on staging), purpose="proof")` and `sms.hold_text(message, "TEXT-FOR-SITE-A", 1800)` (B, PLATFORM likewise). Nothing leaves: the text is only handed to the polling phone.
 6. **Poll as each phone.** `curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}' http://127.0.0.1:8765/gateway/v1/poll`, once with each token, then `report` the ids as `sent`.
 7. **Expect:** the A phone is handed only `TEXT-FOR-SITE-A`; the B phone only `TEXT-FOR-SITE-B`; the platform phone only `TEXT-FOR-PLATFORM`, and none of the Site texts. A second text queued for B goes to B's phone only. B's `GET` and `disable` of A's phone answer 404 and A's phone stays enabled.
 8. **Rotate.** Owner A: `POST /v1/account/step-up/` `{"channel":"email","purpose":"sms_line_rotate"}`, then `POST .../rotate/` `{"step_up_code":"<code>"}`. The old A token polls 401, the new one 200, B's still 200; a wrong code is 400 `step_up_required`.
 9. **Audit and logs.** `AccountAuditEvent` rows `sms_line_register` (twice) and `sms_line_rotate`, each `{site, device}`; no token in the server log.
 
-Test Sites and phones left behind are removed in the shell, never in production data; on staging disable the test phones (`.../disable/`) when the proof is done.
+Locally, leave nothing behind: delete the SQLite file and stop only the Redis you started.
+
+#### On staging
+
+Needs the Manager's go. Staging already has the live NegosyoOnline phone polling, and a text it claims is really sent. So:
+
+- **Skip step 3.** Never add a "proof-platform" phone, and no session holds or uses the live phone's token.
+- **Queue Site A and Site B texts only, never a platform text.** A platform text would be claimed by the live phone and sent to the recipient. Queue the two Site texts as in step 5, but with a non-routable test recipient agreed with the Manager (not the number in step 5) and a short expiry (for example 5 minutes), so a text that is not handed out simply expires.
+- **Simulate only the two Site phones**, with `curl` as in step 6, using the two owner-paired tokens. Do not poll with any other token.
+- **The platform-side proof is read-only.** Read the two `SmsMessage` rows: each is `queued` or handed to its own Site's phone (`device` is that Site's phone, `dispatched` or `sent` after the simulated report), and neither ever shows the live phone as its `device`. Also check that each simulated phone received only its own Site's text (step 7, without the platform text).
+- Steps 2, 4, 8 and 9 run as written, with test Sites named "Test Isolation A" and "Test Isolation B".
+- **Afterwards:** `POST .../disable/` for both test phones, then remove the two test Sites with the existing `dispose_account` for each test owner account (dry run first; see `docs/runbooks/retention.md`), under the Manager's go. Never in production.
 
 ## Member one-time codes
 
