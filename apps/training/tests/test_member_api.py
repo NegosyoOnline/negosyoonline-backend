@@ -24,7 +24,14 @@ class TrainingTestCase(MembersTestCase):
         return self.post(PREFIX + path, token=self.token if token is None else token, **extra)
 
     def complete(self, lesson):
-        return self.call(f"lessons/{lesson.public_id}/complete/")
+        """Completion now comes only from watching a Stream video: these sequence tests write the
+        record directly (test_watch.py covers the watch post and the refused manual route)."""
+        from django.utils import timezone
+
+        row, _ = LessonProgress.objects.get_or_create(member=self.member, lesson=lesson)
+        if row.completed_at is None:
+            row.completed_at = timezone.now()
+            row.save(update_fields=["completed_at"])
 
 
 class SequentialUnlockTests(TrainingTestCase):
@@ -40,30 +47,18 @@ class SequentialUnlockTests(TrainingTestCase):
 
     def test_a_locked_lesson_is_refused_and_cannot_be_completed(self):
         second = self.lessons[1]
-        for path in (f"lessons/{second.public_id}/", f"lessons/{second.public_id}/complete/"):
-            response = self.call(path)
-            self.assertEqual(response.status_code, 409, response.content)
-            self.assertEqual(response.json()["error"]["code"], "lesson_locked")
+        response = self.call(f"lessons/{second.public_id}/")
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(response.json()["error"]["code"], "lesson_locked")
+        self.assertEqual(self.call(f"lessons/{second.public_id}/complete/").status_code, 403)
         self.assertNotIn(b"youtube", self.call(f"lessons/{second.public_id}/").content)
         self.assertFalse(LessonProgress.objects.filter(lesson=second).exists())
 
     def test_completing_a_lesson_opens_the_next_one_across_modules(self):
         for lesson in self.lessons[:2]:
-            self.assertEqual(self.complete(lesson).status_code, 200)
+            self.complete(lesson)
         self.assertEqual(self.call(f"lessons/{self.lessons[2].public_id}/").status_code, 200)
         self.assertEqual(self.call(f"lessons/{self.lessons[3].public_id}/").status_code, 409)
-
-    def test_complete_is_idempotent_and_reports_progress_and_the_next_lesson(self):
-        first = self.complete(self.lessons[0]).json()
-        self.assertEqual(first["next_lesson"]["title"], "L1.2")
-        self.assertEqual(first["course"], {
-            "id": self.course.public_id, "completed_lessons": 1, "total_lessons": 4, "percent": 25,
-        })
-        stamp = LessonProgress.objects.get(lesson=self.lessons[0]).completed_at
-        again = self.complete(self.lessons[0])
-        self.assertEqual(again.status_code, 200)
-        self.assertEqual(LessonProgress.objects.get(lesson=self.lessons[0]).completed_at, stamp)
-        self.assertEqual(LessonProgress.objects.count(), 1)
 
     def test_a_switched_off_lesson_is_skipped_by_the_sequence(self):
         self.lessons[1].active = False

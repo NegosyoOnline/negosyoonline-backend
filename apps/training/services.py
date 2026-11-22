@@ -24,10 +24,11 @@ from django.utils.text import slugify
 
 from apps.catalog import media
 from apps.catalog.services import IMAGE_MESSAGES
-from apps.common import private_files
+from apps.common import file_refs, private_files, throttle
 from apps.common.errors import ApiError
 from apps.members import notices
 
+from . import video
 from .models import Course, Lesson, LessonProgress, LiveTraining, Module
 
 IMAGE_FOLDER = "training"
@@ -50,6 +51,7 @@ VIDEO_MESSAGE = (
     "or Bunny Stream (iframe.mediadelivery.net/embed/...)."
 )
 URL_MAX = 500
+UPLOAD_INSTEAD_MSG = "Upload your video instead."
 
 
 def video_url_ok(value):
@@ -259,7 +261,8 @@ def lesson_detail(member, lesson_id):
     nxt = lessons[index + 1] if index + 1 < len(lessons) else None
     return {
         "id": lesson.public_id, "title": lesson.title, "duration": lesson.duration,
-        "description": lesson.description, "video_url": lesson.video_url or None,
+        "description": lesson.description, "video_url": video.legacy_url_for_member(lesson),
+        "video": video.video_out(lesson),
         "image_url": media.url_for(lesson.image_key), "completed": lesson.pk in done,
         "course": {"id": course.public_id, "title": course.title},
         "module": {"id": module.public_id, "title": module.title, "module_number": position + 1},
@@ -275,9 +278,29 @@ def lesson_detail(member, lesson_id):
     }
 
 
+COMPLETE_AT = 90  # percent watched that completes a lesson (TWCinc lesson-watch.js COMPLETE_AT = 0.90)
+BY_WATCHING_MSG = "A lesson completes by watching its video. It is marked complete once you have watched at least 90% of it."
+
+
 def complete_lesson(member, lesson_id):
-    """Mark an open lesson complete (again is not an error). A locked one is 409 lesson_locked."""
+    """The old manual route. A lesson completes only from the watch post (see record_watch), so this
+    answers 403 complete_by_watching for every lesson. A foreign or missing lesson is still 404."""
+    _visible_lesson(member, lesson_id)
+    raise ApiError("complete_by_watching", BY_WATCHING_MSG, status=403)
+
+
+WATCH_LIMIT, WATCH_WINDOW = 60, 60  # posts per member per minute: about 11 are sent per viewing
+
+
+def record_watch(member, lesson_id, percent, ended=False):
+    """Keep the furthest percent (0-100) of the video this member has watched. It only ever goes up.
+    When the stored percent reaches 90, or the player says `ended`, a lesson that completes by
+    watching (video.completes_by_watching) is marked complete in the same transaction; a completion is
+    never undone. Answers {percent, completed, next_unlocked, next_lesson_id}."""
     lesson = _visible_lesson(member, lesson_id)
+    if isinstance(percent, bool) or not isinstance(percent, int) or not 0 <= percent <= 100:
+        raise _invalid({"percent": "Send a whole number from 0 to 100."})
+    throttle.hit("lesson_watch", member.pk, limit=WATCH_LIMIT, window=WATCH_WINDOW)
     course = lesson.module.course
     with transaction.atomic():
         lessons = _course_lessons([course.pk])[course.pk]
@@ -287,21 +310,53 @@ def complete_lesson(member, lesson_id):
         try:
             with transaction.atomic():
                 progress, _ = LessonProgress.objects.get_or_create(member=member, lesson=lesson)
-        except IntegrityError:  # two taps at once: the other one made the row
+        except IntegrityError:  # two posts at once: the other one made the row
             progress = LessonProgress.objects.get(member=member, lesson=lesson)
-        if progress.completed_at is None:
-            progress.completed_at = timezone.now()
-            progress.save(update_fields=["completed_at"])
-            done.add(lesson.pk)
+        LessonProgress.objects.filter(pk=progress.pk, watched_percent__lt=percent).update(
+            watched_percent=percent, watched_at=timezone.now()
+        )
+        progress.refresh_from_db(fields=["watched_percent", "completed_at"])
+        if (
+            progress.completed_at is None
+            and video.completes_by_watching(lesson)
+            and (progress.watched_percent >= COMPLETE_AT or ended is True)
+        ):
+            LessonProgress.objects.filter(pk=progress.pk, completed_at__isnull=True).update(
+                completed_at=timezone.now()
+            )
+            progress.refresh_from_db(fields=["completed_at"])
+    completed = progress.completed_at is not None
     index = lessons.index(lesson)
-    finished = sum(1 for x in lessons if x.pk in done)
+    nxt = lessons[index + 1] if index + 1 < len(lessons) else None
+    unlocked = completed and nxt is not None
     return {
-        "lesson_id": lesson.public_id, "completed": True,
-        "course": {
-            "id": course.public_id, "completed_lessons": finished, "total_lessons": len(lessons),
-            "percent": _percent(finished, len(lessons)),
-        },
-        "next_lesson": _lesson_ref(lessons[index + 1] if index + 1 < len(lessons) else None),
+        "percent": progress.watched_percent, "completed": completed,
+        "next_unlocked": unlocked, "next_lesson_id": nxt.public_id if unlocked else None,
+    }
+
+
+def course_watch(course):
+    """Per lesson of the course, each of the site's own members who opened it: the furthest
+    percent watched and whether they marked it complete. Members of any other site never appear."""
+    lessons = list(
+        Lesson.objects.filter(module__course=course).select_related("module").order_by("module__order", "module__pk", "order", "pk")
+    )
+    rows = LessonProgress.objects.filter(
+        lesson__in=lessons, member__site=course.site
+    ).select_related("member").order_by("member__full_name", "member__pk")
+    by_lesson = {}
+    for row in rows:
+        by_lesson.setdefault(row.lesson_id, []).append({
+            "member_id": row.member.public_id, "name": row.member.full_name,
+            "percent": row.watched_percent, "completed": row.completed_at is not None,
+        })
+    return {
+        "course_id": course.public_id,
+        "lessons": [
+            {"lesson_id": x.public_id, "title": x.title, "module_id": x.module.public_id,
+             "module_title": x.module.title, "members": by_lesson.get(x.pk, [])}
+            for x in lessons
+        ],
     }
 
 
@@ -385,8 +440,10 @@ def course_owner_out(course):
         "id": course.public_id, "title": course.title,
         "slug": course.slug, "description": course.description,
         "image_url": media.url_for(course.image_key), "order": course.order, "active": course.active,
+        "shared": course.shared, "copied_from": course.copied_from or None,
         "archived_at": course.archived_at, "created_at": course.created_at, "updated_at": course.updated_at,
         "module_count": course.modules.count(),
+        "needs_video_count": len(video.lessons_missing_video(course=course)),
         "lesson_count": lessons.count(), "active_lesson_count": lessons.filter(
             active=True, module__active=True
         ).count(),
@@ -405,8 +462,9 @@ def lesson_owner_out(lesson):
     return {
         "id": lesson.public_id, "module_id": lesson.module.public_id, "title": lesson.title,
         "duration": lesson.duration, "description": lesson.description,
-        "video_url": lesson.video_url or None, "image_url": media.url_for(lesson.image_key),
-        "order": lesson.order, "active": lesson.active,
+        "video_url": lesson.video_url or None, "video": video.video_out(lesson),
+        "image_url": media.url_for(lesson.image_key),
+        "order": lesson.order, "active": lesson.active, "needs_video": video.needs_video(lesson),
     }
 
 
@@ -491,8 +549,13 @@ def update_course(site, public_id, data):
     _text(data, "description", errors, out, maximum=5000)
     _flag(data, "active", errors, out)
     _flag(data, "archived", errors, out)
+    _flag(data, "shared", errors, out)
     _number(data, "order", errors, out, low=1, high=100000)
+    if "shared" in out:
+        _check_shared(site, course, out, errors)
     _finish(errors)
+    if out.get("active") is True and not course.active:
+        video.require_course_videos(course)  # shown to members only when every lesson has a video
     if "slug" in out:
         out["slug"] = _unique_slug(site, out["slug"], exclude_pk=course.pk)
     archived = out.pop("archived", None)
@@ -503,16 +566,32 @@ def update_course(site, public_id, data):
     return _apply(course, out)
 
 
-def _delete_with_images(row, keys):
+def _check_shared(site, course, out, errors):
+    """Only the content source store shares a course, and an archived one is never offered."""
+    from apps.sante import services as sante
+
+    if not sante.is_content_source(site):
+        errors["shared"] = "Only the content source store can share courses."
+    elif out["shared"] and (out.get("archived") is True or (course.archived_at and out.get("archived") is not False)):
+        errors["shared"] = "An archived course cannot be shared."
+
+
+def _delete_with_images(row, keys, videos=()):
     with transaction.atomic():
         row.delete()
-        transaction.on_commit(lambda: [media.discard(key) for key in keys])
+        transaction.on_commit(lambda: [file_refs.discard_if_unreferenced(key) for key in keys])
+        video.discard_pairs_on_commit(videos)
+
+
+def _stream_pairs(lessons):
+    return [pair for lesson in lessons for pair in video.pairs_of(lesson)]
 
 
 def delete_course(site, public_id):
     course = get_course(site, public_id)
-    keys = [course.image_key, *Lesson.objects.filter(module__course=course).values_list("image_key", flat=True)]
-    _delete_with_images(course, keys)
+    lessons = list(Lesson.objects.filter(module__course=course))
+    keys = [course.image_key, *(lesson.image_key for lesson in lessons)]
+    _delete_with_images(course, keys, _stream_pairs(lessons))
 
 
 @transaction.atomic
@@ -537,12 +616,23 @@ def update_module(site, public_id, data):
     _flag(data, "active", errors, out)
     _number(data, "order", errors, out, low=1, high=100000)
     _finish(errors)
+    if out.get("active") is True and not module.active and module.course.active:
+        missing = video.lessons_missing_video(module=_active_copy(module))
+        if missing:
+            raise video.video_required(missing)
     return _apply(module, out)
+
+
+def _active_copy(module):
+    """The module as it would be once switched on (unsaved)."""
+    module.active = True
+    return module
 
 
 def delete_module(site, public_id):
     module = get_module(site, public_id)
-    _delete_with_images(module, list(module.lessons.values_list("image_key", flat=True)))
+    lessons = list(module.lessons.all())
+    _delete_with_images(module, [lesson.image_key for lesson in lessons], _stream_pairs(lessons))
 
 
 def _lesson_values(data, errors, out, *, creating):
@@ -554,11 +644,9 @@ def _lesson_values(data, errors, out, *, creating):
     if "video_url" in data:
         value = data["video_url"]
         if value is None or value == "":
-            out["video_url"] = ""
-        elif video_url_ok(value):
-            out["video_url"] = value
+            out["video_url"] = ""  # a legacy link can be cleared, never set again
         else:
-            errors["video_url"] = VIDEO_MESSAGE
+            errors["video_url"] = UPLOAD_INSTEAD_MSG
 
 
 @transaction.atomic
@@ -579,12 +667,16 @@ def update_lesson(site, public_id, data):
     errors, out = {}, {}
     _lesson_values(data, errors, out, creating=False)
     _finish(errors)
+    if out.get("active") is True and not lesson.active:
+        course = lesson.module.course
+        if course.active and lesson.module.active and not video.has_ready_stream(lesson):
+            raise video.video_required([lesson])
     return _apply(lesson, out)
 
 
 def delete_lesson(site, public_id):
     lesson = get_lesson(site, public_id)
-    _delete_with_images(lesson, [lesson.image_key])
+    _delete_with_images(lesson, [lesson.image_key], video.pairs_of(lesson))
 
 
 @transaction.atomic
@@ -693,9 +785,9 @@ def set_image(site, kind, public_id, upload):
             old = getattr(row, field)
             setattr(row, field, key)
             row.save(update_fields=[field, "updated_at"])
-            transaction.on_commit(lambda: media.discard(old))
+            transaction.on_commit(lambda: file_refs.discard_if_unreferenced(old))
     except BaseException:
-        media.discard(key)
+        file_refs.discard_if_unreferenced(key)
         raise
     return row
 
@@ -708,5 +800,5 @@ def clear_image(site, kind, public_id):
     if old:
         setattr(row, field, "")
         row.save(update_fields=[field, "updated_at"])
-        transaction.on_commit(lambda: media.discard(old))
+        transaction.on_commit(lambda: file_refs.discard_if_unreferenced(old))
     return row
