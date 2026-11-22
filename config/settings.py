@@ -397,6 +397,7 @@ INSTALLED_APPS = [
     'apps.lifecycle',
     'apps.file_backup',
     'apps.db_backup',
+    'apps.domains',
 ]
 
 AUTH_USER_MODEL = "operators.User"
@@ -550,6 +551,23 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(hour=4, minute=30),
         "options": {"expires": 3600},
     },
+    # Custom domains: the state-machine sweep each minute, the hourly live check, the daily sweep
+    # and registration read. Each does nothing while DOMAINS_ENABLED is off.
+    "domains-sweep": {
+        "task": "domains.sweep",
+        "schedule": 60,
+        "options": {"expires": 60},
+    },
+    "domains-hourly-check": {
+        "task": "domains.hourly_check",
+        "schedule": 3600,
+        "options": {"expires": 3600},
+    },
+    "domains-daily-sweep": {
+        "task": "domains.daily_sweep",
+        "schedule": crontab(hour=5, minute=0),
+        "options": {"expires": 3600},
+    },
     # The Membership Pack buyer purge and the day-76 buyer email, each hourly. Both do nothing
     # while their switch (PACK_PURGE_ENABLED, PACK_BUYER_NOTICE_ENABLED) is off. A tick not picked
     # up within the hour is dropped: the next one finds everything that is due.
@@ -663,6 +681,31 @@ def parse_site_id_list(raw):
 
 
 XENDIT_LIVE_KEY_SITES = parse_site_id_list(os.environ.get("XENDIT_LIVE_KEY_SITES", ""))
+
+# Custom domains (apps/domains; ClickUp z8uq9mhgn7, design z8uq9mcyu0). Everything is off by
+# default: with DOMAINS_ENABLED unset no table is read and no provider is called. DOMAINS_PROVIDER
+# is "off" (default), "fake" (in-process fakes, DEBUG only) or "real" (the worker container only).
+# DOMAINS_PROVIDER_PAUSED=1 stops every provider call. Only names are read here; the token values
+# are never logged or returned.
+DOMAINS_ENABLED = os.environ.get("DOMAINS_ENABLED", "").strip() == "1"
+DOMAINS_PROVIDER = os.environ.get("DOMAINS_PROVIDER", "off").strip().lower()
+if DOMAINS_PROVIDER not in ("off", "fake", "real"):
+    DOMAINS_PROVIDER = "off"
+DOMAINS_PROVIDER_PAUSED = os.environ.get("DOMAINS_PROVIDER_PAUSED", "").strip() == "1"
+# The zones the DNS adapter must never write in (platform zones), comma-separated names.
+DOMAINS_PLATFORM_ZONES = tuple(
+    part.strip().lower().strip(".")
+    for part in os.environ.get("DOMAINS_PLATFORM_ZONES", "").split(",")
+    if part.strip()
+)
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
+CLOUDFLARE_DNS_API_TOKEN = os.environ.get("CLOUDFLARE_DNS_API_TOKEN", "").strip()
+VERCEL_API_TOKEN = os.environ.get("VERCEL_API_TOKEN", "").strip()
+VERCEL_STOREFRONTS_PROJECT_ID = os.environ.get("VERCEL_STOREFRONTS_PROJECT_ID", "").strip()
+# The Public Suffix List data file. Not downloaded by this code; absent means every name is refused.
+DOMAINS_PSL_FILE = os.environ.get(
+    "DOMAINS_PSL_FILE", str(BASE_DIR / "apps" / "domains" / "data" / "public_suffix_list.dat")
+)
 
 # Access denials go to the console, so Railway's logs hold them (apps/common/security_log.py).
 # Only the `security` logger is configured here; Django's own logging stays as it is.
