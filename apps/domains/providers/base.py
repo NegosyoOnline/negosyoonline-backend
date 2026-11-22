@@ -100,6 +100,10 @@ class Adapter:
             raise NotConfigured("no_token")
 
     def _call(self, method, path, body=None, query=None):
+        return self._call_status(method, path, body, query)[1]
+
+    def _call_status(self, method, path, body=None, query=None):
+        """Like `_call`, but also returns the 2xx status (the Registrar tells 201 from 202)."""
         self._preflight()
         if not any(method == m and rx.fullmatch(path) for m, rx in self.ALLOWED):
             raise Refused("not_allowlisted")
@@ -111,7 +115,7 @@ class Adapter:
         status, data = self._transport(method, url, headers, body)
         if not 200 <= status < 300:
             raise map_error(status)
-        return data if isinstance(data, dict) else {}
+        return status, (data if isinstance(data, dict) else {})
 
     def __repr__(self):
         return f"<{type(self).__name__}>"  # never shows the token
