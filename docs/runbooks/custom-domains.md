@@ -1,9 +1,9 @@
-# Custom domains (apps/domains, branches B1 engine and B2 purchase)
+# Custom domains (apps/domains, branches B1 engine, B2 purchase and B3 store email)
 
 ClickUp z8uq9mhgn7 (build), design z8uq9mcyu0. This is the engine: models, names, the state
 machine, the Vercel and Cloudflare DNS adapters, the HTTPS probe, serving and lifecycle removal.
 The purchase (Registrar adapter, Buy, caps, staff actions) is branch B2, described in the section
-"Purchase (B2)" below; Resend email is B3 and is not here. Nothing in this file has been done on any
+"Purchase (B2)" below; the store email on the customer's domain (Resend) is branch B3, in the section "Store email (B3)" below. Nothing in this file has been done on any
 environment. Staging runs on Bunny containers `api`,
 `worker` and `beat` (see `docs/runbooks/bunny-staging.md`).
 
@@ -180,3 +180,79 @@ withdrawn from the offered list and alerted; a reading older than 36 hours withd
 `confirm_transfer` registers one `on_commit` callback (robust): `apps.domains.services.on_first_payment`.
 It writes the `eligible` event once, notifies the Subscriber once, and buys nothing. A bug in it is
 logged and never fails a Finance confirmation. The minute sweep marks any site the hook missed.
+
+## Store email (B3)
+
+ClickUp z8uq9mhgwb. A claim's email track gives the store its own sending domain in Resend, so its
+members' and buyers' emails can come from `<local part>@<the registered domain>`. It runs beside the
+website track and never changes it: the website and the purchase do not wait for email, and an
+`email_failed` never fails the website. Nothing here has been done on any environment.
+
+### Variables (names only; the switch is off by default)
+
+| Name | Where | Meaning |
+|---|---|---|
+| `DOMAINS_EMAIL_ENABLED` | worker only | `1` lets the worker run the email track and the daily Resend read. Off: no Resend call is made, no email step runs, and a removal that must delete a Resend domain waits (alert `resend_removal_waiting`) rather than leave it behind. |
+| `RESEND_DOMAINS_API_KEY` | worker only, secret | A full-access key (a sending-only key cannot create domains). Coach Ed enters it himself. The `api` and `beat` containers hold none. |
+| `RESEND_REGION` | worker | One fixed region: `us-east-1`, `eu-west-1`, `sa-east-1` or `ap-northeast-1`. Anything else reads as unset and the adapter refuses to create. |
+| `DOMAINS_MAX_EMAIL_DOMAINS` | worker | How many Subscriber domains the Resend plan can hold beyond the platform's own (the Free plan holds 3 and the platform uses at least 1). Unset or 0 means every email track waits. The website and the purchase never read it. |
+
+`manage.py check --deploy` shows `domains.W005` (names only) while `DOMAINS_EMAIL_ENABLED` is on and
+one of the three is unset. The sender lookup runs on the `api` too (it sends member emails) and needs
+only `DOMAINS_ENABLED` and `STORE_EMAILS_BRANDED`, not the worker's email switch.
+
+### The track (worker, `apps/domains/email_track.py`)
+
+1. `email_none` or `email_waiting_capacity`: takes a slot if our occupied Resend domains (claims with a
+   Resend domain recorded or being made, not `ended`) are under `DOMAINS_MAX_EMAIL_DOMAINS`. Otherwise
+   it waits, with `email_waiting_since` set once, one event and one operator alert
+   (`email_waiting_capacity`), and resumes when a slot exists (longest waiting first). Capacity never
+   blocks or refuses the purchase or the website.
+2. `email_creating`: Resend `create` with `name` equal to the site's own succeeded registration name,
+   the fixed region and sending only (receiving disabled). The id is recorded. An answer of "exists"
+   is never adopted: it is `email_failed` (`domain_exists`) and the daily read lists any unrecorded
+   Resend domain.
+3. `email_dns`: the records are read again from Resend (`get`) and written into the zone through the
+   Cloudflare DNS adapter: TXT, MX or CNAME only, DNS-only, content exactly as Resend returned it,
+   names made whole from Resend's relative names, ids recorded in `DomainDnsRecord` (purpose
+   `resend`). List before create: an unrecorded record of the same type and name stops the email track
+   (`dns_clash`). Nothing is hard-coded.
+4. `email_verifying`: Resend `verify` once, then a `get` every 5 minutes (`verify` again while the
+   status is `not_started`) for up to 72 hours (Resend's own window) measured from the verify call;
+   then `email_failed`. A `failed` status is `email_failed` at once.
+5. `email_verified` (Resend says `verified`), then `email_active` once the daily read has confirmed it.
+   Every phase before verified also fails after 72 hours.
+
+`email_failed` stays until an operator retries it: the HQ "retry" of a claim whose email track failed
+(the website not failed) goes back to `email_dns` when a Resend domain is recorded (never a second
+create), else to the start. Every step runs under the claim's single-flight lock, only for a claim in
+`registered` to `attention`, only while the payment gate holds, and takes every name from the site's own
+succeeded registration (a forged claim name sends nothing).
+
+### The sender
+
+`apps/notifications/store_email.domain_sender(site)` builds `<sender_local_part>@<registration name>`
+at send time (no full address is stored) and returns it only while all of this holds: `DOMAINS_ENABLED`
+and `STORE_EMAILS_BRANDED` are on; the site's own claim is in `connecting`, `activating`, `live` or
+`attention` (not `removal_pending`); its email track is `email_verified` or `email_active`; Resend's
+status is `verified` and was read within 72 hours; the claim's name equals the succeeded registration's
+name. `temporary_failure`, `failed` or any doubt falls back to the platform address. An explicit
+`STORE_SENDERS` pair still wins. The daily read (`domains.daily_sweep`, while the switch is on) is what
+refreshes the status, so a worker that is down for three days makes stores fall back.
+
+### Removal and the daily read
+
+Removal (`removal_pending`) deletes the recorded Resend domain by id after a `get` that must return the
+registration's name, and the recorded DNS records of both purposes; a Resend domain that is already gone
+counts as removed. A refusal (for example a name mismatch) keeps the claim in `removal_pending` with an
+alert and does not hold back the DNS deletions. The registration is never deleted. The daily sweep also
+compares Resend's domain list with the recorded ids (alerts `resend_unrecorded` and `resend_missing`,
+names of the platform's own domains ignored) and re-reads each verified domain (alert
+`resend_not_verified`). `DomainEvent.detail` of the email track holds only whitelisted keys
+(`events.DETAIL_KEYS`): never a record value, an id, a key or a provider body.
+
+### Alerts added by B3
+
+`email_waiting_capacity`, `email_failed` (with a reason), `resend_removal_waiting`, `resend_unrecorded`,
+`resend_missing`, `resend_not_verified`, `resend_name_mismatch`, `resend_read_failed`,
+`resend_list_failed`. Not built: the optional per-domain DMARC record (an operator step after verified).
