@@ -62,7 +62,7 @@ Bunny has no shell, exec, ssh or one-off job API, so the commands cannot be run 
 2. Quiet window. Adding or removing that container rolls the whole app out. While Postgres and Redis share the pod that is 1 to 3 minutes of 503, so do it only at 02:00-05:00 HKT, announced to the SANTE Supervisor first, and check `/readyz/` before and after. Once staging uses the separate data app (ZD-1, `docs/runbooks/bunny-staging.md`), a rollout of the release app no longer restarts Postgres, but keep the announcement and the window until that cutover is proven.
 3. Read the output from the private store, then delete the temporary container. Removing it rolls the app out again, in the same window.
 
-Expected: `migrate --plan` prints `No planned migration operations.` and `showmigrations` shows every listed migration applied. Not confirmed from code: whether a ready script exists for the job container's command (none was found in `deploy/bunny/`), so the entry script is written for the run.
+Expected: `migrate --plan` prints `No planned migration operations.` and `showmigrations` shows every listed migration applied. The startup command is overridden through the container template's `entryPoint` (`commandArray: ["python"]`, `argumentsArray: ["-c", <script>]`). This is how the staging one-off read jobs ran on 2026-11-20 and 2026-11-23. No ready-made script is kept in the repository; the script is written for each run.
 
 ## Notes
 
