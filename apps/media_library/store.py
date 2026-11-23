@@ -10,7 +10,7 @@ import secrets
 import urllib.parse
 
 from apps.catalog import media
-from apps.common import private_files
+from apps.common import file_refs, private_files
 
 FOLDER = "media-library"
 IMAGE_MAX_BYTES = 10 * 1024 * 1024  # TWCinc ML_MAX_IMAGE_BYTES
@@ -58,4 +58,5 @@ def save(asset, content, content_type):
 
 
 def discard(key):
-    media.discard(key)
+    """Remove the file unless another row still names its key (apps/common/file_refs.py)."""
+    file_refs.discard_if_unreferenced(key)

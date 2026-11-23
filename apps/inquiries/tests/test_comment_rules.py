@@ -641,9 +641,9 @@ class CapTests(RulesTestCase):
         self.ready()
         self.master()
 
-    def fill(self, count, *, minutes_ago=0, kind="public", state="sent"):
-        """`count` automatic replies already made `minutes_ago` minutes ago (one filler comment each)."""
-        at = timezone.now() - timedelta(minutes=minutes_ago)
+    def fill(self, count, *, minutes_ago=0, kind="public", state="sent", now=None):
+        """`count` automatic replies already made `minutes_ago` minutes before `now` (one filler comment each)."""
+        at = (now or timezone.now()) - timedelta(minutes=minutes_ago)
         anchor = self.comment()
         self.n += 1
         fillers = InquiryComment.objects.bulk_create([
@@ -694,12 +694,14 @@ class CapTests(RulesTestCase):
 
     def test_both_kinds_are_counted(self):
         self.rule(private_text=PRIVATE)
-        self.fill(29, minutes_ago=5, kind="private")
+        # Pinned mid-evening Manila, so "5 minutes ago" never falls into yesterday (CI just after midnight).
+        now = timezone.now().astimezone(auto.MANILA).replace(hour=20, minute=0, second=0, microsecond=0)
+        self.fill(29, minutes_ago=5, kind="private", now=now)
         comment = self.comment()
-        self.assertEqual(self.run_eval(comment)[0], "queued")
+        self.assertEqual(self.run_eval(comment, now=now)[0], "queued")
         kinds = {r.kind: r.state for r in InquiryCommentAction.objects.filter(comment=comment)}
         self.assertEqual(kinds, {"public": "queued", "private": "limit"})
-        a = auto.automation_out(self.site)
+        a = auto.automation_out(self.site, now=now)
         self.assertEqual((a["hour"]["count"], a["today"]["count"]), (30, 30))
 
     def test_failed_cancelled_and_limit_rows_are_not_counted(self):

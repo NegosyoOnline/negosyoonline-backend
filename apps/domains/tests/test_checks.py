@@ -42,6 +42,24 @@ class DomainsChecksTests(SimpleTestCase):
             CLOUDFLARE_DNS_API_TOKEN="t", VERCEL_API_TOKEN="t", VERCEL_STOREFRONTS_PROJECT_ID="p", CLOUDFLARE_ACCOUNT_ID="a",
         ), [])
 
+    def test_purchase_on_names_the_unset_money_settings_and_never_a_value(self):
+        found = self.run_it(
+            DOMAINS_PSL_FILE=PSL, DOMAINS_ENABLED=True, DOMAINS_PURCHASE_ENABLED=True,
+            CLOUDFLARE_REGISTRAR_API_TOKEN="a-registrar-secret", DOMAINS_MAX_COST_CENTS=0,
+            DOMAINS_DAILY_PURCHASE_CAP=3, DOMAINS_DAILY_SPEND_CAP_CENTS=0, DOMAINS_ALLOWED_TLDS=(),
+        )
+        self.assertEqual(ids(found), {"domains.W004"})
+        text = found[0].msg
+        for name in ("DOMAINS_MAX_COST_USD", "DOMAINS_DAILY_SPEND_CAP_USD", "DOMAINS_ALLOWED_TLDS"):
+            self.assertIn(name, text)
+        for name in ("CLOUDFLARE_REGISTRAR_API_TOKEN", "DOMAINS_DAILY_PURCHASE_CAP", "a-registrar-secret"):
+            self.assertNotIn(name, text)
+
+    def test_purchase_off_is_quiet_whatever_the_money_settings_hold(self):
+        self.assertEqual(self.run_it(
+            DOMAINS_PSL_FILE=PSL, DOMAINS_ENABLED=True, DOMAINS_PURCHASE_ENABLED=False, DOMAINS_MAX_COST_CENTS=0,
+        ), [])
+
     def test_the_fake_provider_without_debug_is_an_error(self):
         with override_settings(DOMAINS_PROVIDER="fake", DEBUG=False):
             self.assertEqual(ids(checks.check_domains_fake(None)), {"domains.E001"})

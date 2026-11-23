@@ -85,6 +85,7 @@ ACTIONS = {
     "billing_record_edit_refused": KEPT,
     "billing_record_delete_refused": KEPT,
     "sante_catalog_owner_set": KEPT,
+    "sante_content_source_set": KEPT,
     "sante_agreement_version_created": KEPT,
     "sante_agreement_version_updated": KEPT,
     "sante_agreement_version_deleted": KEPT,
@@ -98,6 +99,13 @@ ACTIONS = {
     "site_erasure_skipped": KEPT,
     "erasure_hold_set": KEPT,
     "erasure_hold_released": KEPT,
+    # Custom domains (apps/domains/staff.py). Ids and codes: never a value.
+    "domains_retry": KEPT,
+    "domains_disconnect": KEPT,
+    "domains_request_cancelled": KEPT,
+    "domains_confirm_requested": KEPT,
+    "domains_confirmed_registered": KEPT,
+    "domains_confirm_refused": KEPT,
 }
 SIGN_IN_ACTIONS = ("admin_sign_in_ok", "admin_sign_in_failed", "admin_locked", "admin_sign_out")
 IDENTITY_TARGET = "admin_identity"

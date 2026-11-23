@@ -259,6 +259,16 @@ DB_BACKUP_STALE_HOURS = int(os.environ.get("DB_BACKUP_STALE_HOURS", "30"))
 # unset, no product photo can be uploaded; the rest of the catalog works.
 PUBLIC_BLOB_READ_WRITE_TOKEN = os.environ.get("PUBLIC_BLOB_READ_WRITE_TOKEN", "").strip()
 PUBLIC_MEDIA_BASE_URL = os.environ.get("PUBLIC_MEDIA_BASE_URL", "").strip().rstrip("/")
+# Bunny Stream (apps/training/stream.py). Only the two public API hosts are global. Every store has
+# its own library: its id, CDN host and key name are a StreamLibrary row, and its key is read from
+# the variable BUNNY_STREAM_KEY_<KEY_REF> at the moment of use, never stored or logged.
+BUNNY_STREAM_API_BASE = os.environ.get("BUNNY_STREAM_API_BASE", "https://video.bunnycdn.com").strip().rstrip("/")
+BUNNY_STREAM_EMBED_BASE = os.environ.get(
+    "BUNNY_STREAM_EMBED_BASE", "https://iframe.mediadelivery.net/embed"
+).strip().rstrip("/")
+# Scheme of a library's CDN host for the source download of a copy. Always https; "http" only for
+# the local preview stand-in (docs/session-state/packets/cp1-copy-preview/stream-standin.py).
+BUNNY_STREAM_CDN_SCHEME = os.environ.get("BUNNY_STREAM_CDN_SCHEME", "https").strip()
 # Santé member sign-in (apps/members), on the storefront surface below. "1" turns on its four
 # routes. Off, they answer the 404 of an unknown site and no member table is read or written.
 # Sign-in codes and limits live in the cache, so it needs REDIS_URL outside local work.
@@ -718,6 +728,52 @@ CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
 CLOUDFLARE_DNS_API_TOKEN = os.environ.get("CLOUDFLARE_DNS_API_TOKEN", "").strip()
 VERCEL_API_TOKEN = os.environ.get("VERCEL_API_TOKEN", "").strip()
 VERCEL_STOREFRONTS_PROJECT_ID = os.environ.get("VERCEL_STOREFRONTS_PROJECT_ID", "").strip()
+# The purchase (B2). Off by default; a purchase also needs DOMAINS_ENABLED, a provider that is not
+# paused and the worker-only Registrar token. A re-attach of a succeeded registration spends nothing
+# and ignores DOMAINS_PURCHASE_ENABLED. Every money value is unset = 0 = no purchase at all.
+DOMAINS_PURCHASE_ENABLED = os.environ.get("DOMAINS_PURCHASE_ENABLED", "").strip() == "1"
+CLOUDFLARE_REGISTRAR_API_TOKEN = os.environ.get("CLOUDFLARE_REGISTRAR_API_TOKEN", "").strip()
+DOMAINS_REGISTER_AUTO_RENEW = os.environ.get("DOMAINS_REGISTER_AUTO_RENEW", "").strip() == "1"
+
+
+def _usd_cents(name):
+    """A dollar amount in the environment as integer cents; unset, invalid or negative is 0."""
+    from decimal import ROUND_FLOOR, Decimal, InvalidOperation
+
+    try:
+        amount = Decimal(os.environ.get(name, "").strip() or "0")
+    except InvalidOperation:
+        return 0
+    if not amount.is_finite() or amount < 0:
+        return 0
+    return int((amount * 100).to_integral_value(rounding=ROUND_FLOOR))
+
+
+def _int_setting(name):
+    raw = os.environ.get(name, "").strip()
+    return int(raw) if raw.isdigit() else 0
+
+
+DOMAINS_MAX_COST_CENTS = _usd_cents("DOMAINS_MAX_COST_USD")
+DOMAINS_DAILY_SPEND_CAP_CENTS = _usd_cents("DOMAINS_DAILY_SPEND_CAP_USD")
+DOMAINS_DAILY_PURCHASE_CAP = _int_setting("DOMAINS_DAILY_PURCHASE_CAP")
+DOMAINS_ALLOWED_TLDS = tuple(
+    part.strip().lower().strip(".")
+    for part in os.environ.get("DOMAINS_ALLOWED_TLDS", "").split(",")
+    if part.strip()
+)
+DOMAINS_CHECKS_PER_HOUR_SITE = _int_setting("DOMAINS_CHECKS_PER_HOUR_SITE") or 20
+DOMAINS_CHECKS_PER_HOUR_ACCOUNT = _int_setting("DOMAINS_CHECKS_PER_HOUR_ACCOUNT") or 200
+# Store email on the customer's domain (B3). Off by default. The Resend key is the worker's; the
+# region is one fixed value (an unknown one is read as unset, so the adapter refuses to create);
+# DOMAINS_MAX_EMAIL_DOMAINS is how many Subscriber domains the Resend plan can hold beyond the
+# platform's own (unset = 0 = every email track waits; the website and the purchase never wait).
+DOMAINS_EMAIL_ENABLED = os.environ.get("DOMAINS_EMAIL_ENABLED", "").strip() == "1"
+RESEND_DOMAINS_API_KEY = os.environ.get("RESEND_DOMAINS_API_KEY", "").strip()
+RESEND_REGION = os.environ.get("RESEND_REGION", "").strip().lower()
+if RESEND_REGION not in ("us-east-1", "eu-west-1", "sa-east-1", "ap-northeast-1"):
+    RESEND_REGION = ""
+DOMAINS_MAX_EMAIL_DOMAINS = _int_setting("DOMAINS_MAX_EMAIL_DOMAINS")
 # The Public Suffix List data file, vendored in the repo (source https://publicsuffix.org/list/public_suffix_list.dat,
 # licence MPL-2.0, downloaded 2026-11-22; refresh steps in docs/runbooks/custom-domains.md). This code never
 # downloads it; if the file is absent, every name is refused (fails closed).

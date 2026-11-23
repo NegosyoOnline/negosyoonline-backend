@@ -17,7 +17,7 @@ OUT_KEYS = {
     "id", "title", "asset_type", "category", "category_label", "product_category",
     "product_category_label", "crop_ratio", "caption", "file_url", "thumb_url", "poster_url",
     "width", "height", "file_size", "duration_seconds", "published_at", "is_new", "active", "order",
-    "published", "created_at", "updated_at",
+    "published", "shared", "copied_from", "created_at", "updated_at",
 }
 
 

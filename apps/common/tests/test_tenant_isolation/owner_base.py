@@ -35,6 +35,7 @@ from apps.shop.tests.owner_base import make_order as make_shop_order
 from apps.payments.tests.base import BANK, make_payment_account, qr_file, stored_files, use_local_private_store
 from apps.sites.models import Site
 from apps.training.models import Course, Lesson, LiveTraining, Module
+from apps.training.tests.stream_fake import FakeBunny, set_library
 from apps.media_library.models import MediaAsset
 from apps.media_library.tests.base import FakeStore, HEAD, RW_SETTINGS, rw_blob_url
 from apps.sites.tests.api_base import SitesApiTestCase
@@ -106,6 +107,11 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/training/modules/{module_id}/lessons/"): 201,
     ("POST", "/sites/{site_id}/training/modules/{module_id}/lessons/reorder/"): 200,
     ("PATCH", "/sites/{site_id}/training/lessons/{lesson_id}/"): 200,
+    # a lesson's Bunny Stream video (R2): each store uploads into its own library
+    ("POST", "/sites/{site_id}/training/lessons/{lesson_id}/video/upload/"): 201,
+    ("GET", "/sites/{site_id}/training/lessons/{lesson_id}/video/"): 200,
+    ("DELETE", "/sites/{site_id}/training/lessons/{lesson_id}/video/"): 200,
+    ("GET", "/sites/{site_id}/training/courses/{course_id}/watch/"): 200,
     ("POST", "/sites/{site_id}/training/lessons/{lesson_id}/image/"): 200,
     ("DELETE", "/sites/{site_id}/training/lessons/{lesson_id}/image/"): 200,
     ("DELETE", "/sites/{site_id}/training/lessons/{lesson_id}/"): 200,
@@ -129,6 +135,14 @@ OWNER_ROUTES = {
     ("POST", "/sites/{site_id}/media/{asset_id}/video/token/"): 200,
     ("POST", "/sites/{site_id}/media/{asset_id}/video/attach/"): 200,
     ("DELETE", "/sites/{site_id}/media/{asset_id}/"): 200,
+    # domains (the Subscriber's Domain screen; both owners are still on their trial, so the gate answers 409)
+    ("GET", "/sites/{site_id}/domain/"): 200,
+    ("POST", "/sites/{site_id}/domain/check/"): 409,
+    ("POST", "/sites/{site_id}/domain/buy/"): 409,
+    ("POST", "/sites/{site_id}/domain/retry/"): 409,
+    # copy shared content from the content source store (CP-1)
+    ("GET", "/sites/{site_id}/shared-content/"): 200,
+    ("POST", "/sites/{site_id}/shared-content/copy/"): 202,
     # billing
     ("GET", "/sites/{site_id}/billing/"): 200,
     ("GET", "/sites/{site_id}/billing/payment/"): 200,
@@ -254,6 +268,8 @@ APP_PREFIXES = [
     ("/sites/{site_id}/member-notices/", "member_notices"),
     ("/sites/{site_id}/training/", "training"),
     ("/sites/{site_id}/media/", "media"),
+    ("/sites/{site_id}/domain/", "domains"),
+    ("/sites/{site_id}/shared-content/", "shared_content"),
 ]
 
 
@@ -303,7 +319,7 @@ def child_variants(template, own, foreign):
     INQUIRY_SMS_ENABLED=True, SMS_GATEWAY_ENABLED=True, SMS_SITE_LINES_ENABLED=True,
     INQUIRY_MESSENGER_ENABLED=True, META_MESSENGER_APP_ID="123456", META_MESSENGER_APP_SECRET="test-secret",
     MESSENGER_VERIFY_TOKEN="test-verify", INQUIRY_COMMENTS_ENABLED=True, INQUIRY_COMMENT_AUTOMATION_ENABLED=True,
-    XENDIT_ENABLED=True, XENDIT_FAKE=True, DEBUG=True, PAYMENT_CREDENTIALS_KEY=Fernet.generate_key().decode(),
+    XENDIT_ENABLED=True, XENDIT_FAKE=True, DOMAINS_ENABLED=True, DEBUG=True, PAYMENT_CREDENTIALS_KEY=Fernet.generate_key().decode(),
 )
 class TwoOwnersTestCase(SitesApiTestCase):
     """Ana (self.client, self.site) and Ben (self.ben, self.ben_site), each with a Santé site and
@@ -322,6 +338,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
         self.addCleanup(self.media_store.__exit__, None, None, None)
         self.meta = FakeMeta().__enter__()
         self.addCleanup(self.meta.__exit__, None, None, None)
+        self.bunny = FakeBunny().__enter__()  # each store's own Stream library, no real call
+        self.addCleanup(self.bunny.__exit__, None, None, None)
         usage_on = mock.patch.object(plan, "STORAGE_METERED", True)  # usage is shown only when metered
         usage_on.start()
         self.addCleanup(usage_on.stop)
@@ -344,6 +362,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             client=self.ben, subdomain="bens-store", display_name="Ben's"
         )["id"]
         self.ben_site = Site.objects.get(public_id=self.ben_site_id)
+        set_library(self.site, 111, "ANA")
+        set_library(self.ben_site, 222, "BEN")
         designate(self.site)  # Ana's site owns the one shared catalog
         self.invoice_ids = {
             site.pk: self.make_invoice_copy(site) for site in (self.site, self.ben_site)
@@ -556,6 +576,10 @@ class TwoOwnersTestCase(SitesApiTestCase):
             return client.delete(f"{path}?revision={revision}", secure=True, HTTP_ORIGIN=ORIGIN)
         if "/training/" in path and path.endswith(("/image/", "/thumbnail/")) and method == "POST":
             return client.post(path, data={"file": image_file()}, secure=True, HTTP_ORIGIN=ORIGIN)
+        if "/training/" in path and "/video/" in path:  # the Stream routes take no body
+            if method == "GET":
+                return self.get(path, client=client)
+            return self.send(method.lower(), path, None, client=client)
         if "/training/" in path and path.endswith("/reorder/"):
             return self.send("post", path, {"ids": self.reorder_ids(path)}, client=client)
         if "/media/" in path and path.endswith("/image/") and method == "POST":
@@ -629,6 +653,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             if method == "POST":
                 return {"kind": "announcement", "title": "Fixture notice"}
             return {"title": "Changed"} if method == "PATCH" else None
+        if "/shared-content/" in template:
+            return {"kind": "course", "all": True} if method == "POST" else None
         if "/media/" in template:
             if method == "POST" and template.endswith("/media/"):
                 return {"title": "Fixture media", "asset_type": "image"}
@@ -641,6 +667,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             if method == "POST":
                 return {"title": "Fixture"}
             return {"title": "Changed"} if method == "PATCH" else None
+        if "/domain/" in template:
+            return {"name": "brand.com"} if template.endswith(("/check/", "/buy/")) else None
         if template.endswith("/billing/profile/"):
             return {**PROFILE, "company_name": "Fixture Co"}
         if template.endswith("/payment-methods/"):
@@ -694,6 +722,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
             "media_library_store": (sorted(self.media_store.files), list(self.media_store.deleted)),
             "outbox": [(m.to, m.subject) for m in mail.outbox],
             "meta_requests": len(self.meta.requests),
+            "stream_videos": (sorted(self.bunny.videos), list(self.bunny.deleted)),
         }
 
     def assertUnchanged(self, before, message):

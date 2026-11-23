@@ -34,6 +34,10 @@ class MediaAsset(models.Model):
     active = models.BooleanField(default=True)
     order = models.PositiveIntegerField(default=1)
     published_at = models.DateTimeField(null=True, blank=True)  # empty = not published
+    # shared: offered to other stores to copy (only the content source store may set it).
+    # copied_from: public id of the source asset, a plain string, never a cross-store foreign key.
+    shared = models.BooleanField(default=False)
+    copied_from = models.CharField(max_length=40, blank=True, default="")
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
 

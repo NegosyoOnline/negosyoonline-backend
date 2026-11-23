@@ -156,7 +156,8 @@ VIDEO_FILE_MSG = (
 def owner_out(asset):
     return {
         **asset_out(asset), "active": asset.active, "order": asset.order,
-        "published": asset.published_at is not None, "created_at": asset.created_at,
+        "published": asset.published_at is not None, "shared": asset.shared,
+        "copied_from": asset.copied_from or None, "created_at": asset.created_at,
         "updated_at": asset.updated_at,
     }
 
@@ -186,8 +187,17 @@ def _whole(value, low, high):
     return value if isinstance(value, int) and low <= value <= high else None
 
 
-def _values(data, errors, *, creating):
+def _values(data, errors, *, creating, site=None):
     out = {}
+    if "shared" in data:
+        from apps.sante import services as sante
+
+        if not isinstance(data["shared"], bool):
+            errors["shared"] = "Send true or false."
+        elif site is None or not sante.is_content_source(site):
+            errors["shared"] = "Only the content source store can share media."
+        else:
+            out["shared"] = data["shared"]
     if "title" in data or creating:
         title = data.get("title")
         if not isinstance(title, str) or not 1 <= len(title.strip()) <= 160:
@@ -253,7 +263,7 @@ def create_asset(site, data):
 def update_asset(site, public_id, data):
     asset = get_asset(site, public_id, lock=True)
     errors = {}
-    values = _values(data, errors, creating=False)
+    values = _values(data, errors, creating=False, site=site)
     if errors:
         raise _invalid(errors)
     for name, value in values.items():

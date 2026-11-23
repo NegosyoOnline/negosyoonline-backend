@@ -39,6 +39,53 @@ class SanteCatalogOwner(models.Model):
 
 
 
+class SanteContentSource(models.Model):
+    """The one row (pk 1) that names the store whose shared courses and media other Santé stores
+    may copy. Only an operator sets it (services.set_content_source). With no site, the
+    "From Live4More" lists are empty."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    site = models.OneToOneField(
+        "sites.Site", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Santé content source"
+        verbose_name_plural = "Santé content source"
+
+    def __str__(self):
+        return "Santé content source"
+
+
+class SanteContentCopy(models.Model):
+    """One request to copy one source item into one store. The newest row per (site, kind,
+    source_public_id) is that item's state; the source id is a plain string, never a foreign
+    key across stores. Write this table through apps/sante/content_copy.py."""
+
+    COPYING, COPIED, FAILED = "copying", "copied", "failed"
+    KINDS = (("course", "Course"), ("media", "Media"))
+    STATES = ((COPYING, "Copying"), (COPIED, "Copied"), (FAILED, "Failed"))
+
+    site = models.ForeignKey("sites.Site", on_delete=models.CASCADE, related_name="+")
+    kind = models.CharField(max_length=10, choices=KINDS)
+    source_public_id = models.CharField(max_length=40)
+    state = models.CharField(max_length=10, choices=STATES, default=COPYING)
+    target_public_id = models.CharField(max_length=40, blank=True, default="")
+    requested_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    error = models.CharField(max_length=200, blank=True, default="")  # short, never a secret
+
+    class Meta:
+        ordering = ["-id"]
+        indexes = [
+            models.Index(fields=["site", "kind", "source_public_id"], name="sante_copy_item"),
+        ]
+
+    def __str__(self):
+        return f"{self.kind}:{self.source_public_id}->{self.site_id}:{self.state}"
+
+
 class ImmutableRecordError(Exception):
     """The row is kept for the record and cannot be changed or deleted."""
 

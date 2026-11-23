@@ -10,6 +10,7 @@ from apps.accounts.api_connections import router as connections_router
 from apps.accounts.api_facebook import router as facebook_router
 from apps.billing.api import router as billing_router
 from apps.catalog.api import router as catalog_router
+from apps.domains.api_owner import router as domains_owner_router
 from apps.inquiries.api_comment_rules import router as comment_rules_router
 from apps.inquiries.api_comments import router as comments_router
 from apps.inquiries.api_messenger import owner as messenger_owner_router, public as messenger_public_router
@@ -23,6 +24,7 @@ from apps.notifications.api_owner import router as sms_line_router
 from apps.payments.api import router as payments_router
 from apps.payments.api_xendit import public as xendit_public_router, router as xendit_router
 from apps.training.api_owner import router as training_owner_router
+from apps.sante.api_shared import router as sante_shared_router
 from apps.media_library.api_owner import router as media_library_owner_router
 from apps.sante.api import router as sante_router
 from apps.shop.api_owner import router as shop_owner_router
@@ -56,6 +58,7 @@ api.add_router("", member_recovery_router)
 api.add_router("", member_notices_router)
 api.add_router("", training_owner_router)
 api.add_router("", media_library_owner_router)
+api.add_router("", sante_shared_router)
 api.add_router("", shop_owner_router)
 api.add_router("", meta_router)
 api.add_router("", sms_line_router)
@@ -64,6 +67,7 @@ api.add_router("", comments_router)
 api.add_router("", comment_rules_router)
 api.add_router("", messenger_owner_router)
 api.add_router("", messenger_public_router)
+api.add_router("", domains_owner_router)
 
 
 @csrf_exempt  # so a write to an unknown path gets this JSON 404, not Django's HTML CSRF page
