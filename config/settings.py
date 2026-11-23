@@ -143,6 +143,10 @@ SMS_CONTACTS_ENABLED = os.environ.get("SMS_CONTACTS_ENABLED", "").strip() == "1"
 # Needs SMS_INBOX_ENABLED as well. Off, every bulk route answers 404 and the poll queues nothing for
 # a batch. A STOP reply is still listed as do-not-text whatever this says.
 SMS_BULK_ENABLED = os.environ.get("SMS_BULK_ENABLED", "").strip() == "1"
+# Promotional text consent (PROMO-CONSENT, z8uq9mbreu): "1" shows the checkout checkbox wording, records a
+# yes at checkout and in the member's preferences, and lists agreed members. Off, those answers
+# omit the fields, the checkout ignores the flag and the member preference routes answer 404.
+PROMO_SMS_CONSENT_ENABLED = os.environ.get("PROMO_SMS_CONSENT_ENABLED", "").strip() == "1"
 # Account-side retention. "1" lets its rules delete and blank. Off, a run of them touches
 # nothing; only the dry run counts.
 RETENTION_ENABLED = os.environ.get("RETENTION_ENABLED", "").strip() == "1"

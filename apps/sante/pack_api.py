@@ -12,6 +12,7 @@ from django.http import HttpResponse
 from ninja import Router, Schema
 
 from apps.common.errors import ApiError
+from apps.members import promo
 from apps.sante import agreement, pack
 from apps.storefront import services
 
@@ -49,11 +50,19 @@ class PackOut(Schema):
     available: bool
     agreement: AgreementOut | None
     payment_accounts: list[AccountOut]
+    # PROMO-CONSENT (z8uq9mbreu, contract v1.2): present only while PROMO_SMS_CONSENT_ENABLED is on.
+    promo_sms_consent_enabled: bool | None = None
+    promo_sms_version: str | None = None
+    promo_sms_text: str | None = None
 
 
-@router.get("/pack/", response=PackOut)
+@router.get("/pack/", response=PackOut, exclude_unset=True)
 def pack_view(request, host: str = ""):
-    return pack.pack_out(_site(host))
+    site = _site(host)
+    out = dict(pack.pack_out(site))
+    if promo.enabled():
+        out.update(promo.contact_fields(site))
+    return out
 
 
 def _file(content, content_type, name):

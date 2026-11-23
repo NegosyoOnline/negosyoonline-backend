@@ -12,7 +12,7 @@ to put the order under review."""
 from django.db import transaction
 
 from apps.common.errors import ApiError
-from apps.members import services as members
+from apps.members import promo, services as members
 from apps.members.models import MemberOtpChallenge
 from apps.pack import checkout
 
@@ -56,6 +56,7 @@ def attach_member(order, *, state_bump=True):
             member = _resolve(order)
     except ApiError as exc:
         return None, exc
+    promo.opt_in_from_order(order, member)  # a yes the checkout recorded (z8uq9mbreu)
     order.member, order.buyer_mobile, order.buyer_email, order.onboarding_challenge_id = member, "", "", None
     if state_bump:
         order.state_version += 1

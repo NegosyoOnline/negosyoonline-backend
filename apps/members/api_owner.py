@@ -1,6 +1,8 @@
 """The Subscriber's help for a member who lost both contacts, under /v1/sites/{site_id}/members/:
 
     GET  .../members/?q=                          -> {members: [row]} (2+ characters, 20 rows)
+    GET  .../members/?promo=1&q=&page=            -> {members, page, has_more}: only members who agreed to promotional
+                                                     texts, q optional, 20 per page, newest first (PROMO_SMS_CONSENT_ENABLED)
     GET  .../members/by-order/?ids=a,b            -> {members: {order_id: row}} for Membership Package orders
     GET  .../members/{id}/recovery/               -> {member, items, hold, recent_recoveries}
     POST .../members/{id}/recovery/check/         {answers: {item: matched|not_matched}} -> {check_id, passed, expires_at}
@@ -13,7 +15,7 @@ Every answer is Cache-Control: no-store.
 """
 from django.conf import settings
 from django.http import JsonResponse
-from ninja import Router, Schema
+from ninja import Query, Router, Schema
 from pydantic import ConfigDict
 
 from apps.accounts.api import signed_in
@@ -24,7 +26,7 @@ from apps.sites import templates
 from apps.sites.api import _owner_site
 from apps.sites.services import site_for
 
-from . import contacts, holds, recovery, sms
+from . import contacts, holds, promo, recovery, sms
 from .models import Member, MemberContactAudit
 
 SEARCH_LIMIT = ("members-search-acct", 60, 600)
@@ -86,7 +88,7 @@ def _hold(member):
 
 
 def row(member, hold=None):
-    return {
+    out = {
         "id": member.public_id, "full_name": member.full_name,
         "mobile_masked": contacts.mask("mobile", member.mobile), "email_masked": contacts.mask("email", member.email),
         "mobile_state": member.mobile_state, "email_state": member.email_state,
@@ -94,6 +96,9 @@ def row(member, hold=None):
         "hold_ends_display": holds.display(hold.ends_at) if hold else None,
         "closed": recovery.is_closed(member),
     }
+    if promo.enabled():
+        out["promo_sms_ok"] = member.promo_sms_ok
+    return out
 
 
 def _address(member):
@@ -128,10 +133,24 @@ def _detail(member):
 
 
 @router.get("/sites/{site_id}/members/")
-def members_search(request, site_id: str, q: str = ""):
+def members_search(request, site_id: str, q: str = "", promo_filter: str = Query("", alias="promo"), page: int = 1):
     _limit(request, SEARCH_LIMIT)
+    if promo_filter == "1" and promo.enabled():
+        return _json(_promo_page(request.member_site, q, page))
     found = recovery.search(Member.objects.filter(site=request.member_site), q)[:SEARCH_MAX]
     return _json({"members": [row(m, _hold(m)) for m in found]})
+
+
+def _promo_page(site, q, page):
+    """The members who agreed to promotional texts, newest first, SEARCH_MAX a page. A blank q lists
+    them all; otherwise the same search as the plain list is narrowed to them."""
+    agreed = Member.objects.filter(site=site, promo_sms_ok=True)
+    found = recovery.search(agreed, q) if (q or "").strip() else agreed
+    page = max(page, 1)
+    found = found.order_by("-created_at", "-pk")[(page - 1) * SEARCH_MAX:page * SEARCH_MAX + 1]
+    found = list(found)
+    return {"members": [row(m, _hold(m)) for m in found[:SEARCH_MAX]], "page": page,
+            "has_more": len(found) > SEARCH_MAX}
 
 
 @router.get("/sites/{site_id}/members/by-order/")
