@@ -43,11 +43,11 @@ def _row(host, states):
     return row if row is not None and _own(row) else None
 
 
-def site_for_hostname(host):
+def site_for_hostname(host, include_held=False):
     """The served site of a custom hostname, not removed and not on operator hold, or None.
     Nothing about billing: `served` adds that."""
     row = _row(host, SERVED_STATES)
-    if row is None or row.claim.site.operator_hold:
+    if row is None or (row.claim.site.operator_hold and not include_held):
         return None
     return row.claim.site
 

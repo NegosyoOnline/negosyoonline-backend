@@ -4,7 +4,8 @@ They are in no URL list. `apps.operators.staff_views` registers `ROUTES` under /
 calls each handler with the staff user of a session that passed both steps. A handler answers as
 if it did not exist while HQ_SUBSCRIBERS_ENABLED is off, and reads nothing then.
 
-Read only, except Disable and Re-enable of a Site's own SMS line (`subscribers/sms-line/...`),
+Read only, except Suspend and Resume of a store (`subscribers/suspend/`, `subscribers/resume/`:
+Site.operator_hold, a reason, a fresh authenticator code and `confirm: true`) and Disable and Re-enable of a Site's own SMS line (`subscribers/sms-line/...`),
 which need SMS_SITE_LINES_ENABLED as well, a reason and a fresh authenticator code. One row is one Subscriber site: the site, its billing subscription and the owner's
 sign-in email. Nothing of a store's own customers is read here: no members, orders, chats or
 customer mobiles. Every route is a POST with a small JSON body, as the Finance routes are.
@@ -18,12 +19,13 @@ from django.db.models import Exists, F, OuterRef, Q, Subquery
 from django.http import JsonResponse
 from django.utils import timezone
 
+from apps.billing import notices
 from apps.billing.models import BankTransferPayment, BillingCycle, Subscription
 from apps.common.errors import ApiError, error_body
 from apps.common.ids import is_public_id
 from apps.notifications import sms
 from apps.notifications.models import SmsDevice, SmsLineDisable
-from apps.operators import audit, two_step
+from apps.operators import audit, fresh
 from apps.sites import custom_hosts
 from apps.sites.models import Site, SiteCustomHost, Subdomain
 
@@ -120,9 +122,10 @@ def _filtered(rows, name, now):
         )
     if name == "suspended_ended":
         return rows.filter(
-            subscription__state__in=(
+            Q(subscription__state__in=(
                 State.SUSPENDED, State.CANCELLED, State.CANCELLED_NO_PAYMENT_METHOD
-            )
+            ))
+            | Q(operator_hold=True)
         )
     return rows
 
@@ -175,6 +178,8 @@ def _row(site):
         "next_due_at": _iso(_next_due_at(site)) if subscription else None,
         "last_payment_at": _iso(site.last_payment) if subscription else None,
         "owner_email": site.account.email,
+        "held": site.operator_hold,
+        "held_label": "Suspended by HQ" if site.operator_hold else None,
         "created_at": _iso(site.created_at),
     }
 
@@ -253,7 +258,6 @@ def detail(body, operator):
 # `sms.site_has_line` is what reads it.
 
 MAX_REASON = 300
-REAUTH_MESSAGE = "That code did not work. Enter the current code from your authenticator app."
 
 
 def _active_disable(site):
@@ -295,26 +299,17 @@ def _reason(body):
     return reason
 
 
-def _fresh_code(body, operator):
-    """Refuse unless the body holds a fresh 6-digit authenticator code: one message for a wrong,
-    stale, reused or locked code and for a recovery code. The failure is audited with counts only."""
-    identity = operator.admin_identities.filter(is_active=True).first()
-    result = (
-        two_step.verify_fresh_totp(identity.pk, body.get("code"), surface=two_step.SURFACE_HQ)
-        if identity is not None
-        else two_step.Result(ok=False)
-    )
-    if result.ok:
+def _fresh_code(body, operator, *, hold=False):
+    """Refuse unless the body holds a fresh 6-digit authenticator code (apps.operators.fresh).
+    The failure is audited with counts only, as an SMS line or a Suspend / Resume refusal."""
+    detail = fresh.failure(body, operator)
+    if detail is None:
         return
-    identity = operator.admin_identities.filter(is_active=True).first()
-    audit.record(
-        operator, "hq_sms_line_reauth_failed", target_type=AUDIT_TARGET,
-        detail={
-            "failed_attempts": identity.failed_attempts if identity else 0,
-            "locked": bool(result.locked),
-        },
-    )
-    raise ApiError("reauth_failed", REAUTH_MESSAGE, status=403)
+    if hold:
+        audit.record(operator, "hq_site_reauth_failed", target_type=AUDIT_TARGET, detail=detail)
+    else:
+        audit.record(operator, "hq_sms_line_reauth_failed", target_type=AUDIT_TARGET, detail=detail)
+    raise fresh.refusal()
 
 
 @_route(needs_lines=True)
@@ -356,9 +351,67 @@ def line_reenable(body, operator):
     return JsonResponse({"sms_line": _line_state(site)})
 
 
+# HQ's Suspend / Resume of a store by hand: `Site.operator_hold` and nothing else. Billing, the
+# subscription state and the deletion clock are not touched (H3 plan, decision A). The reason is
+# 10 to 500 characters, goes to the audit log only and is never put in the owner's email.
+
+MIN_HOLD_REASON, MAX_HOLD_REASON = 10, 500
+
+
+def _hold_reason(body):
+    reason = body.get("reason")
+    reason = reason.strip() if isinstance(reason, str) else ""
+    if not MIN_HOLD_REASON <= len(reason) <= MAX_HOLD_REASON:
+        raise _invalid("reason", "Give a reason of 10 to 500 characters.")
+    return reason
+
+
+def _hold_change(body, operator, *, hold):
+    """Set `operator_hold` to `hold` under a row lock. Repeating the call changes nothing."""
+    site = _line_site(body)
+    reason = _hold_reason(body)
+    if body.get("confirm") is not True:
+        raise ApiError("confirm_required", "Confirm to continue.", status=400)
+    wrong = ("already_suspended", "This store is already suspended.") if hold else (
+        "not_suspended", "This store is not suspended.")
+    if site.operator_hold is hold:
+        raise ApiError(*wrong, status=409)
+    _fresh_code(body, operator, hold=True)
+    with transaction.atomic():
+        locked = Site.objects.select_for_update().get(pk=site.pk)
+        if locked.operator_hold is hold:
+            raise ApiError(*wrong, status=409)
+        locked.operator_hold = hold
+        locked.save(update_fields=["operator_hold"])
+        if hold:
+            entry = audit.record(
+                operator, "hq_site_suspended", target_type=AUDIT_TARGET,
+                target_id=locked.public_id, reason=reason,
+            )
+        else:
+            entry = audit.record(
+                operator, "hq_site_resumed", target_type=AUDIT_TARGET,
+                target_id=locked.public_id, reason=reason,
+            )
+    notices.hold_notice(locked, paused=hold, key=f"hq_hold:{locked.pk}:{entry.pk}")
+    return JsonResponse({"site_id": locked.public_id, "held": hold})
+
+
+@_route
+def suspend(body, operator):
+    return _hold_change(body, operator, hold=True)
+
+
+@_route
+def resume(body, operator):
+    return _hold_change(body, operator, hold=False)
+
+
 ROUTES = {
     "subscribers/list/": listing,
     "subscribers/detail/": detail,
     "subscribers/sms-line/disable/": line_disable,
     "subscribers/sms-line/reenable/": line_reenable,
+    "subscribers/suspend/": suspend,
+    "subscribers/resume/": resume,
 }

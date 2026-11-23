@@ -529,3 +529,25 @@ class SwitchAndSiteTests(MembersTestCase):
                 BASE + path, {"host": HOST}, secure=True, HTTP_AUTHORIZATION=f"Bearer {SECRET}"
             )
             self.assertEqual(response.status_code, 405, path)
+
+
+class HeldStoreTests(MembersTestCase):
+    """H3, decision C: a store HQ suspended by hand (operator_hold) still answers its members."""
+
+    def test_members_still_get_sign_in_codes_and_read_their_session(self):
+        token = self.sign_in()
+        Site.objects.filter(pk=self.site.pk).update(operator_hold=True)
+        cache.clear()
+        self.age_challenges()
+        before = len(mail.outbox)
+        self.assertEqual(self.request_code().status_code, 200)
+        self.assertEqual(len(mail.outbox), before + 1)
+        self.assertEqual(self.post("me/", token=token).status_code, 200)
+        self.assertEqual(self.post("order-log/", token=token).status_code, 200)
+
+    def test_the_public_lookup_stays_404_and_a_removed_store_is_404_for_members(self):
+        Site.objects.filter(pk=self.site.pk).update(operator_hold=True)
+        response = self.client.get("/v1/public/sites/by-host/", {"host": HOST}, secure=True)
+        self.assertEqual(response.status_code, 404)
+        Site.objects.filter(pk=self.site.pk).update(deleted_at=timezone.now())
+        self.assertEqual(self.request_code().status_code, 404)
