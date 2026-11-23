@@ -58,6 +58,31 @@ def forget_store_limit_check():
     _STORE_LIMITS.update(found=False, checked=0.0)
 
 
+_STORE_BULK_LIMIT = {"found": False, "checked": 0.0}
+STORE_BULK_COLUMN = "store_bulk_daily_limit"
+
+
+def store_bulk_limit_column_exists():
+    """Whether notifications.0008 (SmsPolicy.store_bulk_daily_limit, and the store bulk tables) is
+    applied. Until it is, every SmsPolicy query leaves the column out and the rest of the SMS code
+    behaves as before: the code is released before its migration and must not stop a sign-in code.
+    Remembered once found; a missing one is looked for again every 30 s."""
+    if _STORE_BULK_LIMIT["found"]:
+        return True
+    now = time.monotonic()
+    if _STORE_BULK_LIMIT["checked"] and now - _STORE_BULK_LIMIT["checked"] < _RECHECK_AFTER:
+        return False
+    table = SmsPolicy._meta.db_table
+    with connection.cursor() as cursor:
+        columns = {c.name for c in connection.introspection.get_table_description(cursor, table)}
+    _STORE_BULK_LIMIT.update(found=STORE_BULK_COLUMN in columns, checked=now)
+    return _STORE_BULK_LIMIT["found"]
+
+
+def forget_store_bulk_limit_check():
+    _STORE_BULK_LIMIT.update(found=False, checked=0.0)
+
+
 class SmsDeviceManager(models.Manager):
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -146,6 +171,7 @@ class SmsMessage(models.Model):
         STATUS = "status"
         INBOX = "inbox"
         STORE = "store"  # a Santé store's text to its own member, from the store's dash Inbox
+        STORE_BULK = "storebulk"  # a store's bulk text to its own members (counted apart from STORE)
 
     class Priority(models.IntegerChoices):
         """The sending class. A lower number is handed to the phone first."""
@@ -218,14 +244,18 @@ class SmsLineDisable(models.Model):
 
 STORE_DAILY_LIMIT_DEFAULT = 50  # Coach Ed, 2026-11-21 (SO4): texts a store may send a day
 ALL_STORES_DAILY_LIMIT_DEFAULT = 1000  # ... and all stores together
+STORE_BULK_DAILY_LIMIT_DEFAULT = 2000  # Coach Ed, 2026-11-23 (STORE-BULK D3): bulk texts a store may send a day
 
 
 class SmsPolicyManager(models.Manager):
     def get_queryset(self):
         queryset = super().get_queryset()
-        if store_limit_columns_exist():
-            return queryset
-        return queryset.defer("store_daily_limit", "all_stores_daily_limit")
+        missing = []
+        if not store_limit_columns_exist():
+            missing += ["store_daily_limit", "all_stores_daily_limit"]
+        if not store_bulk_limit_column_exists():
+            missing.append(STORE_BULK_COLUMN)
+        return queryset.defer(*missing) if missing else queryset
 
 
 class SmsPolicy(models.Model):
@@ -248,6 +278,10 @@ class SmsPolicy(models.Model):
         default=ALL_STORES_DAILY_LIMIT_DEFAULT,
         help_text="Texts a day (Manila time) all stores together may send to their members.",
     )
+    store_bulk_daily_limit = models.PositiveIntegerField(
+        default=STORE_BULK_DAILY_LIMIT_DEFAULT,
+        help_text="Bulk texts a day (Manila time) one store may send to its own members, apart from its one-to-one texts.",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     objects = SmsPolicyManager()
@@ -258,6 +292,7 @@ class SmsPolicy(models.Model):
         # Before notifications.0006 the two columns are not read: the defaults stand in.
         instance.__dict__.setdefault("store_daily_limit", STORE_DAILY_LIMIT_DEFAULT)
         instance.__dict__.setdefault("all_stores_daily_limit", ALL_STORES_DAILY_LIMIT_DEFAULT)
+        instance.__dict__.setdefault(STORE_BULK_COLUMN, STORE_BULK_DAILY_LIMIT_DEFAULT)
         return instance
 
     class Meta:
@@ -267,3 +302,74 @@ class SmsPolicy(models.Model):
 
     def __str__(self):
         return "SMS settings"
+
+
+def new_store_bulk_id():
+    return new_public_id("sbk")
+
+
+class StoreBulkBatch(models.Model):
+    """One store's bulk text to its own members (STORE-BULK, ClickUp z8uq9mbreu). It holds the text as
+    sent (the store's name in front) for 180 days, then the whole batch is deleted. Never logged or
+    audited: the audit entries carry the batch id and counts only. One active batch per store."""
+
+    WAITING, SENDING, FINISHED, STOPPED, ENDED = "waiting", "sending", "finished", "stopped", "ended"
+    STATES = [(WAITING, "Waiting"), (SENDING, "Sending"), (FINISHED, "Finished"), (STOPPED, "Stopped"), (ENDED, "Ended")]
+    ACTIVE = (WAITING, SENDING)
+    ALL, PROMO = "all", "promo"
+    AUDIENCES = [(ALL, "All my members"), (PROMO, "Members who agreed to promo texts")]
+
+    public_id = models.CharField(max_length=40, unique=True, default=new_store_bulk_id, editable=False)
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="store_bulk_batches")
+    created_by = models.ForeignKey("accounts.Account", on_delete=models.PROTECT, related_name="+")
+    request_id = models.CharField(max_length=64)
+    text = models.CharField(max_length=160)  # as it arrives: the store's name first
+    promotional = models.BooleanField(default=False)  # a label only
+    audience = models.CharField(max_length=5, choices=AUDIENCES, default=ALL)
+    state = models.CharField(max_length=10, choices=STATES, default=WAITING)
+    end_reason = models.CharField(max_length=30, blank=True)  # stopped, site_held, billing_only, line_disabled, ...
+    size = models.PositiveIntegerField(default=0)
+    sent = models.PositiveIntegerField(default=0)
+    failed = models.PositiveIntegerField(default=0)
+    not_sent = models.PositiveIntegerField(default=0)
+    # Why members were left out when the batch was confirmed: {reason: count}.
+    left_out = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    stopped_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "store bulk batch"
+        constraints = [
+            models.UniqueConstraint(fields=["site", "request_id"], name="store_bulk_site_request_uniq"),
+            models.UniqueConstraint(
+                fields=["site"], condition=models.Q(state__in=["waiting", "sending"]),
+                name="store_bulk_one_active_per_site",
+            ),
+        ]
+
+    def __str__(self):  # never the text
+        return f"Store bulk batch {self.public_id}"
+
+
+class StoreBulkRecipient(models.Model):
+    """One member of a batch. The number is held in full only while the batch needs it; when the
+    batch is over it is replaced by its masked form."""
+
+    WAITING, QUEUED, SENT, FAILED, NOT_SENT = "waiting", "queued", "sent", "failed", "not_sent"
+
+    batch = models.ForeignKey(StoreBulkBatch, on_delete=models.CASCADE, related_name="recipients")
+    position = models.PositiveIntegerField()
+    member = models.ForeignKey("members.Member", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    name = models.CharField(max_length=120, blank=True)
+    mobile = models.CharField(max_length=13)  # +639XXXXXXXXX, or its masked form once the batch is over
+    state = models.CharField(max_length=10, default=WAITING)
+    reason = models.CharField(max_length=40, blank=True)
+    send_record = models.CharField(max_length=40, blank=True)  # the gateway's send record id
+
+    class Meta:
+        verbose_name = "store bulk recipient"
+        constraints = [models.UniqueConstraint(fields=["batch", "position"], name="store_bulk_recipient_position_uniq")]
+
+    def __str__(self):  # never the number or the name
+        return f"Recipient {self.pk} of batch {self.batch_id}"

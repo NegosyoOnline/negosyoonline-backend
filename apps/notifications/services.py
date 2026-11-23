@@ -16,7 +16,9 @@ from apps.common.disposal import is_disposed_address
 from apps.common.errors import ApiError
 from apps.common.phones import normalise_ph_mobile
 from apps.notifications import sms
-from apps.notifications.models import EmailMessage, SmsMessage, SmsPolicy, store_limit_columns_exist
+from apps.notifications.models import (
+    EmailMessage, SmsMessage, SmsPolicy, store_bulk_limit_column_exists, store_limit_columns_exist,
+)
 from apps.operators import audit, background
 
 logger = logging.getLogger(__name__)
@@ -179,6 +181,19 @@ def sms_store_status(site):
     }
 
 
+def sms_store_bulk_status(site):
+    """What a store's bulk screen may show of its own cap and phone: the cap, the room left today
+    and whether the store's own paired phone is online. Reads no SMS table while the gateway is off."""
+    if not sms.gateway_on():
+        return {"phone_online": False, "daily_limit": 0, "used_today": 0, "left_today": 0}
+    limit = sms.policy().store_bulk_daily_limit
+    used = sms.store_bulk_used_today(site)
+    return {
+        "phone_online": sms.gateway_online(site, sms.STORE_BULK),
+        "daily_limit": limit, "used_today": used, "left_today": max(limit - used, 0),
+    }
+
+
 def sms_phone_forwards():
     """Whether the phone that carries texts passes the texts it receives on (the incoming switch)."""
     phone = sms.pick_device()
@@ -242,7 +257,7 @@ def send_sms(*, to, purpose, text, site=None, fallback=None, ttl=sms.DEFAULT_LIF
         raise ValueError(problem)
     if declared.category == sms.STATUS and (site is None or fallback is None):
         raise ValueError("A status text must name its site and carry an email fallback.")
-    if declared.category == sms.STORE and (site is None or fallback is not None):
+    if declared.category in (sms.STORE, sms.STORE_BULK) and (site is None or fallback is not None):
         raise ValueError("A store text must name its site and has no email fallback.")
     recipient = normalise_ph_mobile(to)
 
@@ -301,6 +316,7 @@ POLICY_FIELDS = ("sending_stopped", "platform_daily_limit", "site_daily_limit")
 # The store caps were added after the first three. A body that leaves them out keeps them as
 # they are, so a screen built before them still saves.
 STORE_POLICY_FIELDS = ("store_daily_limit", "all_stores_daily_limit")
+STORE_BULK_POLICY_FIELDS = ("store_bulk_daily_limit",)  # added with notifications.0008
 POLICY_LIMIT_MAX = 2147483647  # the largest value the column holds
 
 
@@ -308,6 +324,8 @@ def policy_fields(values=None):
     """The settings that are read and saved now: the store caps only once notifications.0006 is
     applied, and when they are in `values` (a body that leaves them out keeps them)."""
     extra = STORE_POLICY_FIELDS if store_limit_columns_exist() else ()
+    if store_bulk_limit_column_exists():
+        extra += STORE_BULK_POLICY_FIELDS
     if values is not None:
         extra = tuple(name for name in extra if name in values)
     return POLICY_FIELDS + extra

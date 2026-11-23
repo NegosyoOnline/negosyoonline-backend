@@ -30,6 +30,7 @@ Priority = SmsMessage.Priority
 CODE, STATUS = SmsMessage.Category.CODE.value, SmsMessage.Category.STATUS.value
 INBOX = SmsMessage.Category.INBOX.value
 STORE = SmsMessage.Category.STORE.value
+STORE_BULK = SmsMessage.Category.STORE_BULK.value
 QUEUED, EMAILED, REFUSED = "queued", "emailed", "refused"
 
 DEFAULT_LIFETIME = 600  # seconds a text is worth sending: a code's 10 minutes
@@ -71,9 +72,14 @@ PURPOSES = {
     # no email fallback. The same sending class as a staff text, in the same paced lane.
     "store_reply": Purpose(category=STORE, priority=Priority.REPLY, paced=True),
     "store_compose": Purpose(category=STORE, priority=Priority.REPLY, paced=True),
+    # One text of a store's bulk send to its own members (STORE-BULK, Coach Ed 2026-11-23). Counted
+    # apart from the one-to-one store texts: its own daily cap (SmsPolicy.store_bulk_daily_limit),
+    # never NegosyoOnline's daily limit or the room kept for codes, and only ever from the store's
+    # own paired phone. The lowest sending class, so a one-to-one text is handed out first.
+    "store_bulk": Purpose(category=STORE_BULK, priority=Priority.MARKETING, paced=True),
 }
 
-STORE_PURPOSES = ("store_reply", "store_compose")
+STORE_PURPOSES = ("store_reply", "store_compose", "store_bulk")
 
 
 def paced_purposes():
@@ -237,6 +243,10 @@ def _store_hour_key(site, hour_start):
     return f"sms:count:storehour:{site.pk}:{hour_start:%Y%m%d%H}"
 
 
+def _store_bulk_key(site):
+    return f"sms:count:storebulk:{site.pk}:{_today():%Y%m%d}"
+
+
 def _all_stores_key():
     return f"sms:count:stores:{_today():%Y%m%d}"
 
@@ -278,6 +288,11 @@ def platform_count():
 def store_used_today(site):
     """Today's store texts of this Site that used a slot, from the records."""
     return _counted().filter(site=site, category=STORE).count()
+
+
+def store_bulk_used_today(site):
+    """Today's bulk texts of this Site that used a slot (a test send counts as one), from the records."""
+    return _counted().filter(site=site, category=STORE_BULK).count()
 
 
 def store_used_this_hour(site):
@@ -323,6 +338,18 @@ def refusal(message):
         stores = _counted(message).filter(category=STORE)
         if not claim(_all_stores_key(), rules.all_stores_daily_limit, stores.count):
             return refuse("stores_limit")
+    if message.category == STORE_BULK and message.site_id:
+        # A store's bulk text uses its own daily cap only: not the store's 50 a day or 20 an hour, not
+        # all stores' day, and not NegosyoOnline's daily limit or the room kept for codes. It goes
+        # from the store's own paired phone or not at all (D2): the shared phone is never used.
+        mine = _counted(message).filter(site=message.site, category=STORE_BULK)
+        if not claim(_store_bulk_key(message.site), rules.store_bulk_daily_limit, mine.count):
+            return refuse("bulk_limit")
+        if _lined(message.site) is None:
+            return refuse("no_line")
+        if not gateway_online(message.site, message.category):
+            return refuse("site_phone_offline")
+        return ""
     limit, reason = rules.platform_daily_limit, "platform_limit"
     if message.category in (INBOX, STORE):
         limit, reason = max(limit - RESERVED_FOR_CODES, 0), "staff_limit"
@@ -453,6 +480,8 @@ def line_for(site, category=None):
     (`category` CODE) is never a Site's to send: it always goes from the platform phone (D1)."""
     if category == CODE:
         return pick_device()
+    if category == STORE_BULK:
+        return _lined(site)  # never the shared phone
     return _lined(site) or pick_device()
 
 
@@ -468,13 +497,14 @@ def claimable(device):
         if site_lines_on() and site_has_line(device.site):
             return Q(site_id=device.site_id) & ~Q(category=CODE)
         return Q(pk__in=[])
+    never_shared = ~Q(category=STORE_BULK)  # a store's bulk text is only ever its own phone's
     if not site_lines_on() or not site_column_exists():
-        return Q()
+        return never_shared
     sites = SmsDevice.objects.filter(is_active=True, site__isnull=False).select_related("site")
     lined = [phone.site_id for phone in sites if site_has_line(phone.site)]
     if not lined:
-        return Q()
-    return Q(site__isnull=True) | ~Q(site_id__in=lined) | Q(category=CODE)
+        return never_shared
+    return never_shared & (Q(site__isnull=True) | ~Q(site_id__in=lined) | Q(category=CODE))
 
 
 def may_be_handed_texts(device):

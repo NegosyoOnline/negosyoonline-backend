@@ -147,6 +147,10 @@ SMS_BULK_ENABLED = os.environ.get("SMS_BULK_ENABLED", "").strip() == "1"
 # yes at checkout and in the member's preferences, and lists agreed members. Off, those answers
 # omit the fields, the checkout ignores the flag and the member preference routes answer 404.
 PROMO_SMS_CONSENT_ENABLED = os.environ.get("PROMO_SMS_CONSENT_ENABLED", "").strip() == "1"
+# STORE-BULK (z8uq9mbreu): "1" lets an owner text many of their own members from the store's own paired
+# phone. Works only while INQUIRY_SMS_ENABLED, SMS_GATEWAY_ENABLED and SMS_SITE_LINES_ENABLED are on
+# too. Off, the routes answer 404 and the poll queues nothing for a batch. Off by default.
+STORE_BULK_SMS_ENABLED = os.environ.get("STORE_BULK_SMS_ENABLED", "").strip() == "1"
 # Account-side retention. "1" lets its rules delete and blank. Off, a run of them touches
 # nothing; only the dry run counts.
 RETENTION_ENABLED = os.environ.get("RETENTION_ENABLED", "").strip() == "1"

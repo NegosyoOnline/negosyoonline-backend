@@ -15,7 +15,7 @@ from django.http import JsonResponse
 
 from apps.common.errors import ApiError, error_body
 from apps.notifications import devices, services
-from apps.notifications.models import SmsPolicy, store_limit_columns_exist
+from apps.notifications.models import SmsPolicy, store_bulk_limit_column_exists, store_limit_columns_exist
 from apps.operators import audit, two_step
 
 MAX_BODY = 2048
@@ -59,6 +59,8 @@ def _state(row):
     if store_limit_columns_exist():
         state["store_daily_limit"] = row.store_daily_limit
         state["all_stores_daily_limit"] = row.all_stores_daily_limit
+    if store_bulk_limit_column_exists():
+        state["store_bulk_daily_limit"] = row.store_bulk_daily_limit
     return state
 
 
