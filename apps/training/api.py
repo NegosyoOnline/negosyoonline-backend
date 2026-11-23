@@ -9,7 +9,10 @@ member routes (apps/storefront/api.py mounts this router under /member/):
     POST /storefront/v1/member/training/lessons/{lesson_id}/          {host, token}
          -> the lesson (409 lesson_locked until the one before it is complete)
     POST /storefront/v1/member/training/lessons/{lesson_id}/complete/ {host, token}
-         -> {lesson_id, completed, course: {id, completed_lessons, total_lessons, percent}, next_lesson}
+         -> always 403 complete_by_watching (a lesson completes by watching; the route stays for old clients)
+    POST /storefront/v1/member/training/lessons/{lesson_id}/watch/    {host, token, percent}
+         -> {percent, completed, next_unlocked, next_lesson_id}: keeps the furthest percent (0-100); at 90 or
+            `ended: true` a lesson with a ready Stream video is marked complete
     POST /storefront/v1/member/training/live/                         {host, token}
          -> {live: {id, title, starts_at, duration_minutes, description, join_url, thumbnail_url} | null}
 
@@ -21,6 +24,7 @@ so another site's content answers the same 404 as a missing id.
 from datetime import datetime
 
 from ninja import Router, Schema
+from pydantic import StrictBool, StrictInt
 
 from apps.members.api import _session, _site
 
@@ -109,12 +113,20 @@ class ModuleRefOut(Schema):
     first_lesson_id: str
 
 
+class VideoOut(Schema):
+    kind: str  # stream | legacy | none
+    status: str
+    embed_url: str | None
+    needs_video: bool
+
+
 class LessonOut(Schema):
     id: str
     title: str
     duration: str
     description: str
     video_url: str | None
+    video: VideoOut
     image_url: str | None
     completed: bool
     course: RefOut
@@ -139,6 +151,20 @@ class CompleteOut(Schema):
     completed: bool
     course: CourseProgressOut
     next_lesson: RefOut | None
+
+
+class WatchIn(Schema):
+    host: str = ""
+    token: str = ""
+    percent: StrictInt | None = None  # checked after the host and session, so a refused host is a 404
+    ended: StrictBool = False  # the player fired `ended`: completes a lesson that completes by watching
+
+
+class WatchOut(Schema):
+    percent: int
+    completed: bool
+    next_unlocked: bool
+    next_lesson_id: str | None
 
 
 class LiveOut(Schema):
@@ -177,6 +203,11 @@ def lesson(request, lesson_id: str, body: SessionIn):
 @router.post("/training/lessons/{lesson_id}/complete/", response=CompleteOut)
 def lesson_complete(request, lesson_id: str, body: SessionIn):
     return services.complete_lesson(_member(body), lesson_id)
+
+
+@router.post("/training/lessons/{lesson_id}/watch/", response=WatchOut)
+def lesson_watch(request, lesson_id: str, body: WatchIn):
+    return services.record_watch(_member(body), lesson_id, body.percent, body.ended)
 
 
 @router.post("/training/live/", response=NextLiveOut)

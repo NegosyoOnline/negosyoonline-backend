@@ -15,7 +15,7 @@ from django.db import transaction
 from apps.accounts.services import record_event
 from apps.common.errors import ApiError
 from apps.operators import audit
-from apps.sante.models import SanteCatalogOwner, SanteSiteSettings
+from apps.sante.models import SanteCatalogOwner, SanteContentSource, SanteSiteSettings
 from apps.sites import templates
 from apps.sites.models import Onboarding, Site
 from apps.sites.services import site_for
@@ -27,6 +27,10 @@ OWNER_PK = 1
 OWNER_TARGET = "sante_catalog_owner"
 CATALOG_OWNER = "catalog_owner"  # why a site cannot be disposed of
 NOT_LIVE_SANTE = "The catalog owner must be a live Santé site."
+SOURCE_PK = 1
+SOURCE_TARGET = "sante_content_source"
+CONTENT_SOURCE = "content_source"  # why a site cannot be disposed of
+SOURCE_NOT_LIVE_SANTE = "The content source must be a live Santé site."
 
 
 def enabled():
@@ -142,9 +146,48 @@ def catalog_owner_site():
     return row.site if row else None
 
 
+@transaction.atomic
+def set_content_source(site, *, operator):
+    """Name the store whose shared courses and media other stores may copy, or clear it with
+    None. Operators only. Same shape as set_catalog_owner: one row, locked, audited."""
+    SanteContentSource.objects.get_or_create(pk=SOURCE_PK)
+    row = SanteContentSource.objects.select_for_update().get(pk=SOURCE_PK)
+    if site is not None:
+        site = (
+            Site.objects.select_for_update()
+            .filter(pk=site.pk, template=templates.SANTE, deleted_at__isnull=True)
+            .first()
+        )
+        if site is None:
+            raise ValueError(SOURCE_NOT_LIVE_SANTE)
+    old = _public_id(row.site_id)
+    row.site = site
+    row.save()
+    audit.record(
+        operator,
+        "sante_content_source_set",
+        target_type=SOURCE_TARGET,
+        target_id=SOURCE_PK,
+        detail={"old_site": old, "new_site": site.public_id if site else None},
+    )
+    return row
+
+
+def content_source_site():
+    row = SanteContentSource.objects.select_related("site").filter(pk=SOURCE_PK).first()
+    site = row.site if row else None
+    return site if site is not None and site.deleted_at is None else None
+
+
+def is_content_source(site):
+    return SanteContentSource.objects.filter(pk=SOURCE_PK, site_id=site.pk).exists()
+
+
 def refuses_disposal(site):
-    """Why this site can never be disposed of, or None. The catalog owner site is kept until
-    an operator names another one."""
+    """Why this site can never be disposed of, or None. The catalog owner site and the content
+    source site are kept until an operator names another one."""
     if SanteCatalogOwner.objects.filter(site_id=site.pk).exists():
         return CATALOG_OWNER
+    if SanteContentSource.objects.filter(site_id=site.pk).exists():
+        return CONTENT_SOURCE
     return None

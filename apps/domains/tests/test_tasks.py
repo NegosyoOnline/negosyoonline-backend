@@ -50,7 +50,7 @@ class TaskTests(DomainsTestCase):
     @override_settings(DOMAINS_PROVIDER="real", CLOUDFLARE_DNS_API_TOKEN="x", VERCEL_API_TOKEN="x")
     def test_real_mode_builds_the_adapters_but_a_test_never_calls_them(self):
         bundle = providers.current()
-        self.assertIsNone(bundle.registrar_read)  # no Registrar adapter in B1
+        self.assertIsNotNone(bundle.registrar)  # the Registrar adapter (B2); its token is the worker's
 
     def test_the_hourly_task_checks_live_claims_only(self):
         bundle = make_bundle()
@@ -64,7 +64,7 @@ class TaskTests(DomainsTestCase):
         self.assertIn("skipped", tasks.run_daily(bundle=None))
         bundle = make_bundle()
         out = tasks.run_daily(bundle=bundle)
-        self.assertEqual(set(out), {"removals_queued", "zone_audit", "vercel", "registrations"})
+        self.assertEqual(set(out), {"removals_queued", "zone_audit", "vercel", "registrations", "prices"})
         self.assertEqual(out["registrations"], {"skipped": "no registrar adapter (B2)"} if bundle.registrar_read is None else out["registrations"])
 
     def test_registration_read_records_expiry_and_alerts_on_auto_renew_off(self):

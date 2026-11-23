@@ -115,12 +115,12 @@ class QueueSetupTests(SimpleTestCase):
         self.assertEqual(
             sorted(name for name in celery_app.tasks if not name.startswith("celery.")),
             [
-                "billing.notices", "billing.sweep", "db_backup.run", "domains.daily_sweep", "domains.hourly_check", "domains.sweep",
+                "billing.notices", "billing.sweep", "db_backup.run", "domains.check_name", "domains.confirm_registered", "domains.daily_sweep", "domains.hourly_check", "domains.sweep",
                 "file_backup.run", "health.heartbeat", "inquiries.evaluate_comment_rules",
                 "inquiries.fetch_comment_avatar", "inquiries.fetch_messenger_profile", "inquiries.fetch_post_text",
                 "inquiries.send_comment_auto_reply", "invoices.daily_alert",
                 "invoices.ensure_items", "lifecycle.run_approved", "meta_ads.send_order_event", "meta_ads.send_page_event", "meta_ads.sweep",
-                "pack.buyer_notice", "pack.purge", "pack.registered_notice", "payments.xendit_reconcile", "retention.run", "statements.deliver", "statements.ensure",
+                "pack.buyer_notice", "pack.purge", "pack.registered_notice", "payments.xendit_reconcile", "retention.run", "sante.copy_content", "sante.poll_video_copy", "statements.deliver", "statements.ensure",
             ],
         )
         self.assertTrue(tasks.sweep.ignore_result)
