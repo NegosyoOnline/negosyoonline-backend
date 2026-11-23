@@ -67,6 +67,22 @@ Paste it into the Railway variable and the Vercel variable, then copy something 
 
 To go back, unset `STOREFRONT_ENABLED`. There is no table and no migration; nothing is left behind.
 
+## Holding a site
+
+`manage.py site_hold` sets `Site.operator_hold`, the switch every public reader already honours (task z8uq9mhnzr, tooling for the Live4More move). A held site answers 404 on the public site API, label resolution and custom hosts, and refuses Pack and shop orders. Its data is not touched, and owner or member dash writes are NOT blocked by it.
+
+```bash
+python manage.py site_hold --show --site site_...                          # read only
+python manage.py site_hold --site site_... --on  --operator USERNAME
+python manage.py site_hold --site site_... --off --operator USERNAME
+python manage.py site_hold --all-except site_... --on --operator USERNAME   # every other live site; on only
+```
+
+- `USERNAME` must be an active staff user. Each change runs in one transaction with the rows locked and writes one audit entry, `site_operator_hold_set` (old and new).
+- Output is one line per site, its public id and `on` or `off`, with `(already, no change)` when nothing was written. No names or emails are printed.
+- An unknown or deleted site stops with "No such site." and changes nothing. Held sites that are later deleted stay as they were.
+- Run it in a one-off job on the target environment only on an approved GO. To end the hold: `--off` per site (there is no `--all-except --off`; run `--off` for each site).
+
 ## Rotating the secret
 
 There is one secret at a time, so the surface refuses the storefronts server between the two changes and every storefront page answers its neutral "not found" page for that moment.
