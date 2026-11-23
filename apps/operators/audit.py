@@ -106,6 +106,9 @@ ACTIONS = {
     "domains_confirm_requested": KEPT,
     "domains_confirmed_registered": KEPT,
     "domains_confirm_refused": KEPT,
+    "domains_import_requested": KEPT,
+    "domains_bridge_imported": KEPT,
+    "domains_import_refused": KEPT,
 }
 SIGN_IN_ACTIONS = ("admin_sign_in_ok", "admin_sign_in_failed", "admin_locked", "admin_sign_out")
 IDENTITY_TARGET = "admin_identity"

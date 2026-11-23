@@ -1,5 +1,6 @@
 """The Domains staff routes: the operator list, retry, disconnect, "cancel request" and
-"confirmed registered" (design R4.7, R4.14.3 items 6 and 7).
+"confirmed registered" (design R4.7, R4.14.3 items 6 and 7) and the bridge import of a hand-bought
+domain (`bridge.py`).
 
 They are in no URL list. `apps.operators.staff_views` registers `ROUTES` under /staff/v1/ and calls
 each handler with the staff user of a session that passed both steps. A handler answers as if it
@@ -17,9 +18,10 @@ from django.http import JsonResponse
 from django.utils import timezone
 
 from apps.common.errors import ApiError, error_body
-from apps.domains import events, machine, providers, purchase
+from apps.domains import bridge, events, machine, providers, purchase
 from apps.domains.models import ActorType, ClaimState, Domain, DomainEvent, DomainRegistration
 from apps.operators import audit
+from apps.sites.models import Site
 
 MAX_BODY = 2048
 LIST_LIMIT = 100
@@ -103,6 +105,7 @@ def domain_list(body, operator):
         "claims": [_claim_row(c, regs.get(c.site_id)) for c in claims],
         "eligible_sites": [{"id": e.site.public_id, "name": e.site.display_name} for e in eligible],
         "counters": _counters(now),
+        "imports": bridge.import_rows(),
     }
 
 
@@ -170,10 +173,47 @@ def _enqueue_confirm(claim_id):
     transaction.on_commit(run, robust=True)
 
 
+def import_bridge(request, operator):
+    """202: the bridge import of a hand-bought domain for one site (`bridge.request_import`). The
+    registrar read and the move to `registered` happen in the worker. Body: {"site", "name"}."""
+    try:
+        if not settings.DOMAINS_ENABLED:
+            raise ApiError("not_found", "Not found.", status=404)
+        body = _body(request)
+        public_id = body.get("site")
+        site = Site.objects.filter(public_id=public_id).first() if isinstance(public_id, str) else None
+        if site is None:
+            raise ApiError("not_found", "Not found.", status=404)
+        outcome = bridge.request_import(operator, site, body.get("name"))
+        if outcome == "requested":
+            audit.record(operator, "domains_import_requested", target_type="site", target_id=site.public_id,
+                         detail={"name": bridge.last_import(site).detail.get("name", "")})
+        _enqueue_import(site.pk)
+        response = JsonResponse({"site": site.public_id, "name": bridge.last_import(site).detail.get("name", ""),
+                                 "status": outcome}, status=202)
+    except ApiError as refusal:
+        response = JsonResponse(error_body(refusal.code, refusal.message, refusal.fields), status=refusal.status)
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def _enqueue_import(site_id):
+    def run():
+        try:
+            from apps.domains import tasks  # noqa: PLC0415
+
+            tasks.import_bridge.delay(site_id)
+        except Exception:  # noqa: BLE001 - the minute sweep picks the request up
+            pass
+
+    transaction.on_commit(run, robust=True)
+
+
 ROUTES = {
     "domains/list/": domain_list,
     "domains/retry/": retry,
     "domains/disconnect/": disconnect,
     "domains/cancel-request/": cancel_request,
     "domains/confirmed-registered/": confirmed_registered,
+    "domains/import-bridge/": import_bridge,
 }

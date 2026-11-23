@@ -7,8 +7,9 @@ the name of the site's own `succeeded` registration is a re-attach: it spends no
 `register`, starts a claim at `registered`, and needs neither DOMAINS_PURCHASE_ENABLED nor the caps.
 Any other Buy needs DOMAINS_PURCHASE_ENABLED. One registration per site for life.
 """
+import calendar
 import logging
-from datetime import timedelta
+from datetime import timedelta, timezone as dt_timezone
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -221,6 +222,25 @@ def retry(account, site, now=None):
     return status(site, now)
 
 
+def add_months(moment, months):
+    """`moment` plus whole calendar months, the day clamped to the month's length."""
+    index = moment.month - 1 + months
+    year, month = moment.year + index // 12, index % 12 + 1
+    return moment.replace(year=year, month=month, day=min(moment.day, calendar.monthrange(year, month)[1]))
+
+
+def free_until(reg):
+    """The last day of the free year of a registered domain, as a date (UTC), or None. The registrar's
+    `expires_at` when recorded, else the registration date plus 12 months. No price, no year-2 amount."""
+    if reg is None or reg.state != RegistrationState.SUCCEEDED:
+        return None
+    moment = reg.expires_at
+    if moment is None:
+        base = reg.completed_at or reg.register_sent_at
+        moment = add_months(base, 12) if base else None
+    return moment.astimezone(dt_timezone.utc).date() if moment else None
+
+
 def status(site, now=None):
     """What `GET .../domain/` answers: never a price, a provider id or a token."""
     now = now or timezone.now()
@@ -243,5 +263,6 @@ def status(site, now=None):
         "locked_reason": gate.message(locked) if locked else "",
         "extensions": [f".{tld}" for tld in offered_tlds(now)],
         "registered_name": reg.name if reg and reg.state == RegistrationState.SUCCEEDED else "",
+        "free_until": free_until(reg).isoformat() if free_until(reg) else None,
         "domain": data,
     }

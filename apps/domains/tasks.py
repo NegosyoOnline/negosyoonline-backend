@@ -10,7 +10,7 @@ from celery import shared_task
 from django.contrib.auth import get_user_model
 from django.conf import settings
 
-from apps.domains import email_track, lifecycle, machine, providers, purchase, services, sweeps
+from apps.domains import bridge, email_track, lifecycle, machine, providers, purchase, services, sweeps
 from apps.domains.models import Domain
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,38 @@ def sweep():
     services.safety_net()  # a first payment whose hook was skipped still marks the site eligible
     for claim_id in purchase.pending_confirms():  # a "confirmed registered" request whose task was lost
         confirm_registered(claim_id)
+    for site_id in bridge.pending_imports():  # a bridge import request whose task was lost
+        import_bridge(site_id)
     return run_sweep(bundle=providers.current())
+
+
+@shared_task(name="domains.import_bridge", ignore_result=True)
+def import_bridge(site_id):
+    """The worker half of the HQ bridge import (the api holds no Registrar token)."""
+    if not settings.DOMAINS_ENABLED:
+        return "switched off"
+    result = bridge.process_import(site_id, providers.current())
+    _audit_import(site_id, result)
+    return result
+
+
+def _audit_import(site_id, result):
+    """The operator audit entry for the answer, named for the operator who asked."""
+    from apps.domains.models import DomainEvent  # noqa: PLC0415
+    from apps.operators import audit  # noqa: PLC0415
+    from apps.sites.models import Site  # noqa: PLC0415
+
+    if result == "none":
+        return
+    event = DomainEvent.objects.filter(site_id=site_id, kind__in=bridge.IMPORT_KINDS).order_by("-pk").first()
+    operator = User.objects.filter(pk=event.actor_id).first() if event else None
+    site = Site.objects.get(pk=site_id)
+    detail = {"name": (event.detail or {}).get("name", "") if event else ""}
+    target = dict(target_type="site", target_id=site.public_id)
+    if result == "done":
+        audit.record(operator, "domains_bridge_imported", detail=detail, **target)
+    else:
+        audit.record(operator, "domains_import_refused", detail={**detail, "reason": result}, **target)
 
 
 @shared_task(name="domains.confirm_registered", ignore_result=True)
