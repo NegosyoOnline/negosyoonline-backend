@@ -15,14 +15,17 @@ from apps.inquiries.models import (
     InquiryChannelSettings, InquiryComment, InquiryCommentSettings, InquiryConnection, InquiryConversation,
     InquiryMessage, InquiryPost, InquiryReply, InquirySmsOptOut, InquirySmsSettings,
 )
-from apps.notifications.models import EmailMessage
-from apps.inquiries.switch import comment_tables_exist, inquiries_on, sms_tables_exist, stored_tables_exist, tables_exist
+from apps.notifications.models import EmailMessage, StoreBulkBatch
+from apps.inquiries.switch import (
+    comment_tables_exist, inquiries_on, sms_tables_exist, store_bulk_tables_exist, stored_tables_exist, tables_exist,
+)
 from apps.sites.models import Site
 
 REPLY_RETENTION = timedelta(days=365)
 # Code only: the Privacy wording for it (D1) is still open. Counted from the last message.
 MESSAGE_RETENTION = timedelta(days=180)
 COMMENT_RETENTION = timedelta(days=180)  # counted from the comment's time (Meta's created_time)
+STORE_BULK_RETENTION = timedelta(days=180)  # a store's bulk batch (its text and recipients), from when it was confirmed
 
 # The personal fields of a stored conversation, blanked together.
 PERSONAL = ("display_name", "contact_name", "contact_email", "contact_mobile", "visitor_hash", "pack_visitor_ref", "thread_token", "psid")
@@ -105,6 +108,17 @@ def old_email_records(now, dry_run):
     return retention.remove(rows, dry_run)
 
 
+def store_bulk_batches(now, dry_run):
+    """A store's bulk batches that are over, 180 days after they were confirmed: the text, the counts
+    and the recipients (their masked numbers and names) go together. A batch still waiting or sending
+    is never deleted. Runs wherever the table exists, whatever the bulk switch says: it only deletes."""
+    if not store_bulk_tables_exist():
+        return 0
+    rows = StoreBulkBatch.objects.filter(created_at__lte=now - STORE_BULK_RETENTION).exclude(state__in=StoreBulkBatch.ACTIVE)
+    return retention.remove(rows, dry_run)
+
+
+retention.register("store_bulk_batches", store_bulk_batches)
 retention.register("inquiry_replies", old_replies)
 retention.register("inquiry_messages", old_messages)
 retention.register("inquiry_email_records", old_email_records)
@@ -118,6 +132,7 @@ MESSAGES, CHANNELS = "inquiry_messages", "inquiry_channel_settings"
 EMAIL_RECORDS = "inquiry_email_records"
 COMMENTS = "inquiry_comments"
 SMS_OPTOUTS = "inquiry_sms_optouts"
+STORE_BULK = "store_bulk_batches"
 
 
 def blanked():
@@ -131,6 +146,7 @@ def blanked():
         COMMENTS: ["all comment, post and comment-action rows deleted"],
         CHANNELS: ["email_route_token", "webchat_enabled", "email_enabled", "paused_until"],
         SMS_OPTOUTS: ["all rows deleted; the store's text switch turned off"],
+        STORE_BULK: ["all batches and their recipients deleted"],
     }
 
 
@@ -175,9 +191,16 @@ def blank_inquiries(sites, dry_run=False):
         found = optouts.count()
         if found:  # a site with no opt-outs keeps the report's shape as it was
             counts[SMS_OPTOUTS] = found
+    bulk = StoreBulkBatch.objects.filter(site__in=sites) if store_bulk_tables_exist() else None
+    if bulk is not None:
+        found = bulk.count()
+        if found:  # a site with no bulk batches keeps the report's shape as it was
+            counts[STORE_BULK] = found
     if not any(counts.values()):
         return {}
     if not dry_run:
+        if bulk is not None:
+            bulk.delete()  # the recipients go with them
         if optouts is not None:
             optouts.delete()
             InquirySmsSettings.objects.filter(site__in=sites).update(enabled=False)

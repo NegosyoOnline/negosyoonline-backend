@@ -44,10 +44,10 @@ from pydantic import ConfigDict
 from apps.accounts.api import signed_in
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
-from apps.inquiries import outcomes, sms_inbox, stored
+from apps.inquiries import outcomes, sms_inbox, store_bulk, stored
 from apps.inquiries.models import InquirySmsSettings
 from apps.inquiries.switch import (
-    contact_inbox_on, inquiries_on, sms_ready, stored_tables_exist, tables_exist,
+    contact_inbox_on, inquiries_on, sms_ready, store_bulk_ready, stored_tables_exist, tables_exist,
 )
 from apps.sites import templates
 from apps.sites.api import _owner_site
@@ -85,6 +85,32 @@ class ReplyIn(Schema):
     model_config = ConfigDict(extra="forbid")
     text: str
     idempotency_key: str
+
+
+class BulkAudienceIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    audience: str = "all"
+
+
+class BulkTextIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    text: str
+
+
+class BulkTestIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    text: str
+    idempotency_key: str
+
+
+class BulkConfirmIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    text: str
+    audience: str = "all"
+    promotional: bool = False
+    idempotency_key: str
+    confirm: bool = False
+    expected_count: int | None = None
 
 
 class ChannelsIn(Schema):
@@ -212,6 +238,81 @@ def sms_status(request, site_id: str):
     hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
     _need_sms()
     return sms_inbox.status(request.inquiry_site)
+
+
+# -- bulk text to the store's own members (STORE-BULK) ------------------------------------------
+
+def _need_bulk():
+    if not store_bulk_ready() or not _stored_on():
+        raise _not_found()
+
+
+def _bulk_key(value):
+    if not KEY_RE.match(value):
+        raise _invalid("idempotency_key", "That key does not look right.")
+    return value
+
+
+@router.get("/sites/{site_id}/inquiries/sms/bulk/status/")
+def bulk_status(request, site_id: str):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.status(request.inquiry_site)
+
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/audience/")
+def bulk_audience(request, site_id: str, payload: BulkAudienceIn):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.audience(request.inquiry_site, payload.audience)
+
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/preview/")
+def bulk_preview(request, site_id: str, payload: BulkTextIn):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.preview(request.inquiry_site, payload.text)
+
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/test/")
+def bulk_test(request, site_id: str, payload: BulkTestIn):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.test_send(request.inquiry_site, request.account, payload.text, _bulk_key(payload.idempotency_key))
+
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/batches/")
+def bulk_confirm(request, site_id: str, payload: BulkConfirmIn):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    data = payload.model_dump()
+    data["idempotency_key"] = _bulk_key(payload.idempotency_key)
+    if payload.expected_count is not None and payload.expected_count < 0:
+        raise _invalid("expected_count", "That count does not look right.")
+    batch, created = store_bulk.confirm(request.inquiry_site, request.account, data)
+    return (201 if created else 200), batch
+
+
+@router.get("/sites/{site_id}/inquiries/sms/bulk/batches/")
+def bulk_batches(request, site_id: str, cursor: str | None = None, limit: int | None = None):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    items, following = store_bulk.list_batches(request.inquiry_site, cursor=cursor or "", limit=limit)
+    return {"items": items, "next_cursor": following}
+
+
+@router.get("/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/")
+def bulk_batch(request, site_id: str, batch_id: str, cursor: str | None = None, limit: int | None = None):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.open_batch(request.inquiry_site, batch_id, cursor=cursor or "", limit=limit)
+
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/stop/")
+def bulk_stop(request, site_id: str, batch_id: str):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.stop(request.inquiry_site, request.account, batch_id)
 
 
 # -- settings, close and reopen, read -----------------------------------------

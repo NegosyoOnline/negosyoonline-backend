@@ -187,6 +187,16 @@ def _hand_out(device, now):
     return handed
 
 
+def _feed_store_bulk(device, now):
+    """A store's phone is asking: queue the next text of the store's bulk batch (STORE-BULK). Nothing
+    is read while the switch, the other switches it needs or the tables are off."""
+    from apps.inquiries import store_bulk  # not at import: inquiries sits above the gateway
+    from apps.inquiries.switch import store_bulk_ready
+
+    if store_bulk_ready():
+        store_bulk.feed(device.site, now)
+
+
 @phone_call
 def poll(request, device):
     body = _body(request)
@@ -202,6 +212,8 @@ def poll(request, device):
     elif sms.may_be_handed_texts(device):
         if bulk_on():
             bulk.feed(now)
+        if device.site_id is not None:
+            _feed_store_bulk(device, now)
         answer["messages"] = _hand_out(device, now)
         if len(answer["messages"]) == BATCH:
             answer["wait"] = 0  # more may be waiting: ask again as soon as these are sent

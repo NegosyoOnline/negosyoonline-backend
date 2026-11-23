@@ -362,7 +362,7 @@ class StoreBulkRecipient(models.Model):
     position = models.PositiveIntegerField()
     member = models.ForeignKey("members.Member", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     name = models.CharField(max_length=120, blank=True)
-    mobile = models.CharField(max_length=13)  # +639XXXXXXXXX, or its masked form once the batch is over
+    mobile = models.CharField(max_length=20)  # +639XXXXXXXXX, or its masked form (+63917***4567) once the batch is over
     state = models.CharField(max_length=10, default=WAITING)
     reason = models.CharField(max_length=40, blank=True)
     send_record = models.CharField(max_length=40, blank=True)  # the gateway's send record id
