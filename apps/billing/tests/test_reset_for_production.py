@@ -49,7 +49,7 @@ class ResetBase(TestCase):
         self.operator = User.objects.create(username="coach", is_staff=True)
 
     def populate(self):
-        """One or more rows in each kind of table the command empties, and the kept ones."""
+        """One or more rows in each kind of table the command empties."""
         item = make_item()  # a paid subscription, its cycle and transitions, and a register item
         subscription = item.subscription
         make_receiving_account()
@@ -72,6 +72,7 @@ class ResetBase(TestCase):
         BillingProfile.objects.create(
             site=subscription.site, company_name="Test Co", billing_email="co@example.test"
         )
+        self.assertGreater(IssuerProfile._base_manager.count(), 0)  # made by make_book
 
 
 @override_settings(APP_ENVIRONMENT="production", BILLING_ENABLED=True)
@@ -81,12 +82,12 @@ class ApplyTests(ResetBase):
         ledger_entity = django_apps.get_model("ledger", "AccountingEntity")
         ledger_event = django_apps.get_model("ledger", "LedgerEvent")
         for model in (Subscription, ReceivingAccount, Statement, StatementLine, StatementNumberSeries,
-                      InvoiceBook, ManualInvoiceItem, ledger_entity, ledger_event):
+                      InvoiceBook, ManualInvoiceItem, IssuerProfile, BillingProfile,
+                      ledger_entity, ledger_event):
             self.assertGreater(model._base_manager.count(), 0, model)
         kept = {
             "sites": Site.objects.count(), "accounts": Account.objects.count(),
             "users": User.objects.count(), "audit": OperatorAuditEntry.objects.count(),
-            "issuer": IssuerProfile.objects.count(), "profile": BillingProfile.objects.count(),
         }
         before = counts()
 
@@ -96,8 +97,8 @@ class ApplyTests(ResetBase):
         self.assertEqual(Site.objects.count(), kept["sites"])
         self.assertEqual(Account.objects.count(), kept["accounts"])
         self.assertEqual(User.objects.count(), kept["users"])
-        self.assertEqual(IssuerProfile.objects.count(), kept["issuer"])
-        self.assertEqual(BillingProfile.objects.count(), kept["profile"])
+        self.assertEqual(IssuerProfile._base_manager.count(), 0)
+        self.assertEqual(BillingProfile._base_manager.count(), 0)
         self.assertEqual(OperatorAuditEntry.objects.count(), kept["audit"] + 1)
         entry = audit_rows().get()
         self.assertEqual(entry.operator, self.operator)
@@ -208,6 +209,7 @@ class ListTests(TestCase):
         listed = set(command.RESET_MODELS)
         self.assertEqual(len(listed), len(command.RESET_MODELS), "a model is listed twice")
         self.assertFalse(listed & set(command.KEPT_MODELS))
+        self.assertEqual(command.KEPT_MODELS, {})  # a model is kept only by a written decision
         # A new model in these apps fails here until someone decides whether the reset empties it.
         self.assertEqual(listed | set(command.KEPT_MODELS), every)
 

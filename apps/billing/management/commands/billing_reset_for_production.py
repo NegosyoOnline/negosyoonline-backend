@@ -1,10 +1,12 @@
-"""Empty the billing, ledger, invoice and statement rows of the restored production copy.
+"""Empty the billing, ledger, invoice and statement rows (issuer and billing profiles included) of the restored production copy.
 
     manage.py billing_reset_for_production                       (dry run: counts only)
     manage.py billing_reset_for_production --apply --operator USERNAME [--database ALIAS]
 
-The P7 copy restores everything except the billing and ledger rows (production plan P7c). This
-command, run once after the restore and before the first real record, empties exactly the models
+The P7 copy restores everything except the billing and ledger rows (production plan P7c); the
+issuer profile and the billing profiles are reset too, so staging's issuer never prints on a
+production document (staff enter the production issuer in HQ, and Subscribers re-enter their
+billing details). This command, run once after the restore and before the first real record, empties exactly the models
 in RESET_MODELS and checks that they are empty. It refuses, touching nothing, unless
 settings.APP_ENVIRONMENT is "production". The dry run (the default) prints the row count of each
 model. `--apply` runs in one transaction: it counts, deletes, counts again, and rolls back and
@@ -44,6 +46,9 @@ RESET_MODELS = (
     "statements.StatementLine",
     "statements.Statement",
     "statements.StatementNumberSeries",
+    # statements: the issuer and the billing details (InvoiceBook points at the issuer, so it is above)
+    "statements.IssuerProfile",
+    "statements.BillingProfile",
     # billing: payments, consent, notices, cycles, subscriptions, receiving accounts
     "billing.RenewalConsent",
     "billing.BankTransferEvent",
@@ -64,11 +69,10 @@ RESET_MODELS = (
     "ledger.AccountingEntity",
 )
 
-# Models of the four apps that are deliberately kept, with the reason (also in the runbook).
-KEPT_MODELS = {
-    "statements.IssuerProfile": "the issuer's legal identity (COR), entered and verified by staff; not a record of a sale",
-    "statements.BillingProfile": "a Subscriber's own business details, attached to the site, which is kept",
-}
+# Models of the four apps that are deliberately kept, with the reason. Empty today: the reset
+# empties every model of the four apps. The constant stays so the coverage test still forces each
+# new model into exactly one list.
+KEPT_MODELS = {}
 
 
 def reset_models():
