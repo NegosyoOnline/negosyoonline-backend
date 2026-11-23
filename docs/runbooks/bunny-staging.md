@@ -61,6 +61,12 @@ Evidence of a release: the green `Bunny staging release` run for the SHA (summar
 
 Automatic: a failure after the snapshot restores the previous tags and digests of the three containers. Manual (to any earlier commit on main whose images exist): Actions > Bunny staging release > Run workflow, `sha` = the full SHA. That skips checks and build, redeploys those images to the three containers and verifies. The previous images of any release are in its `bunny-staging-previous-images` artifact. The database is never rolled back.
 
+### Reading a failed restore
+
+`bunny-deploy.sh` retries a GET or PATCH that gets a 5xx or a transport error, 3 attempts in all, waiting about 5 s and then 15 s (`BUNNY_RETRY_SLEEP="5 15"`); a 4xx is never retried. The log shows only status lines (`HTTP 500 (attempt 1 of 3), retrying`), never a response body.
+
+In `restore`, a line `restored <role> -> <tag>` means that PATCH returned 2xx. `FAILED to restore <role> (wanted <tag>)` means it did not; the other roles are still tried, and the step ends non-zero. The last lines, `<role> now reports <tag>`, come from a fresh read of the app: any role that differs from its snapshot tag is also flagged `MISMATCH` and fails the step. Staging may then be mixed (some containers on the new release, some on the previous one) until a restore succeeds. To fix it, re-run the failed job (`gh run rerun <run-id> --failed`, or "Re-run failed jobs" in Actions) and check that every `now reports` line shows the previous tag, then confirm `/healthz/` with `verify-release.sh`.
+
 ## First deploy (Coach Ed approves; not yet run)
 
 1. Create the `bunny-staging` environment with the secret and variables above; add required reviewers.
