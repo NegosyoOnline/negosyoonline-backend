@@ -24,6 +24,7 @@ from django.utils import timezone
 from apps.common.errors import ApiError
 from apps.common.masking import mask_mobile
 from apps.inbox.switch import inbox_on
+from apps.members import promo
 from apps.inquiries import live, outcomes
 from apps.inquiries.models import (
     InquiryConversation, InquiryMessage, InquiryReply, InquirySmsOptOut, InquirySmsSettings,
@@ -412,6 +413,7 @@ def store_incoming(site, device, number, ref, text, occurred_at, stop):
         return False
     if stop:
         InquirySmsOptOut.objects.get_or_create(site=site, mobile=number, defaults={"message": message})
+        promo.opt_out_mobile(site, number)  # PROMO-CONSENT: a STOP also ends the member's promotional yes
     latest = conversation.last_message_at
     InquiryConversation.objects.filter(pk=conversation.pk).update(
         unread=True, status=InquiryConversation.OPEN, last_inbound_at=occurred_at,
