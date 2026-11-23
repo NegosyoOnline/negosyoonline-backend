@@ -145,8 +145,10 @@ def check_contact(site, mobile, email, *, ip=None):
     """The checkout marks a contact as the buyer finishes typing it. Saves nothing and creates no
     token; returns {field: [message]}. Each contact is judged on its own (unique per member); one
     held by a member with benefits or a live order is refused alone, and any other is told apart
-    from a returning buyer only by the pair. A malformed email gets the refusal Continue would
-    give; a partial mobile is not judged. Placement still decides."""
+    from a returning buyer only by the pair. When the pair is the same returning member (no
+    benefits, no live order), neither contact is marked, exactly as contact/ accepts it; a contact
+    of a different member still is. A malformed email gets the refusal Continue would give; a
+    partial mobile is not judged. Placement still decides."""
     if ip:
         scope, limit, window = C.CHECK_IP_LIMIT
         throttle.hit(scope, ip, limit=limit, window=window)
@@ -161,9 +163,10 @@ def check_contact(site, mobile, email, *, ip=None):
             if field == "email":
                 errors.update(exc.fields or {})
     paired = bool(values["mobile"] and values["email"])
+    returning = None
     if paired:
         try:
-            match_existing(site, values["mobile"], values["email"])
+            returning = match_existing(site, values["mobile"], values["email"])
         except ApiError as exc:
             errors.update(exc.fields or {})
     for field, value in values.items():
@@ -173,8 +176,12 @@ def check_contact(site, mobile, email, *, ip=None):
         if member is not None and not abandoned(member):
             # Each contact is unique, so each is judged on its own. One held by a member who has
             # benefits or a live order can never be taken again; any other may be a returning
-            # buyer, told apart only by the pair, so it is marked only once the pair is judged.
-            if paired or benefits_active(member) or live_order(member) is not None:
+            # buyer, told apart only by the pair, so it is marked only once the pair is judged. The
+            # returning member match_existing accepted is not marked on either contact.
+            is_returning = returning is not None and member.pk == returning.pk
+            if not is_returning and (
+                paired or benefits_active(member) or live_order(member) is not None
+            ):
                 errors.update(members.contact_in_use(field).fields)
                 continue
         try:
