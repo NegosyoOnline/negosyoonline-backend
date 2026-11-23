@@ -94,6 +94,19 @@ class PolicyRouteTests(StaffTestCase):
             "after": {"sending_stopped": True, "site_daily_limit": 50},
         })
 
+    def test_the_store_bulk_cap_is_read_at_2000_and_hq_can_change_it(self):
+        self.staff_sign_in()
+        self.assertEqual(self.policy("get/").json()["store_bulk_daily_limit"], 2000)
+        response = self.policy("set/", {**GOOD, "store_bulk_daily_limit": 500})
+        self.assertEqual((response.status_code, response.json()["store_bulk_daily_limit"]), (200, 500))
+        self.assertEqual(SmsPolicy.objects.get(pk=1).store_bulk_daily_limit, 500)
+        (entry,) = self.entries()
+        self.assertEqual(entry.detail["after"]["store_bulk_daily_limit"], 500)
+        # a body that leaves it out keeps it; a bad value is refused
+        self.assertEqual(self.policy("set/", GOOD).status_code, 200)
+        self.assertEqual(SmsPolicy.objects.get(pk=1).store_bulk_daily_limit, 500)
+        self.assertEqual(self.policy("set/", {**GOOD, "store_bulk_daily_limit": -1}).status_code, 400)
+
     def test_saving_the_same_values_writes_no_audit_entry(self):
         self.staff_sign_in()
         self.policy("set/", GOOD)
