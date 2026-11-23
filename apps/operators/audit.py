@@ -53,12 +53,20 @@ ACTIONS = {
     "pack_test_order_deleted": KEPT,
     "shop_test_order_deleted": KEPT,
     "billing_exempt_set": KEPT,
+    # The one-off emptying of the billing and ledger tables after the P7 production copy.
+    # Counts per model and the database alias: never a value.
+    "billing_reset_for_production": KEPT,
     # HQ -> Subscribers: one detail read of a subscriber site. Ids and counts only.
     "hq_subscriber_viewed": KEPT,
     # HQ -> Subscribers: Disable / Re-enable of a Site's own SMS line. Site id and reason only.
     "hq_sms_line_disabled": KEPT,
     "hq_sms_line_reenabled": KEPT,
     "hq_sms_line_reauth_failed": KEPT,
+    # HQ -> Subscribers: Suspend / Resume of a store by hand (Site.operator_hold). Site id and
+    # reason only; a refused fresh code is counts only.
+    "hq_site_suspended": KEPT,
+    "hq_site_resumed": KEPT,
+    "hq_site_reauth_failed": KEPT,
     "billing_payment_confirmed": KEPT,
     "billing_payment_rejected": KEPT,
     "billing_usage_admitted": KEPT,
@@ -86,6 +94,8 @@ ACTIONS = {
     "billing_record_delete_refused": KEPT,
     "sante_catalog_owner_set": KEPT,
     "sante_content_source_set": KEPT,
+    # A site put on or taken off operator hold (manage.py site_hold). Ids and on/off only.
+    "site_operator_hold_set": KEPT,
     "sante_agreement_version_created": KEPT,
     "sante_agreement_version_updated": KEPT,
     "sante_agreement_version_deleted": KEPT,
@@ -114,12 +124,17 @@ SIGN_IN_ACTIONS = ("admin_sign_in_ok", "admin_sign_in_failed", "admin_locked", "
 IDENTITY_TARGET = "admin_identity"
 
 
-def record(operator, action, *, target_type="", target_id="", reason="", detail=None, personal=None):
+def record(
+    operator, action, *, target_type="", target_id="", reason="", detail=None, personal=None,
+    using=None,
+):
     if action not in ACTIONS:
         raise ValueError(f"Audit action {action!r} is not declared in apps.operators.audit.ACTIONS.")
     if personal and ACTIONS[action] != PERSONAL:
         raise ValueError(f"Audit action {action!r} is kept whole: it cannot hold a personal value.")
-    return OperatorAuditEntry.objects.create(
+    # `using` names a database alias, for a command run against a copy; every other caller omits it.
+    manager = OperatorAuditEntry.objects if using is None else OperatorAuditEntry.objects.using(using)
+    return manager.create(
         operator=operator,
         action=action,
         target_type=target_type,

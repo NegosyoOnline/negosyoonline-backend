@@ -143,6 +143,10 @@ SMS_CONTACTS_ENABLED = os.environ.get("SMS_CONTACTS_ENABLED", "").strip() == "1"
 # Needs SMS_INBOX_ENABLED as well. Off, every bulk route answers 404 and the poll queues nothing for
 # a batch. A STOP reply is still listed as do-not-text whatever this says.
 SMS_BULK_ENABLED = os.environ.get("SMS_BULK_ENABLED", "").strip() == "1"
+# Promotional text consent (PROMO-CONSENT, z8uq9mbreu): "1" shows the checkout checkbox wording, records a
+# yes at checkout and in the member's preferences, and lists agreed members. Off, those answers
+# omit the fields, the checkout ignores the flag and the member preference routes answer 404.
+PROMO_SMS_CONSENT_ENABLED = os.environ.get("PROMO_SMS_CONSENT_ENABLED", "").strip() == "1"
 # Account-side retention. "1" lets its rules delete and blank. Off, a run of them touches
 # nothing; only the dry run counts.
 RETENTION_ENABLED = os.environ.get("RETENTION_ENABLED", "").strip() == "1"
@@ -167,6 +171,13 @@ BILLING_ANNUAL_ENABLED = os.environ.get("BILLING_ANNUAL_ENABLED", "").strip() ==
 # write and lets collections include overage. Off, the intake answers "disabled" and writes
 # nothing, the usage route answers 404 and the ledger tables are not read or written.
 BILLING_USAGE_ENABLED = os.environ.get("BILLING_USAGE_ENABLED", "").strip() == "1"
+# Order overage (OV-1 to OV-9): orders over the 500 included in a billing month are billed at
+# PHP 5 each on the next bill. "1" lets the sweep count them and collections include their lines,
+# only while BILLING_ENABLED is on. It is independent of BILLING_USAGE_ENABLED (storage). Off,
+# nothing is counted, charged or emailed. BILLING_ORDER_OVERAGE_FROM is an ISO date (Manila):
+# only billing months that start on or after it are charged. Empty: no month is charged.
+BILLING_ORDER_OVERAGE_ENABLED = os.environ.get("BILLING_ORDER_OVERAGE_ENABLED", "").strip() == "1"
+BILLING_ORDER_OVERAGE_FROM = os.environ.get("BILLING_ORDER_OVERAGE_FROM", "").strip()
 # Billing Statements and the manual BIR invoice register (Billing Build B5). Each is its own
 # switch, "1" to turn on. Off, its routes answer 404, nothing is opened, issued or sent, and its
 # tables are not read or written. The register is built and turned on before the statements.

@@ -53,12 +53,13 @@ def site_label(host):
     return label
 
 
-def site_for_host(host):
-    """The site whose active name this host is, or None: not removed, not on operator hold.
+def site_for_host(host, include_held=False):
+    """The site whose active name this host is, or None: not removed, not on operator hold
+    (`include_held=True` is for the buyer portal only, which stays open for a held store).
     Nothing about its billing position: `served` adds that. An explicit custom host is matched
     first, exactly; a host under SITE_PARENT_HOST can never be one, so the subdomain path below is
     unchanged."""
-    custom = custom_hosts.active_row_for_host(host)
+    custom = custom_hosts.active_row_for_host(host, include_held=include_held)
     if custom is not None:
         return custom.site
     label = site_label(host)
@@ -67,11 +68,12 @@ def site_for_host(host):
         # connected by apps.domains (a `live` or `attention` claim; off unless DOMAINS_ENABLED).
         from apps.domains import hosts as domain_hosts
 
-        return domain_hosts.site_for_hostname(host)
+        return domain_hosts.site_for_hostname(host, include_held=include_held)
     row = (
         Subdomain.objects.filter(
             name=label, state=Subdomain.State.ACTIVE,
-            site__deleted_at__isnull=True, site__operator_hold=False,
+            site__deleted_at__isnull=True,
+            **({} if include_held else {"site__operator_hold": False}),
         )
         .select_related("site")
         .first()
@@ -79,9 +81,11 @@ def site_for_host(host):
     return None if row is None else row.site
 
 
-def served(host):
-    """(site, its billing position) when the host's site is served right now, else None."""
-    site = site_for_host(host)
+def served(host, include_held=False):
+    """(site, its billing position) when the host's site is served right now, else None.
+    `include_held=True` is for the member routes only: a store HQ has suspended by hand keeps
+    its members' sign-in and their read access to their own orders (H3, decision C)."""
+    site = site_for_host(host, include_held=include_held)
     if site is None:
         return None
     position = billing.position(site)

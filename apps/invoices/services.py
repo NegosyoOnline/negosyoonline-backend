@@ -13,7 +13,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from apps.billing import clock
+from apps.billing import clock, usage
 from apps.billing.models import BankTransferPayment, ChargeLine
 from apps.common.errors import ApiError
 from apps.common.private_files import StoreError
@@ -91,13 +91,23 @@ def _lines(payment):
         })
     for charge in ChargeLine.objects.filter(settled_payment=payment).select_related("cycle").order_by("pk"):
         start, end = manila_date(charge.cycle.start_at), manila_date(charge.cycle.end_at)
+        if charge.kind == ChargeLine.Kind.OVERAGE_ORDERS:  # the month the orders were counted for
+            first, last = usage.period_bounds(
+                charge.cycle, charge.period_index, charge.subscription.anchor_day
+            )
+            description = (
+                f"{usage.line_label(charge.kind, charge.quantity, charge.amount_centavos)}, "
+                f"{paper_date(manila_date(first))} to {paper_date(manila_date(last))}"
+            )
+        else:
+            description = (
+                f"NegosyoOnline storage overage — {charge.quantity} GB, "
+                f"{paper_date(start)} to {paper_date(end)}"
+            )
         exact = charge.amount_centavos % charge.quantity == 0
         lines.append({
             "kind": "usage",
-            "description": (
-                f"NegosyoOnline storage overage — {charge.quantity} GB, "
-                f"{paper_date(start)} to {paper_date(end)}"
-            ),
+            "description": description,
             "quantity": charge.quantity if exact else 1,
             "unit_centavos": charge.amount_centavos // charge.quantity if exact else charge.amount_centavos,
             "amount_centavos": charge.amount_centavos,

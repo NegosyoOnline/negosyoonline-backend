@@ -45,7 +45,7 @@ LIST = "/staff/v1/subscribers/list/"
 DETAIL = "/staff/v1/subscribers/detail/"
 ROW_KEYS = sorted([
     "site_id", "business_name", "site_address", "template", "plan", "state", "trial_ends_at",
-    "next_due_at", "last_payment_at", "owner_email", "created_at",
+    "next_due_at", "last_payment_at", "owner_email", "held", "held_label", "created_at",
 ])
 Stored = Subscription.State
 
@@ -121,8 +121,8 @@ class GateTests(SubscribersTestCase):
     def test_only_post_and_no_write_route(self):
         self.signed_in()
         self.assertEqual(sorted(staff_subscribers.ROUTES), [
-            "subscribers/detail/", "subscribers/list/", "subscribers/sms-line/disable/",
-            "subscribers/sms-line/reenable/",
+            "subscribers/detail/", "subscribers/list/",
+            "subscribers/resume/", "subscribers/sms-line/disable/", "subscribers/sms-line/reenable/", "subscribers/suspend/",
         ])
         self.assertEqual(self.call("GET", LIST).status_code, 405)
 
