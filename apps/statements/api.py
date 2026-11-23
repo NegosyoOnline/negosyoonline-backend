@@ -15,6 +15,7 @@ from ninja import Router, Schema
 from pydantic import ConfigDict, StrictStr
 
 from apps.accounts.api import signed_in
+from apps.billing.models import ChargeLine
 from apps.common.errors import ApiError
 from apps.common.ids import is_public_id
 from apps.common.pagination import DEFAULT_LIMIT, MAX_LIMIT
@@ -203,6 +204,18 @@ def billing_statement(request, site_id: str, number: str):
     """One statement as stored: the totals and lines are the frozen ones."""
     site = _site(request, site_id)
     statement = _statement(site, number)
+    stored = list(statement.lines.all())
+    order_refs = set(
+        ChargeLine.objects.filter(
+            pk__in=[int(l.source_ref[7:]) for l in stored if l.source_ref.startswith("charge:")],
+            kind=ChargeLine.Kind.OVERAGE_ORDERS,
+        ).values_list("pk", flat=True)
+    )
+
+    def kind_of(line):  # an order overage line is shown as "orders"; it is stored as "usage"
+        is_order = line.source_ref.startswith("charge:") and int(line.source_ref[7:]) in order_refs
+        return "orders" if is_order else line.kind
+
     return {
         **_row(statement), "label": statement.label,
         "original_number": statement.original.number if statement.original_id else None,
@@ -210,11 +223,12 @@ def billing_statement(request, site_id: str, number: str):
         "issuer": statement.issuer, "bill_to": statement.bill_to,
         "lines": [
             {
-                "position": line.position, "kind": line.kind, "description": line.description,
+                "position": line.position, "kind": kind_of(line),
+                "description": line.description,
                 "quantity": line.quantity, "unit_centavos": line.unit_centavos,
                 "amount_centavos": line.amount_centavos,
             }
-            for line in statement.lines.all()
+            for line in stored
         ],
     }
 

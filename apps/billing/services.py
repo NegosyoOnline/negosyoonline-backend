@@ -921,7 +921,7 @@ def submit_transfer(
         fields["proof"] = "The file is too large."
     elif content_type is None:
         fields["proof"] = "The file must be a JPEG, a PNG or a PDF."
-    only_usage = plan_code == plan.USAGE_ONLY and plan.usage_enabled()
+    only_usage = plan_code == plan.USAGE_ONLY and plan.any_usage_enabled()
     chosen = None
     if not only_usage:
         chosen = plan.PLANS.get(plan_code) if isinstance(plan_code, str) else None
@@ -1372,7 +1372,10 @@ def payment_options(subscription, at=None):
         "not_payable_reason": reason,
         "payable_from": _payable_from(latest) if reason == "too_early" else None,
         "offers": offers,
-        "usage": {"centavos": owed.centavos, "lines": owed.lines, "payable_alone": alone},
+        "usage": {
+            "centavos": owed.centavos, "lines": owed.lines, "payable_alone": alone,
+            "items": usage.open_items(subscription, now),
+        },
         "transfer_accounts": plan.transfer_accounts(),
         "under_review": transfers.filter(status=TransferStatus.SUBMITTED).first(),
         "latest": transfers.filter(
@@ -1643,10 +1646,19 @@ def sweep(now=None, *, dry_run=False):
             code = "failed"
         if code:
             counts[code] += 1
-    if not dry_run and plan.usage_enabled():
+    if not dry_run and plan.any_usage_enabled():
         written_off = usage.write_off_unreturned(now)  # R-4c
         if written_off:
             counts["usage_written_off"] += written_off
+    if not dry_run and plan.orders_enabled():
+        # OV-2: count each ended month's orders once, 72 hours after it ends. Never fails the sweep.
+        try:
+            for outcome, number in usage.produce_order_entries(now).items():
+                if outcome in usage.Status.values or outcome == "failed":
+                    counts[f"orders_{outcome}"] += number
+        except Exception:
+            logger.exception("Billing sweep: the order count failed")
+            counts["orders_failed"] += 1
     result = dict(sorted(counts.items()))
     logger.info("Billing sweep%s: %s", " (dry run)" if dry_run else "", result or "nothing due")
     return result

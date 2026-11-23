@@ -17,9 +17,10 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.accounts.services import SUPPORT_EMAIL
-from apps.billing import clock, plan, services
+from apps.billing import clock, meters, plan, services, usage
 from apps.billing.models import (
-    BankTransferPayment, BillingNotice, Subscription, SubscriptionTransition,
+    BankTransferPayment, BillingCycle, BillingNotice, ChargeLine, Subscription,
+    SubscriptionTransition,
 )
 from apps.common.disposal import is_disposed_address
 from apps.notifications.services import EmailNotSent, send_email
@@ -120,7 +121,7 @@ def _approved_next(payment):
 def _payment_approved(payment, hi):
     site = payment.subscription.site.display_name
     cycle = payment.cycle
-    if cycle is None:  # a payment of storage overage alone buys no term
+    if cycle is None:  # a payment of overage alone buys no term
         what = f"we approved your payment of {_money(payment.amount_centavos)} for {site}."
         extra = ""
     else:
@@ -223,6 +224,40 @@ def _export_notice(subscription, hi):
     )
 
 
+def order_meter_text(level, hi):
+    """The OV-6 owner emails: at 80% of the 500 orders included in a billing month, and at 100%.
+    Wording from the task, approved with the plan (Coach Ed, 2026-11-23); local preview first."""
+    included = plan.ORDERS_INCLUDED_PER_MONTH
+    unit = plan.pesos(plan.ORDER_OVERAGE_CENTAVOS_PER_ORDER)
+    tail = (
+        f"Orders above {included} are billed at {plan.CURRENCY} {unit} each on your next bill. "
+        f"Your store keeps taking orders as usual."
+    )
+    if level == "80":
+        used = included * 4 // 5
+        return f"You've used {used} of your {included} orders this month", (
+            f"{hi} You have used {used} of the {included} orders included this month. "
+            f"{tail}\n\n{SIGN_OFF}"
+        )
+    return f"You've reached your plan's {included} orders", (
+        f"{hi} You have reached your plan's {included} orders this month. {tail}\n\n{SIGN_OFF}"
+    )
+
+
+def _orders_bill(line, hi, due_at):
+    """The usage-only bill of an annual or Launch Promo term for one counted month of orders."""
+    site = line.subscription.site.display_name
+    first, last = usage.period_bounds(line.cycle, line.period_index, line.subscription.anchor_day)
+    label = usage.line_label(line.kind, line.quantity, line.amount_centavos)
+    return "Your NegosyoOnline orders-over-500 bill", (
+        f"{hi} {site} had more than the {plan.ORDERS_INCLUDED_PER_MONTH} orders included from "
+        f"{_day(first)} to {_day(last)}. {label} = {_money(line.amount_centavos)}. You can pay "
+        f"it on its own by bank transfer and send the proof on your Billing page: "
+        f"{_billing_link()}. Please pay by {_day(due_at)}. Until it is paid it is added to your "
+        f"next payment.\n\n{SIGN_OFF}"
+    )
+
+
 def _staff_alert(payment):
     where = (
         f"Open the Finance page in HQ: {settings.HQ_STAFF_ORIGIN}"
@@ -237,7 +272,9 @@ def _staff_alert(payment):
 
 def _plan_name(payment):
     if payment.plan_code == plan.USAGE_ONLY:
-        return "storage overage"
+        return {
+            "storage": "storage overage", "orders": "orders over 500",
+        }.get(usage.overage_name(payment), "usage overage")
     return plan.version_of(payment.plan_code, payment.plan_version or 1).name
 
 
@@ -286,6 +323,62 @@ def _payment_emails(now):
             )
             if _send_once(sub, f"payment_rejected:{payment.pk}", "payment_rejected", to, subject, body, now):
                 sent["payment_rejected"] += 1
+    return sent
+
+
+def _order_meter_emails(now):
+    """OV-6: one email at 400 of the 500 orders and one at 500, once per billing month, for a
+    paid month that is chargeable (OV-8). None for a trial, an exempt site or a month before the
+    notice date. Off with the order switch or OWNER_NOTICES_ENABLED: nothing is read."""
+    sent = Counter()
+    if not (plan.orders_enabled() and settings.OWNER_NOTICES_ENABLED) or plan.charged_from() is None:
+        return sent
+    paid_now = Subscription.objects.select_related("site__account").filter(
+        billing_exempt=False, cycles__settlement=BillingCycle.Settlement.PAID,
+        cycles__start_at__lte=now, cycles__end_at__gt=now,
+    ).distinct().order_by("pk")
+    included = plan.ORDERS_INCLUDED_PER_MONTH
+    for sub in paid_now:
+        found = services.allowance_period_at(sub, now)
+        if found is None or not plan.orders_chargeable(found["start_at"]):
+            continue
+        to = _reachable(sub)
+        if not to:
+            continue
+        count = meters.orders_in(sub.site, found["start_at"], found["end_at"])
+        level = "100" if count >= included else "80" if count >= included * 4 // 5 else None
+        if level is None:
+            continue
+        subject, body = order_meter_text(level, _greeting(sub.site.account))
+        key = f"orders_{level}:{sub.pk}:{found['cycle'].pk}:{found['index']}"
+        if _send_once(sub, key, f"orders_{level}", to, subject, body, now):
+            sent[f"orders_{level}"] += 1
+    return sent
+
+
+def _orders_bill_emails(now):
+    """OV-3: a multi-month term (annual, Launch Promo) is billed for orders alone, after each
+    counted month: this is the trigger. One email per line, due 7 days after it was made, only
+    while the Billing page offers that payment on its own. Off with the order switch or
+    OWNER_NOTICES_ENABLED. A line is looked at for 48 hours after its count."""
+    sent = Counter()
+    if not (plan.orders_enabled() and settings.OWNER_NOTICES_ENABLED):
+        return sent
+    lines = ChargeLine.objects.filter(
+        kind=ChargeLine.Kind.OVERAGE_ORDERS, status=ChargeLine.Status.OPEN,
+        entry__received_at__gte=now - WINDOW, cycle__term_months__gt=1,
+        subscription__billing_exempt=False,
+    ).select_related("subscription__site__account", "cycle", "entry").order_by("pk")
+    for line in lines:
+        sub = line.subscription
+        to = _reachable(sub)
+        if not to or _has_proof_waiting(sub):
+            continue
+        if not services.payment_options(sub, now)["usage"]["payable_alone"]:
+            continue  # it rides on the term's own payment
+        subject, body = _orders_bill(line, _greeting(sub.site.account), line.entry.received_at + usage.ORDER_BILL_DUE)
+        if _send_once(sub, f"orders_bill:{line.pk}", "orders_bill", to, subject, body, now):
+            sent["orders_bill"] += 1
     return sent
 
 
@@ -422,7 +515,10 @@ def run(now=None):
         return {}
     now = now or timezone.now()
     sent = Counter()
-    for scan in (_payment_emails, _reminder_emails, _transition_emails, _export_notice_emails):
+    for scan in (
+        _payment_emails, _reminder_emails, _transition_emails, _export_notice_emails,
+        _order_meter_emails, _orders_bill_emails,
+    ):
         try:
             sent.update(scan(now))
         except Exception:
