@@ -233,6 +233,14 @@ class DedupeAndStopTests(RoutingCase):
             untouched.refresh_from_db()
             self.assertTrue(untouched.promo_sms_ok)
 
+    def test_a_stop_from_a_local_format_number_still_finds_the_member(self):
+        self.text_to(self.ana)
+        mine = Member.objects.create(site=self.ana, full_name="Ana Buyer", mobile=SENDER, email="a@buyer.test",
+                                     promo_sms_ok=True)
+        self.receive("STOP", sender="0918 999 0000")  # the gateway's sender, normalised like Member.mobile
+        mine.refresh_from_db()
+        self.assertFalse(mine.promo_sms_ok)
+
     def test_a_stop_that_is_only_part_of_a_text_is_no_stop(self):
         self.text_to(self.ana)
         self.receive("Please do not stop the order")

@@ -41,13 +41,16 @@ def set_preference(member, ok, *, at=None, version=None):
 
 def opt_in_from_order(order, member):
     """Apply a yes the checkout recorded on the order's placed event (a bank-transfer order has its
-    member at once; a Xendit order's member comes at payment). It never clears an existing yes."""
+    member at once; a Xendit order's member comes at payment). It never clears an existing yes, and never overrides a later choice."""
     from apps.pack import constants as C
 
     event = order.events.filter(kind=C.EVENT_PLACED).order_by("pk").first()
     version = (event.new or {}).get("promo_sms") if event else None
-    if version and enabled():
-        set_preference(member, True, at=event.created_at, version=version)
+    if not (version and enabled()):
+        return
+    if member.promo_sms_at is not None and member.promo_sms_at > event.created_at:
+        return  # a later choice (STOP, the member's own toggle) wins over the yes given at checkout
+    set_preference(member, True, at=event.created_at, version=version)
 
 
 def opt_out_mobile(site, mobile):

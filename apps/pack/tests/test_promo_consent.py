@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from apps.members import promo
 from apps.members.models import Member
+from apps.pack import constants as C
 from apps.pack.models import PackOrder
 from apps.pack.tests.xendit_base import XenditPackCase
 
@@ -76,3 +77,24 @@ class Place(XenditPackCase):
         member = Member.objects.get()
         self.assertEqual((member.promo_sms_ok, member.promo_sms_version), (True, promo.PROMO_SMS_VERSION))
         self.assertIsNotNone(member.promo_sms_at)
+
+    def test_a_later_stop_between_placement_and_payment_is_not_turned_back_on(self):
+        # A returning buyer: the member exists already, so the Xendit order's yes waits for payment.
+        member = Member.objects.create(
+            site=self.site, full_name="Maria Santos", mobile="+639171234567", email="maria@buyer.test",
+            mobile_state="verified")
+        order = PackOrder.objects.create(
+            site=self.site, member=member, order_number="SMP90001", price_centavos=C.PRICE_CENTAVOS, buyer_name="x",
+            payment_method="xendit", payment_status="awaiting_xendit", xendit_external_id="ext-promo-1")
+        order.add_event("placed", new={"method": "xendit", "promo_sms": promo.PROMO_SMS_VERSION})
+        promo.opt_out_mobile(self.site, member.mobile)  # a STOP after placement
+        member.refresh_from_db()
+        promo.opt_in_from_order(order, member)  # what attach_member runs at payment
+        member.refresh_from_db()
+        self.assertFalse(member.promo_sms_ok)
+        # With no later choice, the yes still applies.
+        Member.objects.filter(pk=member.pk).update(promo_sms_at=None)
+        member.refresh_from_db()
+        promo.opt_in_from_order(order, member)
+        member.refresh_from_db()
+        self.assertTrue(member.promo_sms_ok)
