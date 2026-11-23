@@ -111,6 +111,22 @@ python manage.py billing_exempt SITE --actor USERNAME --reason "approved test si
 
 `SITE` is the site's public id (`site_...`). `--actor` is your own staff username. The reason is written to the admin audit log (action `billing_exempt_set`, kept whole), so it must hold no personal value. A second run answers "was already exempt" and writes nothing.
 
+## Production reset after the P7 copy
+
+The P7 copy restores everything to production except the billing and ledger rows (production plan P7c, approved by Coach Ed). `billing_reset_for_production` empties those tables once, after the restore and before the first real record, and checks that they are empty. The Supervisor runs it once, in the P7 production job, on the Manager's GO. A builder never runs it, and never against staging, a local copy of real data or production.
+
+```bash
+python manage.py billing_reset_for_production                                   # dry run: row counts only
+python manage.py billing_reset_for_production --apply --operator USERNAME       # one transaction
+```
+
+- It refuses (`CommandError`, nothing touched) unless `APP_ENVIRONMENT` is exactly `production`, in every mode.
+- `--database ALIAS` (default `default`) picks the database, for the restored copy. `--operator` must be an active staff user of that database; `--apply` without one is refused.
+- The dry run is the default and changes nothing. `--apply` counts, empties, counts again, and rolls back and fails if any count is above 0. It writes one audit entry, `billing_reset_for_production` (kept whole), with the database alias and the count deleted per model. The output is model names and counts only.
+- The list is the constant `RESET_MODELS` in the command: all of billing (11 models), invoices (5), ledger (8), and from statements the statements, their lines, deliveries and the number series (4). Kept on purpose, listed in `KEPT_MODELS`: `statements.IssuerProfile` (the issuer's verified legal identity) and `statements.BillingProfile` (a Subscriber's own business details). A test fails when a model is added to these four apps without being placed in one list. Sites, users, accounts, orders, members, the catalog, `payments` and the audit log are not touched, and plans and prices live in code.
+- These rows are final by design (guards on the managers, PostgreSQL triggers on statements, statement lines, invoice events and the ledger), so the command does not use the ORM delete. On PostgreSQL it runs one `TRUNCATE ... RESTART IDENTITY` of the listed tables, which the triggers do not cover and which rolls back with the transaction; there is no `CASCADE`, so a table outside the list that points into one of them makes it fail and roll back. It needs the TRUNCATE privilege on those tables (the owner has it).
+- After it: the ledger has no book, accounts, periods or access rows, so the live book is set up again from scratch; no receiving account exists, so bank transfer stays off until staff add one in HQ Finance, Accounts; sites have no subscription until the backfill (`billing_backfill_subscriptions`) runs; statement numbers start again at 1. Proof files already in the private store are not deleted by this command.
+
 ## The sweep
 
 The sweep catches the stored rows up with the time: a trial past its end, a payment needing attention past 7 days, a paid cycle past its end plus 7 days. A site's state never waits for it, because every read computes the state from the current time; a late sweep shuts nobody early and serves nobody late.
