@@ -178,6 +178,7 @@ STAYS_ON = [
     # Paying by bank transfer (B2a): a suspended or ended site must still be able to pay.
     ("GET", "/sites/{site_id}/billing/payment/"),
     ("GET", "/sites/{site_id}/billing/usage/"),  # a closed site still sees what it owes
+    ("GET", "/sites/{site_id}/billing/meters/"),  # display only; a closed site sees it too
     ("GET", "/sites/{site_id}/billing/payments/"),
     ("POST", "/sites/{site_id}/billing/payments/"),
     ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"),
