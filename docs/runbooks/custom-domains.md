@@ -125,7 +125,7 @@ not built** and needs Coach Ed's go. One registration per site for life; one sit
 | `DOMAINS_PURCHASE_ENABLED` | worker | `1` allows a purchase. Off: a Check still works, a Buy for a new name is refused, the worker sends nothing. A re-attach of a `succeeded` registration ignores it (it spends nothing). |
 | `CLOUDFLARE_REGISTRAR_API_TOKEN` | worker only | Secret. Coach Ed enters it himself, and only when step 0 part C1 is reached. The `api` and `beat` containers must not hold it: it is what keeps `register` out of a web request. |
 | `DOMAINS_MAX_COST_USD` | worker | The price ceiling in dollars. **Value to set at step 0 Part C: 12.00.** Both the registration price and the renewal price must be at or under it, at purchase. Unset or 0 refuses everything. |
-| `DOMAINS_ALLOWED_TLDS` | worker, api | Comma-separated extensions that may be offered (for example `com,net`). Empty offers none. |
+| `DOMAINS_ALLOWED_TLDS` | worker, api | Comma-separated extensions that may be offered (for example `com,net`). **Unset or empty offers `.com` only** (FREE-DOMAIN-Y1 FD1); a value replaces that default. |
 | `DOMAINS_DAILY_PURCHASE_CAP`, `DOMAINS_DAILY_SPEND_CAP_USD` | worker | Caps over the last 24 hours, counted from `register_sent` events. 0 or unset means no purchase at all. **Values to set at Part C: 3 purchases and 40 dollars.** |
 | `DOMAINS_CHECKS_PER_HOUR_SITE`, `DOMAINS_CHECKS_PER_HOUR_ACCOUNT` | api | Owner Check rate limits (default 20 and 200). |
 | `DOMAINS_REGISTER_AUTO_RENEW` | worker | `1` adds `auto_renew: true` to the register body. Set only if step 0 shows the API accepts it. |

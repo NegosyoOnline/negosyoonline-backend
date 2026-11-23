@@ -70,5 +70,8 @@ appears in `claims` and the normal states follow.
 
 ## Tests
 
-`apps/domains/tests/test_bridge_import.py`, `test_owner_api.py` (free_until), `test_staff_routes.py`
-(route table), `test_default_tlds.py`. Fake provider only.
+New: `apps/domains/tests/test_default_tlds.py` (default, override, cap unchanged; subprocess reads settings),
+`BridgeImportTests` in `test_staff_routes.py` (route table incl. `import-bridge/`, 404 while off, request
+and audit, idempotent repeat, bad and platform names, exempt/deleted, claim/registration, name held, worker
+import with no `register`, normal machine step after import, every worker refusal gives the name back, lost
+task backstop), `FreeUntilTests` in `test_owner_api.py`. Fake provider only; no network.
