@@ -157,6 +157,22 @@ class MetersTests(SitesApiTestCase):
         self.assertSameMoment(orders["period_start"], self.subscription.trial_start_at)
         self.assertSameMoment(orders["period_end"], self.subscription.trial_end_at)
 
+    def test_a_site_that_paid_during_its_trial_stays_on_the_trial_window_until_the_paid_cycle(self):
+        trial_end = self.subscription.trial_end_at
+        with method_on_file():
+            services.first_payment_succeeded(
+                self.subscription, paid_at=self.subscription.trial_start_at + days(3), reference="early", early=True
+            )
+        self.subscription.refresh_from_db()
+        self.assertNotEqual(self.subscription.state, "trial_active")
+        self.at(self.subscription.trial_start_at + days(5))
+        orders = self.body()["orders"]
+        self.assertEqual(orders["period_kind"], "trial")
+        self.assertSameMoment(orders["period_start"], self.subscription.trial_start_at)
+        self.assertSameMoment(orders["period_end"], trial_end)
+        self.at(trial_end + days(1))
+        self.assertEqual(self.body()["orders"]["period_kind"], "billing_month")
+
     def test_the_billing_month_period(self):
         cycle = self.pay()
         moment = cycle.start_at + days(2)

@@ -187,7 +187,7 @@ On pull requests GitHub runs the SQLite checks only ("Django checks and tests");
 
 ## Plan usage meters
 
-`GET /v1/sites/{site_id}/billing/meters/` (owner only, 404 while `BILLING_ENABLED` is off) shows media storage used against 5 GB and orders this period against the 500 included. Storage is the sum of `MediaAsset.file_size` over every media-library row of the site, hidden or unpublished rows included; thumbnails, posters, catalog photos, proofs and documents are not counted. Orders are the site's `ShopOrder` rows (cancelled left out) plus its `PackOrder` rows (rejected and expired-invoice ones left out), by `created_at` in the period: the paid cycle's allowance month (`billing_month`), else the trial window (`trial`), else the current Manila calendar month (`calendar_month`). Display only: nothing is written, charged or blocked.
+`GET /v1/sites/{site_id}/billing/meters/` (owner only, 404 while `BILLING_ENABLED` is off) shows media storage used against 5 GB and orders this period against the 500 included. Storage is the sum of `MediaAsset.file_size` over every media-library row of the site, hidden or unpublished rows included; thumbnails, posters, catalog photos, proofs and documents are not counted. Orders are the site's `ShopOrder` rows (cancelled left out) plus its `PackOrder` rows (rejected and expired-invoice ones left out), by `created_at` in the period: the paid cycle's allowance month (`billing_month`), else the trial window while now is inside it, whatever the state, so also after an early payment (`trial`), else the current Manila calendar month (`calendar_month`). Display only: nothing is written, charged or blocked.
 
 ## Not in this runbook yet
 

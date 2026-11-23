@@ -9,7 +9,6 @@ from datetime import datetime
 from django.db.models import Sum
 
 from apps.billing import clock, plan, services
-from apps.billing.models import Subscription
 from apps.media_library.models import MediaAsset
 from apps.pack import constants as pack_constants
 from apps.pack.models import PackOrder
@@ -31,12 +30,14 @@ def storage_used_bytes(site):
 
 def period_at(subscription, now):
     """(start, end, kind): the paid cycle's allowance month when one covers `now`; else the trial
-    window while the site is in its trial; else the current Manila calendar month."""
+    window while `now` is inside it, whatever the state (TRIAL_ACTIVE, or ACTIVE after an early
+    payment, whose first paid cycle starts at trial_end_at); else the current Manila calendar month."""
     allowance = services.allowance_period_at(subscription, now)
     if allowance is not None:
         return allowance["start_at"], allowance["end_at"], BILLING_MONTH
     if (
-        subscription.state == Subscription.State.TRIAL_ACTIVE
+        subscription.trial_start_at is not None
+        and subscription.trial_end_at is not None
         and subscription.trial_start_at <= now < subscription.trial_end_at
     ):
         return subscription.trial_start_at, subscription.trial_end_at, TRIAL
