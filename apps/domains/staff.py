@@ -188,25 +188,12 @@ def import_bridge(request, operator):
         if outcome == "requested":
             audit.record(operator, "domains_import_requested", target_type="site", target_id=site.public_id,
                          detail={"name": bridge.last_import(site).detail.get("name", "")})
-        _enqueue_import(site.pk)
         response = JsonResponse({"site": site.public_id, "name": bridge.last_import(site).detail.get("name", ""),
                                  "status": outcome}, status=202)
     except ApiError as refusal:
         response = JsonResponse(error_body(refusal.code, refusal.message, refusal.fields), status=refusal.status)
     response["Cache-Control"] = "no-store"
     return response
-
-
-def _enqueue_import(site_id):
-    def run():
-        try:
-            from apps.domains import tasks  # noqa: PLC0415
-
-            tasks.import_bridge.delay(site_id)
-        except Exception:  # noqa: BLE001 - the minute sweep picks the request up
-            pass
-
-    transaction.on_commit(run, robust=True)
 
 
 ROUTES = {

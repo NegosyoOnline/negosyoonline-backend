@@ -23,7 +23,7 @@ Request: `{"site": "<site public id>", "name": "brand.com"}` (apex name, no www)
 
 Responses (all `Cache-Control: no-store`):
 * `202 {"site": "<site id>", "name": "brand.com", "status": "requested" | "pending"}`. Nothing is bought.
-  The registrar read happens in the worker; poll the list route. `pending` = an identical request is
+  The registrar read happens in the worker's minute sweep (within about a minute); poll the list route. `pending` = an identical request is
   already waiting.
 * `404 not_found`: domains off, unknown site.
 * `400 invalid_request` with `fields.name = ["<plain reason>"]`: not a valid bare name.
@@ -45,7 +45,7 @@ appears in `claims` and the normal states follow.
 * FD4: `owner.free_until(reg)`.
 * FD3: `apps/domains/bridge.py`, same two halves as "confirmed registered". Request half writes the name
   onto the site's registration row (`intent`, unsent, no claim: nothing can buy it) and an
-  `import_requested` event; worker half (`tasks.import_bridge`, plus a minute-sweep backstop) re-checks every
+  `import_requested` event; worker half (`tasks.import_bridge`, run by the minute sweep within about a minute; no new celery task, because a billing test pins the task list and the task forbids apps/billing edits) re-checks every
   rule under the purchase lock, reads the registrar (`get` must show the name in our account, with
   `expires_at`; status not in progress/failed/action required/blocked), records the registration
   `succeeded` with `expires_at`/`auto_renew`, and starts a claim at `registered`. DNS, Vercel and Resend

@@ -68,9 +68,9 @@ def sweep():
     return run_sweep(bundle=providers.current())
 
 
-@shared_task(name="domains.import_bridge", ignore_result=True)
 def import_bridge(site_id):
-    """The worker half of the HQ bridge import (the api holds no Registrar token)."""
+    """The worker half of the HQ bridge import (the api holds no Registrar token). Run by the minute
+    sweep (no task of its own, so the queue's task list is unchanged)."""
     if not settings.DOMAINS_ENABLED:
         return "switched off"
     result = bridge.process_import(site_id, providers.current())
