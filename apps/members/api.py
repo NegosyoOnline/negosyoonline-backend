@@ -21,7 +21,7 @@ import ipaddress
 from ninja import Router, Schema
 
 from apps.common.errors import ApiError
-from apps.members import services, sessions, signin
+from apps.members import promo, services, sessions, signin
 from apps.storefront.services import served_sante_site
 
 router = Router()
@@ -387,3 +387,46 @@ def read_address(request, body: AddressReadIn):
         "home_address": {k: address[k] for k in services.ADDRESS_KEYS if k in address},
         "home_address_locked": holds.active_hold(member, "address_change") is not None,
     }
+
+
+# -- the member's promotional text preference (PROMO-CONSENT, z8uq9mbreu; apps/members/promo.py).
+#    Off (PROMO_SMS_CONSENT_ENABLED), both routes answer 404. A held store stays open, like the
+#    other member writes. ---------------------------------------------------------------------------
+
+
+class PreferencesReadIn(Schema):
+    host: str = ""
+    visitor_ip: str = ""
+    member_token: str = ""
+
+
+class PreferencesIn(PreferencesReadIn):
+    promo_sms_ok: bool = False
+
+
+class PreferencesOut(Schema):
+    promo_sms_ok: bool
+    promo_sms_at: str | None
+
+
+def _preferences(member):
+    return {"promo_sms_ok": member.promo_sms_ok,
+            "promo_sms_at": member.promo_sms_at.isoformat() if member.promo_sms_at else None}
+
+
+def _promo_member(body):
+    if not promo.enabled():
+        raise ApiError("not_found", "Not found.", status=404)
+    return _session(_site(body.host), body.member_token).member
+
+
+@router.post("/preferences/read/", response=PreferencesOut)
+def read_preferences(request, body: PreferencesReadIn):
+    return _preferences(_promo_member(body))
+
+
+@router.post("/preferences/", response=PreferencesOut)
+def save_preferences(request, body: PreferencesIn):
+    member = _promo_member(body)
+    promo.set_preference(member, body.promo_sms_ok)
+    return _preferences(member)

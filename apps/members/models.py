@@ -56,6 +56,10 @@ class Member(models.Model):
     email_verified_at = models.DateTimeField(null=True, blank=True)
     delivery_address = models.JSONField(default=dict, blank=True)  # line, barangay, city, province, zip, landmark
     source = models.CharField(max_length=16, choices=SOURCES, default=ONBOARDING)
+    # Promotional text consent (z8uq9mbreu): a label and a filter only; nothing refuses a text for it.
+    promo_sms_ok = models.BooleanField(default=False)
+    promo_sms_at = models.DateTimeField(null=True, blank=True)  # when the current value was last set
+    promo_sms_version = models.CharField(max_length=16, blank=True)  # wording version shown when set to true
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -167,6 +167,10 @@ BILLING_ANNUAL_ENABLED = os.environ.get("BILLING_ANNUAL_ENABLED", "").strip() ==
 # write and lets collections include overage. Off, the intake answers "disabled" and writes
 # nothing, the usage route answers 404 and the ledger tables are not read or written.
 BILLING_USAGE_ENABLED = os.environ.get("BILLING_USAGE_ENABLED", "").strip() == "1"
+# Promotional text consent (PROMO-CONSENT, z8uq9mbreu): "1" shows the checkout checkbox wording, records a
+# yes at checkout and in the member's preferences, and lists agreed members. Off, those answers
+# omit the fields, the checkout ignores the flag and the member preference routes answer 404.
+PROMO_SMS_CONSENT_ENABLED = os.environ.get("PROMO_SMS_CONSENT_ENABLED", "").strip() == "1"
 # Billing Statements and the manual BIR invoice register (Billing Build B5). Each is its own
 # switch, "1" to turn on. Off, its routes answer 404, nothing is opened, issued or sent, and its
 # tables are not read or written. The register is built and turned on before the statements.

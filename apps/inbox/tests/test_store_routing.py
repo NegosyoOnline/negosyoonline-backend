@@ -217,6 +217,22 @@ class DedupeAndStopTests(RoutingCase):
         self.receive("stop")  # twice: still one row
         self.assertEqual(InquirySmsOptOut.objects.count(), 1)
 
+    def test_a_stop_ends_promotional_consent_for_that_stores_members_with_that_mobile_only(self):
+        self.text_to(self.ana)
+        mine = Member.objects.create(site=self.ana, full_name="Ana Buyer", mobile=SENDER, email="a@buyer.test",
+                                     promo_sms_ok=True, promo_sms_version="2026-11-23")
+        elsewhere = Member.objects.create(site=self.ben, full_name="Ben Buyer", mobile=SENDER, email="b@buyer.test",
+                                          promo_sms_ok=True)
+        other_number = Member.objects.create(site=self.ana, full_name="Other", mobile="+639170000077",
+                                             email="c@buyer.test", promo_sms_ok=True)
+        self.receive("STOP")
+        mine.refresh_from_db()
+        self.assertFalse(mine.promo_sms_ok)
+        self.assertIsNotNone(mine.promo_sms_at)
+        for untouched in (elsewhere, other_number):
+            untouched.refresh_from_db()
+            self.assertTrue(untouched.promo_sms_ok)
+
     def test_a_stop_that_is_only_part_of_a_text_is_no_stop(self):
         self.text_to(self.ana)
         self.receive("Please do not stop the order")

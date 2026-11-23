@@ -36,7 +36,7 @@ from apps.pack import (
     access, address_zip, checkout, visits, constants as C, dashboard, interfaces, notices, onboarding, panels, placement, policies, portal, records,
     registration, registration_rules, review, xendit,
 )
-from apps.members import sessions
+from apps.members import promo, sessions
 from apps.pack.models import PackOrder, PackProofSubmission, SanteRegistration
 from apps.storefront.services import served_sante_site
 
@@ -77,9 +77,12 @@ class ContactIn(Schema):
 class ContactOut(Schema):
     token: str
     expires_at: str
+    promo_sms_consent_enabled: bool | None = None  # PROMO-CONSENT: omitted while PROMO_SMS_CONSENT_ENABLED is off
+    promo_sms_version: str | None = None
+    promo_sms_text: str | None = None
 
 
-@router.post("/checkout/contact/", response=ContactOut)
+@router.post("/checkout/contact/", response=ContactOut, exclude_unset=True)
 def checkout_contact(request, body: ContactIn):
     site, ip = _site(body.host), _ip(body.visitor_ip)
     portal.require_sale_open()  # L45: no Pack sale without the buyer portal
@@ -102,7 +105,10 @@ def checkout_contact(request, body: ContactIn):
     else:
         token, raw = checkout.save_contact(site, token, data, extras=extras, ip=ip), ""
     token.refresh_from_db()
-    return {"token": raw, "expires_at": token.expires_at.isoformat()}
+    out = {"token": raw, "expires_at": token.expires_at.isoformat()}
+    if promo.enabled():
+        out.update(promo.contact_fields(site))
+    return out
 
 
 class CheckIn(Schema):
@@ -143,6 +149,7 @@ class PlaceIn(Schema):
     source_url: str = ""
     visitor_ref: str = ""  # the visit this buyer came from, when the storefront has one
     pay_method: str = "direct"  # "direct" (proof) or "xendit" (hosted invoice, no proof)
+    promo_sms_ok: str = ""  # "1" opts in to promotional texts; read only while PROMO_SMS_CONSENT_ENABLED is on
 
 
 class PlaceOut(Schema):
@@ -162,7 +169,7 @@ def checkout_place(request, body: Form[PlaceIn], proof: File[UploadedFile] = Non
         "consent": body.meta_consent == "1", "host": body.host, "url": body.source_url, "fbp": body.fbp,
         "fbc": body.fbc, "user_agent": body.user_agent, "visitor_ref": body.visitor_ref,
     }
-    for name in ("meta_consent", "fbp", "fbc", "user_agent", "source_url", "visitor_ref", "pay_method"):  # not proof fields
+    for name in ("meta_consent", "fbp", "fbc", "user_agent", "source_url", "visitor_ref", "pay_method", "promo_sms_ok"):  # not proof fields
         data.pop(name)
     for name in ("sender_name", "sender_first_name", "sender_last_name"):
         if name not in request.POST:  # an absent field is not an empty one (the name rule reads presence)
@@ -170,6 +177,7 @@ def checkout_place(request, body: Form[PlaceIn], proof: File[UploadedFile] = Non
     placed = placement.place_pack_order(
         site, token, body.token, submit_key=body.submit_key, data=data, upload=proof,
         ip=_ip(body.visitor_ip), meta=meta, pay_method=body.pay_method or C.PAYMENT_METHOD,
+        promo_sms_ok=body.promo_sms_ok == "1" and promo.enabled(),
     )
     visits.link_order(site, body.visitor_ref, placed.order)
     return {
