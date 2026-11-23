@@ -18,7 +18,7 @@ from ninja import Router, Schema
 
 from apps.accounts.api import signed_in
 from apps.accounts.services import record_event
-from apps.billing import clock, plan, proofs, services, usage
+from apps.billing import clock, meters, plan, proofs, services, usage
 from apps.billing.models import BankTransferPayment
 from apps.common.errors import ApiError
 from apps.common.ids import is_public_id
@@ -154,6 +154,31 @@ def billing_usage(request, site_id: str):
     if not plan.usage_enabled():
         raise ApiError("not_found", "Not found.", status=404)
     return usage.owner_read(subscription, timezone.now())
+
+
+class MeterStorageOut(Schema):
+    used_bytes: int
+    limit_bytes: int
+
+
+class MeterOrdersOut(Schema):
+    count: int
+    limit: int
+    period_start: datetime
+    period_end: datetime
+    period_kind: str
+
+
+class MetersOut(Schema):
+    storage: MeterStorageOut
+    orders: MeterOrdersOut
+
+
+@router.get("/sites/{site_id}/billing/meters/", response=MetersOut)
+def billing_meters(request, site_id: str):
+    """Plan usage meters: media storage and orders this period. Display only; writes nothing."""
+    _, subscription = _subscription_for(request, site_id)
+    return meters.read(subscription, timezone.now())
 
 
 @router.post("/sites/{site_id}/billing/cancel/", response=BillingOut)

@@ -320,6 +320,7 @@ class BillingIsolationTests(SitesApiTestCase):
                 ("GET", "/sites/{site_id}/billing/"),
                 ("GET", "/sites/{site_id}/billing/invoices/"),
                 ("GET", "/sites/{site_id}/billing/invoices/{invoice_id}/copy/"),
+                ("GET", "/sites/{site_id}/billing/meters/"),
                 ("GET", "/sites/{site_id}/billing/payment/"),
                 ("GET", "/sites/{site_id}/billing/payments/"),
                 ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"),
@@ -335,7 +336,7 @@ class BillingIsolationTests(SitesApiTestCase):
         # site, needs no sign-in and reads no billing table.
         outside = [p for p in billing_router.path_operations if "{site_id}" not in p]
         self.assertEqual(outside, ["/plan/"])
-        self.assertEqual(len(billing_router.path_operations), 11)
+        self.assertEqual(len(billing_router.path_operations), 12)
 
     def test_another_accounts_site_is_404_on_every_billing_route_and_changes_nothing(self):
         before = billing_snapshot()
