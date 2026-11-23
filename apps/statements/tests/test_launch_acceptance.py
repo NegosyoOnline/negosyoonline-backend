@@ -6,8 +6,10 @@ every expected figure is read from a stored row or from a constant in `plan.py`.
 subscribers, made-up issuer and receiving-account values, an in-memory private store, no staging
 data, no real merchant and no outbound network.
 
-Scenarios 2, 3 and 4 and the order lines of 11 are not here: NegosyoOnline never meters or
-charges orders (Coach Ed, 2026-11-11), so `OrdersAreNeverBilledTests` guards that instead. Lines
+Scenarios 2, 3 and 4 and the order lines of 11 are not here: with BILLING_ORDER_OVERAGE_ENABLED
+off, which is the default, NegosyoOnline charges no order (Coach Ed, 2026-11-11). From 2026-11-23
+it bills only the orders over the 500 a month includes, at PHP 5 (OV-9), behind that switch, and
+never a share of sales. `OrdersAreNeverBilledTests` guards what stays out. Lines
 that need the Xendit gateway, the automatic restore or the resolution tool are blocked and are
 listed in the plan, section 4.
 """
@@ -321,11 +323,14 @@ class TrialBoundaryTests(Fixture, TestCase):
 
 @override_settings(**ON)
 class OrdersAreNeverBilledTests(Fixture, TestCase):
-    """Scenarios 2, 3 and 4 are dropped: no per-order charge, overage, allowance or display."""
+    """Scenarios 2, 3 and 4 are dropped: no per-order charge, only the overage over the 500
+    included, and none of it while BILLING_ORDER_OVERAGE_ENABLED is off (the default)."""
 
-    def test_nothing_in_the_billing_tables_can_hold_an_order_charge(self):
-        self.assertEqual(UsageEntry.Kind.values, ["storage"])
-        self.assertEqual(ChargeLine.Kind.values, ["overage_storage"])
+    ORDER_NAMES = {"ORDERS_INCLUDED_PER_MONTH", "ORDER_OVERAGE_CENTAVOS_PER_ORDER"}
+
+    def test_nothing_in_the_billing_tables_can_hold_a_per_order_charge(self):
+        self.assertEqual(UsageEntry.Kind.values, ["storage", "orders"])
+        self.assertEqual(ChargeLine.Kind.values, ["overage_storage", "overage_orders"])
         self.assertEqual(
             sorted(StatementLine.Kind.values), ["adjustment", "base", "credit", "usage"]
         )
@@ -333,7 +338,9 @@ class OrdersAreNeverBilledTests(Fixture, TestCase):
             names = " ".join(f.name for f in model._meta.get_fields())
             self.assertNotRegex(names, r"order|ordinal")
         for name in dir(plan):
-            self.assertNotRegex(name, r"ORDER|OVERAGE_ORDER|PER_ORDER")
+            if name not in self.ORDER_NAMES:  # exactly these two, OV-1 and OV-2
+                self.assertNotRegex(name, r"ORDER|OVERAGE_ORDER|PER_ORDER")
+        self.assertEqual((plan.ORDERS_INCLUDED_PER_MONTH, plan.ORDER_OVERAGE_CENTAVOS_PER_ORDER), (500, 500))
 
     def test_orders_on_the_site_change_no_billing_row(self):
         from apps.shop.tests.owner_base import make_order
@@ -391,7 +398,7 @@ class StorageAtLaunchTests(Fixture, TestCase):
         reconcile(self, subscription)
 
     def test_there_is_no_video_meter(self):
-        self.assertEqual(UsageEntry.Kind.values, ["storage"])
+        self.assertEqual(UsageEntry.Kind.values, ["storage", "orders"])
         self.assertFalse([c for c in UsageEntry._meta.get_fields() if "video" in c.name])
 
 

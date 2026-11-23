@@ -131,6 +131,19 @@ class LastSnapshotOut(Schema):
     amount_centavos: int
 
 
+class UsageLineOut(Schema):
+    """One open overage line. `label` is the owner's words, e.g. "Orders over 500: 12 \u00d7 PHP 5"."""
+
+    kind: str
+    label: str
+    quantity: int
+    unit_centavos: int
+    amount_centavos: int
+    period_start_at: datetime
+    period_end_at: datetime
+    due_at: datetime | None
+
+
 class UsageStorageOut(Schema):
     metered: bool
     included_gb: int
@@ -145,13 +158,15 @@ class UsageOut(Schema):
     period: UsagePeriodOut | None
     storage: UsageStorageOut
     due_centavos: int
+    items: list[UsageLineOut]
 
 
 @router.get("/sites/{site_id}/billing/usage/", response=UsageOut)
 def billing_usage(request, site_id: str):
-    """Storage allowance and overage. 404 while BILLING_USAGE_ENABLED is off."""
+    """Storage allowance and overage lines, and the order overage lines. 404 while neither
+    BILLING_USAGE_ENABLED (with storage metered) nor BILLING_ORDER_OVERAGE_ENABLED is on."""
     _, subscription = _subscription_for(request, site_id)
-    if not plan.usage_enabled():
+    if not plan.any_usage_enabled():
         raise ApiError("not_found", "Not found.", status=404)
     return usage.owner_read(subscription, timezone.now())
 
@@ -167,6 +182,8 @@ class MeterOrdersOut(Schema):
     period_start: datetime
     period_end: datetime
     period_kind: str
+    overage_applies: bool
+    overage_centavos_per_order: int
 
 
 class MetersOut(Schema):
@@ -327,6 +344,7 @@ class UsageDueOut(Schema):
     centavos: int
     lines: int
     payable_alone: bool
+    items: list[UsageLineOut]
 
 
 class PaymentOptionsOut(Schema):
