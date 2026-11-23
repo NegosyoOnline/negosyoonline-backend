@@ -86,6 +86,8 @@ ACTIONS = {
     "billing_record_delete_refused": KEPT,
     "sante_catalog_owner_set": KEPT,
     "sante_content_source_set": KEPT,
+    # A site put on or taken off operator hold (manage.py site_hold). Ids and on/off only.
+    "site_operator_hold_set": KEPT,
     "sante_agreement_version_created": KEPT,
     "sante_agreement_version_updated": KEPT,
     "sante_agreement_version_deleted": KEPT,

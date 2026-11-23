@@ -32,14 +32,26 @@ class SourceError(Exception):
     """The store could not do what was asked. The message never holds the token or a name."""
 
 
+PUBLIC_HOST = "{store_id}.public.blob.vercel-storage.com"
+
+
 class BlobSource:
-    def __init__(self, token):
+    """One Blob store by its read-write token. `access` is the store's own kind, "private" (the
+    default, what the backup uses) or "public" (the media store, for the store copy only): it
+    picks the host objects are read from and the access header a put sends."""
+
+    def __init__(self, token, access="private"):
+        if access not in ("private", "public"):
+            raise SourceError("The store access must be private or public.")
         # vercel_blob_rw_<store id>_<secret>: the store id is the fourth part.
         parts = (token or "").split("_")
         if len(parts) < 5 or not parts[3].isalnum():
-            raise SourceError("The private store token is not a read-write token.")
+            raise SourceError(f"The {access} store token is not a read-write token.")
         self._token = token
-        self._host = private_files.BLOB_HOST.format(store_id=parts[3].lower())
+        self._access = access
+        self.store_id = parts[3].lower()
+        template = private_files.BLOB_HOST if access == "private" else PUBLIC_HOST
+        self._host = template.format(store_id=self.store_id)
 
     def _send(self, action, url, *, method="GET", data=None, headers=None, want_headers=False):
         status = "no answer"
@@ -110,7 +122,7 @@ class BlobSource:
             "put", f"{private_files.BLOB_API}/?{query}", method="PUT", data=content,
             headers={
                 "x-api-version": private_files.BLOB_API_VERSION,
-                "x-vercel-blob-access": "private",
+                "x-vercel-blob-access": self._access,
                 "x-content-type": content_type or "application/octet-stream",
                 "x-add-random-suffix": "0",
             },

@@ -293,3 +293,26 @@ Code: `apps/file_backup/`. No migration and no table: the bucket holds all state
 A real restore of an environment follows section 2 (worker and beat stopped first) and the safety checks in section 3.
 
 **Local proof (2026-11-21, task z8uq9mhben).** A throwaway PostgreSQL 18 container: migrated database `src` plus 250 probe rows (133 tables, 972 rows), `backup_database` with the worker image's `pg_dump` 18.7, then `restore_database` into empty database `dst`: 133 tables and 972 rows, every table count equal. The stored copy is not a readable dump, and a restore into the running database was refused.
+
+## 9. Copying a Blob store (P7)
+
+ClickUp z8uq9mhnzu (parent z8uq9mh7dt); production plan P7(a), GATES P7 run sheet step 3.5. Code: `apps/file_backup/blobcopy.py` and `manage.py copy_blob_store`. No migration, no table, no setting.
+
+**What it does.** Copies every object of one Vercel Blob store into another so every stored file reference keeps working: the staging private store into production's private store, then the staging public (media) store into production's public store. One store pair per run (a Blob store is private or public, never both), named by `--access private` or `--access public`; the access is the store's own, so private stays private and public stays public. Each object keeps its pathname and content type. The put sends no allow-overwrite header, as the app's own uploads do (`x-vercel-blob-access` as the store, `x-add-random-suffix: 0`).
+
+**How to run it: one job, once.** It runs as a one-off production job (a one-off container or `bunny` job, not the API, worker or beat), with the two token variables set on that job only. Name the variables anything that does not exist on the app, for example `COPY_SRC_TOKEN` (staging store's read-write token) and `COPY_DEST_TOKEN` (production store's), and pass the NAMES:
+
+```text
+manage.py copy_blob_store --access private --source-token-env COPY_SRC_TOKEN --dest-token-env COPY_DEST_TOKEN
+manage.py copy_blob_store --access private --source-token-env COPY_SRC_TOKEN --dest-token-env COPY_DEST_TOKEN --apply
+```
+
+Then the same pair of commands with `--access public` and the two public stores' tokens. Remove both variables from the job when it ends; never set them on the API, worker or beat, and never write them in a file, a ticket or a log. A token is read only from its named variable: there is no token argument. Options: `--prefix P` (only pathnames under P), `--max-mb N` (default 50: a larger object is counted `failed` until the limit is raised), `--rate N` (requests a second, both stores together; default 10).
+
+**Dry run first (the default).** Prints counts only: `listed`, `bytes` (and GB), `already at the destination` (same pathname), `would copy`, and `conflict (existing, size differs)`. It downloads and writes nothing. Check `would copy` plus `already at the destination` equals `listed`.
+
+**`--apply`.** For each source object missing at the destination: download, put at the same pathname with the same content type, read it back and compare sha256 with the source bytes. A mismatch counts the object `failed` and removes that fresh copy so a re-run can try again. A destination object that already exists is never overwritten: same bytes are `skipped_existing`, different bytes are `conflict` (reported, left as it is). Output: `listed`, `copied`, `skipped_existing`, `conflict`, `failed`, `bytes` (copied), and `oversize` (also in `failed`). No pathname, URL or token is printed or logged. The exit is non-zero (`Not done: ...`) when `failed` or `conflict` is above 0.
+
+**Success** is `failed: 0` and `conflict: 0`, and a second `--apply` run printing `copied: 0` with `skipped_existing` equal to `listed`. Safe to re-run any number of times; run it again after fixing a failure. Objects added at the source after the run need another run (or a final run in the cut-over window).
+
+**Real Vercel behaviour not proved by the tests.** The tests use fakes only; the first real run is the proof of the list call (REST form, see section 7), of the public-store read host (`<store id>.public.blob.vercel-storage.com`) and of Vercel refusing a put onto an existing name (the command relies on that as a second guard; its dry-run listing is the first). Run the dry run on both pairs and read the counts before any `--apply`.
