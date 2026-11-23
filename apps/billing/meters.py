@@ -11,11 +11,13 @@ from django.db.models import Sum
 from apps.billing import clock, plan, services
 from apps.billing.models import Subscription
 from apps.media_library.models import MediaAsset
+from apps.pack import constants as pack_constants
 from apps.pack.models import PackOrder
 from apps.shop import constants as shop_constants
 from apps.shop.models import ShopOrder
 
 BILLING_MONTH, TRIAL, CALENDAR_MONTH = "billing_month", "trial", "calendar_month"
+PACK_NOT_PAID = (pack_constants.REJECTED, pack_constants.XENDIT_EXPIRED)  # the pack's cancelled
 # Not in plan.py: a guard there forbids any plan name with "ORDER" (no order is ever charged).
 ORDERS_INCLUDED_PER_MONTH = 500  # shown on the meter; display only
 
@@ -46,14 +48,19 @@ def period_at(subscription, now):
 
 def orders_in(site, start, end):
     """Shop orders (cancelled ones left out) plus Membership Pack orders placed in [start, end).
-    A pack order has no cancelled status (a failed payment is its own status and stays counted),
-    so none is left out. MemberOrderLog is not counted."""
+    A pack order has no cancelled status; one whose payment never went through (rejected, or its
+    Xendit invoice expired) is the pack's cancelled and is left out. Every other pack status stays
+    counted, xendit_mismatch included. MemberOrderLog is not counted."""
     shop = (
         ShopOrder.objects.filter(site=site, created_at__gte=start, created_at__lt=end)
         .exclude(payment_status=shop_constants.CANCELLED)
         .count()
     )
-    pack = PackOrder.objects.filter(site=site, created_at__gte=start, created_at__lt=end).count()
+    pack = (
+        PackOrder.objects.filter(site=site, created_at__gte=start, created_at__lt=end)
+        .exclude(payment_status__in=PACK_NOT_PAID)
+        .count()
+    )
     return shop + pack
 
 

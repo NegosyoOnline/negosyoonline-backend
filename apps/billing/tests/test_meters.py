@@ -189,7 +189,17 @@ class MetersTests(SitesApiTestCase):
         trial = self.subscription.trial_start_at
         shop_order(self.site, trial + days(1))
         pack_order(self.site, trial + days(1))
-        pack_order(self.site, trial + days(1), status=pack_constants.REJECTED)  # no cancelled state
+        pack_order(self.site, trial + days(1), status=pack_constants.PENDING_REVIEW)
+        self.at(trial + days(2))
+        self.assertEqual(self.body()["orders"]["count"], 3)
+
+    def test_rejected_and_expired_pack_orders_are_left_out(self):
+        trial = self.subscription.trial_start_at
+        pack_order(self.site, trial + days(1), status=pack_constants.REJECTED)
+        pack_order(self.site, trial + days(1), status=pack_constants.XENDIT_EXPIRED)
+        pack_order(self.site, trial + days(1), status=pack_constants.VERIFIED)
+        pack_order(self.site, trial + days(1), status=pack_constants.PENDING_REVIEW)
+        pack_order(self.site, trial + days(1), status=pack_constants.XENDIT_MISMATCH)
         self.at(trial + days(2))
         self.assertEqual(self.body()["orders"]["count"], 3)
 
