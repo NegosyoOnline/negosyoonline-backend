@@ -300,7 +300,7 @@ def confirm(site, account, data):
                 audience=kind, size=len(chosen), left_out=left,
             )
             StoreBulkRecipient.objects.bulk_create(
-                [StoreBulkRecipient(batch=batch, position=i, member_id=pk, name=name[:120], mobile=mobile)
+                [StoreBulkRecipient(batch=batch, position=i, member_ref=pk, name=name[:120], mobile=mobile)
                  for i, (pk, name, mobile) in enumerate(chosen)],
                 batch_size=500,
             )
@@ -377,7 +377,7 @@ def _end(batch, reason, state, *, actor=None):
 def _skip_reason(batch, recipient):
     """Why this member is not texted any more, or "" when they still are: the member is still the
     store's, with the same verified number, not on the STOP list, and in promo mode still agreed."""
-    member = Member.objects.filter(pk=recipient.member_id, site=batch.site).first() if recipient.member_id else None
+    member = Member.objects.filter(pk=recipient.member_ref, site=batch.site).first() if recipient.member_ref else None
     if member is None:
         return "member_removed"
     if member.mobile != recipient.mobile:

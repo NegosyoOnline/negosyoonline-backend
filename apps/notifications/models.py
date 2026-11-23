@@ -360,7 +360,7 @@ class StoreBulkRecipient(models.Model):
 
     batch = models.ForeignKey(StoreBulkBatch, on_delete=models.CASCADE, related_name="recipients")
     position = models.PositiveIntegerField()
-    member = models.ForeignKey("members.Member", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    member_ref = models.PositiveBigIntegerField(null=True, blank=True)  # the members.Member pk when the batch was confirmed; no foreign key
     name = models.CharField(max_length=120, blank=True)
     mobile = models.CharField(max_length=20)  # +639XXXXXXXXX, or its masked form (+63917***4567) once the batch is over
     state = models.CharField(max_length=10, default=WAITING)

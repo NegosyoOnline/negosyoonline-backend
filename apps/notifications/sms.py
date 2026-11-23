@@ -497,8 +497,10 @@ def claimable(device):
         if site_lines_on() and site_has_line(device.site):
             return Q(site_id=device.site_id) & ~Q(category=CODE)
         return Q(pk__in=[])
+    if not site_column_exists():
+        return Q()
     never_shared = ~Q(category=STORE_BULK)  # a store's bulk text is only ever its own phone's
-    if not site_lines_on() or not site_column_exists():
+    if not site_lines_on():
         return never_shared
     sites = SmsDevice.objects.filter(is_active=True, site__isnull=False).select_related("site")
     lined = [phone.site_id for phone in sites if site_has_line(phone.site)]

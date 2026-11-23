@@ -595,3 +595,21 @@ class RetentionTests(BulkCase):
         self.assertEqual(counts["store_bulk_batches"], 1)
         self.assertEqual(list(StoreBulkBatch.objects.all()), [other])
         self.assertIn("store_bulk_batches", inquiry_retention.blanked())
+
+
+class BeforeTheMigrationTests(BulkCase):
+    def test_before_0008_the_policy_column_is_not_read_or_saved_and_the_default_stands(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from apps.notifications import models as notification_models
+        sms.policy()
+        with mock.patch.object(notification_models, "store_bulk_limit_column_exists", return_value=False):
+            with CaptureQueriesContext(connection) as queries:
+                self.assertEqual(sms.policy().store_bulk_daily_limit, 2000)
+            self.assertFalse([q for q in queries.captured_queries if "store_bulk_daily_limit" in q["sql"]])
+        with mock.patch.object(services, "store_bulk_limit_column_exists", return_value=False):
+            self.assertNotIn("store_bulk_daily_limit", services.policy_fields({"store_bulk_daily_limit": 5}))
+
+    def test_the_shared_phone_is_never_given_a_bulk_text_and_a_plain_phone_is_unchanged(self):
+        from apps.notifications.models import SmsDevice
+        self.assertIn("storebulk", str(sms.claimable(SmsDevice.objects.get(pk=self.platform.pk))))

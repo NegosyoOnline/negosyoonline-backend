@@ -47,7 +47,7 @@ class StoreTextPurposeTests(SmsTestCase):
                 self.assertEqual(declared.priority, SmsMessage.Priority.REPLY)
                 self.assertTrue(declared.paced)
                 self.assertIn(name, sms.paced_purposes())
-        self.assertEqual(sms.STORE_PURPOSES, ("store_reply", "store_compose"))
+        self.assertEqual(sms.STORE_PURPOSES, ("store_reply", "store_compose", "store_bulk"))
 
     def test_a_store_text_names_its_site_and_has_no_email_fallback(self):
         with self.assertRaises(ValueError):
@@ -71,7 +71,7 @@ class StoreTextPurposeTests(SmsTestCase):
 
     def test_no_new_marketing_purpose(self):
         marketing = [n for n, d in sms.PURPOSES.items() if d.priority == SmsMessage.Priority.MARKETING]
-        self.assertEqual(marketing, ["inbox_bulk"])
+        self.assertEqual(marketing, ["inbox_bulk", "store_bulk"])
 
 
 class StoreCapTests(SmsTestCase):
@@ -212,7 +212,8 @@ class PolicyColumnsTests(SmsTestCase):
                 self.assertEqual((row.store_daily_limit, row.all_stores_daily_limit), (50, 1000))
             self.assertFalse([q for q in queries.captured_queries if "store_daily_limit" in q["sql"]])
             self.assertEqual(code().outcome, sms.QUEUED)
-        with mock.patch.object(services, "store_limit_columns_exist", return_value=False):
+        with mock.patch.object(services, "store_limit_columns_exist", return_value=False), \
+                mock.patch.object(services, "store_bulk_limit_column_exists", return_value=False):
             self.assertEqual(services.policy_fields(), services.POLICY_FIELDS)
             with CaptureQueriesContext(connection) as queries:
                 services.change_policy(self.operator(), {

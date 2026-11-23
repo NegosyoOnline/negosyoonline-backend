@@ -229,6 +229,16 @@ OWNER_ROUTES = {
     # that does not exist, which answers the same 404 for Ana's own site as for Ben's
     ("GET", "/sites/{site_id}/inquiries/sms/status/"): 200,
     ("POST", "/sites/{site_id}/inquiries/sms/compose/"): 404,
+    # a store's bulk text (STORE-BULK): the switch is off here, so every one answers 404 (the isolation of its
+    # batches is tested in apps/inquiries/tests/test_store_bulk.py)
+    ("GET", "/sites/{site_id}/inquiries/sms/bulk/status/"): 404,
+    ("POST", "/sites/{site_id}/inquiries/sms/bulk/audience/"): 404,
+    ("POST", "/sites/{site_id}/inquiries/sms/bulk/preview/"): 404,
+    ("POST", "/sites/{site_id}/inquiries/sms/bulk/test/"): 404,
+    ("POST", "/sites/{site_id}/inquiries/sms/bulk/batches/"): 404,
+    ("GET", "/sites/{site_id}/inquiries/sms/bulk/batches/"): 404,
+    ("GET", "/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/"): 404,
+    ("POST", "/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/stop/"): 404,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/read/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/close/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reopen/"): 200,
@@ -520,6 +530,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
                 ids["ref"] = InquiryCommentRule.objects.create(site=self.site, public_text="{Hi|Hello} {name}").ref
             else:
                 ids["ref"] = self.ana_comment.ref if "/comments/" in template else inquiries_base.WC_REF
+        if "{batch_id}" in template:
+            ids["batch_id"] = "sbk_" + "0" * 20
         if "{invoice_id}" in template:
             ids["invoice_id"] = self.invoice_ids[self.site.pk]
         if "{number}" in template:
@@ -535,6 +547,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
     def foreign_ids(self, template):
         """Ben's children for the placeholders this route has (a shop route gets his shop order)."""
         ids = self.ben_shop_ids if "/shop/" in template else self.ben_ids
+        if "{batch_id}" in template:
+            ids = {**ids, "batch_id": "sbk_" + "1" * 20}
         if "{ref}" in template:  # an inquiries route: Ben's website chat, or his Facebook comment
             if "/comment-rules/" in template:
                 return {**ids, "ref": self.ben_rule.ref}
@@ -703,6 +717,16 @@ class TwoOwnersTestCase(SitesApiTestCase):
                 return {"template": "{Hi|Hello} {name}", "kind": "public"}
             if method == "POST" or method == "PUT":
                 return {"public_text": "{Hi|Hello} {name}!"} if method == "POST" else {"enabled": False}
+            return None
+        if "/sms/bulk/" in template:
+            if template.endswith("/audience/"):
+                return {"audience": "all"}
+            if template.endswith("/preview/"):
+                return {"text": "Hello"}
+            if template.endswith("/test/"):
+                return {"text": "Hello", "idempotency_key": "fixture-bulk-000001"}
+            if template.endswith("/batches/") and method == "POST":
+                return {"text": "Hello", "idempotency_key": "fixture-bulk-000001", "confirm": True}
             return None
         if template.endswith("/sms/compose/"):
             return {"member_id": "mb_missing", "text": "Hello", "idempotency_key": "fixture-sms-000001"}
