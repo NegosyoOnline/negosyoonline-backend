@@ -171,11 +171,22 @@ class PortalSiteTests(PortalBase):
 
         self.assert_not_found(self.portal("site/"))
 
-    def test_a_site_on_operator_hold_does_not(self):
+    def test_a_site_on_operator_hold_still_opens_it(self):
+        """H3 decision C: members keep read access while HQ has the store suspended."""
         self.open_portal()
         Site.objects.filter(pk=self.site.pk).update(operator_hold=True)
 
-        self.assert_not_found(self.portal("site/"))
+        self.assertEqual(self.portal("site/").status_code, 200)
+
+    def test_a_held_site_whose_billing_is_active_opens_it_with_the_neutral_banner(self):
+        self.at(T0 + days(2))
+        Site.objects.filter(pk=self.site.pk).update(operator_hold=True)
+
+        response = self.portal("site/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["banner"], portal.NEUTRAL_BANNER)
+        self.assertIsNone(response.json()["closes_at"])
 
     def test_a_site_that_is_not_a_sante_site_does_not(self):
         self.open_portal()

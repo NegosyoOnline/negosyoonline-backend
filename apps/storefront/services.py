@@ -21,10 +21,11 @@ from apps.sites.models import SiteBusinessProfile
 logger = logging.getLogger(__name__)
 
 
-def served_sante_site(host):
+def served_sante_site(host, include_held=False):
     """The Santé site this host serves right now, or None. The decision is `served`, the one
-    function GET /v1/public/sites/by-host/ uses, so the two can never disagree."""
-    found = served(host)
+    function GET /v1/public/sites/by-host/ uses, so the two can never disagree (a held store
+    answers the member routes only, with `include_held`)."""
+    found = served(host, include_held=include_held)
     if found is None or found[0].template != templates.SANTE:
         return None
     return found[0]
