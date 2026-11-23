@@ -98,3 +98,21 @@ class Place(XenditPackCase):
         promo.opt_in_from_order(order, member)
         member.refresh_from_db()
         self.assertTrue(member.promo_sms_ok)
+
+
+class PackRead(XenditPackCase):
+    @override_settings(PROMO_SMS_CONSENT_ENABLED=True)
+    def test_on_the_pack_answer_carries_the_exact_text_with_this_hosts_store_name(self):
+        body = self.get_pack()
+        self.assertIs(body["promo_sms_consent_enabled"], True)
+        self.assertEqual(body["promo_sms_version"], promo.PROMO_SMS_VERSION)
+        self.assertEqual(body["promo_sms_text"], promo.PROMO_SMS_TEXT.format(store=self.site.display_name))
+        self.assertIn(self.site.display_name, body["promo_sms_text"])
+        self.assertEqual(body["promo_sms_text"], self.contact().json()["promo_sms_text"])  # same as contact/
+
+    @override_settings(PROMO_SMS_CONSENT_ENABLED=False)
+    def test_off_the_keys_are_absent_not_null(self):
+        body = self.get_pack()
+        for key in ("promo_sms_consent_enabled", "promo_sms_version", "promo_sms_text"):
+            self.assertNotIn(key, body)
+        self.assertIn("price_centavos", body)

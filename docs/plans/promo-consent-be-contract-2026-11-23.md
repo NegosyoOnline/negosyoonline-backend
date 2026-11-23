@@ -72,5 +72,11 @@ When a STOP reaches a store (`apps/inquiries/sms_inbox.store_incoming`, stop=Tru
 - SANTE: the checkout checkbox (posts `promo_sms_ok=1`) and the member dashboard toggle (the two routes in section 2).
 - HQ: the dash members filter or tag (section 4).
 
+## v1.2 (Mon 2026-11-23, SANTE request, HQ routine decision)
+Reason: the Pack checkout form is server-rendered before any `checkout/contact/` call, so a first-time buyer would never see the opt-in.
+- `GET /storefront/v1/pack/?host=` gains the same three fields as `checkout/contact/`: `promo_sms_consent_enabled`, `promo_sms_version`, `promo_sms_text`. Same constant, version pin and `{store}` (this host's display name), from one function (`promo.contact_fields`). `checkout/contact/` is unchanged.
+- Switch-off clarification: with `PROMO_SMS_CONSENT_ENABLED` off, the three fields are OMITTED (the keys are absent, not null) from `checkout/contact/` and `pack/`, and `promo_sms_ok` is omitted from owner member rows (and `promo=1` is ignored). The "null when off" wording in section 1a means absent.
+- A later choice wins: a checkout yes that is applied at payment (Xendit) never overrides a STOP or a preferences change made after the order was placed.
+
 ---
 Parent z8uq9mbreu. ClickUp subtask pending (MCP limit until ~04:40 Tue). Approval: Coach Ed, rulings 616135 / "Just build it.. again no need to be strict what to text to its customer/subscribers!" (Manager relay, Mon 2026-11-23).
