@@ -147,6 +147,7 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/billing/"): 200,
     ("GET", "/sites/{site_id}/billing/payment/"): 200,
     ("GET", "/sites/{site_id}/billing/usage/"): 200,  # the usage-on world; UsageSwitchTests covers off
+    ("GET", "/sites/{site_id}/billing/meters/"): 200,
     ("GET", "/sites/{site_id}/billing/profile/"): 200,
     ("PUT", "/sites/{site_id}/billing/profile/"): 200,
     ("GET", "/sites/{site_id}/billing/statements/"): 200,
