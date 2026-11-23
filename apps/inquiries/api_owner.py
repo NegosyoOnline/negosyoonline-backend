@@ -281,7 +281,7 @@ def bulk_test(request, site_id: str, payload: BulkTestIn):
     return store_bulk.test_send(request.inquiry_site, request.account, payload.text, _bulk_key(payload.idempotency_key))
 
 
-@router.post("/sites/{site_id}/inquiries/sms/bulk/batches/")
+@router.post("/sites/{site_id}/inquiries/sms/bulk/batches/", response={200: dict, 201: dict})
 def bulk_confirm(request, site_id: str, payload: BulkConfirmIn):
     hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
     _need_bulk()
