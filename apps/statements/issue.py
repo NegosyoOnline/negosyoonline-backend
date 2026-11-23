@@ -10,7 +10,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from apps.billing import clock
+from apps.billing import clock, usage
 from apps.billing.models import BankTransferPayment, ChargeLine
 from apps.statements import delivery, documents, services as issuer_services, switch
 from apps.statements.models import (
@@ -64,10 +64,16 @@ def _lines(payment, cycle):
     charges = ChargeLine.objects.filter(settled_payment=payment).select_related("cycle")
     for charge in charges.order_by("pk"):
         exact = charge.amount_centavos % charge.quantity == 0
+        if charge.kind == ChargeLine.Kind.OVERAGE_ORDERS:  # exactly "Orders over 500: N × PHP 5"
+            description = usage.line_label(charge.kind, charge.quantity, charge.amount_centavos)
+        else:
+            description = (
+                f"NegosyoOnline storage overage — {charge.quantity} GB, "
+                f"{_day(charge.cycle.start_at)} to {_day(charge.cycle.end_at)}"
+            )
         lines.append((
             "usage",
-            f"NegosyoOnline storage overage — {charge.quantity} GB, "
-            f"{_day(charge.cycle.start_at)} to {_day(charge.cycle.end_at)}",
+            description,
             charge.quantity if exact else 1,
             charge.amount_centavos // charge.quantity if exact else charge.amount_centavos,
             charge.amount_centavos,

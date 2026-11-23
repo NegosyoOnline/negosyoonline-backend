@@ -74,6 +74,14 @@ class ComposeTests(SmsOwnerCase):
                          (MOBILE, "Maria Santos", True))
         self.assertEqual(conversation.external_id, body["ref"])
 
+    def test_a_store_suspended_by_hq_cannot_text_and_starts_again_on_resume(self):
+        """H3: a held store (Site.operator_hold) is refused with 409 `site_held`; nothing is queued."""
+        type(self.site).objects.filter(pk=self.site.pk).update(operator_hold=True)
+        self.error(self.compose(), 409, "site_held")
+        self.assertFalse(SmsMessage.objects.exists())
+        type(self.site).objects.filter(pk=self.site.pk).update(operator_hold=False)
+        self.assertEqual(self.compose().json()["state"], "sending")
+
     def test_the_audit_row_keeps_the_length_and_never_the_text(self):
         self.compose()
         row = InquiryReply.objects.get(site=self.site)

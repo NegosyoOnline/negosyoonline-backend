@@ -13,7 +13,7 @@ SITE_KEYS = {
     "id", "template", "template_label", "display_name", "subdomain", "host", "business_name",
     "contact_email", "contact_mobile", "accent_color", "facebook_url",
     "instagram_url", "tiktok_url",
-    "created_at",
+    "held", "created_at",
 }
 MISSING = "/v1/sites/site_00000000000000000000/"
 
@@ -494,3 +494,12 @@ class OpenApiTests(SitesApiTestCase):
         ):
             with self.subTest(path=path):
                 self.assertEqual(set(paths[path]), methods)
+
+
+class HeldTests(SitesApiTestCase):
+    def test_the_owner_sees_held_on_the_list_and_the_detail(self):
+        site_id = self.create_site()["id"]
+        self.assertIs(self.get(f"/v1/sites/{site_id}/").json()["held"], False)
+        Site.objects.update(operator_hold=True)
+        self.assertIs(self.get(f"/v1/sites/{site_id}/").json()["held"], True)
+        self.assertIs(self.get("/v1/sites/").json()["items"][0]["held"], True)

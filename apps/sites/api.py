@@ -72,6 +72,7 @@ class SiteOut(Schema):
     facebook_url: str
     instagram_url: str
     tiktok_url: str
+    held: bool
     created_at: datetime
 
 
@@ -180,6 +181,7 @@ def site_out(site):
         "facebook_url": site.facebook_url,
         "instagram_url": site.instagram_url,
         "tiktok_url": site.tiktok_url,
+        "held": site.operator_hold,
         "created_at": site.created_at,
     }
 

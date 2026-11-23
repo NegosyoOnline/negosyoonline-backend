@@ -2,7 +2,8 @@
 
 Reads and writes nothing else: no table, no cache, no snapshot, no charge, no block. The storage
 figure is the media library's stored files; the orders figure is the site's shop and Membership
-Pack orders placed in the current period. Neither feeds the usage ledger in `usage.py`.
+Pack orders placed in the current period. The meter itself feeds nothing: the billing sweep
+counts a finished month with `orders_in` (the same rule) when it decides the order overage.
 """
 from datetime import datetime
 
@@ -17,8 +18,7 @@ from apps.shop.models import ShopOrder
 
 BILLING_MONTH, TRIAL, CALENDAR_MONTH = "billing_month", "trial", "calendar_month"
 PACK_NOT_PAID = (pack_constants.REJECTED, pack_constants.XENDIT_EXPIRED)  # the pack's cancelled
-# Not in plan.py: a guard there forbids any plan name with "ORDER" (no order is ever charged).
-ORDERS_INCLUDED_PER_MONTH = 500  # shown on the meter; display only
+ORDERS_INCLUDED_PER_MONTH = plan.ORDERS_INCLUDED_PER_MONTH  # the one figure lives in plan.py
 
 
 def storage_used_bytes(site):
@@ -68,6 +68,12 @@ def orders_in(site, start, end):
 def read(subscription, now):
     site = subscription.site
     start, end, kind = period_at(subscription, now)
+    # OV-4 and OV-8: charged only in a paid billing month that starts on or after the notice date,
+    # never for a trial or an exempt site, and only while the order switch is on.
+    applies = bool(
+        plan.orders_enabled() and kind == BILLING_MONTH and not subscription.billing_exempt
+        and plan.orders_chargeable(start)
+    )
     return {
         "storage": {"used_bytes": storage_used_bytes(site), "limit_bytes": plan.STORAGE_LIMIT_BYTES},
         "orders": {
@@ -76,5 +82,7 @@ def read(subscription, now):
             "period_start": start,
             "period_end": end,
             "period_kind": kind,
+            "overage_applies": applies,
+            "overage_centavos_per_order": plan.ORDER_OVERAGE_CENTAVOS_PER_ORDER,
         },
     }

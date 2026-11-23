@@ -28,7 +28,9 @@ router = Router()
 
 
 def _site(host):
-    site = served_sante_site(host) if services.enabled() else None
+    # A store HQ has suspended by hand (Site.operator_hold) still answers its members: sign-in
+    # codes still send and members read their own orders. The public host and checkout stay closed.
+    site = served_sante_site(host, include_held=True) if services.enabled() else None
     if site is None:
         raise ApiError("not_found", "Not found.", status=404, event="site_not_found", reason="missing")
     return site

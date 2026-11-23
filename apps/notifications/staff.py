@@ -16,7 +16,7 @@ from django.http import JsonResponse
 from apps.common.errors import ApiError, error_body
 from apps.notifications import devices, services
 from apps.notifications.models import SmsPolicy, store_limit_columns_exist
-from apps.operators import audit, two_step
+from apps.operators import audit, fresh
 
 MAX_BODY = 2048
 
@@ -75,7 +75,6 @@ def policy_set(body, operator):
 
 # The platform phone. Needs SMS_GATEWAY_MGMT_ENABLED as well. Incoming forwarding is not touched.
 
-REAUTH_MESSAGE = "That code did not work. Enter the current code from your authenticator app."
 _DEVICE_STATUS = {"invalid_name": 400, "phone_exists": 409, "name_taken": 409, "not_found": 404}
 
 
@@ -96,29 +95,13 @@ def _confirmed(body):
 
 
 def _fresh_code(body, operator):
-    """Refuse unless the body holds a fresh 6-digit authenticator code. One message for a wrong,
-    stale, reused or locked code and for a recovery code. The failure is audited with counts only."""
-    identity = operator.admin_identities.filter(is_active=True).first()
-    result = (
-        two_step.verify_fresh_totp(
-            identity.pk, body.get("code"), surface=two_step.SURFACE_HQ
-        )
-        if identity is not None
-        else two_step.Result(ok=False)
-    )
-    if result.ok:
+    """Refuse unless the body holds a fresh 6-digit authenticator code (apps.operators.fresh).
+    The failure is audited with counts only."""
+    detail = fresh.failure(body, operator)
+    if detail is None:
         return
-    identity = operator.admin_identities.filter(is_active=True).first()
-    audit.record(
-        operator,
-        "sms_device_reauth_failed",
-        target_type=devices.TARGET,
-        detail={
-            "failed_attempts": identity.failed_attempts if identity else 0,
-            "locked": bool(result.locked),
-        },
-    )
-    raise ApiError("reauth_failed", REAUTH_MESSAGE, status=403)
+    audit.record(operator, "sms_device_reauth_failed", target_type=devices.TARGET, detail=detail)
+    raise fresh.refusal()
 
 
 def _answer(device, token=None):
