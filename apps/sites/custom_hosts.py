@@ -85,7 +85,7 @@ def _table_ready():
     return _table_exists
 
 
-def active_row_for_host(host):
+def active_row_for_host(host, include_held=False):
     """The active custom-host row a request host names, with its site, or None."""
     name = key(host)
     if not name or not _table_ready():
@@ -93,7 +93,8 @@ def active_row_for_host(host):
     return (
         SiteCustomHost.objects.filter(
             host=name, state=SiteCustomHost.State.ACTIVE,
-            site__deleted_at__isnull=True, site__operator_hold=False,
+            site__deleted_at__isnull=True,
+            **({} if include_held else {"site__operator_hold": False}),
         )
         .select_related("site")
         .first()

@@ -45,6 +45,7 @@ CUSTOMER = "Customer"
 
 # What the owner is told when a text did not go, fixed text per code. Never a provider's words.
 OPTED_OUT, SMS_OFF, REPLIES_OFF = "opted_out", "sms_off", "replies_off"
+SITE_HELD = "site_held"  # HQ has suspended the store (Site.operator_hold)
 TEXT_INVALID, NOT_SENT = "text_invalid", "not_sent"
 REASON_TEXTS = {
     "gateway_offline": "The store's phone is offline right now. Try again shortly.",
@@ -68,7 +69,8 @@ AUDIT_CODE = {
 }
 CONFLICT = {OPTED_OUT: "That number has asked for no more texts from this store.",
             SMS_OFF: "Text conversations are switched off for this store.",
-            REPLIES_OFF: "Texting is not available right now."}
+            REPLIES_OFF: "Texting is not available right now.",
+            SITE_HELD: "Texting is stopped while your store is paused by NegosyoOnline."}
 
 
 # -- availability ---------------------------------------------------------------------------
@@ -84,7 +86,9 @@ def incoming_ready():
 
 
 def unavailable(site):
-    """Why the store cannot write now: `sms_off`, `replies_off`, or "" when it can."""
+    """Why the store cannot write now: `site_held`, `sms_off`, `replies_off`, or "" when it can."""
+    if site.operator_hold:
+        return SITE_HELD
     if not enabled(site):
         return SMS_OFF
     if not incoming_ready():

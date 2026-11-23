@@ -247,6 +247,33 @@ def _payable(subscription, now):
     return options["payable"] and options["under_review"] is None
 
 
+def hold_notice(site, *, paused, key):
+    """The owner's email when HQ suspends or resumes the store by hand, once for `key`. The reason
+    is never in it. Sent after the change is saved: a failure is logged and changes nothing."""
+    to = site.account.email
+    if site.deleted_at is not None or site.account.closed_at is not None or is_disposed_address(to):
+        return False
+    name = site.display_name
+    if paused:
+        code, subject = "hq_site_paused", "Your store is paused"
+        text = (
+            f"{_greeting(site.account)} your store {name} has been paused by NegosyoOnline under "
+            f"our Terms of Service. Your site and checkout are offline. Reply to this email or "
+            f"message us to resolve it: {SUPPORT_EMAIL}.\n\n{SIGN_OFF}"
+        )
+    else:
+        code, subject = "hq_site_resumed", "Your store is back online"
+        text = f"{_greeting(site.account)} your store {name} is back online.\n\n{SIGN_OFF}"
+    subscription = Subscription.objects.filter(site=site).first()
+    try:
+        if subscription is not None:
+            return _send_once(subscription, key, code, to, subject, text, timezone.now())
+        send_email(to=to, category=f"billing_{code}", subject=subject, body=text)
+        return True
+    except EmailNotSent:
+        return False
+
+
 # The scans. Each returns the number of emails it sent.
 
 def _payments(now, **filters):
