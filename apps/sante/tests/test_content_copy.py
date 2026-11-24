@@ -11,7 +11,8 @@ from django.utils import timezone
 from apps.catalog import media
 from apps.catalog.tests.base import MEDIA
 from apps.common import file_refs
-from apps.media_library.models import MediaAsset
+from apps.media_library import ledger, services as media_services
+from apps.media_library.models import MediaAsset, MediaObject
 from apps.operators.models import OperatorAuditEntry
 from apps.sante import content_copy, services
 from apps.sante.models import SanteContentCopy, SanteContentSource
@@ -42,6 +43,9 @@ class FakeBlob:
         self.files[dest] = self.files[src]
         return dest
 
+    def _copy_sized(self, src, dest):
+        return self._copy(src, dest), len(self.files[dest]), "image/png"
+
     def _discard(self, key):
         if key:
             self.deleted.append(key)
@@ -51,7 +55,7 @@ class FakeBlob:
         self.settings = override_settings(**MEDIA)
         self.settings.enable()
         self.patches = [
-            mock.patch("apps.catalog.media.copy", side_effect=self._copy),
+            mock.patch("apps.catalog.media.copy_sized", side_effect=self._copy_sized),
             mock.patch("apps.catalog.media.discard", side_effect=self._discard),
         ]
         for patch in self.patches:
@@ -447,6 +451,50 @@ class CopyTests(CopyCase):
             requested_at=timezone.now() - content_copy.STALE_AFTER - timedelta(minutes=1),
         )
         self.assertEqual(self.list()["courses"][0]["copy_state"], "failed")
+
+
+class CopyLedgerTests(CopyCase):
+    """G2: every copied object gets a ledger row in the destination site; the source is untouched."""
+
+    def setUp(self):
+        super().setUp()
+        self.set_source()
+
+    def test_a_media_copy_adds_one_row_per_key_to_the_destination_only(self):
+        src = self.asset("Promo", size=1000)
+        self.copy({"kind": "media", "ids": [src.public_id]})
+        mine = MediaAsset.objects.get(site=self.site)
+        rows = {r.role: r for r in MediaObject.objects.filter(site=self.site)}
+        self.assertEqual(set(rows), {"file", "thumb", "poster"})
+        self.assertEqual(rows["file"].key, mine.file_key)
+        self.assertEqual((rows["file"].bytes, rows["file"].content_type), (len(b"file_key"), "image/png"))
+        self.assertTrue(all(r.key.startswith(f"media-library/{self.site.public_id}/{mine.public_id}/") for r in rows.values()))
+        self.assertTrue(all(r.asset_id == mine.pk and r.removed_at is None for r in rows.values()))
+        self.assertEqual(MediaObject.objects.filter(site=self.source).count(), 0)  # billed to the destination only
+        now = timezone.now() + timedelta(seconds=1)
+        self.assertEqual(ledger.bytes_at(self.site, now), len(b"file_key"))
+        self.assertEqual(ledger.bytes_at(self.source, now), 0)
+
+    def test_a_failed_copy_leaves_no_row(self):
+        src = self.asset("Promo")
+        with self.blob:
+            self.blob.fail_on = 2
+            with self.captureOnCommitCallbacks(execute=True):
+                self.post(SHARED.format(self.site.public_id) + "copy/", {"kind": "media", "ids": [src.public_id]})
+        self.assertEqual(MediaObject.objects.count(), 0)
+        self.assertEqual(MediaAsset.objects.filter(site=self.site).count(), 0)
+
+    def test_a_full_library_fails_the_copy_with_the_full_message_and_copies_nothing(self):
+        src = self.asset("Promo")
+        MediaAsset.objects.create(site=self.site, title="Existing", asset_type="image")
+        with mock.patch.object(media_services, "MAX_ITEMS", 1):
+            body = self.copy({"kind": "media", "ids": [src.public_id]})
+            self.assertEqual(self.list()["media"][0]["copy_state"], "failed")
+            row = SanteContentCopy.objects.get(site=self.site)
+            self.assertEqual(row.error, "Your Media Library is full (1 items). Delete some items to add more.")
+        self.assertEqual(MediaAsset.objects.filter(site=self.site).count(), 1)
+        self.assertEqual(self.blob.calls, 0)  # stopped before any file was copied
+        self.assertEqual(MediaObject.objects.count(), 0)
 
 
 class FailureTests(CopyCase):

@@ -140,9 +140,15 @@ def _read_public(key):
 
 
 def copy(src_key, dest_key):
-    """Copy one stored file to a new key of its own and return that key. The copy is a separate
-    object: deleting either never touches the other. Downloads the public file and puts it again
-    (the store's server-side copy is not used: its API is not confirmed here). Raises StoreError."""
+    """Copy one stored file to a new key of its own and return that key. See copy_sized."""
+    return copy_sized(src_key, dest_key)[0]
+
+
+def copy_sized(src_key, dest_key):
+    """Copy one stored file to a new key of its own and return (key, size in bytes, content type).
+    The copy is a separate object: deleting either never touches the other. Downloads the public
+    file and puts it again (the store's server-side copy is not used: its API is not confirmed
+    here). Raises StoreError."""
     if not src_key or not dest_key:
         raise StoreError("A copy needs a source and a destination.")
     if src_key == dest_key:
@@ -165,4 +171,4 @@ def copy(src_key, dest_key):
         stored = None
     if stored != dest_key:
         raise StoreError("The media store put was not confirmed.")
-    return dest_key
+    return dest_key, len(content), content_type
