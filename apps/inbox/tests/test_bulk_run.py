@@ -35,11 +35,12 @@ class RunCase(BulkCase):
 
 
 class DriverTests(RunCase):
-    def test_1_one_text_at_a_time_with_the_opt_out_line(self):
+    def test_1_one_text_at_a_time_with_no_stop_footer(self):
         self.start(5, *(mobile(i) for i in range(1, 6)))
         handed = self.poll()
         self.assertEqual([m["to"] for m in handed], [mobile(1)])
-        self.assertEqual(handed[0]["text"], TEXT + " Reply STOP to opt out")
+        self.assertEqual(handed[0]["text"], TEXT)
+        self.assertNotIn("STOP", handed[0]["text"])
         self.assertEqual(self.batch().state, "sending")
         self.assertEqual(self.poll(), [])  # the last is not reported yet
         self.report(handed[0]["id"])
