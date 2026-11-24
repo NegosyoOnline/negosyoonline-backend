@@ -125,7 +125,7 @@ class RouteTests(BulkRouteCase):
         self.assertEqual(
             answer,
             {"bulk": True, "running": False, "used_today": 0, "left_today": 1700, "reserved_for_codes": 300,
-             "opt_out_line": " Reply STOP to opt out", "text_max": 138},
+             "text_max": 160},
         )
 
     def test_2_the_whole_round_and_no_answer_but_left_out_holds_a_full_number(self):
@@ -164,7 +164,7 @@ class RouteTests(BulkRouteCase):
 
     def test_4_the_errors(self):
         self.assertError(self.post("check/", {"text": TEXT, "source": "nope"}), 400, "invalid_request")
-        self.assertError(self.post("check/", {"text": "x" * 139, "source": "pasted", "numbers": N1}), 400, "invalid_text")
+        self.assertError(self.post("check/", {"text": "x" * 161, "source": "pasted", "numbers": N1}), 400, "invalid_text")
         self.assertError(self.post("confirm/", self.source(N1, count=2, request_id="request-id-route-0002")), 409, "changed")
         self.assertError(self.post("open/", {"batch": "x"}), 404, "not_found")
         self.assertError(self.post("stop/", {}), 404, "not_found")

@@ -22,7 +22,7 @@ class CheckTests(BulkCase):
             (answer["lines_read"], answer["duplicates"], answer["refused_count"], answer["size"]), (5, 1, 1, 3)
         )
         self.assertEqual(answer["refused"], [{"line": 2, "reason": bulk.NOT_A_MOBILE}])
-        self.assertEqual((answer["text_length"], answer["blocked"]), (len(TEXT) + 22, ""))
+        self.assertEqual((answer["text_length"], answer["blocked"]), (len(TEXT), ""))
 
     def test_2_file_reads_only_the_first_column_and_skips_a_header(self):
         csv_text = f"number,name,note\n{mobile(1)},Secret Person,call 09179999999\n{mobile(2)},Other,x\n"
@@ -86,12 +86,18 @@ class CheckTests(BulkCase):
         self.assertEqual((answer["size"], answer["blocked"]), (0, "no_room"))
 
     def test_11_the_text_rules(self):
-        for bad in ("x" * 139, "see example.com", "", "   ", None, 5):
+        for bad in ("x" * 161, "see example.com", "", "   ", None, 5):
             with self.subTest(text=bad), self.assertRaises(ApiError) as caught:
                 self.check(self.pasted(mobile(1), text=bad))
             self.assertEqual(caught.exception.code, "invalid_text")
-        answer = self.check(self.pasted(mobile(1), text="x" * 138))
+        answer = self.check(self.pasted(mobile(1), text="x" * 160))
         self.assertEqual(answer["text_length"], 160)
+
+    def test_11b_160_characters_are_accepted_and_161_refused(self):
+        self.assertEqual(self.check(self.pasted(mobile(1), text="x" * 160))["text_length"], 160)
+        with self.assertRaises(ApiError) as caught:
+            self.check(self.pasted(mobile(1), text="x" * 161))
+        self.assertEqual(caught.exception.code, "invalid_text")
 
     def test_12_incoming_off_blocks(self):
         self.phone.forwards_incoming = False

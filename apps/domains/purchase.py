@@ -53,7 +53,7 @@ CHECK_FIELDS = (
     "check_renewal_cost_cents", "currency",
 )
 NOT_AVAILABLE = "That name is not available. Please choose another."
-EXTENSION = "This extension is not available with your plan, please choose another."
+EXTENSION = "This name is not included. Please choose another."
 
 
 # --- shared pieces ---------------------------------------------------------------------------
@@ -78,15 +78,16 @@ def clear_check(reg):
 
 
 def evaluate(row, name):
-    """Why a Check answer refuses `name`, or "". Both prices must be in USD, at or under the
-    ceiling; a ceiling of 0 (unset) refuses everything."""
+    """Why a Check answer refuses `name`, or "". The first-year registration price must be in USD and
+    at or under the ceiling; the renewal price must be present but is not compared to the ceiling
+    (it is billed at its exact price in year 2). A ceiling of 0 (unset) refuses everything."""
     if not row["registrable"]:
         return NOT_AVAILABLE
     ceiling = settings.DOMAINS_MAX_COST_CENTS
     reg_cost, ren_cost = row["registration_cost_cents"], row["renewal_cost_cents"]
     if (
         row["currency"] != "USD" or row["tier"] != "standard" or tld_of(name) not in settings.DOMAINS_ALLOWED_TLDS
-        or reg_cost is None or ren_cost is None or ceiling <= 0 or reg_cost > ceiling or ren_cost > ceiling
+        or reg_cost is None or ren_cost is None or ceiling <= 0 or reg_cost > ceiling
     ):
         return EXTENSION
     return ""
@@ -595,7 +596,7 @@ def pending_confirms():
 def sentinel(providers, now=None):
     """One Check of a random, unregistered sentinel name per allowed extension (a read, no money).
     Stores each extension's reading; withdraws an extension that is not registrable, not standard,
-    not USD or over the ceiling, and alerts. A failed read leaves the old rows, which go stale."""
+    not USD or whose first-year price is over the ceiling (the renewal price is stored, not capped), and alerts. A failed read leaves the old rows, which go stale."""
     now = now or timezone.now()
     tlds = list(settings.DOMAINS_ALLOWED_TLDS)
     if not tlds or getattr(providers, "registrar", None) is None:
@@ -620,7 +621,7 @@ def sentinel(providers, now=None):
             allowed = (
                 row["registrable"] and row["tier"] == "standard" and ceiling > 0
                 and row["registration_cost_cents"] is not None and row["renewal_cost_cents"] is not None
-                and row["registration_cost_cents"] <= ceiling and row["renewal_cost_cents"] <= ceiling
+                and row["registration_cost_cents"] <= ceiling
             )
             DomainTldPrice.objects.update_or_create(tld=tld, defaults={
                 "registrable": row["registrable"], "tier": row["tier"],

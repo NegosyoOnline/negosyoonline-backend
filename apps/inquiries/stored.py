@@ -127,11 +127,21 @@ def _matching(rows, text):
     )
 
 
-def unread_count(site):
-    """How many of the site's visible stored conversations are unread (one count on the site's rows)."""
-    return InquiryConversation.objects.filter(
+def by_channel(rows, channel):
+    """`channel` "sms" keeps only text conversations, "nosms" every other channel, None all."""
+    if channel == "sms":
+        return rows.filter(provider=InquiryConversation.SMS)
+    if channel == "nosms":
+        return rows.exclude(provider=InquiryConversation.SMS)
+    return rows
+
+
+def unread_count(site, channel=None):
+    """How many of the site's visible stored conversations are unread (one count on the site's rows);
+    `channel` as in by_channel."""
+    return by_channel(InquiryConversation.objects.filter(
         site=site, provider__in=providers(), stores_history=True, unread=True,
-    ).count()
+    ), channel).count()
 
 
 FAILED_DELIVERY = ("failed", "bounced")  # a store message in one of these states did not reach the customer
@@ -150,7 +160,8 @@ def _with_answered(rows):
     ))
 
 
-def list_items(site, limit=LIST_LIMIT, after=None, query=None, status=None, unread=None, answered=None):
+def list_items(site, limit=LIST_LIMIT, after=None, query=None, status=None, unread=None, answered=None,
+               channel=None):
     """(items, next_cursor): the site's stored conversations, latest first, in the shape the owner's
     list uses. `after` is a previous call's next_cursor; next_cursor is None on the last page.
     `query` (already validated, see valid_query) keeps only the conversations that match it;
@@ -160,6 +171,7 @@ def list_items(site, limit=LIST_LIMIT, after=None, query=None, status=None, unre
     rows = InquiryConversation.objects.filter(
         site=site, provider__in=providers(), stores_history=True,
     ).order_by(F("last_message_at").desc(nulls_last=True), "-pk")
+    rows = by_channel(rows, channel)  # `channel`: "sms", "nosms" or None (see by_channel)
     rows = _with_answered(rows)
     if status:
         rows = rows.filter(status=status)

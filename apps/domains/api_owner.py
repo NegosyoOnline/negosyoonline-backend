@@ -1,6 +1,7 @@
 """The Subscriber's Domain screen, under /v1/sites/{site_id}/domain/. Ids are public ids.
 
-    GET  .../domain/          -> {eligible, locked_reason, extensions, registered_name, domain}
+    GET  .../domain/          -> {eligible, locked_reason, extensions, registered_name, free_until, domain}
+    (free_until: "YYYY-MM-DD" for a registered domain, else null; no price)
     POST .../domain/check/    {name} -> the same answer; the Check itself runs in the worker
     POST .../domain/buy/      {name} -> the same answer; Buy only writes rows, it never buys here
     POST .../domain/retry/    -> the same answer (a setup failure goes back to the setup steps)

@@ -96,4 +96,5 @@ def offered_tlds(now=None):
     rows = DomainTldPrice.objects.filter(
         allowed=True, read_at__gte=now - PRICE_FRESH, tld__in=list(settings.DOMAINS_ALLOWED_TLDS)
     )
-    return sorted(row.tld for row in rows)
+    # `.com` first when offered, then the rest alphabetically.
+    return sorted((row.tld for row in rows), key=lambda tld: (tld != "com", tld))
