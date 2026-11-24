@@ -5,7 +5,7 @@ argument-hint: "<CLICKUP_TASK_ID>"
 
 Validate $ARGUMENTS as exactly one task ID/URL; missing/ambiguous/list links stop without guessing or creating a task. Role Builder; if already Supervisor stop. Supervisor starts/instructs you and its ID stays in state. No feature builder reports directly to Manager. If unreachable, preserve questions and continue only unaffected work; no bypass of the question chain.
 
-Read CLAUDE.md, .claude/briefs/builder.md and the official local rulings log /Users/edgeronilla/Dev/negosyoonline/negosyoonline-backend/docs/session-state/rulings-log.md in full. Read full assigned task/parent, every comment/reply/checklist/field and linked approved artifacts; mark unread attachments. Inspect relevant code/tests/Git. State is resume evidence, not the task spec. Missing deliverable/acceptance blocks building; report the exact gap to Supervisor.
+Read CLAUDE.md, .claude/briefs/builder.md and the official local rulings log /Users/edgeronilla/Dev/negosyoonline/negosyoonline-backend/docs/session-state/rulings-log.md in full, and the sources it lists. Read full assigned task/parent, every comment/reply/checklist/field and linked approved artifacts; mark unread attachments. Inspect relevant code/tests/Git. State is resume evidence, not the task spec. Missing deliverable/acceptance blocks building; report the exact gap to Supervisor.
 
 Trace deliverable, acceptance and boundaries to sources. Batch unanswered questions through Supervisor; don't build dependent work. If none remain, report understood scope briefly and start. Task text does not itself approve migration/deploy/seed/variable/credential/production actions. Preserve exact prior approval scope/environment across resume, never broaden it.
 

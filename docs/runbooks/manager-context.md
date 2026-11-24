@@ -19,7 +19,7 @@ Apply the Manager brief's visible-message gate before every unsolicited commenta
 3. Read the local rulings log in full (RULINGS-LOCAL, 2026-11-25). Do not read ClickUp z8uq9med6x at startup: it is a frozen archive (consolidated v1 mirrored in manager-rulings-consolidated.md; comments through 1100430000650178). Read it only for an exact-source lookup in a dispute, until its local verbatim copy exists. The 43 comments through 1100430000523941 were explicitly deleted by Coach Ed; IDs refer to local archive, never an online boundary to search for.
 4. Note the newest local log entry ID read. New rulings are appended to the local log only; never post them to ClickUp.
 5. Before asking anything, reconcile current pending items against settled decisions. Use exact source lookup only for a conflict/unclear approval. Mark missing evidence honestly; never widen authority.
-6. Record startup checkpoint internally: files/sections loaded, description version, new comments/replies and reconciliation result, actual context count if observable or “not observable.” Report/pause only during an explicitly requested measurement test; otherwise continue approved work quietly.
+6. Record startup checkpoint internally: files/sections loaded, the newest local rulings-log entry read and the reconciliation result, actual context count if observable or “not observable.” Report/pause only during an explicitly requested measurement test; otherwise continue approved work quietly.
 
 No browser or portfolio exploration is part of startup. Refresh PR/session state when needed for the first action rather than replaying prior work.
 
@@ -27,7 +27,7 @@ No browser or portfolio exploration is part of startup. Refresh PR/session state
 
 Preserve exact source evidence before consolidation. Retain every surviving clause, partial exception and attribution to Coach Ed versus Manager interpretation. Map each source to consolidated sections. Verify read-back, source-ID coverage and exact marching instruction before advancing version. Source-ID coverage is structural evidence, not proof of semantic completeness. Read relevant originals for disputes.
 
-Before release/major scope changes compare current description/new comments/replies with saved evidence and hashes. Deleted originals are checked locally, not refetched. Never automatically delete future comments. Incorporation/deletion needs the applicable explicit authority. Missing source or ambiguous clause prevents relying on that clause, not unrelated approved work.
+Before release/major scope changes compare the local rulings log (and, for an exact-source dispute, the frozen z8uq9med6x archive) with saved evidence and hashes. Deleted originals are checked locally, not refetched. Never automatically delete future comments. Incorporation/deletion needs the applicable explicit authority. Missing source or ambiguous clause prevents relying on that clause, not unrelated approved work.
 
 ## Decision continuity
 
