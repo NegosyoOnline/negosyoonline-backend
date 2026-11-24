@@ -59,6 +59,8 @@ def _state(row):
     if store_limit_columns_exist():
         state["store_daily_limit"] = row.store_daily_limit
         state["all_stores_daily_limit"] = row.all_stores_daily_limit
+    if services.store_bulk_limit_column_exists():
+        state["store_bulk_daily_limit"] = row.store_bulk_daily_limit
     return state
 
 

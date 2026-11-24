@@ -36,3 +36,11 @@ def fetch_comment_avatar(comment_pk):
 def fetch_post_text(post_pk):
     """One Graph read for one post's text and link."""
     comment_media.fetch_post(post_pk)
+
+
+@shared_task(name="inquiries.store_bulk_start_due", ignore_result=True)
+def store_bulk_start_due():
+    """Start the store bulk batches whose scheduled time has come (apps/inquiries/store_bulk_schedule.py).
+    Does nothing while the store bulk switches are off."""
+    from apps.inquiries import store_bulk_schedule
+    store_bulk_schedule.start_due()

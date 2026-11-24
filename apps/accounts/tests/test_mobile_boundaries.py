@@ -8,6 +8,11 @@ from django.test import SimpleTestCase
 from apps.accounts.models import AccountMobile, MobileOtpChallenge
 
 ACCOUNTS = Path(__file__).resolve().parent.parent
+# The one place the notifications app keeps an announcement: a store's bulk batch holds the text it
+# sent to its own members, as a CharField of at most one SMS, for 180 days (Coach Ed's plan,
+# docs/plans/store-bulk-sms-plan-2026-11-23.md section 7; as Inbox SMS keeps a store's texts). The
+# send records and every other table still hold no text.
+ALLOWED_TEXT = {("StoreBulkBatch", "text")}
 
 
 class BoundaryTests(SimpleTestCase):
@@ -17,6 +22,9 @@ class BoundaryTests(SimpleTestCase):
                 for field in model._meta.concrete_fields:
                     with self.subTest(model=model.__name__, field=field.name):
                         self.assertNotIsInstance(field, models.TextField)
+                        if (model.__name__, field.name) in ALLOWED_TEXT:
+                            self.assertEqual((field.max_length, type(field)), (160, models.CharField))
+                            continue
                         self.assertNotIn(field.name, ("text", "body", "message", "content"))
 
     def test_1_the_mobile_tables_hold_only_short_values(self):

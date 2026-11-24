@@ -121,3 +121,30 @@ def sms_on():
 def sms_ready():
     """The switches are on and the tables are there: the only state in which a text route works."""
     return sms_on() and sms_tables_exist()
+
+
+STORE_BULK_TABLES = ("notifications_storebulkbatch", "notifications_storebulkrecipient")
+_BULK_SEEN = False
+
+
+def store_bulk_tables_exist():
+    """True once notifications.0008 (the store bulk tables) is applied. A positive answer is
+    remembered for the life of the process."""
+    global _BULK_SEEN
+    if _BULK_SEEN:
+        return True
+    names = connection.introspection.table_names()
+    _BULK_SEEN = all(table in names for table in STORE_BULK_TABLES)
+    return _BULK_SEEN
+
+
+def store_bulk_on():
+    """STORE_BULK_SMS_ENABLED (STORE-BULK): a store's bulk texts to its own members. Only while the text
+    conversations (INQUIRY_SMS_ENABLED, INQUIRIES_ENABLED, SMS_GATEWAY_ENABLED) and the store phone
+    lines (SMS_SITE_LINES_ENABLED) are on too."""
+    return bool(settings.STORE_BULK_SMS_ENABLED and sms_on() and settings.SMS_SITE_LINES_ENABLED)
+
+
+def store_bulk_ready():
+    """The switches are on and the tables are there: the only state in which a bulk route works."""
+    return store_bulk_on() and sms_tables_exist() and store_bulk_tables_exist()

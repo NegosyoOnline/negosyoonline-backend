@@ -843,3 +843,84 @@ class UnreadTests(InboxUiCase):
         with mock.patch("apps.inquiries.api_owner.stored_tables_exist", return_value=False):
             self.assertEqual(self.get(self.list_url).json(), {"items": [], "stored_next_cursor": None, "unread_total": 0})
             self.assertEqual(self.get(self.unread_url).json(), {"count": 0})
+
+
+@mock.patch("apps.inquiries.switch.sms_ready", return_value=True)
+class ChannelFilterTests(InboxUiCase):
+    """SMS-MENU (task z8uq9mj85j): `channel=sms|nosms` on the list and the unread count."""
+
+    def setUp(self):
+        super().setUp()
+        self.now = timezone.now()
+        self.wc = make_stored(self.site, ref="wc_" + "1" * 24, name="Web Chat", unread=True, at=self.now - timedelta(minutes=10))
+        self.em = make_stored(self.site, ref="em_" + "2" * 24, name="Email Person", unread=False, at=self.now - timedelta(minutes=9))
+        InquiryConversation.objects.filter(pk=self.em.pk).update(provider=InquiryConversation.EMAIL)
+        self.ms = make_stored(self.site, ref="fm_" + "3" * 24, name="Messenger Person", unread=False, at=self.now - timedelta(minutes=8))
+        InquiryConversation.objects.filter(pk=self.ms.pk).update(provider=InquiryConversation.MESSENGER)
+        self.empty = make_stored(self.site, ref="wc_" + "4" * 24, name="No Messages", unread=False, at=self.now - timedelta(minutes=7))
+        self.unread_url = f"/v1/sites/{self.site_id}/inquiries/unread/"
+        self.sms = make_stored(self.site, ref="sm_" + "5" * 24, name="Text Person", unread=True,
+                               at=self.now - timedelta(minutes=2))
+        InquiryConversation.objects.filter(pk=self.sms.pk).update(provider=InquiryConversation.SMS)
+
+    def items(self, **params):
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        response = self.get(f"{self.list_url}?{query}")
+        self.assertEqual(response.status_code, 200, response.content)
+        return {i["ref"]: i for i in response.json()["items"]}, response.json()
+
+    def unread_of(self, **params):
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        return self.get(f"{self.unread_url}?{query}").json()["count"]
+
+    def test_sms_keeps_only_texts_and_nosms_everything_else(self, _):
+        self.assertEqual(list(self.items(channel="sms")[0]), [self.sms.external_id])
+        rest = self.items(channel="nosms")[0]
+        self.assertNotIn(self.sms.external_id, rest)
+        self.assertEqual(len(rest), 4)  # webchat, email, messenger, empty
+        self.assertEqual({i["channel"] for i in rest.values()} & {"sms"}, set())
+
+    def test_missing_or_empty_is_unchanged(self, _):
+        self.assertEqual(len(self.items()[0]), 5)
+        self.assertEqual(len(self.items(channel="")[0]), 5)
+
+    def test_a_bad_value_is_422_invalid_channel(self, _):
+        for bad in ("SMS", "all", "email", "sms,nosms", "1"):
+            for url in (f"{self.list_url}?channel={bad}", f"{self.unread_url}?channel={bad}"):
+                response = self.get(url)
+                self.error(response, 422, "invalid_channel")
+                self.assertIn("channel", response.json()["error"]["fields"])
+
+    def test_unread_total_and_the_unread_route_follow_the_filter(self, _):
+        # setUp makes the webchat row unread; the email, messenger and empty rows are read
+        self.assertEqual(self.items()[1]["unread_total"], 2)
+        self.assertEqual(self.items(channel="sms")[1]["unread_total"], 1)
+        self.assertEqual(self.items(channel="nosms")[1]["unread_total"], 1)
+        self.assertEqual(self.get(self.unread_url).json(), {"count": 2})
+        self.assertEqual((self.unread_of(channel="sms"), self.unread_of(channel="nosms"), self.unread_of(channel="")), (1, 1, 2))
+
+    def test_the_total_ignores_the_status_filter_as_before(self, _):
+        self.assertEqual(self.items(channel="sms", unread=0)[1]["unread_total"], 1)
+
+    def test_pages_with_the_cursor_under_the_filter(self, _):
+        for kind, prefix in (("sms", "sm_"), ("nosms", "wc_")):
+            for i in range(32):
+                c = make_stored(self.site, ref=f"{prefix}{i + 500:024d}", name=f"P {i}", unread=False,
+                                at=self.now - timedelta(seconds=i + 100))
+                if kind == "sms":
+                    InquiryConversation.objects.filter(pk=c.pk).update(provider=InquiryConversation.SMS)
+        for channel, total in (("sms", 33), ("nosms", 36)):
+            first, body = self.items(channel=channel)
+            self.assertEqual(len(first), stored.LIST_LIMIT)
+            second, body2 = self.items(channel=channel, stored_cursor=body["stored_next_cursor"])
+            self.assertFalse(set(first) & set(second))
+            seen = len(first) + len(second)
+            while body2["stored_next_cursor"]:
+                more, body2 = self.items(channel=channel, stored_cursor=body2["stored_next_cursor"])
+                self.assertFalse(set(more) & set(first) & set(second))
+                seen += len(more)
+            self.assertEqual(seen, total)
+
+    def test_it_stays_one_indexed_count_query(self, _):
+        with self.assertNumQueries(1):
+            stored.unread_count(self.site, channel="sms")

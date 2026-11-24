@@ -3,7 +3,8 @@
 The SMS rules are not behind RETENTION_ENABLED: "send records are kept 1 year, then
 deleted" holds wherever texts are sent. While SMS_GATEWAY_ENABLED is off the two rules here
 touch nothing, because the code is released before their tables are created. The third daily
-rule, `inbox_messages`, is registered by apps.inbox and named in DAILY_RULES below (as is `bulk_batches`).
+rule, `inbox_messages`, is registered by apps.inbox and named in DAILY_RULES below (as are `bulk_batches` and
+`store_bulk_batches`, the latter registered by apps.inquiries).
 """
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -155,7 +156,7 @@ retention.register("sms_messages", sms_messages)
 retention.register("mobile_challenges", mobile_challenges)
 
 
-DAILY_RULES = ("sms_messages", "mobile_challenges", "inbox_messages", "bulk_batches")
+DAILY_RULES = ("sms_messages", "mobile_challenges", "inbox_messages", "bulk_batches", "store_bulk_batches")
 
 
 def run_daily_rules():

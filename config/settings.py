@@ -139,6 +139,9 @@ SMS_INBOX_ENABLED = os.environ.get("SMS_INBOX_ENABLED", "").strip() == "1"
 # Needs SMS_INBOX_ENABLED as well. Off, every contacts route answers 404 and no contact is
 # stored or shown. Contacts already stored are removed only on a person's request.
 SMS_CONTACTS_ENABLED = os.environ.get("SMS_CONTACTS_ENABLED", "").strip() == "1"
+# Store contacts (STORE-CONTACTS, z8uq9mj9q4): "1" lets a store owner keep contacts and groups for the
+# store. Needs only the inbox contacts tables. Off, every /sites/{id}/contacts/ route answers 404.
+STORE_CONTACTS_ENABLED = os.environ.get("STORE_CONTACTS_ENABLED", "").strip() == "1"
 # Bulk SMS. "1" lets HQ staff with the bulk permission send one announcement to a list of numbers.
 # Needs SMS_INBOX_ENABLED as well. Off, every bulk route answers 404 and the poll queues nothing for
 # a batch. A STOP reply is still listed as do-not-text whatever this says.
@@ -147,6 +150,10 @@ SMS_BULK_ENABLED = os.environ.get("SMS_BULK_ENABLED", "").strip() == "1"
 # yes at checkout and in the member's preferences, and lists agreed members. Off, those answers
 # omit the fields, the checkout ignores the flag and the member preference routes answer 404.
 PROMO_SMS_CONSENT_ENABLED = os.environ.get("PROMO_SMS_CONSENT_ENABLED", "").strip() == "1"
+# STORE-BULK (z8uq9mbreu): "1" lets an owner text many of their own members from the store's own paired
+# phone. Works only while INQUIRY_SMS_ENABLED, SMS_GATEWAY_ENABLED and SMS_SITE_LINES_ENABLED are on
+# too. Off, the routes answer 404 and the poll queues nothing for a batch. Off by default.
+STORE_BULK_SMS_ENABLED = os.environ.get("STORE_BULK_SMS_ENABLED", "").strip() == "1"
 # Account-side retention. "1" lets its rules delete and blank. Off, a run of them touches
 # nothing; only the dry run counts.
 RETENTION_ENABLED = os.environ.get("RETENTION_ENABLED", "").strip() == "1"
@@ -590,6 +597,13 @@ CELERY_BEAT_SCHEDULE = {
         "task": "db_backup.run",
         "schedule": crontab(hour=4, minute=30),
         "options": {"expires": 3600},
+    },
+    # Scheduled store bulk texts: starts any whose time has come (the phone's pull and the store's
+    # reads also do). Does nothing while the store bulk switches are off.
+    "inquiries-store-bulk-start-due": {
+        "task": "inquiries.store_bulk_start_due",
+        "schedule": 60,
+        "options": {"expires": 60},
     },
     # Custom domains: the state-machine sweep each minute, the hourly live check, the daily sweep
     # and registration read. Each does nothing while DOMAINS_ENABLED is off.
