@@ -7,8 +7,8 @@ from django.utils import timezone
 
 from apps.members.models import Member
 from apps.pack import constants as C
-from apps.pack.models import CheckoutToken
-from apps.pack.tests.base import BASE, HOST, NOT_FOUND, OTHER_HOST, PackTestCase, EMAIL, MOBILE
+from apps.pack.models import CheckoutToken, PackOrder
+from apps.pack.tests.base import BASE, HOST, NAME, NOT_FOUND, OTHER_HOST, PackTestCase, EMAIL, MOBILE
 
 
 class ContactTests(PackTestCase):
@@ -122,6 +122,58 @@ class CheckTests(PackTestCase):
         self.placed()
         self.assertIn("email", self.check("", EMAIL))
         self.assertIn("mobile", self.check(MOBILE, ""))
+
+
+class ReturningBuyerCheckTests(PackTestCase):
+    """z8uq9m92fv: the as-you-type check agrees with contact/ for a returning buyer's own pair."""
+    def check(self, mobile="", email=""):
+        response = self.post("check/", mobile=mobile, email=email)
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()["errors"]
+
+    def member(self, mobile=MOBILE, email=EMAIL):
+        from apps.members import services
+        member = services.create_member(self.site, full_name=NAME, mobile=mobile, email=email,
+                                        email_state="pending")
+        Member.objects.filter(pk=member.pk).update(mobile_state="verified")  # not abandoned
+        return member
+
+    def test_a_returning_member_own_pair_is_not_marked_and_contact_accepts_it(self):
+        self.member()
+        self.assertEqual(self.check(MOBILE, EMAIL), {})
+        self.assertEqual(self.contact().status_code, 200)
+
+    def test_own_mobile_with_another_members_email_is_marked(self):
+        self.member()
+        self.member(mobile="09179999999", email="other@buyer.test")
+        errors = self.check(MOBILE, "other@buyer.test")
+        self.assertIn("mobile", errors)
+        self.assertIn("email", errors)
+
+    def test_own_email_with_another_members_mobile_is_marked(self):
+        self.member()
+        self.member(mobile="09179999999", email="other@buyer.test")
+        errors = self.check("09179999999", EMAIL)
+        self.assertIn("mobile", errors)
+        self.assertIn("email", errors)
+
+    def test_a_single_field_of_a_returning_member_is_still_not_judged(self):
+        self.member()
+        self.assertEqual(self.check(MOBILE, ""), {})
+        self.assertEqual(self.check("", EMAIL), {})
+
+    def test_the_own_pair_with_a_live_order_is_still_marked(self):
+        self.placed()
+        errors = self.check(MOBILE, EMAIL)
+        self.assertIn("mobile", errors)
+        self.assertIn("email", errors)
+
+    def test_the_own_pair_with_active_benefits_is_still_marked(self):
+        self.placed()
+        PackOrder.objects.update(benefits_active_at=timezone.now())
+        errors = self.check(MOBILE, EMAIL)
+        self.assertIn("mobile", errors)
+        self.assertIn("email", errors)
 
 
 class SurfaceTests(PackTestCase):
