@@ -3,7 +3,7 @@ docs/plans/store-bulk-sms-plan-2026-11-23.md; contract docs/plans/store-bulk-sms
 
 The owner texts the store's own members, one text at a time, from the store's own paired phone and
 no other (the shared phone is never used). Coach Ed's ruling (2026-11-23): "All my members" is the
-default audience and "agreed to promo texts" an optional filter; no consent nudge; always left out:
+only audience (no promo filter, no promo label); no consent nudge; always left out:
 the store's STOP list, unverified numbers and repeats; no web links; no forced STOP footer; a daily
 cap of 2,000 a store (SmsPolicy.store_bulk_daily_limit); one text every 18 to 25 s, only from 08:00
 to 20:00 Manila time.
@@ -42,15 +42,15 @@ SECONDS = (18, 25)  # the phone keeps this gap between two texts (apps/notificat
 TEST_KEPT = 24 * 3600
 MAX_SKIPS = 100  # members passed over (gone, opted out ...) in one poll before the next poll goes on
 PAGE = (20, 100)
-KINDS = (StoreBulkBatch.ALL, StoreBulkBatch.PROMO)
+KINDS = (StoreBulkBatch.ALL,)
 TARGET = "store_bulk_batch"
 PURPOSE = "store_bulk"
 
 # Why a member is left out of the audience (the keys of `left_out`).
-UNVERIFIED, INVALID_NUMBER, NOT_PROMO, OPTED_OUT, DUPLICATES = (
-    "unverified", "invalid_number", "not_promo", "opted_out", "duplicates",
+UNVERIFIED, INVALID_NUMBER, OPTED_OUT, DUPLICATES = (
+    "unverified", "invalid_number", "opted_out", "duplicates",
 )
-LEFT_OUT = (UNVERIFIED, INVALID_NUMBER, OPTED_OUT, NOT_PROMO, DUPLICATES)
+LEFT_OUT = (UNVERIFIED, INVALID_NUMBER, OPTED_OUT, DUPLICATES)
 
 # Why the whole store cannot start a batch now, or why a running one is ended.
 SITE_HELD, BILLING_ONLY, LINE_DISABLED, NO_LINE = "site_held", "billing_only", "line_disabled", "no_line"
@@ -71,7 +71,6 @@ REASON_TEXTS = {
     "member_removed": "The member is no longer in your list.",
     "number_changed": "The member's number changed.",
     UNVERIFIED: "The member's mobile is not verified.",
-    NOT_PROMO: "The member no longer agrees to promo texts.",
     OPTED_OUT: "The member asked for no more texts (STOP).",
     sms_inbox.TEXT_INVALID: sms_inbox.REASON_TEXTS[sms_inbox.TEXT_INVALID],
     sms_inbox.NOT_SENT: sms_inbox.REASON_TEXTS[sms_inbox.NOT_SENT],
@@ -135,26 +134,24 @@ def _at_cap(site):
 
 def _kind(value):
     if value not in KINDS:
-        raise ApiError("invalid", "Choose who gets the text.", status=422, fields={"audience": ["Choose who gets the text."]})
+        raise ApiError("invalid_audience", "The only audience is all your members.", status=400, fields={"audience": ["The only audience is all your members."]})
     return value
 
 
 def _select(site, kind):
     """([(member id, name, mobile)], {reason: count}, total). The store's own members only, in the
     order they joined; every member is counted once, under the first reason that applies."""
-    members = list(Member.objects.filter(site=site).order_by("pk").values_list("pk", "full_name", "mobile", "mobile_state", "promo_sms_ok"))
+    members = list(Member.objects.filter(site=site).order_by("pk").values_list("pk", "full_name", "mobile", "mobile_state"))
     stopped = set(InquirySmsOptOut.objects.filter(site=site).values_list("mobile", flat=True))
     left = dict.fromkeys(LEFT_OUT, 0)
     chosen, seen = [], set()
-    for pk, name, mobile, state, promo_ok in members:
+    for pk, name, mobile, state in members:
         if state != "verified":
             left[UNVERIFIED] += 1
         elif mobile.startswith("+63900"):  # a test number (apps/inquiries/sms_inbox._sendable_member)
             left[INVALID_NUMBER] += 1
         elif mobile in stopped:
             left[OPTED_OUT] += 1
-        elif kind == StoreBulkBatch.PROMO and not promo_ok:
-            left[NOT_PROMO] += 1
         elif mobile in seen:
             left[DUPLICATES] += 1
         else:
@@ -247,7 +244,6 @@ def batch_out(batch):
         "state": batch.state,
         "created_at": batch.created_at.isoformat(),
         "audience": batch.audience,
-        "promotional": batch.promotional,
         "text": batch.text,
         "size": batch.size,
         "sent": batch.sent,
@@ -270,7 +266,7 @@ def _audit(batch, event, actor=None, **counts):
 
 
 def confirm(site, account, data):
-    """Start a batch. Returns (the batch dict, created). `data`: text, audience, promotional,
+    """Start a batch. Returns (the batch dict, created). `data`: text, audience,
     idempotency_key, confirm (true), expected_count (optional)."""
     key = data["idempotency_key"]
     existing = StoreBulkBatch.objects.filter(site=site, request_id=key).first()
@@ -296,7 +292,7 @@ def confirm(site, account, data):
     try:
         with transaction.atomic():
             batch = StoreBulkBatch.objects.create(
-                site=site, created_by=account, request_id=key, text=full, promotional=bool(data.get("promotional")),
+                site=site, created_by=account, request_id=key, text=full,
                 audience=kind, size=len(chosen), left_out=left,
             )
             StoreBulkRecipient.objects.bulk_create(
@@ -304,7 +300,7 @@ def confirm(site, account, data):
                  for i, (pk, name, mobile) in enumerate(chosen)],
                 batch_size=500,
             )
-            _audit(batch, "store_bulk_confirmed", size=batch.size, audience=kind, left_out=left, promotional=batch.promotional)
+            _audit(batch, "store_bulk_confirmed", size=batch.size, audience=kind, left_out=left)
     except IntegrityError:
         again = StoreBulkBatch.objects.filter(site=site, request_id=key).first()
         if again:
@@ -376,7 +372,7 @@ def _end(batch, reason, state, *, actor=None):
 
 def _skip_reason(batch, recipient):
     """Why this member is not texted any more, or "" when they still are: the member is still the
-    store's, with the same verified number, not on the STOP list, and in promo mode still agreed."""
+    store's, with the same verified number and not on the STOP list."""
     member = Member.objects.filter(pk=recipient.member_ref, site=batch.site).first() if recipient.member_ref else None
     if member is None:
         return "member_removed"
@@ -386,8 +382,6 @@ def _skip_reason(batch, recipient):
         return UNVERIFIED
     if sms_inbox.opted_out(batch.site, recipient.mobile):
         return OPTED_OUT
-    if batch.audience == StoreBulkBatch.PROMO and not member.promo_sms_ok:
-        return NOT_PROMO
     return ""
 
 

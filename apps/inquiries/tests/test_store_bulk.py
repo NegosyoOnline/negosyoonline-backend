@@ -136,23 +136,23 @@ class AudienceTests(BulkCase):
         body = self.send("post", self.root + "audience/", {}).json()
         self.assertEqual(body["audience"], "all")
         self.assertEqual((body["total_members"], body["will_send"]), (6, 3))
-        self.assertEqual(body["left_out"], {"unverified": 1, "invalid_number": 1, "opted_out": 1, "not_promo": 0, "duplicates": 0})
+        self.assertEqual(body["left_out"], {"unverified": 1, "invalid_number": 1, "opted_out": 1, "duplicates": 0})
 
-    def test_promo_keeps_only_those_who_agreed(self):
-        Member.objects.filter(pk=self.members[0].pk).update(promo_sms_ok=True)
-        body = self.audience("promo").json()
-        self.assertEqual((body["will_send"], body["left_out"]["not_promo"]), (1, 2))
+    def test_any_other_audience_is_refused(self):
+        for value in ("promo", "everyone", "", "ALL"):
+            response = self.audience(value)
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json()["error"]["code"], "invalid_audience")
 
-    def test_a_stopped_member_who_agreed_counts_as_stopped_not_as_promo(self):
-        Member.objects.filter(site=self.site, mobile="+639171000006").update(promo_sms_ok=True)
-        self.assertEqual(self.audience("promo").json()["left_out"]["opted_out"], 1)
+    def test_a_promo_agreement_changes_nothing(self):
+        Member.objects.filter(site=self.site).update(promo_sms_ok=False)
+        self.assertEqual(self.audience().json()["will_send"], 3)
 
     def test_another_stores_members_are_never_counted(self):
         self.assertEqual(self.audience().json()["total_members"], 6)
         self.assertEqual(self.send("post", f"{self.ben_base}sms/bulk/audience/", {}, client=self.ben).json()["total_members"], 1)
 
-    def test_a_bad_audience_is_422_and_no_number_is_ever_in_the_answer(self):
-        self.assertEqual(self.audience("everyone").status_code, 422)
+    def test_no_number_is_ever_in_the_answer(self):
         text = self.audience().content.decode()
         self.assertNotIn("+639", text)
 
@@ -280,19 +280,13 @@ class ConfirmTests(BulkCase):
                 self.assertEqual(response.json()["error"]["code"], "billing_only")
 
     def test_the_audit_entry_has_counts_and_no_text_or_number(self):
-        batch = self.start(promotional=True)
+        batch = self.start()
         event = AccountAuditEvent.objects.get(event="store_bulk_confirmed")
         self.assertEqual(event.detail["batch"], batch.public_id)
         self.assertEqual(event.detail["size"], 3)
         dump = str(event.detail)
         for secret in (TEXT, PREFIX, *NUMBERS, "+639"):
             self.assertNotIn(secret, dump)
-
-    def test_promo_batches_hold_only_the_agreed_members(self):
-        Member.objects.filter(pk=self.members[1].pk).update(promo_sms_ok=True)
-        batch = self.start(audience="promo", promotional=True)
-        self.assertEqual((batch.size, batch.audience, batch.promotional), (1, "promo", True))
-        self.assertEqual(batch.recipients.get().name, "Member 1")
 
 
 class FeedTests(BulkCase):
@@ -394,14 +388,6 @@ class FeedTests(BulkCase):
         self.assertEqual((first.state, first.reason), ("not_sent", "opted_out"))
         self.assertEqual((batch.sent, batch.not_sent, batch.state), (2, 1, "finished"))
         self.assertNotIn(NUMBERS[0], [r.recipient for r in self.records()])
-
-    def test_in_promo_mode_a_member_who_unticks_is_skipped(self):
-        Member.objects.filter(site=self.site).update(promo_sms_ok=True)
-        batch = self.start(audience="promo")
-        Member.objects.filter(pk=self.members[0].pk).update(promo_sms_ok=False)
-        self.pump(3)
-        self.assertEqual(batch.recipients.get(position=0).reason, "not_promo")
-        self.assertEqual(self.records().count(), 2)
 
     def test_in_all_mode_promo_is_not_asked(self):
         batch = self.start()

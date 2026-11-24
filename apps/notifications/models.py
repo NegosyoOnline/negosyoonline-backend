@@ -316,15 +316,14 @@ class StoreBulkBatch(models.Model):
     WAITING, SENDING, FINISHED, STOPPED, ENDED = "waiting", "sending", "finished", "stopped", "ended"
     STATES = [(WAITING, "Waiting"), (SENDING, "Sending"), (FINISHED, "Finished"), (STOPPED, "Stopped"), (ENDED, "Ended")]
     ACTIVE = (WAITING, SENDING)
-    ALL, PROMO = "all", "promo"
-    AUDIENCES = [(ALL, "All my members"), (PROMO, "Members who agreed to promo texts")]
+    ALL = "all"
+    AUDIENCES = [(ALL, "All my members")]
 
     public_id = models.CharField(max_length=40, unique=True, default=new_store_bulk_id, editable=False)
     site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="store_bulk_batches")
     created_by = models.ForeignKey("accounts.Account", on_delete=models.PROTECT, related_name="+")
     request_id = models.CharField(max_length=64)
     text = models.CharField(max_length=160)  # as it arrives: the store's name first
-    promotional = models.BooleanField(default=False)  # a label only
     audience = models.CharField(max_length=5, choices=AUDIENCES, default=ALL)
     state = models.CharField(max_length=10, choices=STATES, default=WAITING)
     end_reason = models.CharField(max_length=30, blank=True)  # stopped, site_held, billing_only, line_disabled, ...

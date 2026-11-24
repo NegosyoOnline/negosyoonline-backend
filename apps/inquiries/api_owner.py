@@ -107,7 +107,6 @@ class BulkConfirmIn(Schema):
     model_config = ConfigDict(extra="forbid")
     text: str
     audience: str = "all"
-    promotional: bool = False
     idempotency_key: str
     confirm: bool = False
     expected_count: int | None = None

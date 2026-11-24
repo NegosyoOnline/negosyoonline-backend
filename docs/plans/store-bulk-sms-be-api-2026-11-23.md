@@ -18,11 +18,11 @@ PROMO-CONSENT BE v1.2 (de123b6). Plan and Coach Ed's D1-D4 ruling: `docs/plans/s
 
 ## Rules (ruled by Coach Ed, 2026-11-23; the FE must not add anything on top)
 
-- Audience `all` ("All my members") is the default. `promo` ("Members who agreed to promo texts") is an optional
-  filter. No consent warning, nudge or extra confirm wording.
+- The only audience is `all` ("All my members"); there is no promo filter or promo label (Coach Ed, 2026-11-24).
+  No consent warning, nudge or extra confirm wording.
 - Always left out: unverified mobiles, test numbers (+63900...), numbers on the store's own STOP list, repeats.
 - The text: one SMS (160 plain characters including the store's name in front, "Name: "), no web link (422), and
-  **nothing is added at the end** (no STOP footer). `promotional` is a label stored with the batch, nothing more.
+  **nothing is added at the end** (no STOP footer).
 - Sent from the store's own paired phone only, one text every 18 to 25 seconds, only 08:00 to 20:00 Manila time
   (a batch waits overnight and goes on the next morning), at most `daily_limit` bulk texts a day per store
   (default 2,000, HQ-editable; a test text counts as one). A batch that meets the cap waits for the next day.
@@ -49,19 +49,19 @@ PROMO-CONSENT BE v1.2 (de123b6). Plan and Coach Ed's D1-D4 ruling: `docs/plans/s
 `blocked` != "" means a new batch is refused with the same code (409). The FE should show `blocked_message`
 and disable "Text many members" (for `no_line`, with the pairing hint).
 
-## POST `.../bulk/audience/`  `{ "audience": "all" | "promo" }`
+## POST `.../bulk/audience/`  `{ "audience": "all" }`
 
-(`audience` defaults to `all`.) Reads only; never a number or a list.
+(`audience` defaults to `all`; any other value is a 400 `invalid_audience`.) Reads only; never a number or a list.
 ```json
 {
   "audience": "all",
   "total_members": 120,
   "will_send": 95,
-  "left_out": {"unverified": 10, "invalid_number": 0, "opted_out": 5, "not_promo": 0, "duplicates": 0}
+  "left_out": {"unverified": 10, "invalid_number": 0, "opted_out": 5, "duplicates": 0}
 }
 ```
-`not_promo` is non-zero only for `audience: "promo"`. Every member is counted once, under the first reason
-that applies, in the order shown. `will_send + sum(left_out) = total_members`. 422 `invalid` for any other audience.
+Every member is counted once, under the first reason
+that applies, in the order shown. `will_send + sum(left_out) = total_members`. 400 `invalid_audience` for any other audience.
 
 ## POST `.../bulk/preview/`  `{ "text": "Sale this weekend, 20% off." }`
 
@@ -81,7 +81,7 @@ Errors: 409 `site_held` | `sms_off` | `replies_off` | `no_line` | `site_phone_of
 ## POST `.../bulk/batches/`  (confirm)
 
 ```json
-{ "text": "...", "audience": "all", "promotional": false, "idempotency_key": "...",
+{ "text": "...", "audience": "all", "idempotency_key": "...",
   "confirm": true, "expected_count": 95 }
 ```
 - `confirm` must be `true` (422 `invalid`, field `confirm`). `expected_count` is optional: the `will_send` the owner
@@ -89,7 +89,7 @@ Errors: 409 `site_held` | `sms_off` | `replies_off` | `no_line` | `site_phone_of
 - 201 with the batch object when created; **200 with the same batch** when the same `idempotency_key` is sent
   again (no second batch).
 - Errors: 409 `site_held` | `sms_off` | `replies_off` | `no_line` | `batch_running` | `empty_audience` |
-  `audience_changed`; 422 `invalid` (text, audience, confirm, idempotency_key); 403 `billing_only`.
+  `audience_changed`; 400 `invalid_audience`; 422 `invalid` (text, confirm, idempotency_key); 403 `billing_only`.
 
 ## Batch object
 
@@ -97,10 +97,10 @@ Errors: 409 `site_held` | `sms_off` | `replies_off` | `no_line` | `site_phone_of
 {
   "id": "sbk_...", "state": "waiting",       // waiting | sending | finished | stopped | ended
   "created_at": "2026-11-23T10:00:00+08:00",
-  "audience": "all", "promotional": false,
+  "audience": "all",
   "text": "Ana's Store: Sale this weekend.",   // as it arrives; kept 180 days
   "size": 95, "sent": 0, "failed": 0, "not_sent": 0, "waiting": 95,
-  "left_out": {"unverified": 10, "invalid_number": 0, "opted_out": 5, "not_promo": 0, "duplicates": 0},
+  "left_out": {"unverified": 10, "invalid_number": 0, "opted_out": 5, "duplicates": 0},
   "end_reason": "",                            // "" | "stopped" | "site_held" | "billing_only" | "line_disabled"
   "end_message": "",                           // fixed text for end_reason
   "paused_reason": "",                         // active batches only: "" | "outside_window" | "daily_cap" | "phone_offline"
@@ -129,7 +129,7 @@ The batch object plus a page of its recipients, in send order:
 ```
 Recipient `state`: `waiting` | `queued` (with the phone) | `sent` | `failed` | `not_sent`. `reason` (for `failed` and
 `not_sent`): `stopped`, `site_held`, `billing_only`, `line_disabled`, `member_removed`, `number_changed`,
-`unverified`, `not_promo`, `opted_out`, `text_invalid`, `not_sent`, `expired`, or a short phone reason for `failed`;
+`unverified`, `opted_out`, `text_invalid`, `not_sent`, `expired`, or a short phone reason for `failed`;
 `reason_text` is the fixed text where there is one. `limit` 1 to 100 (default 20). 404 for another store's batch.
 
 ## POST `.../bulk/batches/{id}/stop/`
@@ -146,8 +146,8 @@ keeps it. It is read and saved only once migration notifications.0008 is applied
 ## What happens to a running batch
 
 - The store's phone polls the gateway; the BE gives it the next text only (one at a time). Each member is checked
-  again just before their text: still the store's member with the same verified number, not on the STOP list, and
-  (promo) still agreed. A member who is not goes `not_sent` with the reason.
+  again just before their text: still the store's member with the same verified number, and not on the STOP list.
+  A member who is not goes `not_sent` with the reason.
 - Store put on hold, billing-only, or its phone line switched off: the rest are `not_sent` with that reason and
   the batch is `ended`.
 - After a batch ends, its recipients' numbers are replaced by the masked form.
