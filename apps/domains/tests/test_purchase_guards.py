@@ -183,9 +183,20 @@ class CeilingTests(PurchaseCase):
         self.fake.prices["com"] = (1201, 857)
         self.refused()
 
-    def test_a_renewal_price_over_the_ceiling_buys_nothing(self):
-        self.fake.prices["com"] = (857, 1201)
-        self.assertIn("extension", self.refused().reason)
+    def test_a_renewal_price_over_the_ceiling_is_not_capped(self):
+        self.fake.prices["com"] = (857, 4220)
+        self.assertEqual(self.advance(self.request()), "registered")
+
+    def test_a_first_year_price_over_the_ceiling_with_cheap_renewal_is_refused(self):
+        self.fake.prices["com"] = (1201, 857)
+        self.assertEqual(self.refused().reason, "This name is not included. Please choose another.")
+
+    def test_a_missing_renewal_price_is_still_refused(self):
+        row = {"registrable": True, "currency": "USD", "tier": "standard",
+               "registration_cost_cents": 857, "renewal_cost_cents": None}
+        self.assertEqual(purchase.evaluate(row, "brand.com"), purchase.EXTENSION)
+        row["renewal_cost_cents"] = 4220
+        self.assertEqual(purchase.evaluate(row, "brand.com"), "")
 
     def test_exactly_the_ceiling_is_allowed(self):
         self.fake.prices["com"] = (1200, 1200)
@@ -417,7 +428,7 @@ class ConflictTests(PurchaseCase):
 
 class SentinelTests(PurchaseCase):
     def test_the_sentinel_stores_a_reading_per_allowed_extension_and_withdraws_over_ceiling(self):
-        self.fake.prices["net"] = (857, 1500)
+        self.fake.prices["net"] = (1301, 857)
         out = purchase.sentinel(self.bundle, self.t0)
         self.assertEqual(out["read"], 2)
         com, net = DomainTldPrice.objects.get(tld="com"), DomainTldPrice.objects.get(tld="net")
@@ -426,6 +437,38 @@ class SentinelTests(PurchaseCase):
         self.assertEqual(out["withdrawn"], ["net"])
         for request in self.fake.requests:
             self.assertTrue(request[2]["domains"][0].startswith("nego-"))  # a random unregistered name
+
+    @override_settings(
+        DOMAINS_MAX_COST_CENTS=1300,
+        DOMAINS_ALLOWED_TLDS=("com", "net", "org", "store", "shop", "online", "site", "xyz"),
+    )
+    def test_first_year_price_decides_at_the_13_dollar_ceiling(self):
+        from apps.domains.services import offered_tlds
+        self.fake.prices.update({
+            "com": (1046, 1046), "net": (1186, 1186), "org": (850, 1120), "store": (499, 4220),
+            "online": (499, 2770), "site": (499, 2770), "xyz": (1230, 1120), "shop": (3020, 3020),
+        })
+        out = purchase.sentinel(self.bundle, self.t0)
+        allowed = set(DomainTldPrice.objects.filter(allowed=True).values_list("tld", flat=True))
+        self.assertEqual(allowed, {"com", "net", "org", "store", "online", "site", "xyz"})
+        self.assertEqual(out["withdrawn"], ["shop"])
+        self.assertEqual(DomainTldPrice.objects.get(tld="store").renewal_cost_cents, 4220)  # stored
+        self.assertEqual(offered_tlds(self.t0)[0], "com")
+        with override_settings(DOMAINS_ALLOWED_TLDS=("com", "net", "store", "shop")):
+            self.assertEqual(self.advance(self.request(name="brand.store")), "registered")
+        claim = self.request(self.site(paid=True), "brand.shop")
+        self.assertEqual(self.advance(claim), "refused")
+        self.assertEqual(claim.reason, "This name is not included. Please choose another.")
+
+    def test_com_is_listed_first_then_the_rest_alphabetically(self):
+        from apps.domains.services import offered_tlds
+        with override_settings(DOMAINS_ALLOWED_TLDS=("xyz", "net", "com", "org", "online")):
+            for tld in ("xyz", "net", "com", "org", "online"):
+                DomainTldPrice.objects.create(
+                    tld=tld, registrable=True, tier="standard", registration_cost_cents=1000,
+                    renewal_cost_cents=1000, currency="USD", sentinel_name=f"nego-x.{tld}",
+                    read_at=self.t0, allowed=True)
+            self.assertEqual(offered_tlds(self.t0), ["com", "net", "online", "org", "xyz"])
 
     def test_a_failed_read_leaves_the_old_rows_which_then_go_stale(self):
         from apps.domains.services import offered_tlds

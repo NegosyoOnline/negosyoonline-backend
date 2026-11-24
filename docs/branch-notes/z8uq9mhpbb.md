@@ -13,7 +13,16 @@ No migration, no new package, no variable set, no provider call, no staging chan
 ```
 `free_until`: `"YYYY-MM-DD"` (UTC date) when the site's registration is `succeeded` (registrar
 `expires_at` when recorded, else registration date + 12 months), otherwise `null`. No price, no year-2
-amount. `extensions` default is now `[".com"]` (offered only when the daily price read allows it).
+amount. `extensions` may now hold several (FD-CAP, Coach Ed 24 Nov: limit by price, cap US$13): each extension whose
+daily price read allows it (standard tier, USD, renewal price present, first-year price at or under the ceiling;
+the renewal price is stored but not capped), `.com` first when offered, then the rest alphabetically. Any other
+name is refused with exactly: "This name is not included. Please choose another." The default sentinel list is
+`com,net,org,store,shop,online,site,xyz` (`DOMAINS_ALLOWED_TLDS` overrides); it only says which extensions the
+daily read covers, price decides.
+
+The `domain` object gains `renewal_usd_cents` (int or null): the year-2 price in US cents, set when the
+registration's checked name equals the claim's name and the currency is USD (quoted, confirmed, awaiting and
+after), null otherwise, including bridge imports and ended claims. No first-year price is ever returned.
 
 ### 2. HQ staff `POST /staff/v1/domains/import-bridge/` (bridge import of a hand-bought domain)
 
@@ -55,10 +64,10 @@ appears in `claims` and the normal states follow.
 
 ## Choices and open facts
 
-1. **Cap default.** The task says the cost cap default "stays 12.00 USD", but in code `DOMAINS_MAX_COST_USD`
-   unset is 0, which refuses every purchase (runbook: set 12.00 at step 0). The boundary says no change to
-   the guards or caps, so it is unchanged. Purchases also need the two daily caps, so nothing is bought on
-   defaults either way. If a 12.00 code default is wanted, it is a one-line change in `config/settings.py`.
+1. **Cap (FD-CAP).** `DOMAINS_MAX_COST_USD` stays env-driven (unset = 0 = buy nothing); the Manager sets 13 on
+   staging at release (Supervisor scope update). The ceiling now applies to the first-year price only; the
+   renewal check was dropped (Coach Ed: bill the exact domain price at year 2). The W004 deploy check is
+   unchanged and still right.
 2. **`succeeded` row of an import** carries `register_sent_at` = import time and `send_count` = 1: the table
    check constraint `domains_registration_sent_consistent` requires it, and it avoids a migration. No
    `register_sent` event is written, so the daily caps do not count an import.

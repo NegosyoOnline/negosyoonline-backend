@@ -242,7 +242,8 @@ def free_until(reg):
 
 
 def status(site, now=None):
-    """What `GET .../domain/` answers: never a price, a provider id or a token."""
+    """What `GET .../domain/` answers: never a first-year price, a provider id or a token. The `domain`
+    object carries `renewal_usd_cents` (the year-2 price) when the registration's check is for the claim's name."""
     now = now or timezone.now()
     reg = DomainRegistration.objects.filter(site=site).first()
     claim = active_claim(site) or Domain.objects.filter(site=site).order_by("-pk").first()
@@ -257,6 +258,11 @@ def status(site, now=None):
                 claim.state == ClaimState.QUOTED and bool(claim.quote_expires_at) and now <= claim.quote_expires_at
             ),
             "can_retry": claim.state == ClaimState.FAILED,
+            "renewal_usd_cents": (
+                reg.check_renewal_cost_cents
+                if reg and reg.check_name and reg.check_name == claim.name and reg.currency == "USD"
+                else None
+            ),
         }
     return {
         "eligible": not locked,

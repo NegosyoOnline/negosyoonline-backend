@@ -102,6 +102,7 @@ class CheckTests(OwnerDomainTestCase):
         self.pay()
         got = self.check().json()
         self.assertEqual(got["domain"]["state"], "checking")
+        self.assertIsNone(got["domain"]["renewal_usd_cents"])
         reg = DomainRegistration.objects.get(site=self.site)
         self.assertEqual((reg.name, reg.state), (None, RegistrationState.INTENT))
         self.assertEqual(self.fake.calls, [])  # the route calls no provider
@@ -110,12 +111,15 @@ class CheckTests(OwnerDomainTestCase):
         self.assertEqual((reg.name, reg.check_name, reg.check_registration_cost_cents), (None, "brand.com", 857))
         got = self.get(self.path).json()["domain"]
         self.assertEqual((got["state"], got["can_buy"]), ("quoted", True))
+        self.assertEqual(got["renewal_usd_cents"], reg.check_renewal_cost_cents)
+        self.assertIsNotNone(got["renewal_usd_cents"])
+        self.assertFalse([k for k in got if "registration" in k or "first" in k])  # no first-year price
         self.assertEqual(self.fake.register_calls, 0)
 
     def test_refused_names(self):
         self.pay()
         for name, word in (("negosyonline.com", "NegosyoOnline"), ("sub.brand.com", "main domain"),
-                           ("www.brand.com", "main domain"), ("brand.org", "extension"), ("bad name", "bare name"),
+                           ("www.brand.com", "main domain"), ("brand.org", "not included"), ("bad name", "bare name"),
                            ("http://brand.com", "bare"), ("com", "dotted")):
             with self.subTest(name=name):
                 body = self.error(self.check(name), 400, "invalid_request")
