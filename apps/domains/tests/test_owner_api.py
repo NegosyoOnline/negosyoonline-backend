@@ -102,6 +102,7 @@ class CheckTests(OwnerDomainTestCase):
         self.pay()
         got = self.check().json()
         self.assertEqual(got["domain"]["state"], "checking")
+        self.assertIsNone(got["domain"]["renewal_usd_cents"])
         reg = DomainRegistration.objects.get(site=self.site)
         self.assertEqual((reg.name, reg.state), (None, RegistrationState.INTENT))
         self.assertEqual(self.fake.calls, [])  # the route calls no provider
@@ -110,12 +111,15 @@ class CheckTests(OwnerDomainTestCase):
         self.assertEqual((reg.name, reg.check_name, reg.check_registration_cost_cents), (None, "brand.com", 857))
         got = self.get(self.path).json()["domain"]
         self.assertEqual((got["state"], got["can_buy"]), ("quoted", True))
+        self.assertEqual(got["renewal_usd_cents"], reg.check_renewal_cost_cents)
+        self.assertIsNotNone(got["renewal_usd_cents"])
+        self.assertFalse([k for k in got if "registration" in k or "first" in k])  # no first-year price
         self.assertEqual(self.fake.register_calls, 0)
 
     def test_refused_names(self):
         self.pay()
         for name, word in (("negosyonline.com", "NegosyoOnline"), ("sub.brand.com", "main domain"),
-                           ("www.brand.com", "main domain"), ("brand.org", "extension"), ("bad name", "bare name"),
+                           ("www.brand.com", "main domain"), ("brand.org", "not included"), ("bad name", "bare name"),
                            ("http://brand.com", "bare"), ("com", "dotted")):
             with self.subTest(name=name):
                 body = self.error(self.check(name), 400, "invalid_request")
@@ -307,3 +311,41 @@ class OnePerSiteForLifeTests(OwnerDomainTestCase):
         self.assertEqual(self.buy().json()["domain"]["state"], "registered")
         self.assertEqual(self.fake.register_calls, 1)
         self.assertEqual(DomainEvent.objects.filter(kind="register_sent").count(), 1)
+
+
+class FreeUntilTests(OwnerDomainTestCase):
+    """FD4: `free_until` is the registrar `expires_at`, else the registration date plus 12 months."""
+
+    def registered(self, **fields):
+        now = timezone.now()
+        DomainRegistration.objects.update_or_create(site=self.site, defaults=dict(
+            name="brand.com", state=RegistrationState.SUCCEEDED, register_sent_at=now, send_count=1, **fields))
+        Domain.objects.create(site=self.site, name="brand.com", state=ClaimState.REGISTERED)
+        return self.get(self.path).json()
+
+    def test_null_without_a_registered_domain_and_no_price_anywhere(self):
+        self.pay()
+        body = self.get(self.path).json()
+        self.assertIn("free_until", body)
+        self.assertIsNone(body["free_until"])
+        self.assertNotIn("price", self.get(self.path).content.decode().lower())
+
+    def test_uses_the_registrar_expiry_when_recorded(self):
+        from datetime import datetime, timezone as tz
+        body = self.registered(expires_at=datetime(2027, 11, 22, 3, 0, tzinfo=tz.utc), completed_at=timezone.now())
+        self.assertEqual(body["free_until"], "2027-11-22")
+
+    def test_falls_back_to_the_registration_date_plus_twelve_months(self):
+        from datetime import datetime, timezone as tz
+        body = self.registered(completed_at=datetime(2026, 11, 23, 5, 0, tzinfo=tz.utc))
+        self.assertEqual(body["free_until"], "2027-11-23")
+
+    def test_a_leap_day_registration_clamps(self):
+        from apps.domains import owner
+        from datetime import datetime, timezone as tz
+        self.assertEqual(owner.add_months(datetime(2028, 2, 29, tzinfo=tz.utc), 12).date().isoformat(), "2029-02-28")
+
+    def test_an_unregistered_request_has_no_date(self):
+        self.pay()
+        self.check()
+        self.assertIsNone(self.get(self.path).json()["free_until"])

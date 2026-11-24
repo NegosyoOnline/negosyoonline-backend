@@ -8,7 +8,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
-from apps.domains import names, purchase, staff, tasks
+from apps.domains import bridge, names, purchase, staff, tasks
 from apps.domains.models import (
     ClaimState, Domain, DomainEvent, DomainRegistration, RegistrationState,
 )
@@ -18,7 +18,7 @@ from apps.operators.models import OperatorAuditEntry
 from apps.operators.tests.test_staff_routes import StaffTestCase, on_staff
 
 BASE = "/staff/v1/domains/"
-PATHS = ("list/", "retry/", "disconnect/", "cancel-request/", "confirmed-registered/")
+PATHS = ("list/", "retry/", "disconnect/", "cancel-request/", "confirmed-registered/", "import-bridge/")
 
 
 @on_staff
@@ -283,3 +283,179 @@ class ConfirmedRegisteredTests(StaffDomainCase):
         self.assertEqual(purchase.pending_confirms(), [])
         self.ask(claim)
         self.assertEqual(purchase.pending_confirms(), [claim.pk])
+
+
+class BridgeImportTests(StaffDomainCase):
+    """The bridge import: the route half (validate, audit, 202) and the worker half
+    (`bridge.process_import`): the registrar read, every refusal, and no `register` ever."""
+    URL = BASE + "import-bridge/"
+
+    def ask(self, site, name="brand.com", expect=202):
+        response = self.call("POST", self.URL, {"site": site.public_id, "name": name})
+        self.assertEqual(response.status_code, expect, response.content)
+        return response
+
+    def refusal(self, response, reason, status=409):
+        self.assertEqual(response.status_code, status, response.content)
+        self.assertEqual(response.json()["error"]["code"], "import_refused")
+        self.assertEqual(response.json()["error"]["fields"]["reason"], [reason])
+
+    def work(self, site):
+        result = bridge.process_import(site.pk, self.bundle, now=self.now)
+        tasks._audit_import(site.pk, result)
+        return result
+
+    def ours(self, name="brand.com", expires="2027-11-22T00:00:00Z"):
+        self.fake.registrations[name] = {"expires_at": expires, "auto_renew": False, "account_id": "acct_test"}
+
+    def paid(self):
+        return self.site(paid=True)
+
+    def test_the_route_is_open_only_to_staff_and_404_while_off(self):
+        site = self.paid()
+        with override_settings(DOMAINS_ENABLED=False):
+            self.assertError(self.call("POST", self.URL, {"site": site.public_id, "name": "brand.com"}), 404, "not_found")
+        self.assertError(self.call("POST", self.URL, {"site": "site_nope", "name": "brand.com"}), 404, "not_found")
+        self.assertError(self.call("POST", self.URL, {}), 404, "not_found")
+
+    def test_the_route_writes_the_request_and_audit_and_calls_no_provider(self):
+        site = self.paid()
+        self.assertEqual(self.ask(site).json(), {"site": site.public_id, "name": "brand.com", "status": "requested"})
+        reg = DomainRegistration.objects.get(site=site)
+        self.assertEqual((reg.name, reg.state, reg.send_count, reg.register_sent_at), ("brand.com", "intent", 0, None))
+        event = DomainEvent.objects.get(kind="import_requested")
+        self.assertEqual((event.actor_type, event.actor_id), ("operator", self.operator.pk))
+        self.assertEqual(len(self.audits("domains_import_requested")), 1)
+        self.assertEqual(self.fake.calls, [])
+        self.assertFalse(Domain.objects.filter(site=site).exists())
+        listed = self.call("POST", BASE + "list/").json()["imports"]
+        self.assertEqual([(r["site"], r["name"], r["state"]) for r in listed], [(site.public_id, "brand.com", "pending")])
+
+    def test_a_repeat_request_is_pending_and_writes_nothing_new(self):
+        site = self.paid()
+        self.ask(site)
+        self.assertEqual(self.ask(site).json()["status"], "pending")
+        self.assertEqual(DomainEvent.objects.filter(kind="import_requested").count(), 1)
+        self.assertEqual(len(self.audits("domains_import_requested")), 1)
+        self.refusal(self.ask(site, "other.com", expect=409), "has_registration")
+
+    def test_a_bad_name_is_a_400_and_a_platform_name_is_refused(self):
+        site = self.paid()
+        self.assertEqual(self.ask(site, "https://x.com", expect=400).json()["error"]["code"], "invalid_request")
+        self.refusal(self.ask(site, "negosyonline.com", expect=409), "name_refused")
+        self.assertFalse(DomainRegistration.objects.filter(site=site, name__isnull=False).exists())
+
+    def test_refused_for_exempt_deleted_and_no_subscription_sites(self):
+        exempt = self.paid()
+        from apps.billing.models import Subscription
+        Subscription.objects.filter(site=exempt).update(billing_exempt=True)
+        self.refusal(self.ask(exempt, expect=409), "exempt")
+        gone = self.paid()
+        gone.deleted_at = self.now
+        gone.save()
+        self.refusal(self.ask(gone, expect=409), "site_off")
+        self.assertEqual(DomainEvent.objects.filter(kind="import_requested").count(), 0)
+
+    def test_refused_for_a_site_with_a_claim_or_a_registration(self):
+        claimed = self.request("one.com")
+        self.refusal(self.ask(claimed.site, "two.com", expect=409), "has_registration")
+        site = self.paid()
+        Domain.objects.create(site=site, name="three.com", state=ClaimState.CHECKING)
+        self.refusal(self.ask(site, "four.com", expect=409), "has_claim")
+
+    def test_refused_for_a_name_another_site_holds(self):
+        self.request("brand.com")
+        self.refusal(self.ask(self.paid(), expect=409), "name_held")
+
+    def test_the_worker_imports_a_name_in_our_account_without_ever_registering(self):
+        site = self.paid()
+        self.ours()
+        self.ask(site)
+        sends = DomainEvent.objects.filter(kind="register_sent").count()
+        self.assertEqual(self.work(site), "done")
+        reg = DomainRegistration.objects.get(site=site)
+        self.assertEqual((reg.state, reg.name, reg.auto_renew), ("succeeded", "brand.com", False))
+        self.assertEqual(reg.expires_at.year, 2027)
+        self.assertEqual(reg.send_count, 1)  # the table's rule for a succeeded row; nothing was sent
+        claim = Domain.objects.get(site=site)
+        self.assertEqual((claim.state, claim.name), (ClaimState.REGISTERED, "brand.com"))
+        self.assertEqual(self.fake.register_calls, 0)
+        self.assertEqual(DomainEvent.objects.filter(kind="register_sent").count(), sends)
+        event = DomainEvent.objects.get(kind="bridge_imported")
+        self.assertEqual((event.actor_type, event.actor_id), ("operator", self.operator.pk))
+        self.assertEqual(self.audits("domains_bridge_imported")[0].operator_id, self.operator.pk)
+        self.assertEqual(self.call("POST", BASE + "list/").json()["imports"][0]["state"], "done")
+        self.assertEqual(self.work(site), "none")
+        self.refusal(self.ask(site, "brand.com", expect=409), "has_registration")
+
+    def test_the_imported_claim_goes_on_only_through_the_machine_and_its_switches(self):
+        site = self.paid()
+        self.ours()
+        self.ask(site)
+        self.work(site)
+        claim = Domain.objects.get(site=site)
+        self.assertEqual(machine_advance(claim, self.bundle, self.now), "zone")  # the normal first step
+        self.assertEqual(machine_advance(claim, self.bundle, self.now), "waiting_zone")  # no zone yet: waits
+        self.assertEqual(self.fake.register_calls, 0)
+        self.assertEqual(self.bundle.fakes["vercel"].calls, [])  # nothing is attached before the zone exists
+
+    def test_the_worker_refuses_and_gives_the_name_back_unless_the_read_shows_it_in_our_account(self):
+        site = self.paid()
+        self.ask(site)
+        self.assertEqual(self.work(site), "not_in_our_account")  # 404
+        reg = DomainRegistration.objects.get(site=site)
+        self.assertEqual((reg.name, reg.state, reg.send_count), (None, "intent", 0))
+        self.assertFalse(Domain.objects.filter(site=site).exists())
+        self.assertEqual(self.audits("domains_import_refused")[0].detail["reason"], "not_in_our_account")
+        row = self.call("POST", BASE + "list/").json()["imports"][0]
+        self.assertEqual((row["state"], row["reason"]), ("refused", "not_in_our_account"))
+        # another account, no expiry, unsettled status, a failed read, paused, no provider
+        self.ask(site)
+        self.fake.registrations["brand.com"] = {"expires_at": None, "auto_renew": None, "account_id": "acct_other"}
+        self.assertEqual(self.work(site), "read_failed_other_account")
+        self.ask(site)
+        self.fake.registrations["brand.com"]["account_id"] = "acct_test"
+        self.assertEqual(self.work(site), "no_expiry")
+        self.ask(site)
+        self.ours()
+        self.fake.statuses["brand.com"] = ["in_progress"]
+        self.assertEqual(self.work(site), "status_in_progress")
+        self.fake.statuses.clear()
+        self.ask(site)
+        self.fake.get_error = 500
+        self.assertEqual(self.work(site), "read_failed_unavailable")
+        self.fake.get_error = None
+        self.ask(site)
+        with override_settings(DOMAINS_PROVIDER_PAUSED=True):
+            self.assertEqual(self.work(site), "paused")
+        self.ask(site)
+        self.assertEqual(bridge.process_import(site.pk, None, now=self.now), "provider_unavailable")
+        reg.refresh_from_db()
+        self.assertEqual((reg.name, reg.state, reg.send_count), (None, "intent", 0))
+        self.assertEqual(self.fake.register_calls, 0)
+        self.assertFalse(Domain.objects.filter(site=site).exists())
+
+    def test_the_worker_rechecks_exemption_and_claims_after_the_request(self):
+        site = self.paid()
+        self.ours()
+        self.ask(site)
+        from apps.billing.models import Subscription
+        Subscription.objects.filter(site=site).update(billing_exempt=True)
+        self.assertEqual(self.work(site), "exempt")
+        self.assertEqual(DomainRegistration.objects.get(site=site).name, None)
+        self.assertFalse(Domain.objects.filter(site=site).exists())
+
+    def test_the_sweep_finds_a_request_whose_task_was_lost(self):
+        site = self.paid()
+        self.assertEqual(bridge.pending_imports(), [])
+        self.ask(site)
+        self.assertEqual(bridge.pending_imports(), [site.pk])
+        self.ours()
+        self.work(site)
+        self.assertEqual(bridge.pending_imports(), [])
+
+
+def machine_advance(claim, bundle, now):
+    from apps.domains import machine  # noqa: PLC0415
+
+    return machine.advance(claim.pk, providers=bundle, now=now)

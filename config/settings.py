@@ -768,9 +768,11 @@ def _int_setting(name):
 DOMAINS_MAX_COST_CENTS = _usd_cents("DOMAINS_MAX_COST_USD")
 DOMAINS_DAILY_SPEND_CAP_CENTS = _usd_cents("DOMAINS_DAILY_SPEND_CAP_USD")
 DOMAINS_DAILY_PURCHASE_CAP = _int_setting("DOMAINS_DAILY_PURCHASE_CAP")
+# FREE-DOMAIN-Y1 FD1: price decides; this list only says which extensions the daily sentinel reads.
+# DOMAINS_ALLOWED_TLDS overrides the default.
 DOMAINS_ALLOWED_TLDS = tuple(
     part.strip().lower().strip(".")
-    for part in os.environ.get("DOMAINS_ALLOWED_TLDS", "").split(",")
+    for part in (os.environ.get("DOMAINS_ALLOWED_TLDS", "").strip() or "com,net,org,store,shop,online,site,xyz").split(",")
     if part.strip()
 )
 DOMAINS_CHECKS_PER_HOUR_SITE = _int_setting("DOMAINS_CHECKS_PER_HOUR_SITE") or 20
