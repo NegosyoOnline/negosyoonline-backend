@@ -1,5 +1,5 @@
 """SMS-OWNER BE-2: a store's text conversations with its members on the owner's routes. Compose and
-reply (prefix, the 160 limit, links, members of other stores, unverified or disposed members,
+reply (no prefix, the 160 limit, links, members of other stores, unverified or disposed members,
 opt-outs, idempotency, the gateway's refusals), the live send state of a thread, the per-store
 isolation, the channels switch, and every route answering 404 with a switch off or before the
 tables exist."""
@@ -20,7 +20,7 @@ from apps.notifications.tests.base import gateway_on, online_phone, set_policy
 
 MOBILE = "+639171234567"
 OTHER_MOBILE = "+639181112222"
-PREFIX = "Ana's Store: "
+PREFIX = ""  # nothing is added in front of a store's text
 
 
 def make_member(site, mobile=MOBILE, state="verified", name="Maria Santos"):
@@ -59,7 +59,7 @@ class SmsOwnerCase(StoredOwnerTestCase):
 
 
 class ComposeTests(SmsOwnerCase):
-    def test_a_text_to_a_verified_member_is_queued_with_the_store_name_in_front(self):
+    def test_a_text_to_a_verified_member_is_queued_exactly_as_typed(self):
         body = self.compose().json()
         self.assertEqual((body["state"], body["new_conversation"], body["error_code"]), ("sending", True, ""))
         self.assertTrue(body["ref"].startswith("sm_"))
@@ -96,10 +96,10 @@ class ComposeTests(SmsOwnerCase):
         self.assertEqual(InquiryConversation.objects.filter(site=self.site, provider="sms").count(), 1)
         self.assertEqual(InquiryMessage.objects.filter(site=self.site, direction="out").count(), 2)
 
-    def test_the_text_is_at_most_160_characters_with_the_name_in_front(self):
-        room = 160 - len(PREFIX)
-        self.assertEqual(self.compose("x" * room, key="key-room-001").status_code, 200)
-        over = self.compose("x" * (room + 1), key="key-room-002")
+    def test_a_160_character_text_is_sent_exactly_as_typed_and_161_is_refused(self):
+        self.assertEqual(self.compose("x" * 160, key="key-room-001").status_code, 200)
+        self.assertEqual(InquiryMessage.objects.get(direction="out").body, "x" * 160)
+        over = self.compose("x" * 161, key="key-room-002")
         self.assertEqual(over.status_code, 422)
         self.assertIn("text", over.json()["error"]["fields"])
         self.assertEqual(SmsMessage.objects.count(), 1)
@@ -112,12 +112,13 @@ class ComposeTests(SmsOwnerCase):
         self.assertEqual(SmsMessage.objects.count(), 0)
         self.assertFalse(InquiryMessage.objects.filter(direction="out").exists())
 
-    def test_a_store_name_that_cannot_be_texted_gives_way_to_the_neutral_name(self):
+    def test_a_store_name_never_changes_the_text(self):
         self.site.display_name = "Visit anas.example.com now"
         self.site.save(update_fields=["display_name"])
         self.assertEqual(self.compose().status_code, 200)
-        self.assertTrue(InquiryMessage.objects.get(direction="out").body.startswith("Your store: "))
-        self.assertEqual(self.get(self.base + "sms/status/").json()["prefix"], "Your store: ")
+        self.assertEqual(InquiryMessage.objects.get(direction="out").body, "Your order is ready.")
+        body = self.get(self.base + "sms/status/").json()
+        self.assertEqual((body["prefix"], body["max_length"]), ("", 160))
 
     def test_only_a_verified_member_of_this_store_can_be_texted(self):
         pending = make_member(self.site, OTHER_MOBILE, state="pending", name="Pending")
@@ -222,7 +223,7 @@ class ThreadAndReplyTests(SmsOwnerCase):
         self.assertEqual(body["channel"], "sms")
         self.assertEqual(body["contact_mobile"], "+63917***4567")
         self.assertNotIn(MOBILE, str(body))
-        self.assertEqual((body["max_length"], body["prefix"], body["opted_out"]), (160 - len(PREFIX), PREFIX, False))
+        self.assertEqual((body["max_length"], body["prefix"], body["opted_out"]), (160, "", False))
         self.assertEqual(body["reply"], {"open": True, "reason": ""})
         self.assertEqual(body["contact_email"], "")
 
@@ -269,7 +270,7 @@ class ThreadAndReplyTests(SmsOwnerCase):
     def test_a_reply_is_refused_when_opted_out_off_closed_or_too_long(self):
         path = f"{self.base}conversations/{self.ref}/reply/"
         send = lambda key, text="Hello": self.send("post", path, {"text": text, "idempotency_key": key})  # noqa: E731
-        self.assertEqual(send("key-reply-02", "x" * 150).status_code, 422)
+        self.assertEqual(send("key-reply-02", "x" * 161).status_code, 422)
         InquirySmsSettings.objects.filter(site=self.site).update(enabled=False)
         self.error(send("key-reply-03"), 409, "sms_off")
         InquirySmsSettings.objects.filter(site=self.site).update(enabled=True)
@@ -281,6 +282,11 @@ class ThreadAndReplyTests(SmsOwnerCase):
         self.send("post", f"{self.base}conversations/{self.ref}/close/")
         self.error(send("key-reply-05"), 409, "closed")
         self.assertEqual(SmsMessage.objects.count(), 1)
+
+    def test_a_160_character_reply_is_sent_exactly_as_typed(self):
+        path = f"{self.base}conversations/{self.ref}/reply/"
+        self.assertEqual(self.send("post", path, {"text": "y" * 160, "idempotency_key": "key-reply-160"}).status_code, 200)
+        self.assertEqual(InquiryMessage.objects.filter(direction="out").order_by("-pk").first().body, "y" * 160)
 
     def test_the_same_reply_key_twice_sends_once(self):
         path = f"{self.base}conversations/{self.ref}/reply/"
@@ -339,7 +345,7 @@ class ChannelsAndSwitchTests(SmsOwnerCase):
         body = self.get(self.base + "sms/status/").json()
         self.assertEqual((body["phone_online"], body["enabled"], body["incoming_ready"]), (True, True, True))
         self.assertEqual((body["daily_limit"], body["left_today"], body["hourly_limit"], body["left_this_hour"]), (50, 50, 20, 20))
-        self.assertEqual((body["prefix"], body["max_length"]), (PREFIX, 160 - len(PREFIX)))
+        self.assertEqual((body["prefix"], body["max_length"]), ("", 160))
         self.compose()
         after = self.get(self.base + "sms/status/").json()
         self.assertEqual((after["left_today"], after["left_this_hour"]), (49, 19))

@@ -30,14 +30,12 @@ from apps.inquiries.models import (
     InquiryConversation, InquiryMessage, InquiryReply, InquirySmsOptOut, InquirySmsSettings,
 )
 from apps.inquiries.switch import sms_ready
-from apps.members.messaging import NEUTRAL_NAME, sms_store_name
 from apps.members.models import Member
 from apps.notifications import services, sms
 from apps.notifications.models import SmsMessage
 
 logger = logging.getLogger(__name__)
 
-NAME_LIMIT = 30  # characters of the store's name in the text's prefix
 ROUTE_WITHIN = timedelta(days=7)  # an incoming text goes to the store that texted that number in the last 7 days
 ROUTED_PURPOSES = ("store_reply", "store_compose", "inbox_reply", "inbox_compose", "inbox_bulk")
 LIVE_STATUSES = (SmsMessage.Status.QUEUED, SmsMessage.Status.DISPATCHED, SmsMessage.Status.SENT)
@@ -101,27 +99,17 @@ def opted_out(site, mobile):
     return bool(mobile) and InquirySmsOptOut.objects.filter(site=site, mobile=mobile).exists()
 
 
-def prefix_of(site):
-    """The words every text of this store starts with, "Name: ". A name that makes the text
-    unsendable is swapped for the neutral one; None when even that cannot be sent."""
-    for name in (sms_store_name(site)[:NAME_LIMIT].strip(), NEUTRAL_NAME):
-        prefix = f"{name}: "
-        if not sms.text_problem(prefix + "x"):
-            return prefix
-    return None
-
-
 def max_length(site):
-    prefix = prefix_of(site)
-    return None if prefix is None else sms.MAX_LENGTH - len(prefix)
+    """The room for a store's text: the whole SMS. Nothing is added to what the owner types."""
+    return sms.MAX_LENGTH
 
 
 def status(site):
-    """The composer's status for a store: the gateway's numbers, the prefix and the room left."""
-    prefix = prefix_of(site)
+    """The composer's status for a store: the gateway's numbers and the room (the full SMS).
+    `prefix` stays as an empty string for the clients that still read it."""
     return {
-        **services.sms_store_status(site), "enabled": enabled(site), "prefix": prefix or "",
-        "max_length": None if prefix is None else sms.MAX_LENGTH - len(prefix), "incoming_ready": incoming_ready(),
+        **services.sms_store_status(site), "enabled": enabled(site), "prefix": "",
+        "max_length": sms.MAX_LENGTH, "incoming_ready": incoming_ready(),
     }
 
 
@@ -171,20 +159,17 @@ def _invalid(message):
 
 
 def _full_text(site, text):
-    """The text as sent, prefix included. Raises the 422 a person can act on."""
-    prefix = prefix_of(site)
-    if prefix is None:
-        raise _invalid("This store's name cannot be used in a text.")
+    """The text as sent: exactly what the owner typed (trimmed), at most one SMS. Raises the 422
+    a person can act on."""
     text = text.strip()
     if not text:
         raise _invalid("Write a text first.")
-    room = sms.MAX_LENGTH - len(prefix)
-    if len(text) > room:
-        raise _invalid(f"A text is at most {room} characters (the store's name takes the rest).")
-    problem = sms.text_problem(prefix + text)
+    if len(text) > sms.MAX_LENGTH:
+        raise _invalid(f"A text is at most {sms.MAX_LENGTH} characters.")
+    problem = sms.text_problem(text)
     if problem:
         raise _invalid(problem)
-    return prefix + text
+    return text
 
 
 def _reply_out(reply, message=None):
@@ -356,7 +341,7 @@ def thread_extras(site, conversation):
         reason = blocked
     return {
         "contact_mobile": mask_mobile(conversation.contact_mobile), "max_length": max_length(site),
-        "prefix": prefix_of(site) or "", "opted_out": out_of, "reply": {"open": not reason, "reason": reason},
+        "prefix": "", "opted_out": out_of, "reply": {"open": not reason, "reason": reason},
     }
 
 

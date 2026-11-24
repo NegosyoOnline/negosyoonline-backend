@@ -169,7 +169,7 @@ def audience(site, kind):
 # -- preview and test -----------------------------------------------------------------------
 
 def preview(site, text):
-    """The exact text as it will arrive (the store's name in front; one SMS, plain characters, no
+    """The exact text as it will arrive (as typed, nothing added; one SMS, plain characters, no
     web link, nothing added at the end), or the 422 a person can act on."""
     full = sms_inbox._full_text(site, text)
     return {"text": full, "length": len(full), "max_length": sms.MAX_LENGTH, "remaining": sms.MAX_LENGTH - len(full)}
@@ -504,7 +504,7 @@ def active_batch(site):
 
 
 def status(site):
-    """The bulk screen's state: the gateway's numbers, the prefix and room, why a batch cannot start,
+    """The bulk screen's state: the gateway's numbers and room, why a batch cannot start,
     the window and the pace, and the active batch."""
     refresh(site)
     base = sms_inbox.status(site)
