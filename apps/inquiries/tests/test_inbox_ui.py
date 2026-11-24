@@ -884,11 +884,11 @@ class ChannelFilterTests(InboxUiCase):
         self.assertEqual(len(self.items()[0]), 5)
         self.assertEqual(len(self.items(channel="")[0]), 5)
 
-    def test_a_bad_value_is_400_invalid_channel(self, _):
+    def test_a_bad_value_is_422_invalid_channel(self, _):
         for bad in ("SMS", "all", "email", "sms,nosms", "1"):
             for url in (f"{self.list_url}?channel={bad}", f"{self.unread_url}?channel={bad}"):
                 response = self.get(url)
-                self.error(response, 400, "invalid_channel")
+                self.error(response, 422, "invalid_channel")
                 self.assertIn("channel", response.json()["error"]["fields"])
 
     def test_unread_total_and_the_unread_route_follow_the_filter(self, _):

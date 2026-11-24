@@ -8,7 +8,7 @@
                                                  (`unread`: `1` keeps only unread, `0` only read; missing or empty is all,
                                                  anything else 422 `invalid_unread`; combines with `q` and `status`)
                                                  (`channel`: `sms` keeps only texts, `nosms` every channel but texts; missing or
-                                                 empty is all, anything else 400 `invalid_channel`; `unread_total` follows it)
+                                                 empty is all, anything else 422 `invalid_channel`; `unread_total` follows it)
                                                  (`answered`: `answered` or `unanswered` filters, `all` or empty is all, else 422
                                                  `invalid_answered`; every item has `answered`: latest message is the store's and
                                                  not failed or bounced)
@@ -115,12 +115,12 @@ def _stored_on():
 
 
 def _channel(value):
-    """`channel` (`sms` or `nosms`; missing or empty is every channel) -> None, "sms" or "nosms", else 400."""
+    """`channel` (`sms` or `nosms`; missing or empty is every channel) -> None, "sms" or "nosms", else 422."""
     if value in (None, ""):
         return None
     if value not in ("sms", "nosms"):
         message = "Channel must be sms or nosms."
-        raise ApiError("invalid_channel", message, status=400, fields={"channel": [message]})
+        raise ApiError("invalid_channel", message, status=422, fields={"channel": [message]})
     return value
 
 

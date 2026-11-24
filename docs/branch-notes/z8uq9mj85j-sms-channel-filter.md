@@ -13,9 +13,8 @@ page.. I have a lot of plans for SMS marketing later." Authority for this backen
 `GET /v1/sites/{site_id}/inquiries/conversations/?channel=` and `GET .../inquiries/unread/?channel=`:
 - missing or empty: today's behaviour, unchanged.
 - `sms`: only SMS conversations. `nosms`: every channel except SMS.
-- anything else (case-sensitive; `SMS`, `all`, `email`...): HTTP 400, same error shape as the other filters:
+- anything else (case-sensitive; `SMS`, `all`, `email`...): HTTP 422, same status and error shape as the other filters (Manager, 2026-11-24, replacing the first 400):
   `{"error": {"code": "invalid_channel", "message": "Channel must be sms or nosms.", "fields": {"channel": [...]}}}`.
-  NOTE: the existing status/unread/answered filters answer 422; this one answers 400 as the task specified.
 - `unread_total` on the list follows the `channel` filter (it still ignores q, status, unread, answered and paging).
 - Works with the cursor (`stored_cursor`): the filter is applied before ordering and paging.
 
