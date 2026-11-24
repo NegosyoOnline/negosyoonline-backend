@@ -317,7 +317,8 @@ class StoreBulkBatch(models.Model):
     STATES = [(WAITING, "Waiting"), (SENDING, "Sending"), (FINISHED, "Finished"), (STOPPED, "Stopped"), (ENDED, "Ended")]
     ACTIVE = (WAITING, SENDING)
     ALL = "all"
-    AUDIENCES = [(ALL, "All my members")]
+    PICK = "pick"
+    AUDIENCES = [(ALL, "All my members"), (PICK, "Groups and contacts I picked")]
 
     public_id = models.CharField(max_length=40, unique=True, default=new_store_bulk_id, editable=False)
     site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="store_bulk_batches")
@@ -325,6 +326,8 @@ class StoreBulkBatch(models.Model):
     request_id = models.CharField(max_length=64)
     text = models.CharField(max_length=160)  # as it arrives: the store's name first
     audience = models.CharField(max_length=5, choices=AUDIENCES, default=ALL)
+    # For audience "pick": {"groups": [group public ids], "contacts": [contact public ids]}; ids only.
+    picked = models.JSONField(default=dict, blank=True)
     state = models.CharField(max_length=10, choices=STATES, default=WAITING)
     end_reason = models.CharField(max_length=30, blank=True)  # stopped, site_held, billing_only, line_disabled, ...
     size = models.PositiveIntegerField(default=0)
@@ -360,6 +363,7 @@ class StoreBulkRecipient(models.Model):
     batch = models.ForeignKey(StoreBulkBatch, on_delete=models.CASCADE, related_name="recipients")
     position = models.PositiveIntegerField()
     member_ref = models.PositiveBigIntegerField(null=True, blank=True)  # the members.Member pk when the batch was confirmed; no foreign key
+    contact_ref = models.PositiveBigIntegerField(null=True, blank=True)  # the inbox.Contact pk of a picked contact; no foreign key
     name = models.CharField(max_length=120, blank=True)
     mobile = models.CharField(max_length=20)  # +639XXXXXXXXX, or its masked form (+63917***4567) once the batch is over
     state = models.CharField(max_length=10, default=WAITING)

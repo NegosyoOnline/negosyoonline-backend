@@ -93,6 +93,8 @@ class ReplyIn(Schema):
 class BulkAudienceIn(Schema):
     model_config = ConfigDict(extra="forbid")
     audience: str = "all"
+    groups: list[str] | None = None
+    contacts: list[str] | None = None
 
 
 class BulkTextIn(Schema):
@@ -113,6 +115,8 @@ class BulkConfirmIn(Schema):
     idempotency_key: str
     confirm: bool = False
     expected_count: int | None = None
+    groups: list[str] | None = None
+    contacts: list[str] | None = None
 
 
 class ChannelsIn(Schema):
@@ -287,7 +291,10 @@ def bulk_status(request, site_id: str):
 def bulk_audience(request, site_id: str, payload: BulkAudienceIn):
     hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
     _need_bulk()
-    return store_bulk.audience(request.inquiry_site, payload.audience)
+    return store_bulk.audience(
+        request.inquiry_site, payload.audience, request.account,
+        {"groups": payload.groups, "contacts": payload.contacts},
+    )
 
 
 @router.post("/sites/{site_id}/inquiries/sms/bulk/preview/")

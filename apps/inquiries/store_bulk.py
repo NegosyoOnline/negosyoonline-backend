@@ -42,7 +42,9 @@ SECONDS = (18, 25)  # the phone keeps this gap between two texts (apps/notificat
 TEST_KEPT = 24 * 3600
 MAX_SKIPS = 100  # members passed over (gone, opted out ...) in one poll before the next poll goes on
 PAGE = (20, 100)
-KINDS = (StoreBulkBatch.ALL,)
+KINDS = (StoreBulkBatch.ALL, StoreBulkBatch.PICK)
+MAX_PICKED = 20_000
+CHUNK = 500
 TARGET = "store_bulk_batch"
 PURPOSE = "store_bulk"
 
@@ -69,6 +71,7 @@ REASON_TEXTS = {
     BILLING_ONLY: BLOCKED_TEXTS[BILLING_ONLY],
     LINE_DISABLED: BLOCKED_TEXTS[LINE_DISABLED],
     "member_removed": "The member is no longer in your list.",
+    "contact_removed": "The contact is no longer in your list.",
     "number_changed": "The member's number changed.",
     UNVERIFIED: "The member's mobile is not verified.",
     OPTED_OUT: "The member asked for no more texts (STOP).",
@@ -132,15 +135,81 @@ def _at_cap(site):
 
 # -- audience -------------------------------------------------------------------------------
 
+def _invalid_audience(message="The only audiences are all your members or the groups and contacts you pick."):
+    return ApiError("invalid_audience", message, status=400, fields={"audience": [message]})
+
+
 def _kind(value):
     if value not in KINDS:
-        raise ApiError("invalid_audience", "The only audience is all your members.", status=400, fields={"audience": ["The only audience is all your members."]})
+        raise _invalid_audience()
     return value
 
 
-def _select(site, kind):
-    """([(member id, name, mobile)], {reason: count}, total). The store's own members only, in the
-    order they joined; every member is counted once, under the first reason that applies."""
+def _ids(value, what):
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > MAX_PICKED or not all(isinstance(i, str) for i in value):
+        raise _invalid_audience(f"Choose {what} from your list.")
+    return list(dict.fromkeys(value))
+
+
+def _picked_scope(site, account):
+    from apps.inbox import contacts  # not at import: inbox is a later layer for this module
+
+    scope = contacts.site_scope(account, site)
+    if scope is None:  # the store-contacts switch is off or the tables are not there
+        raise _invalid_audience()
+    return scope
+
+
+def _select_pick(site, account, picked):
+    """([(contact pk, name, mobile)], {reason: count}, total). The contacts in the picked groups plus
+    the picked contacts, of this store only, in the order they were added; each counted once, under
+    the first reason that applies. No consent filter: a contact is the store's own list."""
+    groups, contacts = _ids((picked or {}).get("groups"), "groups"), _ids((picked or {}).get("contacts"), "contacts")
+    if not groups and not contacts:
+        raise _invalid_audience("Pick at least one group or contact.")
+    scope = _picked_scope(site, account)
+    found_groups = set()
+    for i in range(0, len(groups), CHUNK):
+        found_groups.update(scope.groups.filter(public_id__in=groups[i:i + CHUNK]).values_list("pk", flat=True))
+    if len(found_groups) != len(groups):
+        raise _invalid_audience("Choose groups from your list.")
+    pks = set(scope.contacts.filter(groups__in=found_groups).values_list("pk", flat=True)) if found_groups else set()
+    found_contacts = 0
+    for i in range(0, len(contacts), CHUNK):
+        got = list(scope.contacts.filter(public_id__in=contacts[i:i + CHUNK]).values_list("pk", flat=True))
+        found_contacts += len(got)
+        pks.update(got)
+    if found_contacts != len(contacts):
+        raise _invalid_audience("Choose contacts from your list.")
+    rows = []
+    ordered = sorted(pks)
+    for i in range(0, len(ordered), CHUNK):
+        rows += list(scope.contacts.filter(pk__in=ordered[i:i + CHUNK]).values_list("pk", "first_name", "last_name", "mobile"))
+    rows.sort()
+    stopped = set(InquirySmsOptOut.objects.filter(site=site).values_list("mobile", flat=True))
+    left = dict.fromkeys(LEFT_OUT, 0)
+    chosen, seen = [], set()
+    for pk, first, last, mobile in rows:
+        if mobile.startswith("+63900"):
+            left[INVALID_NUMBER] += 1
+        elif mobile in stopped:
+            left[OPTED_OUT] += 1
+        elif mobile in seen:
+            left[DUPLICATES] += 1
+        else:
+            seen.add(mobile)
+            chosen.append((pk, f"{first} {last}".strip(), mobile))
+    return chosen, left, len(rows)
+
+
+def _select(site, kind, account=None, picked=None):
+    """([(member or contact id, name, mobile)], {reason: count}, total). "all": the store's own
+    members only, in the order they joined; every member is counted once, under the first reason that
+    applies. "pick": see `_select_pick`."""
+    if kind == StoreBulkBatch.PICK:
+        return _select_pick(site, account, picked)
     members = list(Member.objects.filter(site=site).order_by("pk").values_list("pk", "full_name", "mobile", "mobile_state"))
     stopped = set(InquirySmsOptOut.objects.filter(site=site).values_list("mobile", flat=True))
     left = dict.fromkeys(LEFT_OUT, 0)
@@ -160,9 +229,9 @@ def _select(site, kind):
     return chosen, left, len(members)
 
 
-def audience(site, kind):
+def audience(site, kind, account=None, picked=None):
     """What a confirm would send: the count and the counts left out by reason. Never a number."""
-    chosen, left, total = _select(site, _kind(kind))
+    chosen, left, total = _select(site, _kind(kind), account, picked)
     return {"audience": kind, "total_members": total, "will_send": len(chosen), "left_out": left}
 
 
@@ -279,7 +348,8 @@ def confirm(site, account, data):
     full = sms_inbox._full_text(site, data["text"])
     if StoreBulkBatch.objects.filter(site=site, state__in=StoreBulkBatch.ACTIVE).exists():
         raise ApiError("batch_running", "A batch is already sending. Wait for it to finish or stop it.", status=409)
-    chosen, left, _ = _select(site, kind)
+    picked = {"groups": _ids(data.get("groups"), "groups"), "contacts": _ids(data.get("contacts"), "contacts")} if kind == StoreBulkBatch.PICK else {}
+    chosen, left, _ = _select(site, kind, account, picked)
     if not chosen:
         raise ApiError("empty_audience", "There is nobody to send to.", status=409)
     expected = data.get("expected_count")
@@ -293,10 +363,12 @@ def confirm(site, account, data):
         with transaction.atomic():
             batch = StoreBulkBatch.objects.create(
                 site=site, created_by=account, request_id=key, text=full,
-                audience=kind, size=len(chosen), left_out=left,
+                audience=kind, picked=picked, size=len(chosen), left_out=left,
             )
             StoreBulkRecipient.objects.bulk_create(
-                [StoreBulkRecipient(batch=batch, position=i, member_ref=pk, name=name[:120], mobile=mobile)
+                [StoreBulkRecipient(
+                    batch=batch, position=i, name=name[:120], mobile=mobile,
+                    **({"contact_ref": pk} if kind == StoreBulkBatch.PICK else {"member_ref": pk}))
                  for i, (pk, name, mobile) in enumerate(chosen)],
                 batch_size=500,
             )
@@ -373,6 +445,15 @@ def _end(batch, reason, state, *, actor=None):
 def _skip_reason(batch, recipient):
     """Why this member is not texted any more, or "" when they still are: the member is still the
     store's, with the same verified number and not on the STOP list."""
+    if recipient.contact_ref:
+        from apps.inbox.models import Contact
+
+        contact = Contact.objects.filter(pk=recipient.contact_ref, owner_kind="site", site=batch.site).first()
+        if contact is None:
+            return "contact_removed"
+        if contact.mobile != recipient.mobile:
+            return "number_changed"
+        return OPTED_OUT if sms_inbox.opted_out(batch.site, recipient.mobile) else ""
     member = Member.objects.filter(pk=recipient.member_ref, site=batch.site).first() if recipient.member_ref else None
     if member is None:
         return "member_removed"
