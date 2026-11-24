@@ -8,9 +8,11 @@ from unittest import mock
 from django.test import override_settings
 
 from apps.accounts.models import AccountAuditEvent
+from apps.inbox.models import Contact, ContactGroup
 from apps.inquiries import store_bulk, store_bulk_schedule, tasks
 from apps.inquiries.models import InquirySmsOptOut
 from apps.inquiries.tests.test_sms_inbox import make_member
+from apps.inquiries.tests import test_store_bulk_pick as pick
 from apps.inquiries.tests.test_store_bulk import MANILA, NUMBERS, TEXT, BulkCase
 from apps.notifications.models import StoreBulkBatch, StoreBulkRecipient
 from apps.sites.models import Site
@@ -343,3 +345,63 @@ class RunnerTests(ScheduleCase):
             self.assertEqual(self.run_due(), 0)
         batch.refresh_from_db()
         self.assertEqual(batch.state, "scheduled")
+
+
+class DetailNamesTests(pick.PickCase):
+    def setUp(self):
+        super().setUp()
+        clock = mock.patch.object(store_bulk_schedule, "_now", return_value=NOW)
+        clock.start()
+        self.addCleanup(clock.stop)
+        self.sroot = self.root + "scheduled/"
+
+    def schedule(self, **body):
+        body = {"text": TEXT, "scheduled_at": LATER, "idempotency_key": "key-sched-0001", **body}
+        response = self.send("post", self.sroot, body)
+        self.assertEqual(response.status_code, 201, response.content)
+        return response.json()["id"]
+
+    def detail(self, batch_id):
+        return self.get(f"{self.sroot}{batch_id}/")
+
+    def test_pick_batch_names_in_picked_order_and_only_masked_numbers(self):
+        a = self.add("Ana", "+639172000001")
+        b = self.add("Ben", "+639172000002")
+        batch_id = self.schedule(audience="pick", groups=[self.gid2, self.gid], contacts=[b, a])
+        events = AccountAuditEvent.objects.count()
+        response = self.detail(batch_id)
+        body = response.json()
+        self.assertEqual([g["name"] for g in body["groups"]], ["Others", "Regulars"])
+        self.assertEqual([c["id"] for c in body["contacts"]], [b, a])
+        self.assertEqual(set(body["contacts"][0]), {"id", "first_name", "last_name", "mobile_masked"})
+        self.assertIn("*", body["contacts"][0]["mobile_masked"])
+        for number in ("+639172000001", "+639172000002"):
+            self.assertNotIn(number, response.content.decode())
+        self.assertEqual(AccountAuditEvent.objects.count(), events)
+
+    def test_all_batch_has_empty_lists_and_the_list_has_none(self):
+        batch_id = self.schedule(audience="all")
+        body = self.detail(batch_id).json()
+        self.assertEqual((body["groups"], body["contacts"]), ([], []))
+        self.assertNotIn("groups", self.get(self.sroot).json()["items"][0])
+
+    def test_a_deleted_group_or_contact_is_skipped(self):
+        a = self.add("Ana", "+639172000001", [self.gid])
+        b = self.add("Ben", "+639172000002")
+        batch_id = self.schedule(audience="pick", groups=[self.gid, self.gid2], contacts=[a, b])
+        Contact.objects.filter(public_id=b).delete()
+        ContactGroup.objects.filter(public_id=self.gid2).delete()
+        body = self.detail(batch_id).json()
+        self.assertEqual(([g["id"] for g in body["groups"]], [c["id"] for c in body["contacts"]]), ([self.gid], [a]))
+
+    def test_another_stores_ids_are_never_shown(self):
+        a = self.add("Ana", "+639172000001")
+        batch_id = self.schedule(audience="pick", contacts=[a])
+        other = Contact.objects.get(public_id=a)
+        other_group = ContactGroup.objects.create(owner_kind="site", site=self.ben_site, name="Bens")
+        batch = StoreBulkBatch.objects.get(public_id=batch_id)
+        batch.picked = {"groups": [other_group.public_id], "contacts": [a]}
+        batch.save(update_fields=["picked"])
+        Contact.objects.filter(pk=other.pk).update(site=self.ben_site)
+        body = self.detail(batch_id).json()
+        self.assertEqual((body["groups"], body["contacts"]), ([], []))

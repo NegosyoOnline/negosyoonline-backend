@@ -16,6 +16,7 @@ from django.utils import timezone
 
 from apps.common.errors import ApiError
 from apps.common.ids import is_public_id
+from apps.common.masking import mask_mobile
 from apps.inquiries import sms_inbox, store_bulk
 from apps.inquiries.store_bulk import MANILA, _audit, _find, _ids, _kind, _select, batch_out, make_recipients
 from apps.notifications import sms
@@ -150,9 +151,33 @@ def cancel(site, account, public_id, now=None):
     return batch_out(batch)
 
 
+def _picked_names(batch):
+    """For a "pick" batch: the picked groups ({id, name}) and contacts ({id, first_name, last_name,
+    mobile_masked}), of the batch's own store only, in the picked order; ids that are gone are
+    skipped. Two queries; never a full number."""
+    from apps.inbox import contacts as inbox_contacts  # not at import: inbox is a later layer
+
+    picked = batch.picked or {}
+    groups, contacts = picked.get("groups") or [], picked.get("contacts") or []
+    scope = inbox_contacts.site_scope(batch.created_by, batch.site) if (groups or contacts) else None
+    if scope is None:
+        return [], []
+    found_groups = {g[0]: g for g in scope.groups.filter(public_id__in=groups).values_list("public_id", "name")} if groups else {}
+    found = {c[0]: c for c in scope.contacts.filter(public_id__in=contacts).values_list(
+        "public_id", "first_name", "last_name", "mobile")} if contacts else {}
+    return (
+        [{"id": i, "name": found_groups[i][1]} for i in groups if i in found_groups],
+        [{"id": i, "first_name": found[i][1], "last_name": found[i][2], "mobile_masked": mask_mobile(found[i][3])}
+         for i in contacts if i in found],
+    )
+
+
 def get(site, public_id):
     store_bulk.refresh(site)
-    return batch_out(_find_scheduled(site, public_id))
+    batch = _find_scheduled(site, public_id)
+    answer = batch_out(batch)
+    answer["groups"], answer["contacts"] = _picked_names(batch) if batch.audience == StoreBulkBatch.PICK else ([], [])
+    return answer
 
 
 def list_scheduled(site, *, cursor="", limit=None):
