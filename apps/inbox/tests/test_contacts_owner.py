@@ -387,3 +387,13 @@ class ConstraintAndRetentionTests(OwnerCase):
         self.assertTrue(Contact.objects.filter(pk=hq.pk).exists())
         self.assertEqual(Contact.objects.filter(owner_kind="site").count(), 1)
         self.assertEqual(ContactGroup.objects.count(), 1)  # HQ's own group stays
+
+
+class PickerQueryTests(OwnerCase):
+    def test_q_matches_first_name_last_name_or_part_of_the_number(self):
+        self.add(ANA)
+        self.add(BEN)
+        for query, found in (("an", 1), ("sam", 1), ("exam", 1), ("0917", 2), ("0201", 1), ("%2B63917000020", 2), ("917 000 0202", 1), ("zz", 0)):
+            with self.subTest(query=query):
+                self.assertEqual(self.get(self.base + f"?q={query}").json()["count"], found)
+        self.error(self.get(self.base + "?q=a"), 400, "invalid_request")

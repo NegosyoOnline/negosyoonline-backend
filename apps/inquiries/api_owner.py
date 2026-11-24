@@ -78,7 +78,8 @@ router = Router(tags=["inquiries"], auth=inquiries_site)
 
 class ComposeIn(Schema):
     model_config = ConfigDict(extra="forbid")
-    member_id: str
+    member_id: str | None = None
+    contact_id: str | None = None
     text: str
     idempotency_key: str
 
@@ -236,11 +237,18 @@ def sms_compose(request, site_id: str, payload: ComposeIn):
     _need_sms()
     if not KEY_RE.match(payload.idempotency_key):
         raise _invalid("idempotency_key", "That key does not look right.")
-    if not REF_RE.match(payload.member_id):
-        raise _not_found()
-    code, data = sms_inbox.compose(
-        request.inquiry_site, request.account, payload.member_id, payload.text, payload.idempotency_key,
-    )
+    if (payload.member_id is None) == (payload.contact_id is None):
+        raise _invalid("member_id", "Send either member_id or contact_id.")
+    if payload.contact_id is not None:
+        code, data = sms_inbox.compose_contact(
+            request.inquiry_site, request.account, payload.contact_id, payload.text, payload.idempotency_key,
+        )
+    else:
+        if not REF_RE.match(payload.member_id):
+            raise _not_found()
+        code, data = sms_inbox.compose(
+            request.inquiry_site, request.account, payload.member_id, payload.text, payload.idempotency_key,
+        )
     if code == "idempotency_conflict":
         raise ApiError("conflict", "That key was already used for another conversation.", status=409)
     if code != outcomes.OK:

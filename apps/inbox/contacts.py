@@ -246,6 +246,17 @@ def _already(existing):
     )
 
 
+def _digits(query):
+    """A match on part of a number when the query is only digits (and spaces, dashes, a plus):
+    the digits as typed, with a leading 0 read as the +63 of the stored number."""
+    if query.strip("+- 0123456789"):
+        return Q(pk__in=[])
+    digits = "".join(ch for ch in query if ch.isdigit())
+    if digits.startswith("0"):
+        digits = digits[1:]
+    return Q(mobile__contains=digits) if len(digits) >= QUERY_MIN else Q(pk__in=[])
+
+
 def _filtered(scope, group, query):
     """(the contacts in `group` that match `query`, the number searched for or None)."""
     contacts = scope.contacts
@@ -264,7 +275,7 @@ def _filtered(scope, group, query):
         if number:
             contacts = contacts.filter(mobile=number)
         elif QUERY_MIN <= len(query) <= NAME_MAX:
-            contacts = contacts.filter(Q(first_name__icontains=query) | Q(last_name__icontains=query))
+            contacts = contacts.filter(Q(first_name__icontains=query) | Q(last_name__icontains=query) | _digits(query))
         else:
             raise _invalid(query="Type at least 2 letters or a full number.")
     return contacts, number

@@ -22,6 +22,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from apps.common.errors import ApiError
+from apps.common.ids import is_public_id
 from apps.common.masking import mask_mobile
 from apps.inbox.switch import inbox_on
 from apps.members import promo
@@ -282,6 +283,47 @@ def compose(site, account, member_id, text, key):
     _refuse_if_blocked(site, member.mobile)
     body = _full_text(site, text)
     conversation, created = _conversation(site, member.mobile, member)
+    code, row = _send(site, account, conversation, body, key, "store_compose" if created or not _has_inbound(conversation) else "store_reply")
+    if row is None:
+        return code, None
+    return outcomes.OK, {"ref": conversation.external_id, "new_conversation": created, **_reply_out(row)}
+
+
+def _sendable_contact(site, account, contact_id):
+    """The store's own contact this account may text, or None (404 for anything else, including
+    while the store-contacts switch is off)."""
+    from apps.inbox import contacts
+    scope = contacts.site_scope(account, site)
+    if scope is None or not is_public_id(contact_id or "", "cont"):
+        return None
+    contact = scope.contacts.filter(public_id=contact_id).first()
+    if contact is None or contact.mobile.startswith("+63900"):
+        return None
+    return contact
+
+
+def compose_contact(site, account, contact_id, text, key):
+    """Start, or continue, the text conversation with one of the store's own contacts: the same
+    conversation a member of the same number would have (keyed by the number), linked to the
+    verified member when the number is one. Returns (code, dict) as `compose` does."""
+    contact = _sendable_contact(site, account, contact_id)
+    if contact is None:
+        return outcomes.NOT_FOUND, None
+    existing = InquiryReply.objects.filter(site=site, idempotency_key=key).select_related("conversation", "message").first()
+    if existing:
+        code, row = _earlier(existing, contact.mobile)
+        if row is None:
+            return code, None
+        return outcomes.OK, {"ref": existing.conversation.external_id, "new_conversation": False, **_reply_out(row)}
+    _refuse_if_blocked(site, contact.mobile)
+    body = _full_text(site, text)
+    member = _member_of(site, contact.mobile)
+    if member is not None and (member.mobile_state != "verified" or member.mobile.startswith("+63900")):
+        member = None
+    conversation, created = _conversation(site, contact.mobile, member)
+    if created and not conversation.contact_name:
+        name = f"{contact.first_name} {contact.last_name}".strip()
+        InquiryConversation.objects.filter(pk=conversation.pk).update(display_name=name, contact_name=name)
     code, row = _send(site, account, conversation, body, key, "store_compose" if created or not _has_inbound(conversation) else "store_reply")
     if row is None:
         return code, None
