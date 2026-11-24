@@ -146,6 +146,9 @@ class ContactGroup(models.Model):
             models.UniqueConstraint(
                 Lower("name"), name="inbox_group_one_name_per_hq", condition=Q(owner_kind="hq"),
             ),
+            models.UniqueConstraint(
+                Lower("name"), "site", name="inbox_group_one_name_per_site", condition=Q(owner_kind="site"),
+            ),
         ]
 
     def __str__(self):
@@ -153,7 +156,8 @@ class ContactGroup(models.Model):
 
 
 class Contact(models.Model):
-    """A name kept with a mobile number, until HQ staff delete it. No job removes it."""
+    """A name kept with a mobile number, until HQ staff (an HQ row) or the store owner (a site row) delete it.
+    A site's rows also go with the site's data. No other job removes it."""
 
     public_id = models.CharField(max_length=40, unique=True, default=new_contact_id, editable=False)
     owner_kind = models.CharField(max_length=8, choices=Conversation.Owner.choices)
@@ -163,15 +167,29 @@ class Contact(models.Model):
     last_name = models.CharField(max_length=80, blank=True)
     mobile = models.CharField(max_length=13)
     groups = models.ManyToManyField(ContactGroup, blank=True, related_name="contacts")
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    created_by_account = models.ForeignKey(
+        "accounts.Account", null=True, blank=True, on_delete=models.PROTECT, related_name="+",
+    )  # the store owner who made a site contact
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [
             models.CheckConstraint(name="inbox_contact_owner", condition=_OWNER),
+            models.CheckConstraint(
+                name="inbox_contact_creator",
+                condition=(
+                    Q(owner_kind="hq", created_by__isnull=False)
+                    | Q(owner_kind="site", site__isnull=False, created_by_account__isnull=False)
+                    | Q(owner_kind="account")
+                ),
+            ),
             models.UniqueConstraint(
                 name="inbox_contact_one_number_per_hq", fields=["mobile"], condition=Q(owner_kind="hq"),
+            ),
+            models.UniqueConstraint(
+                name="inbox_contact_one_number_per_site", fields=["site", "mobile"], condition=Q(owner_kind="site"),
             ),
         ]
 

@@ -21,6 +21,7 @@ from apps.invoices import services as invoice_services
 from apps.invoices.tests.test_scans import MemoryScanStore
 from apps.members import recovery
 from apps.members.models import Member, MemberNotice
+from apps.inbox.models import Contact, ContactGroup
 from apps.inquiries.models import InquiryComment, InquiryCommentRule, InquiryConnection, InquiryPost
 from apps.inquiries.tests import base as inquiries_base
 from cryptography.fernet import Fernet
@@ -64,6 +65,8 @@ MISSING_CHILD = {
     "review_id": "review_00000000000000000000",
     "number": "NOBS-2026-000000",
     "ref": "wc_000000000000000000000000",  # a conversation ref of no site of ours
+    "contact_id": "cont_00000000000000000000",
+    "group_id": "grp_00000000000000000000",
 }
 PLACEHOLDERS = tuple("{%s}" % name for name in MISSING_CHILD)
 
@@ -266,6 +269,19 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/inquiries/comment-rules/{ref}/"): 200,
     ("PUT", "/sites/{site_id}/inquiries/comment-rules/{ref}/"): 200,
     ("DELETE", "/sites/{site_id}/inquiries/comment-rules/{ref}/"): 200,
+    # the store's own contacts (STORE-CONTACTS): the static paths first, so a name is never read as an id
+    ("GET", "/sites/{site_id}/contacts/status/"): 200,
+    ("GET", "/sites/{site_id}/contacts/"): 200,
+    ("POST", "/sites/{site_id}/contacts/"): 201,
+    ("GET", "/sites/{site_id}/contacts/groups/"): 200,
+    ("POST", "/sites/{site_id}/contacts/groups/"): 201,
+    ("POST", "/sites/{site_id}/contacts/upload/check/"): 200,
+    ("POST", "/sites/{site_id}/contacts/upload/save/"): 201,
+    ("GET", "/sites/{site_id}/contacts/{contact_id}/"): 200,
+    ("PATCH", "/sites/{site_id}/contacts/{contact_id}/"): 200,
+    ("DELETE", "/sites/{site_id}/contacts/{contact_id}/"): 204,
+    ("PATCH", "/sites/{site_id}/contacts/groups/{group_id}/"): 200,
+    ("DELETE", "/sites/{site_id}/contacts/groups/{group_id}/"): 204,
     # last: a cancelled trial is Billing-only, so every route called after it would answer 403
     ("POST", "/sites/{site_id}/billing/cancel/"): 200,
 }
@@ -281,6 +297,7 @@ APP_PREFIXES = [
     ("/sites/{site_id}/media/", "media"),
     ("/sites/{site_id}/domain/", "domains"),
     ("/sites/{site_id}/shared-content/", "shared_content"),
+    ("/sites/{site_id}/contacts/", "contacts"),
 ]
 
 
@@ -322,7 +339,7 @@ def child_variants(template, own, foreign):
 
 
 @override_settings(
-    BILLING_ENABLED=True, SANTE_SETTINGS_ENABLED=True, SANTE_CATALOG_ENABLED=True,
+    STORE_CONTACTS_ENABLED=True, BILLING_ENABLED=True, SANTE_SETTINGS_ENABLED=True, SANTE_CATALOG_ENABLED=True,
     PAYMENT_METHODS_ENABLED=True, PACK_ENABLED=True, META_EVENTS_ENABLED=True,
     BILLING_USAGE_ENABLED=True, SHOP_ENABLED=True, BILLING_INVOICE_REGISTER_ENABLED=True,
     MEMBERS_ENABLED=True, PACK_SHIPPING_ENABLED=True, BILLING_STATEMENTS_ENABLED=True,
@@ -439,6 +456,16 @@ class TwoOwnersTestCase(SitesApiTestCase):
             "lesson_id": lesson.public_id, "live_id": live.public_id,
         }
 
+    def make_store_contacts(self, site):
+        """A contact and a group of this site's own store contacts."""
+        self.creates += 1
+        group = ContactGroup.objects.create(owner_kind="site", site=site, name=f"Fixture group {self.creates}")
+        contact = Contact.objects.create(
+            owner_kind="site", site=site, first_name="Fixture", mobile=f"+639170{self.creates:06d}",
+            created_by_account=site.account,
+        )
+        return {"contact_id": contact.public_id, "group_id": group.public_id}
+
     def make_media(self, site, video=False):
         """A media asset of this site: a published image with its file, or (video=True) a draft
         video with its poster and no video file yet."""
@@ -482,6 +509,7 @@ class TwoOwnersTestCase(SitesApiTestCase):
             "notice_id": MemberNotice.objects.create(site=site, kind="promo", title="Fixture").public_id,
             **self.make_training(site),
             **self.make_media(site),
+            **self.make_store_contacts(site),
             "invoice_id": self.invoice_ids[site.pk],
             "number": self.statement_numbers[site.pk],
         }
@@ -522,6 +550,8 @@ class TwoOwnersTestCase(SitesApiTestCase):
             ids["notice_id"] = MemberNotice.objects.create(site=self.site, kind="promo", title="Fixture").public_id
         if "/training/" in template:  # made anew: the deletes use them up
             ids.update(self.make_training(self.site))
+        if "/contacts/" in template:  # made anew: the deletes use them up
+            ids.update(self.make_store_contacts(self.site))
         if "/media/" in template:  # made anew: the delete uses it up, and a video route needs a video
             ids.update(self.make_media(self.site, video="/video/" in template))
         if "{ref}" in template:
@@ -643,6 +673,18 @@ class TwoOwnersTestCase(SitesApiTestCase):
         return self.send("post", path, {"check_id": check_id, "new_email": "new-contact@buyer.test"}, client=client)
 
     def body_for(self, method, template):
+        if "/contacts/" in template:
+            self.creates += 1
+            number = f"+639171{self.creates:06d}"
+            if template.endswith("/upload/check/"):
+                return {"text": number + "\n"}
+            if template.endswith("/upload/save/"):
+                return {"text": number + "\n", "expected_new": 1}
+            if "/groups/" in template:
+                return {"name": f"Body group {self.creates}"}
+            if method == "PATCH":
+                return {"first_name": "Changed"}
+            return {"first_name": "Fixture", "mobile": number} if method == "POST" else None
         if template.endswith("/business-profile/"):
             return PROFILE_BODY
         if template == "/sites/{site_id}/":

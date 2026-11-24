@@ -17,12 +17,12 @@ from apps.common.tests.test_tenant_isolation.owner_base import (
 )
 
 NOT_FOUND = {"error": {"code": "not_found", "message": "Not found."}}
-# What the guard expects from the URLconf today (12 + 17 + 2 + 10 + 7 + 13 + 10 + 4 + 39 + 6 + 28 + 11 + 2 + 4 + 4 = 169). The
+# What the guard expects from the URLconf today (12 + 17 + 2 + 10 + 7 + 13 + 10 + 4 + 39 + 6 + 28 + 11 + 2 + 4 + 4 + 12 = 181). The
 # "sites" count includes the 5 member-recovery routes under /sites/{site_id}/members/.
 EXPECTED_COUNTS = {
     "sites": 12, "billing": 17, "sante": 2, "catalog": 10, "payments": 7, "pack_owner": 13,
     "shop_owner": 10, "meta_ads": 4, "inquiries": 39, "member_notices": 6,
-    "training": 28, "media": 11, "shared_content": 2, "domains": 4, "sms_line": 4,
+    "training": 28, "media": 11, "shared_content": 2, "domains": 4, "sms_line": 4, "contacts": 12,
 }
 
 
@@ -45,7 +45,7 @@ class RegistryGuardTests(TwoOwnersTestCase):
         for _, template in routes:
             counts[app_of(template)] = counts.get(app_of(template), 0) + 1
         self.assertEqual(counts, EXPECTED_COUNTS)
-        self.assertEqual(len(OWNER_ROUTES), 169)
+        self.assertEqual(len(OWNER_ROUTES), 181)
 
 
 class ForeignSiteTests(TwoOwnersTestCase):
@@ -85,6 +85,8 @@ class ForeignChildTests(TwoOwnersTestCase):
 
     def test_the_routes_with_a_child_id_are_the_ones_expected(self):
         self.assertEqual(sorted(self.child_routes()), [
+            ("DELETE", "/sites/{site_id}/contacts/groups/{group_id}/"),
+            ("DELETE", "/sites/{site_id}/contacts/{contact_id}/"),
             ("DELETE", "/sites/{site_id}/inquiries/comment-rules/{ref}/"),
             ("DELETE", "/sites/{site_id}/media/{asset_id}/"),
             ("DELETE", "/sites/{site_id}/media/{asset_id}/image/"),
@@ -104,6 +106,7 @@ class ForeignChildTests(TwoOwnersTestCase):
             ("GET", "/sites/{site_id}/billing/payments/{payment_id}/proof/"),
             ("GET", "/sites/{site_id}/billing/statements/{number}/"),
             ("GET", "/sites/{site_id}/billing/statements/{number}/pdf/"),
+            ("GET", "/sites/{site_id}/contacts/{contact_id}/"),
             ("GET", "/sites/{site_id}/inquiries/comment-rules/{ref}/"),
             ("GET", "/sites/{site_id}/inquiries/comments/{ref}/"),
             ("GET", "/sites/{site_id}/inquiries/conversations/{ref}/"),
@@ -115,6 +118,8 @@ class ForeignChildTests(TwoOwnersTestCase):
             ("GET", "/sites/{site_id}/training/courses/{course_id}/"),
             ("GET", "/sites/{site_id}/training/courses/{course_id}/watch/"),
             ("GET", "/sites/{site_id}/training/lessons/{lesson_id}/video/"),
+            ("PATCH", "/sites/{site_id}/contacts/groups/{group_id}/"),
+            ("PATCH", "/sites/{site_id}/contacts/{contact_id}/"),
             ("PATCH", "/sites/{site_id}/media/{asset_id}/"),
             ("PATCH", "/sites/{site_id}/member-notices/{notice_id}/"),
             ("PATCH", "/sites/{site_id}/training/courses/{course_id}/"),
