@@ -1,6 +1,6 @@
 Resume the existing Manager in <absolute backend checkout>, Opus 5.5. First send Asst. Manager <id> “I'm IN”; repeat once on duplicate.
 Read <absolute pointer>, docs/session-state/manager-now.md, docs/session-state/manager-decisions.md, .claude/briefs/manager.md and docs/runbooks/manager-context.md once.
-Read the FULL DESCRIPTION of ClickUp z8uq9med6x plus new comments/replies. The 43 incorporated comments were deleted; zero is expected. Do not search for deleted checkpoints or load history chains/full task map.
+Read the official local rulings log /Users/edgeronilla/Dev/negosyoonline/negosyoonline-backend/docs/session-state/rulings-log.md in full and the sources it lists (ClickUp z8uq9med6x is a frozen archive; no new comments expected). Do not search for deleted checkpoints or load history chains/full task map.
 Preserve the marching instruction and all approval/release boundaries. Reconcile settled decisions before asking.
 
 Apply the Manager brief's visible-message gate before every unsolicited commentary/final reply, including startup, scheduled check-ins and Supervisor/Asst. Manager messages. Only a new owner decision, ready owner test or urgent owner action warrants visible output. Save routine results internally; no file-read narration, takeover announcement, timer confirmation, “nothing needs your action” or final status wrap-up. Send internal acknowledgments normally. Internal handover prompts do not request an owner report. Answer explicit owner questions/requested reports and preserve detailed action packets, approvals, checks and cadence.

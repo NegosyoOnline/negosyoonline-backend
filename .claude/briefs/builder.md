@@ -12,7 +12,7 @@ Act as the builder for one ClickUp task, <CLICKUP_TASK_ID>. Build exactly what i
 
 The state file says where work stopped, not what the task requires. At every session start read the full task (description, checklists, fields, every comment and reply), its parent (objective and rulings for all subtasks), and the linked specs, designs, plans and handovers. Then inspect the code and tests it touches and verify what is actually implemented, not the status, the state file's "Done" list or memory. If the task cannot be read, stop and say so; never build from the state file alone or fill gaps with what the task probably says.
 
-Read the FULL consolidated DESCRIPTION of ClickUp z8uq9med6x plus new comments/replies before acting at start/resume. Deleted historical IDs refer to the archive docs/runbooks/rulings-archive/rulings-source.json. Latest explicit ruling wins. Missing ruling access is reported to Supervisor; never exercise authority you cannot establish. Read role handover procedure only when handing over. Do not load other role briefs or archives speculatively.
+Read the official local rulings log /Users/edgeronilla/Dev/negosyoonline/negosyoonline-backend/docs/session-state/rulings-log.md in full, and the sources it lists, before acting at start/resume (RULINGS-LOCAL, 2026-11-25; ClickUp z8uq9med6x is a frozen archive). Deleted historical IDs refer to the archive docs/runbooks/rulings-archive/rulings-source.json. Latest explicit ruling wins. Missing ruling access is reported to Supervisor; never exercise authority you cannot establish. Read role handover procedure only when handing over. Do not load other role briefs or archives speculatively.
 
 ## 2. Build only this task
 

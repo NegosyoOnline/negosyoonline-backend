@@ -4,7 +4,7 @@ Authorized by Coach Ed, 2026-11-15. Workflow and ruling authority are unchanged;
 
 ## Source ownership
 
-- Standing rulings: full current DESCRIPTION of ClickUp z8uq9med6x and later explicit rulings. Local mirror manager-rulings-consolidated.md is a cache only.
+- Standing rulings: official local rulings log /Users/edgeronilla/Dev/negosyoonline/negosyoonline-backend/docs/session-state/rulings-log.md (RULINGS-LOCAL, Coach Ed 2026-11-25) and the sources it lists: consolidated v1 (manager-rulings-consolidated.md, mirror of the frozen ClickUp z8uq9med6x description) and the frozen z8uq9med6x comments through 1100430000650178. New rulings go only to the local log.
 - Current work: docs/session-state/manager-now.md, maximum 2,500 words; replace stale facts, do not append an endless log.
 - Settled/open business decisions: docs/session-state/manager-decisions.md, maximum 1,500 words of active entries; exact evidence and limits.
 - Task locator: manager-task-index.md, maximum 5,000 words; search relevant rows only.
@@ -16,8 +16,8 @@ Apply the Manager brief's visible-message gate before every unsolicited commenta
 
 1. Automated resume: acknowledge Asst. Manager “I'm IN” first, repeat once on duplicate. Confirm existing Manager identity/main checkout; safely update main as brief specifies.
 2. Read named pointer, manager-now.md, manager-decisions.md, manager brief and this SOP directly once. Do not follow old state chains or load historical indexes/archives in full.
-3. Read ClickUp task with include description, avoiding a truncated task summary. Check current comments; zero is valid. The 43 incorporated comments through 1100430000523941 were explicitly deleted by Coach Ed; IDs refer to local archive, never an online boundary to search for.
-4. Process all unincorporated comments/replies with pagination. Compare against description version/incorporated IDs. If none are new, emit count only when tool filtering is supported. A runtime without filtering may expose a full page; report the limitation. Save checkpoint only after success. Do not assume task updated time proves absence of comment changes.
+3. Read the local rulings log in full (RULINGS-LOCAL, 2026-11-25). Do not read ClickUp z8uq9med6x at startup: it is a frozen archive (consolidated v1 mirrored in manager-rulings-consolidated.md; comments through 1100430000650178). Read it only for an exact-source lookup in a dispute, until its local verbatim copy exists. The 43 comments through 1100430000523941 were explicitly deleted by Coach Ed; IDs refer to local archive, never an online boundary to search for.
+4. Note the newest local log entry ID read. New rulings are appended to the local log only; never post them to ClickUp.
 5. Before asking anything, reconcile current pending items against settled decisions. Use exact source lookup only for a conflict/unclear approval. Mark missing evidence honestly; never widen authority.
 6. Record startup checkpoint internally: files/sections loaded, description version, new comments/replies and reconciliation result, actual context count if observable or “not observable.” Report/pause only during an explicitly requested measurement test; otherwise continue approved work quietly.
 
