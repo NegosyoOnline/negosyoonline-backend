@@ -107,7 +107,7 @@ def fill(subscription, tag=""):
     group = ContactGroup.objects.create(owner_kind="site", site=site, name="Regulars")
     contact = Contact.objects.create(
         owner_kind="site", site=site, first_name="Zuleika", mobile=MOBILE,
-        created_by=staff_user("filler"),
+        created_by_account=site.account,
     )
     contact.groups.add(group)
     return {

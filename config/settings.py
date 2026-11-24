@@ -139,6 +139,9 @@ SMS_INBOX_ENABLED = os.environ.get("SMS_INBOX_ENABLED", "").strip() == "1"
 # Needs SMS_INBOX_ENABLED as well. Off, every contacts route answers 404 and no contact is
 # stored or shown. Contacts already stored are removed only on a person's request.
 SMS_CONTACTS_ENABLED = os.environ.get("SMS_CONTACTS_ENABLED", "").strip() == "1"
+# Store contacts (STORE-CONTACTS, z8uq9mj9q4): "1" lets a store owner keep contacts and groups for the
+# store. Needs only the inbox contacts tables. Off, every /sites/{id}/contacts/ route answers 404.
+STORE_CONTACTS_ENABLED = os.environ.get("STORE_CONTACTS_ENABLED", "").strip() == "1"
 # Bulk SMS. "1" lets HQ staff with the bulk permission send one announcement to a list of numbers.
 # Needs SMS_INBOX_ENABLED as well. Off, every bulk route answers 404 and the poll queues nothing for
 # a batch. A STOP reply is still listed as do-not-text whatever this says.

@@ -29,6 +29,11 @@ def contacts_tables_exist():
     return CONTACT_TABLE in connection.introspection.table_names()
 
 
+def store_contacts_on():
+    """The store owners' contacts: its own switch and the tables, not the HQ inbox switches."""
+    return bool(settings.STORE_CONTACTS_ENABLED) and contacts_tables_exist()
+
+
 BATCH_TABLE, DNT_TABLE = "inbox_bulkbatch", "inbox_donottext"
 
 
