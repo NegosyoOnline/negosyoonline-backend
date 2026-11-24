@@ -11,6 +11,7 @@ from apps.inbox import retention as inbox_retention
 from apps.lifecycle import eligibility
 from apps.inquiries import retention as inquiries_retention
 from apps.members import retention as member_retention
+from apps.media_library import ledger as media_ledger
 from apps.meta_ads import retention as meta_retention
 from apps.pack import retention as pack_retention
 from apps.payments import retention as payment_retention
@@ -20,8 +21,10 @@ from apps.shop import retention as shop_retention
 from apps.sites import retention as site_retention
 from apps.sites.models import Site, SiteBusinessProfile
 
-# The counts that are private files. Pack proof files stay (plan D14) and are not counted.
-FILE_KEYS = (payment_retention.QR_FILES, shop_retention.PROOF_FILES)
+# The counts that are stored files: the private QR and order proof files, and the media library's
+# public objects (G2 ledger). Pack proof files stay (plan D14) and are not counted.
+MEDIA_FILES = "media_files"
+FILE_KEYS = (payment_retention.QR_FILES, shop_retention.PROOF_FILES, MEDIA_FILES)
 SEAL_FILES = "site_seal_files"
 
 CATALOG_OWNER, OTHER_LIVE_SITE = "catalog_owner", "other_live_site"
@@ -52,6 +55,9 @@ def planned_counts(site):
     seals = SiteBusinessProfile.objects.filter(site__in=sites).exclude(seal_key="").count()
     if seals:
         counts[SEAL_FILES] = seals
+    media_files = media_ledger.live_count(site)
+    if media_files:
+        counts[MEDIA_FILES] = media_files
     return counts, seals + sum(counts.get(key, 0) for key in FILE_KEYS)
 
 

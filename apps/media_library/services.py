@@ -19,12 +19,24 @@ from apps.catalog.services import CATEGORIES as PRODUCT_CATEGORIES
 from apps.common import private_files
 from apps.common.errors import ApiError
 
-from . import client_upload, store
+from apps.sites.models import Site
+
+from . import client_upload, ledger, store
 from .models import MediaAsset
 
 INVALID_MSG = "Some values are missing or invalid."
 STORE_NOT_CONFIGURED_MSG = "Media cannot be stored yet: the media store is not configured."
 NOT_SAVED_MSG = "The file could not be stored. Try again."
+
+# The most items one library holds (a cost guard while storage is unmetered). One constant: None
+# means no cap. Not yet approved by Coach Ed, who decides at the local preview.
+MAX_ITEMS = 1000
+FULL_CODE = "media_library_full"
+
+
+def full_message():
+    return f"Your Media Library is full ({MAX_ITEMS:,} items). Delete some items to add more."
+
 
 PAGE_SIZE = 12  # "Load 12 more"
 SEARCH_MAX = 100
@@ -176,6 +188,22 @@ def get_asset(site, public_id, lock=False):
     return asset
 
 
+def library_full(site):
+    """Whether the library of `site` already holds MAX_ITEMS items (never, with no cap)."""
+    return MAX_ITEMS is not None and MediaAsset.objects.filter(site=site).count() >= MAX_ITEMS
+
+
+def ensure_room(site):
+    """409 media_library_full when the library has no free slot."""
+    if library_full(site):
+        raise ApiError(FULL_CODE, full_message(), status=409)
+
+
+def lock_site(site):
+    """The site row, locked: the one lock every writer of a library's item count takes."""
+    return Site.objects.select_for_update().get(pk=site.pk)
+
+
 def _next_order(site):
     return (MediaAsset.objects.filter(site=site).aggregate(top=Max("order"))["top"] or 0) + 1
 
@@ -254,7 +282,10 @@ def create_asset(site, data):
         errors["asset_type"] = "Choose image or video."
     if errors:
         raise _invalid(errors)
+    ensure_room(site)  # before anything is written, then again once the site row is locked
     with transaction.atomic():
+        lock_site(site)
+        ensure_room(site)
         values.setdefault("order", _next_order(site))
         return MediaAsset.objects.create(site=site, asset_type=kind, **values)
 
@@ -277,7 +308,7 @@ def delete_asset(site, public_id):
         asset = get_asset(site, public_id, lock=True)
         keys = [asset.file_key, asset.thumb_key, asset.poster_key]
         asset.delete()
-        transaction.on_commit(lambda: [store.discard(key) for key in keys if key])
+        ledger.release_on_commit(keys)
 
 
 @transaction.atomic
@@ -364,8 +395,9 @@ def set_image(site, public_id, kind, upload):
                 asset.file_size = len(content)
                 update.append("file_size")
             asset.save(update_fields=update)
+            ledger.record(site, asset=asset, role=kind, key=key, content_type=content_type, size=len(content))
             if old:
-                transaction.on_commit(lambda: store.discard(old))
+                ledger.release_on_commit([old])
     except BaseException:
         store.discard(key)
         raise
@@ -379,7 +411,7 @@ def clear_thumb(site, public_id):
     if old:
         asset.thumb_key = ""
         asset.save(update_fields=["thumb_key", "updated_at"])
-        transaction.on_commit(lambda: store.discard(old))
+        ledger.release_on_commit([old])
     return asset
 
 
@@ -426,6 +458,16 @@ def attach_video(site, public_id, url):
         old = asset.file_key
         asset.file_key, asset.file_size = key, size
         asset.save(update_fields=["file_key", "file_size", "updated_at"])
+        ledger.record(site, asset=asset, role="file", key=key, content_type=kind, size=size)
         if old and old != key:
-            transaction.on_commit(lambda: store.discard(old))
+            ledger.release_on_commit([old])
     return asset
+
+
+# -- erasure ---------------------------------------------------------------------------------------
+
+def purge_site(site, now):
+    """Remove every live stored object of an ended site and close its ledger rows (the rows stay).
+    Idempotent; an absent key counts as gone; a store failure raises StoreError. Returns how many
+    objects were removed. Called by the site erasure (apps/lifecycle/erase.py)."""
+    return ledger.purge_site(site, now)

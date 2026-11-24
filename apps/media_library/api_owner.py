@@ -26,7 +26,9 @@ file, and a video also its poster.
 Same gates as the training editor (apps/training/api_owner.py): the owner session, the site found
 first through site_for (404 for a missing, foreign or non-Santé site), the Billing-only rule (403),
 404 everywhere while MEMBERS_ENABLED is off. Every row is read under the caller's own site, so a
-foreign id is 404. Errors: 400 invalid_request with `fields`, 404 not_found, 502 image_not_saved /
+foreign id is 404. Errors: 400 invalid_request with `fields`, 404 not_found, 409 media_library_full
+(creating an item when the library already holds its most items, services.MAX_ITEMS), 429 (more than
+30 image uploads and video tokens by one account in 10 minutes), 502 image_not_saved /
 video_not_confirmed, 503 image_store_not_configured. Every answer is Cache-Control: no-store.
 """
 from datetime import datetime
@@ -36,6 +38,7 @@ from django.http import JsonResponse
 from ninja import Router, Schema
 from pydantic import ConfigDict
 
+from apps.common.throttle import hit
 from apps.members.api_owner import member_site
 
 from . import services as svc
@@ -87,6 +90,13 @@ class ReorderIn(StrictSchema):
 
 class AttachIn(StrictSchema):
     url: str
+
+
+UPLOAD_LIMIT, UPLOAD_WINDOW = 30, 600  # per account: 30 image uploads and video tokens in 10 minutes
+
+
+def _upload_limit(request):
+    hit("media_upload", request.account.pk, limit=UPLOAD_LIMIT, window=UPLOAD_WINDOW)
 
 
 def _json(data, status=200):
@@ -146,6 +156,7 @@ def asset_unpublish(request, site_id: str, asset_id: str):
 def asset_image_set(request, site_id: str, asset_id: str):
     """A form post (multipart): `file` is a JPEG, PNG or WebP of at most 10 MB; `kind` is file
     (default), poster or thumb."""
+    _upload_limit(request)
     kind = request.POST.get("kind") or "file"
     row = svc.set_image(request.member_site, asset_id, kind, request.FILES.get("file"))
     return _json(svc.owner_out(row))
@@ -158,6 +169,7 @@ def asset_thumb_clear(request, site_id: str, asset_id: str):
 
 @router.post("/sites/{site_id}/media/{asset_id}/video/token/")
 def video_token(request, site_id: str, asset_id: str):
+    _upload_limit(request)
     return _json(svc.video_token(request.member_site, asset_id))
 
 
