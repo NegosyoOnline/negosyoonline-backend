@@ -324,7 +324,7 @@ class StoreBulkBatch(models.Model):
     site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="store_bulk_batches")
     created_by = models.ForeignKey("accounts.Account", on_delete=models.PROTECT, related_name="+")
     request_id = models.CharField(max_length=64)
-    text = models.CharField(max_length=160)  # as it arrives: the store's name first
+    text = models.CharField(max_length=160)  # exactly as the owner typed it
     audience = models.CharField(max_length=5, choices=AUDIENCES, default=ALL)
     # For audience "pick": {"groups": [group public ids], "contacts": [contact public ids]}; ids only.
     picked = models.JSONField(default=dict, blank=True)

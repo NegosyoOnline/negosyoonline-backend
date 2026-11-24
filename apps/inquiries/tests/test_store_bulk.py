@@ -17,7 +17,7 @@ from apps.inbox.tests.base import inbox_on
 from apps.inquiries import retention as inquiry_retention
 from apps.inquiries import store_bulk
 from apps.inquiries.models import InquirySmsOptOut, InquirySmsSettings
-from apps.inquiries.tests.test_sms_inbox import MOBILE, OTHER_MOBILE, PREFIX, make_member
+from apps.inquiries.tests.test_sms_inbox import MOBILE, OTHER_MOBILE, make_member
 from apps.inquiries.tests.test_stored import StoredOwnerTestCase
 from apps.members.models import Member
 from apps.notifications import services, sms
@@ -29,7 +29,7 @@ MANILA = ZoneInfo("Asia/Manila")
 TOKEN = "token-store-bulk-phone"
 OWN_MOBILE = "+639175550000"
 TEXT = "Sale this weekend, 20 percent off."
-FULL = PREFIX + TEXT
+FULL = TEXT  # nothing is added in front of the owner's text
 DAY = datetime(2026, 11, 24, 10, 0, tzinfo=MANILA)  # inside the window
 NIGHT = datetime(2026, 11, 24, 21, 0, tzinfo=MANILA)  # outside it
 NUMBERS = ["+639171000001", "+639171000002", "+639171000003"]
@@ -158,7 +158,7 @@ class AudienceTests(BulkCase):
 
 
 class TextTests(BulkCase):
-    def test_preview_is_the_exact_text_with_the_store_name_and_no_footer(self):
+    def test_preview_is_the_exact_text_typed_and_no_footer(self):
         body = self.preview().json()
         self.assertEqual(body["text"], FULL)
         self.assertEqual((body["length"], body["remaining"]), (len(FULL), 160 - len(FULL)))
@@ -172,13 +172,24 @@ class TextTests(BulkCase):
                 self.assertEqual(response.json()["error"]["code"], "invalid")
         self.assertEqual(self.preview(text="see www.shop.ph").status_code, 422)
 
+    def test_160_characters_are_accepted_as_typed_and_161_refused_for_preview_test_and_batch(self):
+        full, over = "x" * 160, "x" * 161
+        self.assertEqual(self.preview(text=full).json()["text"], full)
+        self.assertEqual(self.test(text=full).status_code, 200)
+        self.assertEqual(sms.take_text(self.records().get()), full)
+        self.assertEqual(self.confirm(text=full).status_code, 201)
+        self.assertEqual(StoreBulkBatch.objects.get().text, full)
+        self.assertEqual(self.preview(text=over).status_code, 422)
+        self.assertEqual(self.test(text=over, key="key-over-0001").status_code, 422)
+        self.assertEqual(self.confirm(text=over, key="key-over-0002").status_code, 422)
+
     def test_too_long_and_empty_texts_are_refused(self):
-        self.assertEqual(self.preview(text="x" * 150).status_code, 422)
+        self.assertEqual(self.preview(text="x" * 161).status_code, 422)
         self.assertEqual(self.preview(text="   ").status_code, 422)
 
-    def test_the_status_carries_the_prefix_cap_window_and_cost_line(self):
+    def test_the_status_carries_the_empty_prefix_cap_window_and_cost_line(self):
         body = self.status().json()
-        self.assertEqual((body["prefix"], body["daily_limit"], body["left_today"]), (PREFIX, 2000, 2000))
+        self.assertEqual((body["prefix"], body["max_length"], body["daily_limit"], body["left_today"]), ("", 160, 2000, 2000))
         self.assertEqual((body["blocked"], body["phone_online"], body["active_batch"]), ("", True, None))
         self.assertEqual(body["window"], {"start": "08:00", "end": "20:00", "timezone": "Asia/Manila"})
         self.assertEqual(body["seconds_between"], {"min": 18, "max": 25})
@@ -285,7 +296,7 @@ class ConfirmTests(BulkCase):
         self.assertEqual(event.detail["batch"], batch.public_id)
         self.assertEqual(event.detail["size"], 3)
         dump = str(event.detail)
-        for secret in (TEXT, PREFIX, *NUMBERS, "+639"):
+        for secret in (TEXT, *NUMBERS, "+639"):
             self.assertNotIn(secret, dump)
 
 
@@ -467,7 +478,7 @@ class StopAndEndTests(BulkCase):
         self.assertEqual(self.send("post", f"{self.root}batches/{batch.public_id}/stop/").json()["error"]["code"], "not_running")
         event = AccountAuditEvent.objects.get(event="store_bulk_stopped")
         self.assertEqual((event.detail["batch"], event.detail["sent"]), (batch.public_id, 1))
-        for secret in (TEXT, PREFIX, "+639"):
+        for secret in (TEXT, "+639"):
             self.assertNotIn(secret, str(event.detail))
 
     def test_another_stores_owner_cannot_stop_or_open_my_batch(self):
