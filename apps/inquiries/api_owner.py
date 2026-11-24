@@ -7,10 +7,12 @@
                                                  anything else 422 `invalid_status`; `unread_total` is never filtered)
                                                  (`unread`: `1` keeps only unread, `0` only read; missing or empty is all,
                                                  anything else 422 `invalid_unread`; combines with `q` and `status`)
+                                                 (`channel`: `sms` keeps only texts, `nosms` every channel but texts; missing or
+                                                 empty is all, anything else 422 `invalid_channel`; `unread_total` follows it)
                                                  (`answered`: `answered` or `unanswered` filters, `all` or empty is all, else 422
                                                  `invalid_answered`; every item has `answered`: latest message is the store's and
                                                  not failed or bounced)
-    GET    .../unread/                          -> {count}  (this site's unread conversations)
+    GET    .../unread/?channel=                 -> {count}  (this site's unread conversations; `channel` as above)
     GET    .../conversations/{ref}/             -> the thread, whether a reply may be sent, the replies sent
     POST   .../conversations/{ref}/reply/       {text, idempotency_key} -> {state, error_code, created_at}
     GET    .../channels/                        -> {webchat_enabled, email_enabled, paused_until, chat_limit_reached, webchat_available,
@@ -19,6 +21,9 @@
     POST   .../conversations/{ref}/close/       -> {ref, status, unread}
     POST   .../conversations/{ref}/reopen/      -> {ref, status, unread}
     POST   .../conversations/{ref}/read/        -> {ref, status, unread}
+
+The store bulk text routes are under .../sms/bulk/; Schedule SMS adds .../sms/bulk/scheduled/ (create, list,
+get, PATCH, cancel; apps/inquiries/store_bulk_schedule.py).
 
 Every conversation is a stored channel's (website chat, refs `wc_`; the contact form as email,
 refs `em_`), read from our own tables. A ref that is not a stored ref is not this site's: 404.
@@ -44,10 +49,10 @@ from pydantic import ConfigDict
 from apps.accounts.api import signed_in
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
-from apps.inquiries import outcomes, sms_inbox, stored
+from apps.inquiries import outcomes, sms_inbox, store_bulk, store_bulk_schedule, stored
 from apps.inquiries.models import InquirySmsSettings
 from apps.inquiries.switch import (
-    contact_inbox_on, inquiries_on, sms_ready, stored_tables_exist, tables_exist,
+    contact_inbox_on, inquiries_on, sms_ready, store_bulk_ready, stored_tables_exist, tables_exist,
 )
 from apps.sites import templates
 from apps.sites.api import _owner_site
@@ -76,7 +81,8 @@ router = Router(tags=["inquiries"], auth=inquiries_site)
 
 class ComposeIn(Schema):
     model_config = ConfigDict(extra="forbid")
-    member_id: str
+    member_id: str | None = None
+    contact_id: str | None = None
     text: str
     idempotency_key: str
 
@@ -85,6 +91,54 @@ class ReplyIn(Schema):
     model_config = ConfigDict(extra="forbid")
     text: str
     idempotency_key: str
+
+
+class BulkAudienceIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    audience: str = "all"
+    groups: list[str] | None = None
+    contacts: list[str] | None = None
+
+
+class BulkTextIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    text: str
+
+
+class BulkTestIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    text: str
+    idempotency_key: str
+
+
+class BulkConfirmIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    text: str
+    audience: str = "all"
+    idempotency_key: str
+    confirm: bool = False
+    expected_count: int | None = None
+    groups: list[str] | None = None
+    contacts: list[str] | None = None
+
+
+class BulkScheduleIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    text: str
+    audience: str = "all"
+    scheduled_at: str
+    idempotency_key: str
+    groups: list[str] | None = None
+    contacts: list[str] | None = None
+
+
+class BulkScheduleEditIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    text: str | None = None
+    audience: str | None = None
+    scheduled_at: str | None = None
+    groups: list[str] | None = None
+    contacts: list[str] | None = None
 
 
 class ChannelsIn(Schema):
@@ -112,10 +166,20 @@ def _stored_on():
     return stored_tables_exist()
 
 
+def _channel(value):
+    """`channel` (`sms` or `nosms`; missing or empty is every channel) -> None, "sms" or "nosms", else 422."""
+    if value in (None, ""):
+        return None
+    if value not in ("sms", "nosms"):
+        message = "Channel must be sms or nosms."
+        raise ApiError("invalid_channel", message, status=422, fields={"channel": [message]})
+    return value
+
+
 @router.get("/sites/{site_id}/inquiries/conversations/")
 def conversations(request, site_id: str, stored_cursor: str | None = None, q: str | None = None,
                   status: str | None = None, unread: str | None = None,
-                  answered: str | None = None):
+                  answered: str | None = None, channel: str | None = None):
     hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
     if stored_cursor and not stored.STORED_CURSOR_RE.match(stored_cursor):
         raise _invalid("stored_cursor", "That cursor does not look right.")
@@ -134,19 +198,23 @@ def conversations(request, site_id: str, stored_cursor: str | None = None, q: st
     if answered not in (None, "", "all", "answered", "unanswered"):
         message = "Answered must be all, answered or unanswered."
         raise ApiError("invalid_answered", message, status=422, fields={"answered": [message]})
+    channel = _channel(channel)
     if not _stored_on():
         return {"items": [], "stored_next_cursor": None, "unread_total": 0}
     site = request.inquiry_site
     items, next_cursor = stored.list_items(site, after=stored_cursor or None, query=query, status=status or None,
                                            unread=None if not unread else unread == "1",
-                                           answered=None if answered in (None, "", "all") else answered == "answered")
-    return {"items": items, "stored_next_cursor": next_cursor, "unread_total": stored.unread_count(site)}
+                                           answered=None if answered in (None, "", "all") else answered == "answered",
+                                           channel=channel)
+    return {"items": items, "stored_next_cursor": next_cursor,
+            "unread_total": stored.unread_count(site, channel=channel)}
 
 
 @router.get("/sites/{site_id}/inquiries/unread/")
-def unread(request, site_id: str):
+def unread(request, site_id: str, channel: str | None = None):
     hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
-    return {"count": stored.unread_count(request.inquiry_site) if _stored_on() else 0}
+    channel = _channel(channel)
+    return {"count": stored.unread_count(request.inquiry_site, channel=channel) if _stored_on() else 0}
 
 
 @router.get("/sites/{site_id}/inquiries/conversations/{ref}/")
@@ -195,11 +263,18 @@ def sms_compose(request, site_id: str, payload: ComposeIn):
     _need_sms()
     if not KEY_RE.match(payload.idempotency_key):
         raise _invalid("idempotency_key", "That key does not look right.")
-    if not REF_RE.match(payload.member_id):
-        raise _not_found()
-    code, data = sms_inbox.compose(
-        request.inquiry_site, request.account, payload.member_id, payload.text, payload.idempotency_key,
-    )
+    if (payload.member_id is None) == (payload.contact_id is None):
+        raise _invalid("member_id", "Send either member_id or contact_id.")
+    if payload.contact_id is not None:
+        code, data = sms_inbox.compose_contact(
+            request.inquiry_site, request.account, payload.contact_id, payload.text, payload.idempotency_key,
+        )
+    else:
+        if not REF_RE.match(payload.member_id):
+            raise _not_found()
+        code, data = sms_inbox.compose(
+            request.inquiry_site, request.account, payload.member_id, payload.text, payload.idempotency_key,
+        )
     if code == "idempotency_conflict":
         raise ApiError("conflict", "That key was already used for another conversation.", status=409)
     if code != outcomes.OK:
@@ -212,6 +287,126 @@ def sms_status(request, site_id: str):
     hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
     _need_sms()
     return sms_inbox.status(request.inquiry_site)
+
+
+# -- bulk text to the store's own members (STORE-BULK) ------------------------------------------
+
+def _need_bulk():
+    if not store_bulk_ready() or not _stored_on():
+        raise _not_found()
+
+
+def _bulk_key(value):
+    if not KEY_RE.match(value):
+        raise _invalid("idempotency_key", "That key does not look right.")
+    return value
+
+
+@router.get("/sites/{site_id}/inquiries/sms/bulk/status/")
+def bulk_status(request, site_id: str):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.status(request.inquiry_site)
+
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/audience/")
+def bulk_audience(request, site_id: str, payload: BulkAudienceIn):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.audience(
+        request.inquiry_site, payload.audience, request.account,
+        {"groups": payload.groups, "contacts": payload.contacts},
+    )
+
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/preview/")
+def bulk_preview(request, site_id: str, payload: BulkTextIn):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.preview(request.inquiry_site, payload.text)
+
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/test/")
+def bulk_test(request, site_id: str, payload: BulkTestIn):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.test_send(request.inquiry_site, request.account, payload.text, _bulk_key(payload.idempotency_key))
+
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/batches/", response={200: dict, 201: dict})
+def bulk_confirm(request, site_id: str, payload: BulkConfirmIn):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    data = payload.model_dump()
+    data["idempotency_key"] = _bulk_key(payload.idempotency_key)
+    if payload.expected_count is not None and payload.expected_count < 0:
+        raise _invalid("expected_count", "That count does not look right.")
+    batch, created = store_bulk.confirm(request.inquiry_site, request.account, data)
+    return (201 if created else 200), batch
+
+
+@router.get("/sites/{site_id}/inquiries/sms/bulk/batches/")
+def bulk_batches(request, site_id: str, cursor: str | None = None, limit: int | None = None):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    items, following = store_bulk.list_batches(request.inquiry_site, cursor=cursor or "", limit=limit)
+    return {"items": items, "next_cursor": following}
+
+
+@router.get("/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/")
+def bulk_batch(request, site_id: str, batch_id: str, cursor: str | None = None, limit: int | None = None):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.open_batch(request.inquiry_site, batch_id, cursor=cursor or "", limit=limit)
+
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/stop/")
+def bulk_stop(request, site_id: str, batch_id: str):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.stop(request.inquiry_site, request.account, batch_id)
+
+
+# -- scheduled bulk text (Schedule SMS; apps/inquiries/store_bulk_schedule.py) ----------------
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/scheduled/", response={200: dict, 201: dict})
+def bulk_schedule(request, site_id: str, payload: BulkScheduleIn):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    data = payload.model_dump()
+    data["idempotency_key"] = _bulk_key(payload.idempotency_key)
+    batch, created = store_bulk_schedule.create(request.inquiry_site, request.account, data)
+    return (201 if created else 200), batch
+
+
+@router.get("/sites/{site_id}/inquiries/sms/bulk/scheduled/")
+def bulk_scheduled(request, site_id: str, cursor: str | None = None, limit: int | None = None):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    items, following = store_bulk_schedule.list_scheduled(request.inquiry_site, cursor=cursor or "", limit=limit)
+    return {"items": items, "next_cursor": following}
+
+
+@router.get("/sites/{site_id}/inquiries/sms/bulk/scheduled/{batch_id}/")
+def bulk_scheduled_one(request, site_id: str, batch_id: str):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk_schedule.get(request.inquiry_site, batch_id)
+
+
+@router.patch("/sites/{site_id}/inquiries/sms/bulk/scheduled/{batch_id}/")
+def bulk_schedule_edit(request, site_id: str, batch_id: str, payload: BulkScheduleEditIn):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if not (v is None and k in ("text", "audience", "scheduled_at"))}
+    return store_bulk_schedule.edit(request.inquiry_site, request.account, batch_id, data)
+
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/scheduled/{batch_id}/cancel/")
+def bulk_schedule_cancel(request, site_id: str, batch_id: str):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk_schedule.cancel(request.inquiry_site, request.account, batch_id)
 
 
 # -- settings, close and reopen, read -----------------------------------------

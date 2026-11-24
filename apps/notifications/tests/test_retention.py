@@ -342,10 +342,10 @@ class DailyStartTests(TestCase):
             self.assertIn("another_builds_rule", retention.names())
             report = notifications_retention.run_daily_rules()
 
-        self.assertEqual(sorted(report.counts), ["bulk_batches", "inbox_messages", "mobile_challenges", "sms_messages"])
+        self.assertEqual(sorted(report.counts), ["bulk_batches", "inbox_messages", "mobile_challenges", "sms_messages", "store_bulk_batches"])
         self.assertEqual(ran, [])
         entry = OperatorAuditEntry.objects.get(action="retention_run")
-        self.assertEqual(sorted(entry.detail["counts"]), ["bulk_batches", "inbox_messages", "mobile_challenges", "sms_messages"])
+        self.assertEqual(sorted(entry.detail["counts"]), ["bulk_batches", "inbox_messages", "mobile_challenges", "sms_messages", "store_bulk_batches"])
         self.assertEqual(entry.detail["switched_off"], [])
 
     def test_6_it_runs_again_the_next_manila_day(self):

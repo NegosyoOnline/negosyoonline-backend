@@ -14,6 +14,7 @@ from apps.domains.api_owner import router as domains_owner_router
 from apps.inquiries.api_comment_rules import router as comment_rules_router
 from apps.inquiries.api_comments import router as comments_router
 from apps.inquiries.api_messenger import owner as messenger_owner_router, public as messenger_public_router
+from apps.inbox.contacts_owner import router as store_contacts_router
 from apps.inquiries.api_owner import router as inquiries_router
 from apps.meta_ads.api_owner import router as meta_router
 from apps.members.api_notices import router as member_notices_router
@@ -63,6 +64,7 @@ api.add_router("", shop_owner_router)
 api.add_router("", meta_router)
 api.add_router("", sms_line_router)
 api.add_router("", inquiries_router)
+api.add_router("", store_contacts_router)
 api.add_router("", comments_router)
 api.add_router("", comment_rules_router)
 api.add_router("", messenger_owner_router)

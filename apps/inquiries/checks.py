@@ -111,3 +111,20 @@ def check_sms_dependencies(app_configs, **kwargs):
         hint="A store's text conversations are stored by the inquiries app and sent through the SMS gateway: turn both on, or turn this off.",
         id="inquiries.E008",
     )]
+
+
+@register(deploy=True)
+def check_store_bulk_dependencies(app_configs, **kwargs):
+    if not settings.STORE_BULK_SMS_ENABLED:
+        return []
+    missing = [
+        name for name in ("INQUIRY_SMS_ENABLED", "SMS_GATEWAY_ENABLED", "SMS_SITE_LINES_ENABLED")
+        if not getattr(settings, name)
+    ]
+    if not missing:
+        return []
+    return [Error(
+        f"STORE_BULK_SMS_ENABLED is on but {' and '.join(missing)} {'is' if len(missing) == 1 else 'are'} off.",
+        hint="A store's bulk texts go out from its own paired phone as text conversations: turn those on, or turn this off.",
+        id="inquiries.E009",
+    )]

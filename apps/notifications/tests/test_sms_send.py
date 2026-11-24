@@ -413,13 +413,13 @@ class PurposeListTests(TestCase):
         self.assertEqual(
             set(sms.PURPOSES),
             {"mobile_verify", "member_signin_code", "member_mobile_verify", "inbox_reply", "inbox_compose", "inbox_bulk",
-             "store_reply", "store_compose"},
+             "store_reply", "store_compose", "store_bulk"},
         )
         for name, purpose in sms.PURPOSES.items():
             with self.subTest(purpose=name):
                 self.assertIn(purpose.priority, (sms.Priority.CODE, sms.Priority.REPLY, sms.Priority.MARKETING))
-                self.assertIn(purpose.category, (sms.CODE, sms.INBOX, sms.STORE))
-                if name != "inbox_bulk":
+                self.assertIn(purpose.category, (sms.CODE, sms.INBOX, sms.STORE, sms.STORE_BULK))
+                if name not in ("inbox_bulk", "store_bulk"):
                     self.assertNotEqual(purpose.priority, sms.Priority.MARKETING)
 
     def test_30_the_two_staff_purposes_are_declared(self):
@@ -430,7 +430,7 @@ class PurposeListTests(TestCase):
                 self.assertEqual(purpose.priority, sms.Priority.REPLY)
                 self.assertTrue(purpose.paced)
         self.assertFalse(sms.PURPOSES["mobile_verify"].paced)
-        self.assertEqual(sorted(sms.paced_purposes()), ["inbox_bulk", "inbox_compose", "inbox_reply", "store_compose", "store_reply"])
+        self.assertEqual(sorted(sms.paced_purposes()), ["inbox_bulk", "inbox_compose", "inbox_reply", "store_bulk", "store_compose", "store_reply"])
 
 
     def test_31_the_member_code_purposes_are_codes_that_are_not_paced(self):
