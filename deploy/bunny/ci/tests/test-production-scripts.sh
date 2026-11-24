@@ -222,6 +222,83 @@ expect_fail "snapshot refuses it too" "$D" snapshot "$T/z.json"
 expect_ok "without the volume the snapshot passes again" "$D" snapshot "$T/z.json"
 unset BUNNY_DATA_APP_ID
 
+echo "== honest restore, bounded retry (5xx / transport), no bodies"
+export BUNNY_RETRY_SLEEP="0 0"
+fault()  { /usr/bin/curl -s -o /dev/null -X POST "$URL/_ctl/fail?target=$1&status=$2&count=$3"; }
+nofault() { /usr/bin/curl -s -o /dev/null -X POST "$URL/_ctl/reset-faults"; }
+attempts() { /usr/bin/curl -s "$URL/_ctl/log" | jq --arg t "$1" '[.[] | select(startswith("ATTEMPT " + $t + " "))] | length'; }
+reports() { /usr/bin/curl -s -H "AccessKey: test-key" "$URL/mc/apps/app-prod" | jq -r --arg id "$1" '.containerTemplates[] | select(.id==$id) | .imageTag'; }
+OLD=dddddddddddddddddddddddddddddddddddddddd
+NEW2=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+DG3="sha256:$(printf 'e%.0s' $(seq 64))"
+PREV_DG="sha256:$(printf 'd%.0s' $(seq 64))"
+$D apply "$OLD" "$PREV_DG" "$PREV_DG" "$PREV_DG" >/dev/null 2>&1
+$D snapshot "$T/prev2.json" >/dev/null 2>&1
+$D apply "$NEW2" "$DG3" "$DG3" "$DG3" >/dev/null 2>&1
+
+# a 500 on one container during restore (persistent): that role FAILED, the others restored, exit non-zero, read-back shows it
+nofault; fault c-api 500 -1
+out="$($D restore "$T/prev2.json" 2>&1)"; rc=$?
+[ $rc -ne 0 ] && ok "restore exits non-zero when one container cannot be restored" || bad "restore exit code on a 500" "$out"
+contains "the failed role is reported FAILED" "$out" "FAILED to restore api (wanted $OLD-api)"
+lacks "the failed role is not reported restored" "$out" "restored api"
+contains "worker is still restored" "$out" "restored worker -> $OLD-worker"
+contains "beat is still restored" "$out" "restored beat -> $OLD-beat"
+contains "read-back shows the stale api tag" "$out" "api now reports $NEW2-api"
+contains "read-back shows the restored worker tag" "$out" "worker now reports $OLD-worker"
+contains "read-back flags the mismatch" "$out" "MISMATCH api"
+[ "$(attempts c-api)" = 3 ] && ok "persistent 500: exactly 3 attempts" || bad "persistent 500 attempts" "got $(attempts c-api)"
+lacks "no response body in the output" "$out" "SECRET-SHOULD-NEVER-PRINT"
+lacks "no response body field in the output" "$out" "injected fault"
+lacks "the key is not in the output" "$out" "test-key"
+nofault
+
+# a 500 once, then 2xx: the retry succeeds and restore is fully honest and green
+$D apply "$NEW2" "$DG3" "$DG3" "$DG3" >/dev/null 2>&1
+fault c-beat 500 1
+out="$($D restore "$T/prev2.json" 2>&1)"; rc=$?
+[ $rc -eq 0 ] && ok "a 500 once then 2xx: restore succeeds after the retry" || bad "restore with one transient 500" "$out"
+contains "...the retry is shown as a status line" "$out" "HTTP 500 (attempt 1 of 3), retrying"
+contains "...and the role is restored" "$out" "restored beat -> $OLD-beat"
+contains "...and the read-back agrees" "$out" "beat now reports $OLD-beat"
+[ "$(attempts c-beat)" = 1 ] && ok "...only one attempt failed" || bad "transient attempts" "got $(attempts c-beat)"
+lacks "...no body in the output" "$out" "SECRET-SHOULD-NEVER-PRINT"
+nofault
+
+# apply with a transient 500 on a GET of the app
+fault app 502 1
+out="$($D apply "$NEW2" "$DG3" "$DG3" "$DG3" 2>&1)"; rc=$?
+[ $rc -eq 0 ] && ok "a transient 502 on GET is retried (apply)" || bad "apply with transient GET 502" "$out"
+[ "$(reports c-api)" = "$NEW2-api" ] && ok "...and the result is correct" || bad "api tag after apply"
+nofault
+
+# persistent 500 on apply: exactly 3 attempts, then failure
+fault c-worker 500 -1
+out="$($D apply "$OLD" "$PREV_DG" "$PREV_DG" "$PREV_DG" 2>&1)"; rc=$?
+[ $rc -ne 0 ] && ok "apply fails on a persistent 500" || bad "apply on persistent 500" "$out"
+[ "$(attempts c-worker)" = 3 ] && ok "...after exactly 3 attempts" || bad "apply attempts" "got $(attempts c-worker)"
+lacks "...with no body in the output" "$out" "SECRET-SHOULD-NEVER-PRINT"
+nofault
+
+# a 4xx is never retried
+fault c-api 404 -1
+out="$($D apply "$OLD" "$PREV_DG" "$PREV_DG" "$PREV_DG" 2>&1)"; rc=$?
+[ $rc -ne 0 ] && ok "apply fails on a 404" || bad "apply on 404" "$out"
+[ "$(attempts c-api)" = 1 ] && ok "a 4xx is not retried (1 attempt)" || bad "4xx attempts" "got $(attempts c-api)"
+nofault
+fault c-api 400 -1
+$D apply "$OLD" "$PREV_DG" "$PREV_DG" "$PREV_DG" >/dev/null 2>&1
+[ "$(attempts c-api)" = 1 ] && ok "a 400 is not retried either" || bad "400 attempts" "got $(attempts c-api)"
+nofault
+
+# transport error: nothing listens on the port; 3 attempts, no hang, no key printed
+out="$(BUNNY_RETRY_SLEEP="0 0" FAKE_PORT=1 $D snapshot "$T/t.json" 2>&1)"; rc=$?
+[ $rc -ne 0 ] && ok "a transport error fails after the retries" || bad "transport error passed" "$out"
+contains "...3 attempts were made" "$out" "attempt 3 of 3), giving up"
+lacks "...the key is not printed" "$out" "test-key"
+unset BUNNY_RETRY_SLEEP
+$D apply "$OLD" "$PREV_DG" "$PREV_DG" "$PREV_DG" >/dev/null 2>&1
+
 echo "== static: only bunny-deploy.sh writes to Bunny; workflows hold no Bunny write"
 ROOT="$(cd "$CI/../../.." && pwd)"
 hits="$(grep -rIl 'api\.bunny\.net' "$ROOT/.github" "$ROOT/deploy/bunny/ci" "$ROOT/scripts" 2>/dev/null | grep -v '/tests/' | sed "s#$ROOT/##" | sort | tr '\n' ' ')"

@@ -7,7 +7,7 @@
 #
 # Touches ONLY imageNamespace / imageName / imageTag / imageDigest of the api, worker and beat
 # container templates (PATCH /apps/{appId}/containers/{containerId}). Never touches the postgres or
-# redis containers, volumes, env, endpoints or the instance count. Every call must return 2xx.
+# redis containers, volumes, env, endpoints or the instance count. Every call must return 2xx (a 5xx or transport error is retried, 3 attempts in all).
 #
 # Data-app guard (ZD-1): Postgres and Redis live in their own Bunny app (BUNNY_DATA_APP_ID) that a
 # release never changes. Three refusals, all before any write:
@@ -24,7 +24,7 @@
 #      BUNNY_DATA_APP_ID (optional until the data app exists; never written to)
 set -euo pipefail
 
-BASE="https://api.bunny.net/mc"
+BASE="https://api.bunny.net/mc"   # tests point it at the fake by wrapping curl, not by editing this
 ROLES="api worker beat"
 umask 077
 WORK="$(mktemp -d)"
@@ -52,13 +52,32 @@ call() {
   fi
   local args=()
   if [ -n "$body" ]; then args=(--header "Content-Type: application/json" --data "@$body"); fi
-  code="$(curl --silent --show-error --max-time 60 --config "$WORK/curl.cfg" --request "$method" \
-    --output "$WORK/resp.json" --write-out '%{http_code}' ${args[@]+"${args[@]}"} "$BASE$path")"
-  case "$code" in
-    2??) ;;
-    *) echo "Bunny API $method $path -> HTTP $code: $(jq -r '(.message // .title // .detail // "no message")' "$WORK/resp.json" 2>/dev/null | head -c 300)" >&2
-       return 1 ;;
-  esac
+  # Bounded retry: at most 3 attempts in all (BUNNY_RETRY_SLEEP = the waits before attempt 2 and 3,
+  # default "5 15" seconds) on a 5xx or a curl transport error; a 4xx is never retried. Only status
+  # lines are printed, never a body (the container env is in them).
+  local -a waits
+  read -r -a waits <<<"${BUNNY_RETRY_SLEEP:-5 15}"
+  local attempt=1 max=3 rc
+  while :; do
+    rc=0
+    code="$(curl --silent --show-error --max-time 60 --config "$WORK/curl.cfg" --request "$method" \
+      --output "$WORK/resp.json" --write-out '%{http_code}' ${args[@]+"${args[@]}"} "$BASE$path")" || rc=$?
+    [ "$rc" -eq 0 ] || code=000
+    case "$code" in
+      2??) return 0 ;;
+      000|5??)
+        if [ "$attempt" -lt "$max" ]; then
+          echo "Bunny API $method $path -> HTTP $code (attempt $attempt of $max), retrying" >&2
+          sleep "${waits[$((attempt - 1))]:-5}"
+          attempt=$((attempt + 1))
+          continue
+        fi
+        echo "Bunny API $method $path -> HTTP $code (attempt $attempt of $max), giving up" >&2
+        return 1 ;;
+      *) echo "Bunny API $method $path -> HTTP $code: $(jq -r '(.message // .title // .detail // "no message")' "$WORK/resp.json" 2>/dev/null | head -c 300)" >&2
+         return 1 ;;
+    esac
+  done
 }
 
 fetch_app() { call GET "/apps/$BUNNY_APP_ID"; cp "$WORK/resp.json" "$WORK/app.json"; }
@@ -130,11 +149,29 @@ case "${1:-}" in
     for r in $ROLES; do
       id="$(cid "$r")"
       row="$(jq -c --arg r "$r" '.[] | select(.role==$r)' "$prev")"
-      patch_image "$id" "$(jq -r .imageNamespace <<<"$row")" "$(jq -r .imageName <<<"$row")" \
-        "$(jq -r .imageTag <<<"$row")" "$(jq -r .imageDigest <<<"$row")" || rc=1
-      echo "restored $r -> $(jq -r .imageTag <<<"$row")"
+      want="$(jq -r .imageTag <<<"$row")"
+      if patch_image "$id" "$(jq -r .imageNamespace <<<"$row")" "$(jq -r .imageName <<<"$row")" \
+        "$want" "$(jq -r .imageDigest <<<"$row")"; then
+        echo "restored $r -> $want"
+      else
+        echo "FAILED to restore $r (wanted $want)"
+        rc=1
+      fi
       fetch_app || rc=1
     done
+    # final read-back: what the app really reports now, against the snapshot
+    if fetch_app; then
+      for r in $ROLES; do
+        id="$(cid "$r")"
+        want="$(jq -r --arg r "$r" '.[] | select(.role==$r) | .imageTag' "$prev")"
+        got="$(current "$id" imageTag)"
+        echo "$r now reports $got"
+        [ "$got" = "$want" ] || { echo "MISMATCH $r: reports '$got', snapshot has '$want'" >&2; rc=1; }
+      done
+    else
+      echo "FAILED to read the app back after restore" >&2
+      rc=1
+    fi
     exit "$rc"
     ;;
   *) echo "usage: $0 snapshot|apply|restore ..." >&2; exit 2 ;;
