@@ -1,6 +1,7 @@
 """P7-BLOBGUARD: copy_blob_store refuses a store-kind mismatch. Fakes only, no network."""
 import io
 import os
+import socket
 import urllib.error
 from unittest import mock
 
@@ -249,3 +250,45 @@ class RealClientProbeTests(SimpleTestCase):
     def test_a_server_error_is_not_taken_as_not_served(self):
         with self.assertRaises(SourceError):
             self._served(500)
+
+
+class UnresolvableHostTests(SimpleTestCase):
+    """The real `served_publicly` (urlopen mocked) inside the probe, around a fake store."""
+
+    def _probe(self, access, failure):
+        store = FakeStore(access, "dst")
+        real = BlobSource("vercel_blob_rw_Abc123_SECRET", "private")
+
+        def boom(request, timeout=None):
+            raise failure
+
+        def served(pathname):
+            with mock.patch("urllib.request.urlopen", boom), \
+                    mock.patch("apps.file_backup.source.time.sleep"):
+                return real.served_publicly(pathname)
+
+        store.served_publicly = served
+        try:
+            return blobcopy.probe_destination(store, access), store, None
+        except blobcopy.KindMismatch as caught:
+            return None, store, caught
+
+    def test_an_unresolvable_public_host_passes_a_private_destination(self):
+        gone = urllib.error.URLError(socket.gaierror(8, "nodename nor servname provided"))
+        deleted, store, error = self._probe("private", gone)
+        self.assertIsNone(error)
+        self.assertTrue(deleted)
+        self.assertEqual(store.objects, {})
+
+    def test_an_unresolvable_public_host_refuses_a_public_destination(self):
+        gone = urllib.error.URLError(socket.gaierror(8, "nodename nor servname provided"))
+        deleted, store, error = self._probe("public", gone)
+        self.assertIn("not a public store", str(error))
+        self.assertTrue(error.probe_deleted)
+        self.assertEqual(store.objects, {})
+
+    def test_a_timeout_refuses_a_private_destination(self):
+        deleted, store, error = self._probe("private", TimeoutError())
+        self.assertIn("not a private store", str(error))
+        self.assertTrue(error.probe_deleted)
+        self.assertEqual(store.objects, {})

@@ -40,7 +40,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--access", required=True, choices=("private", "public"),
-                            help="the access of BOTH stores (a Blob store is one or the other); both token variable names must contain\n                            its upper-case word")
+                            help="the access of BOTH stores; both token variable names must contain its upper-case word")
         parser.add_argument("--source-token-env", required=True, metavar="NAME",
                             help="name of the environment variable holding the source store's token")
         parser.add_argument("--dest-token-env", required=True, metavar="NAME",
