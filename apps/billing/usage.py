@@ -1,16 +1,20 @@
-"""The storage usage ledger (Billing Build B4). Nothing outside billing computes an allowance
-or an overage: media upload calls `record_storage_snapshot` and nothing else.
+"""The usage ledger (Billing Build B4) for storage and for orders over the plan's 500. Nothing
+outside billing computes an allowance or an overage: media upload calls `record_storage_snapshot`
+and the billing sweep calls `produce_order_entries`, and nothing else.
 
-NegosyoOnline does not meter or charge orders (Coach Ed, 2026-11-11): a Subscriber's sales are
-their own business. Storage is platform usage. A snapshot is taken once, at the exact end of a
-monthly allowance period, is immutable, and is never recomputed.
+OV-9 (Coach Ed, 2026-11-23): a SaaS plan with 500 orders included; a flat fee per extra order;
+never a share of sales. A Subscriber's buyers still pay the Subscriber, and NegosyoOnline never
+takes a percentage of sales. A storage snapshot is taken once, at the exact end of a monthly
+allowance period, and an order count is taken once, 72 hours after it. Each is immutable and is
+never recomputed. Orders are never blocked: nothing in checkout reads this ledger (OV-5).
 
 Every decision is written under the subscription's row lock, the lock the lifecycle writes
 take, so a snapshot and a payment outcome are serialised.
 """
 import logging
+from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.db import transaction
 from django.db.models import Count, Max, Sum
@@ -29,6 +33,11 @@ logger = logging.getLogger(__name__)
 Status = UsageEntry.Status
 Settlement = BillingCycle.Settlement
 REFERENCE_MAX_LENGTH = 64
+Kind = UsageEntry.Kind
+LineKind = ChargeLine.Kind
+ORDER_COUNT_LATE = timedelta(days=7)  # a count made later than this after a period needs review
+ORDER_SCAN_LOOKBACK = timedelta(days=60)  # how far back the sweep looks for an uncounted period
+ORDER_BILL_DUE = timedelta(days=7)  # the usage-only bill of a multi-month term is due in 7 days
 
 
 @dataclass(frozen=True)
@@ -86,19 +95,38 @@ def _event(entry, code, key, actor=UsageEvent.Actor.INTAKE, detail=None):
     )
 
 
+def over_orders(count):
+    """The orders over the 500 included."""
+    return max(count - plan.ORDERS_INCLUDED_PER_MONTH, 0)
+
+
 def make_charge(entry, labels=()):
-    """The overage line of a counted snapshot: one per entry, so a replay cannot charge twice."""
-    gigabytes = started_gb(entry.quantity)
+    """The overage line of a counted entry: one per entry, so a replay cannot charge twice."""
+    if entry.kind == Kind.ORDERS:
+        kind, quantity = LineKind.OVERAGE_ORDERS, over_orders(entry.quantity)
+        amount = quantity * plan.ORDER_OVERAGE_CENTAVOS_PER_ORDER
+    else:
+        kind, quantity = LineKind.OVERAGE_STORAGE, started_gb(entry.quantity)
+        amount = quantity * plan.STORAGE_OVERAGE_CENTAVOS_PER_GB
     return ChargeLine.objects.create(
         subscription_id=entry.subscription_id,
         cycle=entry.cycle,
         period_index=entry.period_index,
         entry=entry,
-        quantity=gigabytes,
-        amount_centavos=gigabytes * plan.STORAGE_OVERAGE_CENTAVOS_PER_GB,
+        kind=kind,
+        quantity=quantity,
+        amount_centavos=amount,
         currency=plan.CURRENCY,
         labels=list(labels),
     )
+
+
+def line_label(kind, quantity, amount_centavos):
+    """The words of one overage line, on the owner's pages, statements and invoice lines."""
+    if kind == LineKind.OVERAGE_ORDERS:
+        unit = plan.pesos(plan.ORDER_OVERAGE_CENTAVOS_PER_ORDER)
+        return f"Orders over {plan.ORDERS_INCLUDED_PER_MONTH}: {quantity} \u00d7 PHP {unit}"
+    return f"Storage over {plan.STORAGE_INCLUDED_GB} GB: {quantity} GB"
 
 
 def record_storage_snapshot(
@@ -166,18 +194,129 @@ def record_storage_snapshot(
         return _result(entry)
 
 
-def _route(subscription, cycle, period_end_at, now):
-    """The status and reason a snapshot gets: the order of the rules is the order of the plan."""
+def period_bounds(cycle, index, anchor_day):
+    """(start, end) of the 1-based monthly allowance period `index` of a paid cycle."""
+    bought = plan.version_of(cycle.plan_code, cycle.plan_version)
+    periods = clock.allowance_periods(
+        cycle.start_at, anchor_day, cycle.term_months, bought.allowance_periods
+    )
+    return periods[index - 1]
+
+
+def record_order_count(cycle, index, *, now=None):
+    """Decide the order count of one monthly allowance period (OV-2). Writes one entry, and one
+    charge line when it is counted, only if the orders placed in the period (the meter's rule,
+    cancelled ones left out) are over the 500 included; a count at or below writes nothing.
+
+    One entry per period, ever, with `source_reference` `orders:<cycle id>:<period index>` and
+    `occurred_at` at the period end: a replay returns the first decision and nothing is
+    recomputed. Written under the subscription's lock, like a storage snapshot.
+    """
+    if not plan.orders_enabled():
+        return UsageResult("disabled")
+    now = now or timezone.now()
+    from apps.billing import meters, services  # the lifecycle and the meter import this module
+
+    with transaction.atomic():
+        subscription = Subscription.objects.select_for_update().filter(pk=cycle.subscription_id).first()
+        if subscription is None:
+            return UsageResult("no_subscription")
+        services.catch_up(subscription, now)
+        cycle = BillingCycle.objects.get(pk=cycle.pk)
+        earlier = UsageEntry.objects.filter(cycle=cycle, period_index=index, kind=Kind.ORDERS).first()
+        if earlier is not None:
+            return _result(earlier, replayed=True)
+        start, end = period_bounds(cycle, index, subscription.anchor_day)
+        if end > now - plan.LATE_ADMISSION:
+            return UsageResult("not_counted", "in_the_grace")  # a cancel inside 72 hours counts
+        count = meters.orders_in(subscription.site, start, end)
+        if over_orders(count) == 0:
+            return UsageResult("within_allowance")
+        status, reason = _route(
+            subscription, cycle, end, now, kind=Kind.ORDERS, period_start_at=start
+        )
+        entry = UsageEntry.objects.create(
+            subscription=subscription, cycle=cycle, period_index=index, kind=Kind.ORDERS,
+            source_reference=f"orders:{cycle.pk}:{index}", quantity=count, occurred_at=end,
+            received_at=now, status=status, reason=reason,
+            detail={"period_start_at": start.isoformat(), "period_end_at": end.isoformat()},
+        )
+        if status == Status.COUNTED:
+            make_charge(entry)
+        _event(
+            entry, f"recorded_{status}", f"intake:{entry.source_reference}",
+            UsageEvent.Actor.SWEEP, detail={"reason": reason},
+        )
+        return _result(entry)
+
+
+def produce_order_entries(now=None):
+    """The producer, run by the billing sweep: every paid monthly allowance period that ended 72
+    hours or more ago and has no orders entry gets its count decided. Looks back
+    ORDER_SCAN_LOOKBACK only. Returns a count per outcome. Safe to run twice; one failing
+    period never stops the rest. Nothing is read while the order switch is off."""
+    counts = Counter()
+    if not plan.orders_enabled():
+        return counts
+    from apps.billing import meters  # the meter imports this module through services
+
+    now = now or timezone.now()
+    cutoff = now - plan.LATE_ADMISSION
+    cycles = list(
+        BillingCycle.objects.filter(
+            settlement=Settlement.PAID, start_at__lt=cutoff,
+            end_at__gt=cutoff - ORDER_SCAN_LOOKBACK,
+        ).select_related("subscription").order_by("pk")
+    )
+    done = set(
+        UsageEntry.objects.filter(cycle__in=cycles, kind=Kind.ORDERS)
+        .values_list("cycle_id", "period_index")
+    )
+    for cycle in cycles:
+        bought = plan.version_of(cycle.plan_code, cycle.plan_version)
+        periods = clock.allowance_periods(
+            cycle.start_at, cycle.subscription.anchor_day, cycle.term_months,
+            bought.allowance_periods,
+        )
+        for index, (start, end) in enumerate(periods, start=1):
+            if end > cutoff or end <= cutoff - ORDER_SCAN_LOOKBACK or (cycle.pk, index) in done:
+                continue
+            if over_orders(meters.orders_in(cycle.subscription.site, start, end)) == 0:
+                counts["within_allowance"] += 1  # nothing is written; cheap, and no lock taken
+                continue
+            try:
+                result = record_order_count(cycle, index, now=now)
+            except Exception:
+                logger.exception("Order count failed for cycle %s period %s", cycle.pk, index)
+                counts["failed"] += 1
+                continue
+            counts[result.status] += 1
+    return counts
+
+
+def _route(subscription, cycle, period_end_at, now, *, kind=Kind.STORAGE, period_start_at=None):
+    """The status and reason an entry gets: the order of the rules is the order of the plan.
+
+    Orders differ from storage in two rules (OV-8): a month that starts before
+    BILLING_ORDER_OVERAGE_FROM (or with it empty) is not billable (`before_notice`), and the
+    producer is ours, so a count made more than 7 days after the period end needs review
+    (`late_producer`) where a late storage snapshot is `late_over_72h`.
+    """
     if subscription.billing_exempt:
         return Status.NOT_BILLABLE, "test_site"  # Q1: skipped and auditable
     if cycle is None:
         return Status.NEEDS_REVIEW, "no_cycle"  # L6: never charged, never discarded
     if cycle.kind == BillingCycle.Kind.TRIAL:
         return Status.NOT_BILLABLE, "trial_cycle"
+    if kind == Kind.ORDERS and not plan.orders_chargeable(period_start_at or cycle.start_at):
+        return Status.NOT_BILLABLE, "before_notice"
     ended = subscription.service_ended_at
     if cycle.settlement == Settlement.PAID and ended is not None and ended < period_end_at:
         return Status.NEEDS_REVIEW, "after_service_end"  # L6, and L20 for a suspended site
-    if now > period_end_at + plan.LATE_ADMISSION:
+    if kind == Kind.ORDERS:
+        if now > period_end_at + ORDER_COUNT_LATE:
+            return Status.NEEDS_REVIEW, "late_producer"
+    elif now > period_end_at + plan.LATE_ADMISSION:
         return Status.NEEDS_REVIEW, "late_over_72h"  # L2
     if closed_and_settled(subscription, now):
         return Status.WRITTEN_OFF, "after_final_settlement"  # L16, L21: nothing amended
@@ -221,11 +360,49 @@ def _open_lines(subscription_id):
     return ChargeLine.objects.filter(subscription_id=subscription_id, status=ChargeLine.Status.OPEN)
 
 
+def enabled_kinds():
+    """The line kinds whose switch is on: storage (its switch and `STORAGE_METERED`), orders
+    (its own switch, independent of the storage one)."""
+    kinds = []
+    if plan.usage_enabled():
+        kinds.append(LineKind.OVERAGE_STORAGE)
+    if plan.orders_enabled():
+        kinds.append(LineKind.OVERAGE_ORDERS)
+    return kinds
+
+
+def _frozen_rows(payment):
+    """The open lines `payment` froze. Of the kinds whose switch is on; with every switch off, all
+    of them, as before (a proof already sent can still be confirmed)."""
+    rows = _open_lines(payment.subscription_id).filter(
+        id__lte=payment.usage_line_max_id, entry__occurred_at__lte=payment.submitted_at
+    )
+    kinds = enabled_kinds()
+    return rows.filter(kind__in=kinds) if kinds else rows
+
+
+def overage_name(payment):
+    """What a usage-only payment pays for, in two words: "storage", "orders" or "usage". Read
+    from the lines it settled, else from the open lines it froze."""
+    lines = ChargeLine.objects.filter(settled_payment=payment)
+    if not lines.exists() and payment.usage_line_max_id:
+        lines = _open_lines(payment.subscription_id).filter(
+            id__lte=payment.usage_line_max_id, entry__occurred_at__lte=payment.submitted_at
+        )
+    kinds = set(lines.values_list("kind", flat=True))
+    if kinds == {LineKind.OVERAGE_STORAGE}:
+        return "storage"
+    if kinds == {LineKind.OVERAGE_ORDERS}:
+        return "orders"
+    return "usage"
+
+
 def due(subscription, now):
-    """The overage a collection sent at `now` would include. Zero while the switch is off."""
-    if not plan.usage_enabled():
+    """The overage a collection sent at `now` would include. Zero while every switch is off."""
+    kinds = enabled_kinds()
+    if not kinds:
         return Due()
-    rows = _open_lines(subscription.pk).filter(entry__occurred_at__lte=now)
+    rows = _open_lines(subscription.pk).filter(kind__in=kinds, entry__occurred_at__lte=now)
     found = rows.aggregate(total=Sum("amount_centavos"), top=Max("id"), count=Count("id"))
     if found["total"] is None:
         return Due()
@@ -236,10 +413,7 @@ def frozen_total(payment):
     """The open overage the proof `payment` froze: its lines that are still open."""
     if not payment.usage_line_max_id:
         return 0
-    rows = _open_lines(payment.subscription_id).filter(
-        id__lte=payment.usage_line_max_id, entry__occurred_at__lte=payment.submitted_at
-    )
-    return rows.aggregate(total=Sum("amount_centavos"))["total"] or 0
+    return _frozen_rows(payment).aggregate(total=Sum("amount_centavos"))["total"] or 0
 
 
 def settle(payment, now):
@@ -248,9 +422,7 @@ def settle(payment, now):
     if not payment.usage_line_max_id:
         return 0
     count = 0
-    for line in _open_lines(payment.subscription_id).select_for_update().filter(
-        id__lte=payment.usage_line_max_id, entry__occurred_at__lte=payment.submitted_at
-    ):
+    for line in _frozen_rows(payment).select_for_update():
         line.status, line.settled_payment, line.closed_at = ChargeLine.Status.SETTLED, payment, now
         line.save()
         count += 1
@@ -369,13 +541,13 @@ def _decide(reference, operator, reason, key, change, write_audit):
 
 
 def admit(reference, operator, reason, *, now=None):
-    """A valid snapshot that arrived after 72 hours is let into its period (L7, L12). Only
-    `late_over_72h`: the rows after service end or in no cycle are never charged (L6).
-    Returns (entry, changed)."""
+    """A valid snapshot that arrived after 72 hours, or an order count made more than 7 days late,
+    is let into its period (L7, L12). Only `late_over_72h` and `late_producer`: the rows after
+    service end or in no cycle are never charged (L6). Returns (entry, changed)."""
     now = now or timezone.now()
 
     def change(entry, subscription):
-        if entry.reason != "late_over_72h":
+        if entry.reason not in ("late_over_72h", "late_producer"):
             raise _refuse("not_admissible", "This record cannot be charged.")
         entry.detail = {**entry.detail, "admitted": True, "was": entry.reason}
         cycle = entry.cycle
@@ -420,6 +592,41 @@ def dismiss(reference, operator, reason, *, now=None):
     return _decide(reference, operator, reason, "operator_dismiss", change, write_audit)
 
 
+def open_items(subscription, now):
+    """The open overage lines of ended periods, one item each, with the words the owner is shown.
+    Only the kinds whose switch is on. `due_at` is set for an order line of a multi-month term,
+    which is billed alone and due 7 days after its count was made (`received_at`); a monthly plan's lines ride on
+    its next renewal, so they have none."""
+    kinds = enabled_kinds()
+    if not kinds:
+        return []
+    rows = (
+        _open_lines(subscription.pk).filter(kind__in=kinds, entry__occurred_at__lte=now)
+        .select_related("cycle", "entry").order_by("pk")
+    )
+    items = []
+    for line in rows:
+        start, end = period_bounds(line.cycle, line.period_index, subscription.anchor_day)
+        orders = line.kind == LineKind.OVERAGE_ORDERS
+        unit = (
+            plan.ORDER_OVERAGE_CENTAVOS_PER_ORDER if orders else plan.STORAGE_OVERAGE_CENTAVOS_PER_GB
+        )
+        items.append({
+            "kind": line.kind,
+            "label": line_label(line.kind, line.quantity, line.amount_centavos),
+            "quantity": line.quantity,
+            "unit_centavos": unit,
+            "amount_centavos": line.amount_centavos,
+            "period_start_at": start,
+            "period_end_at": end,
+            "due_at": (
+                line.entry.received_at + ORDER_BILL_DUE
+                if orders and line.cycle.term_months > 1 else None
+            ),
+        })
+    return items
+
+
 def owner_read(subscription, now):
     """What `GET billing/usage/` answers, from stored rows. Held and under-review rows are
     counts, never charges."""
@@ -454,4 +661,5 @@ def owner_read(subscription, now):
             "pending_review": counts.get(Status.NEEDS_REVIEW, 0),
         },
         "due_centavos": due(subscription, now).centavos,
+        "items": open_items(subscription, now),
     }

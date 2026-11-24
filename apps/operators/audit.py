@@ -62,6 +62,11 @@ ACTIONS = {
     "hq_sms_line_disabled": KEPT,
     "hq_sms_line_reenabled": KEPT,
     "hq_sms_line_reauth_failed": KEPT,
+    # HQ -> Subscribers: Suspend / Resume of a store by hand (Site.operator_hold). Site id and
+    # reason only; a refused fresh code is counts only.
+    "hq_site_suspended": KEPT,
+    "hq_site_resumed": KEPT,
+    "hq_site_reauth_failed": KEPT,
     "billing_payment_confirmed": KEPT,
     "billing_payment_rejected": KEPT,
     "billing_usage_admitted": KEPT,

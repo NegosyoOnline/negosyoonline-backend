@@ -18,7 +18,7 @@ from django.utils import timezone
 from apps.billing import services as billing
 from apps.common import private_files
 from apps.common.errors import ApiError
-from apps.members import contacts, services as members
+from apps.members import contacts, promo, services as members
 from apps.members.models import MemberOtpChallenge
 from apps.members.otp import binding_hash
 from apps.meta_ads import services as meta_ads
@@ -97,7 +97,16 @@ def _hold_contact(site, token, raw):
     return proof.pk if proof is not None else None
 
 
-def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip=None, meta=None, pay_method=C.PAYMENT_METHOD):
+def _placed_new(pay_method, promo_sms_ok):
+    """The placed event's detail. A yes to promotional texts rides on it so a Xendit order, whose
+    member comes at payment, can apply it then (apps/pack/buyer.py)."""
+    new = {"method": pay_method}
+    if promo_sms_ok and promo.enabled():
+        new["promo_sms"] = promo.PROMO_SMS_VERSION
+    return new
+
+
+def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip=None, meta=None, pay_method=C.PAYMENT_METHOD, promo_sms_ok=False):
     key = idempotency_key(token, submit_key)
     first = _replay(site, key)
     if first is not None:
@@ -151,10 +160,12 @@ def place_pack_order(site, token, raw, *, submit_key, data=None, upload=None, ip
                 onboarding_challenge_id=challenge_id,
             )
             order.add_event(
-                C.EVENT_PLACED, new={"method": pay_method}, actor_type="member",
+                C.EVENT_PLACED, new=_placed_new(pay_method, promo_sms_ok), actor_type="member",
                 actor_ref=member.pk if member else None,
                 actor_label=contacts.mask("mobile", member.mobile if member else order.buyer_mobile),
             )
+            if member is not None and promo_sms_ok:
+                promo.opt_in_from_order(order, member)  # a yes only; never clears (z8uq9mbreu)
             if version is not None:  # posted by an older storefront; otherwise accepted at the details step
                 records.write_acceptance(order, version, accepted_at)
             if not by_xendit:
