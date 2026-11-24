@@ -13,7 +13,7 @@ FILE = (
     "Ana,Sample,0917 000 0101,secret-note-1\n"
     "Ben,Example,+639170000102,secret-note-2\n"
     "Cai,Demo,0917000\n"
-    ",NoFirst,09170000103\n"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,NoFirst,09170000103\n"
     "Dan,Bad,+14155550123\n"
     "Eve,Two\n"
     "Ana,Again,09170000101\n"
@@ -95,6 +95,31 @@ class CheckTests(UploadCase):
         text = "".join(f"A,B,junk{n}\n" for n in range(250))
         answer = self.check(text)
         self.assertEqual((len(answer["refused"]), answer["refused_count"]), (200, 250))
+
+    def test_11_a_number_only_line_is_accepted_with_an_empty_name(self):
+        text = "First,Last,Mobile\n,,09170000201\n , ,09170000202\n,Only,09170000203\n"
+        self.assertEqual(self.check(text)["new"], 3)
+        self.assertEqual(self.save(text, 3)["refused"], 0)
+        self.assertEqual(
+            list(Contact.objects.order_by("mobile").values_list("first_name", "last_name")),
+            [("", ""), ("", ""), ("", "Only")],
+        )
+
+    def test_12_a_repeat_keeps_the_first_line_that_has_a_name(self):
+        text = "Ana,A,09170000201\n,,09170000201\n,,09170000202\nBen,B,09170000202\n,,09170000203\n,,09170000203\n"
+        answer = self.check(text)
+        self.assertEqual((answer["new"], answer["repeated"]), (3, 3))
+        self.save(text, 3)
+        names = dict(Contact.objects.values_list("mobile", "first_name"))
+        self.assertEqual(names, {"+639170000201": "Ana", "+639170000202": "Ben", "+639170000203": ""})
+
+    def test_13_a_long_first_name_is_still_refused(self):
+        answer = self.check("A" * 81 + ",B,09170000201\n")
+        self.assertEqual((answer["new"], answer["refused"][0]["reason"]), (0, contacts.REASONS["first_name"]))
+
+    def test_14_manual_add_still_needs_a_first_name(self):
+        with self.assertRaises(ApiError):
+            contacts.add_contact(self.scope(), {"first_name": "", "last_name": "", "mobile": "09170000204"})
 
 
 class SaveTests(UploadCase):

@@ -34,7 +34,7 @@ CONTACT = "contact"
 GROUP = "contact_group"
 REASONS = {
     "columns": "This line has fewer than three columns.",
-    "first_name": "The first name is missing or too long.",
+    "first_name": "The first name is too long or has odd characters.",
     "last_name": "The last name is too long.",
     "mobile": "The mobile number is not a Philippine mobile.",
 }
@@ -387,7 +387,7 @@ def read_file(text):
             if len(row) < 3:
                 refused.append((number, REASONS["columns"]))
                 continue
-            first = _text(row[0], maximum=NAME_MAX, required=True)
+            first = _text(row[0], maximum=NAME_MAX, required=False)
             last = _text(row[1], maximum=NAME_MAX, required=False)
             if first is None:
                 refused.append((number, REASONS["first_name"]))
@@ -402,6 +402,8 @@ def read_file(text):
                 continue
             if mobile in people:
                 repeated += 1
+                if not any(people[mobile]) and (first or last):
+                    people[mobile] = (first, last)  # the first line with a name gives the name
             else:
                 people[mobile] = (first, last)
     except csv.Error:
