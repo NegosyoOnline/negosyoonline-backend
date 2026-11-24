@@ -3,11 +3,18 @@
     manage.py copy_blob_store --access private|public --source-token-env NAME --dest-token-env NAME
                               [--prefix P] [--max-mb N] [--apply]
 
-A dry run by default: counts only, nothing downloaded or written. With --apply every source object
+Both token variable NAMES must contain the --access word in upper case (PRIVATE or PUBLIC); the
+name is checked before any network call. Before any copy, also in a dry run, a kind probe proves
+each store is of the declared access: one listed source object is fetched through the declared
+host, and one probe object (ops/blobguard-probe/<random hex>) is put in the destination, read back,
+checked against the public host and deleted again. That probe is the only thing a dry run writes.
+
+A dry run by default: counts only, nothing downloaded or copied. With --apply every source object
 missing at the destination is downloaded, put under the same pathname with the same content type,
 read back and checked by sha256. An object already at the destination is never overwritten: the same
 bytes are `skipped_existing`, different bytes are a `conflict` (reported, not changed). A second run
-copies 0. Exit is non-zero when anything failed or conflicted.
+copies 0. The run stops at the first failed put or read-back at the destination. Exit is non-zero
+when anything failed or conflicted.
 
 Each token is read only from the environment variable named on the command line. It is never an
 argument, never printed and never logged. The output is counts only, never a pathname or URL.
@@ -27,11 +34,13 @@ def build_store(token, access):
 
 
 class Command(BaseCommand):
-    help = "Copy a Blob store into another store, sha256-checked, never overwriting. Dry run by default."
+    help = ("Copy a Blob store into another store, sha256-checked, never overwriting. Dry run by "
+            "default; it still puts and deletes one probe object (ops/blobguard-probe/) in the "
+            "destination to prove the store kind.")
 
     def add_arguments(self, parser):
         parser.add_argument("--access", required=True, choices=("private", "public"),
-                            help="the access of BOTH stores (a Blob store is one or the other)")
+                            help="the access of BOTH stores; both token variable names must contain its upper-case word")
         parser.add_argument("--source-token-env", required=True, metavar="NAME",
                             help="name of the environment variable holding the source store's token")
         parser.add_argument("--dest-token-env", required=True, metavar="NAME",
@@ -45,6 +54,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, access, source_token_env, dest_token_env, prefix, max_mb, rate,
                apply, **options):
+        word = access.upper()
+        if not all(word in name for name in (source_token_env, dest_token_env)):
+            raise CommandError(
+                f"Not done: --access {access} needs both token variable names to contain {word}."
+            )
         if source_token_env == dest_token_env:
             raise CommandError("Not done: the source and destination token variables must differ.")
         if max_mb < 1 or rate <= 0:
@@ -59,13 +73,31 @@ class Command(BaseCommand):
             source, dest = (build_store(token, access) for token in tokens)
             if source.store_id == dest.store_id:
                 raise CommandError("Not done: the source and destination are the same store.")
+            if not blobcopy.probe_source(source, access, prefix):
+                self.stdout.write(f"{access.capitalize()} store: the source lists nothing, "
+                                  "nothing to copy.")
+                return
+            self.stdout.write(f"Kind check: source is a {access} store.")
+            deleted = blobcopy.probe_destination(dest, access)
+            self.stdout.write(f"Kind check: destination is a {access} store "
+                              f"(probe deleted: {'yes' if deleted else 'no'}).")
             counts = blobcopy.copy_store(
                 source, dest, prefix=prefix, apply=apply, max_bytes=max_mb * 1024 * 1024, rate=rate,
             )
+        except blobcopy.KindMismatch as error:
+            flag = ""
+            if error.probe_deleted is not None:
+                flag = f" (probe deleted: {'yes' if error.probe_deleted else 'no'})"
+            raise CommandError(f"Not done: {error}{flag}") from None
         except SourceError as error:
             raise CommandError(f"Not done: {error}") from None
 
         self._report(counts, access, apply)
+        if counts["aborted"]:
+            raise CommandError(
+                f"Not done: stopped at the first destination failure ({counts['copied']} copied, "
+                f"{counts['failed']} failed)."
+            )
         if counts["failed"] or counts["conflict"] or counts["size_differs"]:
             raise CommandError(
                 f"Not done: {counts['failed']} failed, "
@@ -86,3 +118,5 @@ class Command(BaseCommand):
         for name in blobcopy.COUNT_NAMES:
             out(f"  {name}: {counts[name]}")
         out(f"  oversize (counted in failed): {counts['oversize']}")
+        if counts["aborted"]:
+            out("  stopped early: yes")
