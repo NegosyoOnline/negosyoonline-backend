@@ -108,7 +108,13 @@ class MetersTests(SitesApiTestCase):
         self.assertEqual(set(body), {"storage", "orders"})
         self.assertEqual(body["storage"], {"used_bytes": 2_000_000_000, "limit_bytes": 5_000_000_000})
         self.assertEqual(
-            set(body["orders"]), {"count", "limit", "period_start", "period_end", "period_kind"}
+            set(body["orders"]),
+            {"count", "limit", "period_start", "period_end", "period_kind", "overage_applies",
+             "overage_centavos_per_order"},
+        )
+        self.assertEqual(
+            (body["orders"]["overage_applies"], body["orders"]["overage_centavos_per_order"]),
+            (False, 500),
         )
         self.assertEqual((body["orders"]["count"], body["orders"]["limit"]), (3, 500))
 

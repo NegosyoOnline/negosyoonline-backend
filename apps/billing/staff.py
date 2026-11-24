@@ -68,11 +68,11 @@ def _route(view):
 
 
 def _usage_route(view):
-    """The usage review routes: closed (404) while BILLING_USAGE_ENABLED is off, and a refusal
+    """The usage review routes: closed (404) while no usage switch is on, and a refusal
     answered in the one error shape. They read no usage table then."""
     def handler(request, operator):
         try:
-            if not plan.usage_enabled():
+            if not plan.any_usage_enabled():
                 raise ApiError("not_found", "Not found.", status=404)
             return view(_body(request), operator)
         except ApiError as refusal:
@@ -120,7 +120,12 @@ def _payment(payment):
         "site": {"id": site.public_id, "name": site.display_name},
         "plan": (
             {"code": bought.code, "name": bought.name, "months": bought.months} if bought
-            else {"code": plan.USAGE_ONLY, "name": "Storage usage", "months": 0}
+            else {
+                "code": plan.USAGE_ONLY, "months": 0,
+                "name": {
+                    "storage": "Storage usage", "orders": "Orders over 500",
+                }.get(usage.overage_name(payment), "Usage overage"),
+            }
         ),
         "amount_centavos": payment.amount_centavos,
         "currency": payment.currency,

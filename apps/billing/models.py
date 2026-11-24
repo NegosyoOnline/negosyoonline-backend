@@ -318,14 +318,16 @@ class RenewalConsent(models.Model):
 
 
 class UsageEntry(models.Model):
-    """One storage snapshot the ledger has decided about. Never deleted.
+    """One storage snapshot or one month's order count the ledger has decided about. Never deleted.
 
-    A snapshot at or below the allowance, or never measured, has no row. Write only through
+    A snapshot or count at or below the allowance, or never measured, has no row. Write only through
     apps.billing.usage; a row changes only along the routes recorded as UsageEvent rows.
     """
 
     class Kind(models.TextChoices):
-        STORAGE = "storage"  # the only meter: NegosyoOnline does not meter orders or video
+        STORAGE = "storage"
+        ORDERS = "orders"  # OV-9: SaaS plan with 500 orders included; a flat fee per extra order;
+        # never a share of sales. NegosyoOnline does not meter video.
 
     class Status(models.TextChoices):
         COUNTED = "counted"
@@ -343,7 +345,7 @@ class UsageEntry(models.Model):
     period_index = models.PositiveSmallIntegerField(null=True, blank=True)  # 1-based
     kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.STORAGE)
     source_reference = models.CharField(max_length=64, unique=True)
-    quantity = models.PositiveBigIntegerField()  # the measured bytes
+    quantity = models.PositiveBigIntegerField()  # the measured bytes, or the orders counted
     occurred_at = models.DateTimeField()
     received_at = models.DateTimeField()
     status = models.CharField(max_length=15, choices=Status.choices)
@@ -372,6 +374,7 @@ class ChargeLine(models.Model):
 
     class Kind(models.TextChoices):
         OVERAGE_STORAGE = "overage_storage"
+        OVERAGE_ORDERS = "overage_orders"
 
     class Status(models.TextChoices):
         OPEN = "open"
@@ -388,7 +391,7 @@ class ChargeLine(models.Model):
     period_index = models.PositiveSmallIntegerField()
     entry = models.OneToOneField(UsageEntry, on_delete=models.PROTECT, related_name="charge")
     kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.OVERAGE_STORAGE)
-    quantity = models.PositiveIntegerField()  # the started GB charged
+    quantity = models.PositiveIntegerField()  # the started GB, or the orders over 500, charged
     amount_centavos = models.PositiveIntegerField()
     currency = models.CharField(max_length=3, default="PHP")
     status = models.CharField(max_length=15, choices=Status.choices, default=Status.OPEN)

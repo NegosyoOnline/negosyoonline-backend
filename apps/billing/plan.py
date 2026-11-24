@@ -1,6 +1,7 @@
 """The plans and the periods of the subscription lifecycle. No table holds these."""
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 
@@ -147,9 +148,10 @@ def collection_live():
     )
 
 
-# Storage usage (Billing Build B4). Orders are counted for display against the 500 included in
-# the plan (the Plan usage meters, `meters.py`), and nothing is charged for them: a Subscriber's
-# sales are their own business (Coach Ed, 2026-11-11).
+# Usage (Billing Build B4 and the order overage). OV-9: NegosyoOnline is a SaaS plan with 500
+# orders included, a flat fee per extra order, and never a share of sales (Coach Ed, 2026-11-23;
+# this reverses the 2026-11-11 "no per-order billing" ruling for orders above 500 only). The
+# orders in a billing month are counted by `meters.orders_in`, the same rule as the meter.
 STORAGE_INCLUDED_GB = 5  # per monthly allowance period
 STORAGE_OVERAGE_CENTAVOS_PER_GB = 3_000  # PHP 30 for each started GB over the 5 GB
 GB_BYTES = 1_000_000_000  # a decimal gigabyte (Coach Ed, 2026-11-13)
@@ -159,6 +161,8 @@ LATE_ADMISSION = timedelta(hours=72)  # L2: a snapshot is accepted up to 72 hour
 # before storage is metered. Until that task changes this, no snapshot is charged.
 STORAGE_METERED = False
 USAGE_ONLY = "usage_only"  # a payment of overage alone: no cycle, no base fee
+ORDERS_INCLUDED_PER_MONTH = 500  # per monthly allowance period; shown on the meter, billed above
+ORDER_OVERAGE_CENTAVOS_PER_ORDER = 500  # PHP 5 for each order over the 500 (OV-1)
 
 
 def usage_switch_on():
@@ -171,3 +175,36 @@ def usage_enabled():
     switch alone can never put a usage amount in front of a Subscriber (Coach Ed, 2026-11-13:
     no extra charge at launch; usage is turned on later)."""
     return usage_switch_on() and bool(STORAGE_METERED)
+
+
+def orders_enabled():
+    """The order overage switch: BILLING_ENABLED and BILLING_ORDER_OVERAGE_ENABLED. Independent of
+    the storage switch."""
+    return bool(settings.BILLING_ENABLED and settings.BILLING_ORDER_OVERAGE_ENABLED)
+
+
+def any_usage_enabled():
+    """Whether any overage kind is billed or shown: storage (switch and metered) or orders."""
+    return usage_enabled() or orders_enabled()
+
+
+def charged_from():
+    """Midnight Manila of BILLING_ORDER_OVERAGE_FROM, or None when it is empty or not an ISO date
+    (no month is charged then)."""
+    raw = (settings.BILLING_ORDER_OVERAGE_FROM or "").strip()
+    try:
+        day = date.fromisoformat(raw)
+    except ValueError:
+        return None
+    return datetime(day.year, day.month, day.day, tzinfo=ZoneInfo("Asia/Manila"))
+
+
+def orders_chargeable(period_start):
+    """OV-8: a billing month is charged only if it starts on or after BILLING_ORDER_OVERAGE_FROM."""
+    start = charged_from()
+    return start is not None and period_start >= start
+
+
+def pesos(centavos):
+    """Whole pesos without decimals, else two decimals: 500 -> "5", 250 -> "2.50"."""
+    return f"{centavos // 100}" if centavos % 100 == 0 else f"{centavos / 100:.2f}"

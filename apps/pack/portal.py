@@ -62,11 +62,13 @@ def portal_site(host):
     404). Every doubt, including a read error, is None; it never says "deleted"."""
     if not (settings.MEMBERS_ENABLED and settings.PACK_ENABLED):
         return None
-    site = site_for_host(host)
+    site = site_for_host(host, include_held=True)
     if site is None or site.template != templates.SANTE:
         return None
     position = billing.position(site)  # a read error is logged there and answers not served
-    if not position.billing_only:
+    # The portal opens for a store that billing has closed, and for one HQ has suspended by hand
+    # (H3: members keep read access to their past orders).
+    if not (position.billing_only or site.operator_hold):
         return None
     now = position.at or timezone.now()
     try:

@@ -70,7 +70,15 @@ class RenewalTests(CollectionCase):
         subscription = make_active()
         snapshot(subscription)
         options = services.payment_options(subscription, CYCLE_1_END + days(1))
-        self.assertEqual(options["usage"], {"centavos": LINE, "lines": 1, "payable_alone": False})
+        usage_block = options["usage"]
+        self.assertEqual(
+            (usage_block["centavos"], usage_block["lines"], usage_block["payable_alone"]),
+            (LINE, 1, False),
+        )
+        self.assertEqual(
+            [(i["kind"], i["amount_centavos"]) for i in usage_block["items"]],
+            [("overage_storage", LINE)],
+        )
         offer = options["offers"][0]
         self.assertEqual((offer["amount_centavos"], offer["usage_centavos"]), (MONTHLY + LINE, LINE))
 
