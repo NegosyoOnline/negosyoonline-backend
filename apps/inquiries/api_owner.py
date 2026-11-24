@@ -7,10 +7,12 @@
                                                  anything else 422 `invalid_status`; `unread_total` is never filtered)
                                                  (`unread`: `1` keeps only unread, `0` only read; missing or empty is all,
                                                  anything else 422 `invalid_unread`; combines with `q` and `status`)
+                                                 (`channel`: `sms` keeps only texts, `nosms` every channel but texts; missing or
+                                                 empty is all, anything else 400 `invalid_channel`; `unread_total` follows it)
                                                  (`answered`: `answered` or `unanswered` filters, `all` or empty is all, else 422
                                                  `invalid_answered`; every item has `answered`: latest message is the store's and
                                                  not failed or bounced)
-    GET    .../unread/                          -> {count}  (this site's unread conversations)
+    GET    .../unread/?channel=                 -> {count}  (this site's unread conversations; `channel` as above)
     GET    .../conversations/{ref}/             -> the thread, whether a reply may be sent, the replies sent
     POST   .../conversations/{ref}/reply/       {text, idempotency_key} -> {state, error_code, created_at}
     GET    .../channels/                        -> {webchat_enabled, email_enabled, paused_until, chat_limit_reached, webchat_available,
@@ -112,10 +114,20 @@ def _stored_on():
     return stored_tables_exist()
 
 
+def _channel(value):
+    """`channel` (`sms` or `nosms`; missing or empty is every channel) -> None, "sms" or "nosms", else 400."""
+    if value in (None, ""):
+        return None
+    if value not in ("sms", "nosms"):
+        message = "Channel must be sms or nosms."
+        raise ApiError("invalid_channel", message, status=400, fields={"channel": [message]})
+    return value
+
+
 @router.get("/sites/{site_id}/inquiries/conversations/")
 def conversations(request, site_id: str, stored_cursor: str | None = None, q: str | None = None,
                   status: str | None = None, unread: str | None = None,
-                  answered: str | None = None):
+                  answered: str | None = None, channel: str | None = None):
     hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
     if stored_cursor and not stored.STORED_CURSOR_RE.match(stored_cursor):
         raise _invalid("stored_cursor", "That cursor does not look right.")
@@ -134,19 +146,23 @@ def conversations(request, site_id: str, stored_cursor: str | None = None, q: st
     if answered not in (None, "", "all", "answered", "unanswered"):
         message = "Answered must be all, answered or unanswered."
         raise ApiError("invalid_answered", message, status=422, fields={"answered": [message]})
+    channel = _channel(channel)
     if not _stored_on():
         return {"items": [], "stored_next_cursor": None, "unread_total": 0}
     site = request.inquiry_site
     items, next_cursor = stored.list_items(site, after=stored_cursor or None, query=query, status=status or None,
                                            unread=None if not unread else unread == "1",
-                                           answered=None if answered in (None, "", "all") else answered == "answered")
-    return {"items": items, "stored_next_cursor": next_cursor, "unread_total": stored.unread_count(site)}
+                                           answered=None if answered in (None, "", "all") else answered == "answered",
+                                           channel=channel)
+    return {"items": items, "stored_next_cursor": next_cursor,
+            "unread_total": stored.unread_count(site, channel=channel)}
 
 
 @router.get("/sites/{site_id}/inquiries/unread/")
-def unread(request, site_id: str):
+def unread(request, site_id: str, channel: str | None = None):
     hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
-    return {"count": stored.unread_count(request.inquiry_site) if _stored_on() else 0}
+    channel = _channel(channel)
+    return {"count": stored.unread_count(request.inquiry_site, channel=channel) if _stored_on() else 0}
 
 
 @router.get("/sites/{site_id}/inquiries/conversations/{ref}/")
