@@ -116,6 +116,25 @@ class BlobSource:
         body, headers = self._send("get", self._url(pathname), want_headers=True)
         return body, (headers.get("content-type") or "").split(";")[0].strip().lower()
 
+    def served_publicly(self, pathname):
+        """True when the store's PUBLIC host serves `pathname` without any credential (a 200).
+        A 4xx answer is "not served"; a server error or no answer raises, so the kind probe
+        refuses rather than guesses. Sends no token, logs no name or URL."""
+        url = f"https://{PUBLIC_HOST.format(store_id=self.store_id)}/{urllib.parse.quote(pathname)}"
+        request = urllib.request.Request(url, method="GET")
+        request.add_header("user-agent", private_files.USER_AGENT)
+        try:
+            with urllib.request.urlopen(request, timeout=TIMEOUT):
+                return True
+        except urllib.error.HTTPError as error:
+            status = error.code
+            if status < 500 and status != 429:
+                return False
+        except (urllib.error.URLError, TimeoutError, OSError):
+            status = "no answer"
+        logger.warning("File backup source public host check failed: %s", status)
+        raise SourceError(f"The store public host check failed ({status}).")
+
     def put(self, pathname, content, content_type):
         query = urllib.parse.urlencode({"pathname": pathname})
         body = self._send(
