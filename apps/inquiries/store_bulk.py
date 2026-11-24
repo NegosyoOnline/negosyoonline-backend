@@ -13,6 +13,8 @@ only. A recipient's number is held in full only while its batch is active; once 
 is replaced by its masked form. The batch (with its text) is deleted after 180 days
 (apps/inquiries/retention.py).
 
+A batch with a future start time (Schedule SMS) lives in apps/inquiries/store_bulk_schedule.py.
+
 Dark behind STORE_BULK_SMS_ENABLED and the three switches it needs (`switch.store_bulk_ready`)."""
 import logging
 from datetime import time
@@ -78,6 +80,16 @@ REASON_TEXTS = {
     sms_inbox.TEXT_INVALID: sms_inbox.REASON_TEXTS[sms_inbox.TEXT_INVALID],
     sms_inbox.NOT_SENT: sms_inbox.REASON_TEXTS[sms_inbox.NOT_SENT],
     "expired": sms_inbox.REASON_TEXTS["expired"],
+    # A scheduled batch (apps/inquiries/store_bulk_schedule.py) that is cancelled or cannot start.
+    "cancelled": "Cancelled by you.",
+    "batch_running": "Another batch was still sending at the start time.",
+    "empty_audience": "There was nobody to send to at the start time.",
+    "outside_window": "The start time came after texts may go out (08:00 to 20:00 Manila time).",
+    "daily_cap": "The store's daily bulk text limit was reached at the start time.",
+    "phone_offline": "Your phone was offline at the start time.",
+    NO_LINE: BLOCKED_TEXTS[NO_LINE],
+    sms_inbox.SMS_OFF: BLOCKED_TEXTS[sms_inbox.SMS_OFF],
+    sms_inbox.REPLIES_OFF: BLOCKED_TEXTS[sms_inbox.REPLIES_OFF],
 }
 PAUSED_REASONS = ("outside_window", "daily_cap", "phone_offline")
 
@@ -312,6 +324,7 @@ def batch_out(batch):
         "id": batch.public_id,
         "state": batch.state,
         "created_at": batch.created_at.isoformat(),
+        "scheduled_at": batch.scheduled_at.isoformat() if batch.scheduled_at else None,
         "audience": batch.audience,
         "text": batch.text,
         "size": batch.size,
@@ -332,6 +345,17 @@ def batch_out(batch):
 def _audit(batch, event, actor=None, **counts):
     """The audit entry of a batch: its id and counts and a reason code, never the text or a number."""
     account_services.record_event(actor or batch.created_by, event, batch=batch.public_id, site=batch.site.public_id, **counts)
+
+
+def make_recipients(batch, kind, chosen):
+    """The recipient rows of a batch, one per chosen (id, name, mobile), in order."""
+    StoreBulkRecipient.objects.bulk_create(
+        [StoreBulkRecipient(
+            batch=batch, position=i, name=name[:120], mobile=mobile,
+            **({"contact_ref": pk} if kind == StoreBulkBatch.PICK else {"member_ref": pk}))
+         for i, (pk, name, mobile) in enumerate(chosen)],
+        batch_size=500,
+    )
 
 
 def confirm(site, account, data):
@@ -365,13 +389,7 @@ def confirm(site, account, data):
                 site=site, created_by=account, request_id=key, text=full,
                 audience=kind, picked=picked, size=len(chosen), left_out=left,
             )
-            StoreBulkRecipient.objects.bulk_create(
-                [StoreBulkRecipient(
-                    batch=batch, position=i, name=name[:120], mobile=mobile,
-                    **({"contact_ref": pk} if kind == StoreBulkBatch.PICK else {"member_ref": pk}))
-                 for i, (pk, name, mobile) in enumerate(chosen)],
-                batch_size=500,
-            )
+            make_recipients(batch, kind, chosen)
             _audit(batch, "store_bulk_confirmed", size=batch.size, audience=kind, left_out=left)
     except IntegrityError:
         again = StoreBulkBatch.objects.filter(site=site, request_id=key).first()
@@ -530,7 +548,10 @@ def _settle_over(site):
 
 def feed(site, now=None):
     """Queue the next text of the store's active batch. Runs inside the store's phone's poll."""
+    from apps.inquiries import store_bulk_schedule  # not at import: that module imports this one
+
     now = now or timezone.now()
+    store_bulk_schedule.start_due(site=site, now=now)  # a due scheduled batch starts on the phone's pull
     with transaction.atomic():
         batch = StoreBulkBatch.objects.select_for_update().select_related("site", "created_by").filter(
             site=site, state__in=StoreBulkBatch.ACTIVE).first()
@@ -565,7 +586,11 @@ def stop(site, account, public_id):
 
 
 def refresh(site):
-    """Settle the store's active batch without queuing anything, so a read is true with the phone away."""
+    """Settle the store's active batch without queuing anything, so a read is true with the phone away.
+    A scheduled batch of the store that is due starts first (so it works with no beat running)."""
+    from apps.inquiries import store_bulk_schedule  # not at import: that module imports this one
+
+    store_bulk_schedule.start_due(site=site)
     with transaction.atomic():
         batch = StoreBulkBatch.objects.select_for_update().select_related("site", "created_by").filter(
             site=site, state__in=StoreBulkBatch.ACTIVE).first()
@@ -603,7 +628,8 @@ def status(site):
 
 def list_batches(site, *, cursor="", limit=None):
     refresh(site)
-    rows = StoreBulkBatch.objects.filter(site=site).select_related("site").order_by("-pk")
+    rows = StoreBulkBatch.objects.filter(site=site).exclude(
+        state__in=(StoreBulkBatch.SCHEDULED, StoreBulkBatch.CANCELLED)).select_related("site").order_by("-pk")
     if cursor:
         last = StoreBulkBatch.objects.filter(site=site, public_id=cursor).first() if is_public_id(cursor, "sbk") else None
         if last is None:
@@ -617,8 +643,11 @@ def list_batches(site, *, cursor="", limit=None):
 
 
 def open_batch(site, public_id, *, cursor="", limit=None):
+    refresh(site)
     with transaction.atomic():
         batch = _find(site, public_id, lock=True)
+        if batch.state in (StoreBulkBatch.SCHEDULED, StoreBulkBatch.CANCELLED):  # see store_bulk_schedule
+            raise ApiError("not_found", "Not found.", status=404)
         settle(batch)
     answer = batch_out(batch)
     if cursor and (not isinstance(cursor, str) or not cursor.isdigit() or len(cursor) > 9):

@@ -598,6 +598,13 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(hour=4, minute=30),
         "options": {"expires": 3600},
     },
+    # Scheduled store bulk texts: starts any whose time has come (the phone's pull and the store's
+    # reads also do). Does nothing while the store bulk switches are off.
+    "inquiries-store-bulk-start-due": {
+        "task": "inquiries.store_bulk_start_due",
+        "schedule": 60,
+        "options": {"expires": 60},
+    },
     # Custom domains: the state-machine sweep each minute, the hourly live check, the daily sweep
     # and registration read. Each does nothing while DOMAINS_ENABLED is off.
     "domains-sweep": {

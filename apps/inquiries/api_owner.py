@@ -22,6 +22,9 @@
     POST   .../conversations/{ref}/reopen/      -> {ref, status, unread}
     POST   .../conversations/{ref}/read/        -> {ref, status, unread}
 
+The store bulk text routes are under .../sms/bulk/; Schedule SMS adds .../sms/bulk/scheduled/ (create, list,
+get, PATCH, cancel; apps/inquiries/store_bulk_schedule.py).
+
 Every conversation is a stored channel's (website chat, refs `wc_`; the contact form as email,
 refs `em_`), read from our own tables. A ref that is not a stored ref is not this site's: 404.
 There is no provider connection and no route for one.
@@ -46,7 +49,7 @@ from pydantic import ConfigDict
 from apps.accounts.api import signed_in
 from apps.common.errors import ApiError
 from apps.common.throttle import hit
-from apps.inquiries import outcomes, sms_inbox, store_bulk, stored
+from apps.inquiries import outcomes, sms_inbox, store_bulk, store_bulk_schedule, stored
 from apps.inquiries.models import InquirySmsSettings
 from apps.inquiries.switch import (
     contact_inbox_on, inquiries_on, sms_ready, store_bulk_ready, stored_tables_exist, tables_exist,
@@ -115,6 +118,25 @@ class BulkConfirmIn(Schema):
     idempotency_key: str
     confirm: bool = False
     expected_count: int | None = None
+    groups: list[str] | None = None
+    contacts: list[str] | None = None
+
+
+class BulkScheduleIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    text: str
+    audience: str = "all"
+    scheduled_at: str
+    idempotency_key: str
+    groups: list[str] | None = None
+    contacts: list[str] | None = None
+
+
+class BulkScheduleEditIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    text: str | None = None
+    audience: str | None = None
+    scheduled_at: str | None = None
     groups: list[str] | None = None
     contacts: list[str] | None = None
 
@@ -343,6 +365,48 @@ def bulk_stop(request, site_id: str, batch_id: str):
     hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
     _need_bulk()
     return store_bulk.stop(request.inquiry_site, request.account, batch_id)
+
+
+# -- scheduled bulk text (Schedule SMS; apps/inquiries/store_bulk_schedule.py) ----------------
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/scheduled/", response={200: dict, 201: dict})
+def bulk_schedule(request, site_id: str, payload: BulkScheduleIn):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    data = payload.model_dump()
+    data["idempotency_key"] = _bulk_key(payload.idempotency_key)
+    batch, created = store_bulk_schedule.create(request.inquiry_site, request.account, data)
+    return (201 if created else 200), batch
+
+
+@router.get("/sites/{site_id}/inquiries/sms/bulk/scheduled/")
+def bulk_scheduled(request, site_id: str, cursor: str | None = None, limit: int | None = None):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    items, following = store_bulk_schedule.list_scheduled(request.inquiry_site, cursor=cursor or "", limit=limit)
+    return {"items": items, "next_cursor": following}
+
+
+@router.get("/sites/{site_id}/inquiries/sms/bulk/scheduled/{batch_id}/")
+def bulk_scheduled_one(request, site_id: str, batch_id: str):
+    hit("inq-read", request.account.pk, limit=READ_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk_schedule.get(request.inquiry_site, batch_id)
+
+
+@router.patch("/sites/{site_id}/inquiries/sms/bulk/scheduled/{batch_id}/")
+def bulk_schedule_edit(request, site_id: str, batch_id: str, payload: BulkScheduleEditIn):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if not (v is None and k in ("text", "audience", "scheduled_at"))}
+    return store_bulk_schedule.edit(request.inquiry_site, request.account, batch_id, data)
+
+
+@router.post("/sites/{site_id}/inquiries/sms/bulk/scheduled/{batch_id}/cancel/")
+def bulk_schedule_cancel(request, site_id: str, batch_id: str):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk_schedule.cancel(request.inquiry_site, request.account, batch_id)
 
 
 # -- settings, close and reopen, read -----------------------------------------

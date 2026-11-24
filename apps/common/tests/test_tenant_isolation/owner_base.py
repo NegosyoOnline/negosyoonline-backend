@@ -242,6 +242,11 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/inquiries/sms/bulk/batches/"): 404,
     ("GET", "/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/"): 404,
     ("POST", "/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/stop/"): 404,
+    ("POST", "/sites/{site_id}/inquiries/sms/bulk/scheduled/"): 404,
+    ("GET", "/sites/{site_id}/inquiries/sms/bulk/scheduled/"): 404,
+    ("GET", "/sites/{site_id}/inquiries/sms/bulk/scheduled/{batch_id}/"): 404,
+    ("PATCH", "/sites/{site_id}/inquiries/sms/bulk/scheduled/{batch_id}/"): 404,
+    ("POST", "/sites/{site_id}/inquiries/sms/bulk/scheduled/{batch_id}/cancel/"): 404,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/read/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/close/"): 200,
     ("POST", "/sites/{site_id}/inquiries/conversations/{ref}/reopen/"): 200,
@@ -767,6 +772,10 @@ class TwoOwnersTestCase(SitesApiTestCase):
                 return {"text": "Hello"}
             if template.endswith("/test/"):
                 return {"text": "Hello", "idempotency_key": "fixture-bulk-000001"}
+            if template.endswith("/scheduled/") and method == "POST":
+                return {"text": "Hello", "idempotency_key": "fixture-bulk-000002", "scheduled_at": "2030-01-01T10:00:00+08:00"}
+            if template.endswith("/scheduled/{batch_id}/") and method == "PATCH":
+                return {"text": "Hello"}
             if template.endswith("/batches/") and method == "POST":
                 return {"text": "Hello", "idempotency_key": "fixture-bulk-000001", "confirm": True}
             return None

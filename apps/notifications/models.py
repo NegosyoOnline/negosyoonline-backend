@@ -314,7 +314,11 @@ class StoreBulkBatch(models.Model):
     audited: the audit entries carry the batch id and counts only. One active batch per store."""
 
     WAITING, SENDING, FINISHED, STOPPED, ENDED = "waiting", "sending", "finished", "stopped", "ended"
-    STATES = [(WAITING, "Waiting"), (SENDING, "Sending"), (FINISHED, "Finished"), (STOPPED, "Stopped"), (ENDED, "Ended")]
+    SCHEDULED, CANCELLED = "scheduled", "cancelled"  # a scheduled batch has no recipients until it starts
+    STATES = [
+        (WAITING, "Waiting"), (SENDING, "Sending"), (FINISHED, "Finished"), (STOPPED, "Stopped"), (ENDED, "Ended"),
+        (SCHEDULED, "Scheduled"), (CANCELLED, "Cancelled"),
+    ]
     ACTIVE = (WAITING, SENDING)
     ALL = "all"
     PICK = "pick"
@@ -337,6 +341,7 @@ class StoreBulkBatch(models.Model):
     # Why members were left out when the batch was confirmed: {reason: count}.
     left_out = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    scheduled_at = models.DateTimeField(null=True, blank=True, db_index=True)  # set for a scheduled batch
     stopped_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
 
