@@ -253,6 +253,10 @@ PRIVATE_FILES_DIR = os.environ.get("PRIVATE_FILES_DIR", "").strip() or str(
 # `files_backup` field. Off, the task and the field call no client. All read here and nowhere
 # else; the values are set on the `worker` service only.
 FILE_BACKUP_ENABLED = os.environ.get("FILE_BACKUP_ENABLED", "").strip() == "1"
+# Media library ledger audit (apps/media_library/audit.py): a daily comparison of the public
+# store's media-library/ objects with the byte ledger. "1" turns it on; off (the default) the task
+# returns at once and calls no store. It reports counts only and never changes a bill.
+MEDIA_LEDGER_AUDIT_ENABLED = os.environ.get("MEDIA_LEDGER_AUDIT_ENABLED", "").strip() == "1"
 FILE_BACKUP_BUCKET = os.environ.get("FILE_BACKUP_BUCKET", "").strip()
 FILE_BACKUP_ENDPOINT = os.environ.get("FILE_BACKUP_ENDPOINT", "").strip()
 FILE_BACKUP_REGION = os.environ.get("FILE_BACKUP_REGION", "").strip()
@@ -589,6 +593,14 @@ CELERY_BEAT_SCHEDULE = {
     "file-backup-daily": {
         "task": "file_backup.run",
         "schedule": crontab(hour=4, minute=0),
+        "options": {"expires": 3600},
+    },
+    # The media library ledger audit, 05:00 Manila time (after the backups). Does nothing, and
+    # calls no store, while MEDIA_LEDGER_AUDIT_ENABLED is off. A tick not picked up within the hour
+    # is dropped: the next day's run looks again.
+    "media-ledger-audit-daily": {
+        "task": "media_library.ledger_audit",
+        "schedule": crontab(hour=5, minute=0),
         "options": {"expires": 3600},
     },
     # The nightly encrypted database backup, 04:30 Manila time. Does nothing, and builds no client,

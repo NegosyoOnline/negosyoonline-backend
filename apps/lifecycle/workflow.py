@@ -16,6 +16,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
+from apps.catalog import media as public_media
 from apps.common import private_files
 from apps.common.errors import ApiError
 from apps.lifecycle import dry_run, eligibility, erase
@@ -296,8 +297,8 @@ def _run_item(batch_pk, item_pk, now):
             ):
                 return None
             return erase.erase_item(batch, item, now)
-    except private_files.StoreError:
-        logger.error("Site erasure item %s failed: the private file store.", item_pk)
+    except (private_files.StoreError, public_media.StoreError):  # the private or the public media store
+        logger.error("Site erasure item %s failed: a file store.", item_pk)
         return _fail(item_pk, STORE_UNAVAILABLE)
     except Exception as exc:
         logger.error("Site erasure item %s failed (%s).", item_pk, type(exc).__name__)

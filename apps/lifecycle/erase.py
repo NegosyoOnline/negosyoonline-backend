@@ -23,6 +23,7 @@ from apps.inbox import retention as inbox_retention
 from apps.inquiries import retention as inquiries_retention
 from apps.lifecycle import dry_run, eligibility
 from apps.lifecycle.models import ErasureItem
+from apps.media_library import services as media_services
 from apps.members import retention as member_retention
 from apps.meta_ads import retention as meta_retention
 from apps.operators import audit
@@ -175,6 +176,11 @@ def erase_item(batch, item, now):
     counts.update(inquiries_retention.blank_inquiries(sites))
     if seals:
         counts[dry_run.SEAL_FILES] = seals
+    # The media library's public objects: removed from the store, their ledger rows closed and
+    # kept. A store failure raises StoreError, like the other file steps, and nothing is erased.
+    media_files = media_services.purge_site(site, now)
+    if media_files:
+        counts[dry_run.MEDIA_FILES] = media_files
     files = seals + sum(counts.get(key, 0) for key in dry_run.FILE_KEYS)
     item.status, item.reason_code, item.counts, item.erased_at = Status.ERASED, "", counts, now
     item.save(update_fields=["status", "reason_code", "counts", "erased_at"])

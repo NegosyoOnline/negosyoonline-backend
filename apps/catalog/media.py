@@ -172,3 +172,47 @@ def copy_sized(src_key, dest_key):
     if stored != dest_key:
         raise StoreError("The media store put was not confirmed.")
     return dest_key, len(content), content_type
+
+
+LIST_PAGE = 1000
+LIST_MAX_PAGES = 10000
+
+
+def list_prefix(prefix):
+    """Every stored object whose pathname starts with `prefix`, as {pathname, size, uploaded_at}.
+
+    The list call follows Vercel's own client (@vercel/blob, API version 13): GET {api}/?prefix=
+    &limit=&cursor=, answered with {"blobs": [{pathname, size, uploadedAt, ...}], "cursor",
+    "hasMore"}. Vercel documents the SDK (list({prefix, limit, cursor}) -> blobs, cursor, hasMore)
+    but not the REST form, so the first run on staging proves it; if the shape differs the fix is
+    here only. Anything unexpected raises StoreError: a partial listing is never returned, so the
+    audit never reads a half list as "objects missing". Raises StoreError."""
+    if not prefix:
+        raise StoreError("A listing needs a prefix.")
+    if not configured():
+        raise StoreError("The media store is not configured.")
+    cursor, seen = None, set()
+    for _ in range(LIST_MAX_PAGES):
+        query = {"prefix": prefix, "limit": LIST_PAGE}
+        if cursor:
+            query["cursor"] = cursor
+        body = _send("list", f"{BLOB_API}/?{urllib.parse.urlencode(query)}", method="GET")
+        try:
+            answer = json.loads(body)
+            found = [
+                {"pathname": str(blob["pathname"]), "size": int(blob["size"]),
+                 "uploaded_at": str(blob.get("uploadedAt", ""))}
+                for blob in answer["blobs"]
+            ]
+            more = answer.get("hasMore") is True
+            cursor = answer.get("cursor") if more else None
+        except (ValueError, KeyError, TypeError, AttributeError):
+            logger.warning("Public media store list answered in an unknown shape.")
+            raise StoreError("The media store list was not understood.") from None
+        yield from found
+        if not cursor:
+            return
+        if cursor in seen:
+            raise StoreError("The media store list did not advance.")
+        seen.add(cursor)
+    raise StoreError("The media store list was too long.")
