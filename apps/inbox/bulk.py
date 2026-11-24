@@ -16,7 +16,7 @@ from django.utils import timezone
 from apps.common.errors import ApiError
 from apps.common.ids import is_public_id
 from apps.common.masking import mask_mobile
-from apps.common.phones import normalise_ph_mobile
+from apps.common.phones import SHORTENED_REASON, is_shortened_by_excel, normalise_ph_mobile
 from apps.inbox.access import scope_for
 from apps.inbox.models import BulkBatch, BulkRecipient, Contact, ContactGroup, DoNotText, InboxAccess
 from apps.inbox.switch import (
@@ -131,27 +131,34 @@ class Source:
     refused: list  # [(line, reason)], the first MAX_REFUSED_SHOWN
     duplicates: int
     groups: int
+    shortened: int = 0
 
 
 def read_source(data):
     source = data.get("source")
     if source in ("pasted", "file"):
-        numbers, seen, refused, refused_count, repeated, lines = [], set(), [], 0, 0, 0
+        numbers, seen, refused, refused_count, repeated, lines, shortened = [], set(), [], 0, 0, 0, 0
         for line, cell in _lines(data):
             lines += 1
-            try:
-                mobile = normalise_ph_mobile(cell)
-            except ValueError:
+            reason = ""
+            if is_shortened_by_excel(cell):
+                reason, shortened = SHORTENED_REASON, shortened + 1
+            else:
+                try:
+                    mobile = normalise_ph_mobile(cell)
+                except ValueError:
+                    reason = NOT_A_MOBILE
+            if reason:
                 refused_count += 1
                 if len(refused) < MAX_REFUSED_SHOWN:
-                    refused.append((line, NOT_A_MOBILE))
+                    refused.append((line, reason))
                 continue
             if mobile in seen:
                 repeated += 1
             else:
                 seen.add(mobile)
                 numbers.append(mobile)
-        return Source(numbers, lines, refused_count, refused, repeated, 0)
+        return Source(numbers, lines, refused_count, refused, repeated, 0, shortened)
     if source == "groups":
         ids = data.get("groups")
         if (
@@ -223,6 +230,7 @@ def check(scope, data):
         "lines_read": source.lines_read,
         "duplicates": source.duplicates,
         "refused_count": source.refused_count,
+        "shortened": source.shortened,
         "refused": [{"line": n, "reason": r} for n, r in source.refused],
         "opted_out": len(source.numbers) - len(eligible),
         "eligible": len(eligible),

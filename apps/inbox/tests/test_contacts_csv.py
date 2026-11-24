@@ -13,7 +13,7 @@ FILE = (
     "Ana,Sample,0917 000 0101,secret-note-1\n"
     "Ben,Example,+639170000102,secret-note-2\n"
     "Cai,Demo,0917000\n"
-    ",NoFirst,09170000103\n"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,NoFirst,09170000103\n"
     "Dan,Bad,+14155550123\n"
     "Eve,Two\n"
     "Ana,Again,09170000101\n"
@@ -96,11 +96,58 @@ class CheckTests(UploadCase):
         answer = self.check(text)
         self.assertEqual((len(answer["refused"]), answer["refused_count"]), (200, 250))
 
+    def test_10_a_number_excel_shortened_has_its_own_reason_and_count(self):
+        text = (
+            "First,Last,Mobile\n"
+            "Ana,A,6.39563E+11\n"
+            "Ben,B,6.39E11\n"
+            "Cai,C,639563012345\n"
+            "Dan,D,09170000101\n"
+            "Eve,E,09170000101\n"
+            ",F,6.39563E+11\n"
+            "Gus,G,6.39563e+11\n"
+        )
+        answer = self.check(text)
+        self.assertEqual(
+            {k: answer[k] for k in ("lines", "new", "repeated", "refused_count", "shortened")},
+            {"lines": 7, "new": 2, "repeated": 1, "refused_count": 4, "shortened": 4},
+        )
+        reasons = {r["line"]: r["reason"] for r in answer["refused"]}
+        self.assertEqual(reasons[2], contacts.REASONS["shortened"])
+        self.assertEqual(reasons[3], contacts.REASONS["shortened"])
+        self.assertNotIn(4, reasons)  # 639563012345 is a real mobile and is accepted as before
+        self.assertEqual(reasons[7], contacts.REASONS["shortened"])  # a blank first name no longer stops it
+        self.assertEqual(reasons[8], contacts.REASONS["shortened"])
+        self.assertEqual(contacts.REASONS["shortened"], "Excel shortened this mobile number.")
+        self.assertNotIn("639563", json.dumps(answer))
+        self.assertEqual(self.save(text, 2)["shortened"], 4)
+
+    def test_11_a_number_only_line_is_accepted_with_an_empty_name(self):
+        text = "First,Last,Mobile\n,,09170000201\n , ,09170000202\n,Only,09170000203\n"
+        self.assertEqual(self.check(text)["new"], 3)
+        self.assertEqual(self.save(text, 3)["refused"], 0)
+        self.assertEqual(
+            list(Contact.objects.order_by("mobile").values_list("first_name", "last_name")),
+            [("", ""), ("", ""), ("", "Only")],
+        )
+
+    def test_12_a_repeat_keeps_the_first_line_that_has_a_name(self):
+        text = "Ana,A,09170000201\n,,09170000201\n,,09170000202\nBen,B,09170000202\n,,09170000203\n,,09170000203\n"
+        answer = self.check(text)
+        self.assertEqual((answer["new"], answer["repeated"]), (3, 3))
+        self.save(text, 3)
+        names = dict(Contact.objects.values_list("mobile", "first_name"))
+        self.assertEqual(names, {"+639170000201": "Ana", "+639170000202": "Ben", "+639170000203": ""})
+
+    def test_13_a_long_first_name_is_still_refused(self):
+        answer = self.check("A" * 81 + ",B,09170000201\n")
+        self.assertEqual((answer["new"], answer["refused"][0]["reason"]), (0, contacts.REASONS["first_name"]))
+
 
 class SaveTests(UploadCase):
     def test_1_the_save_stores_links_and_audits_counts_only(self):
         counts = self.save()
-        self.assertEqual(counts, {"lines": 7, "added": 2, "existing": 0, "refused": 4, "repeated": 1})
+        self.assertEqual(counts, {"lines": 7, "added": 2, "existing": 0, "refused": 4, "repeated": 1, "shortened": 0})
         self.assertEqual(Contact.objects.count(), 2)
         self.assertEqual(self.group_count(), 2)
         entry = self.entries("contact_upload")[0]

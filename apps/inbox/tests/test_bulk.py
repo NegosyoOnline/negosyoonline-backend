@@ -24,6 +24,21 @@ class CheckTests(BulkCase):
         self.assertEqual(answer["refused"], [{"line": 2, "reason": bulk.NOT_A_MOBILE}])
         self.assertEqual((answer["text_length"], answer["blocked"]), (len(TEXT) + 22, ""))
 
+    def test_1b_excel_shortened_numbers_have_their_own_reason_and_count(self):
+        csv_text = f"number\n6.39563E+11\n{mobile(1)}\n6.39E11\n{mobile(1)}\n639563012345\n"
+        answer = self.check({"text": TEXT, "source": "file", "csv": csv_text})
+        self.assertEqual(
+            (answer["lines_read"], answer["duplicates"], answer["refused_count"], answer["shortened"], answer["size"]),
+            (5, 1, 2, 2, 2),
+        )
+        self.assertEqual(
+            [(r["line"], r["reason"]) for r in answer["refused"]],
+            [(2, "Excel shortened this mobile number."), (4, "Excel shortened this mobile number."),
+             ],
+        )
+        self.assertNotIn("639563", json.dumps(answer))
+        self.assertEqual(self.check(self.pasted(mobile(2)))["shortened"], 0)
+
     def test_2_file_reads_only_the_first_column_and_skips_a_header(self):
         csv_text = f"number,name,note\n{mobile(1)},Secret Person,call 09179999999\n{mobile(2)},Other,x\n"
         answer = self.check({"text": TEXT, "source": "file", "csv": csv_text})

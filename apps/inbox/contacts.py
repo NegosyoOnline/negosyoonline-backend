@@ -17,7 +17,7 @@ from apps.common.errors import ApiError
 from apps.common.ids import is_public_id
 from apps.common.masking import mask_mobile
 from apps.common.pagination import page
-from apps.common.phones import normalise_ph_mobile
+from apps.common.phones import SHORTENED_REASON, is_shortened_by_excel, normalise_ph_mobile
 from apps.inbox.models import Contact, ContactGroup, DoNotText, InboxAccess
 from apps.inbox.switch import SMS, contacts_on, contacts_tables_exist, dnt_tables_exist, inbox_on
 from apps.operators import audit
@@ -34,9 +34,10 @@ CONTACT = "contact"
 GROUP = "contact_group"
 REASONS = {
     "columns": "This line has fewer than three columns.",
-    "first_name": "The first name is missing or too long.",
+    "first_name": "The first name is too long or has odd characters.",
     "last_name": "The last name is too long.",
     "mobile": "The mobile number is not a Philippine mobile.",
+    "shortened": SHORTENED_REASON,
 }
 
 
@@ -373,27 +374,32 @@ def _data_lines(text):
 
 
 def read_file(text):
-    """Sort the file's lines. Reads no table. Returns (people, refused, repeated, lines):
+    """Sort the file's lines. Reads no table. Returns (people, refused, repeated, lines, shortened):
     people {mobile: (first, last)} with the first line winning; refused [(line, reason)];
-    repeated, the lines whose number came earlier; lines, every data line."""
+    repeated, the lines whose number came earlier; lines, every data line; shortened, the
+    refused lines whose mobile Excel turned into scientific notation."""
     if not isinstance(text, str):
         raise _invalid(csv="Choose a CSV file.")
     if len(text.encode("utf-8")) > MAX_CSV_BYTES:
         raise ApiError("file_too_large", "The file is over 1 MB.", status=413)
-    people, refused, repeated, lines = {}, [], 0, 0
+    people, refused, repeated, lines, shortened = {}, [], 0, 0, 0
     try:
         for number, row in _data_lines(text):
             lines += 1
             if len(row) < 3:
                 refused.append((number, REASONS["columns"]))
                 continue
-            first = _text(row[0], maximum=NAME_MAX, required=True)
+            first = _text(row[0], maximum=NAME_MAX, required=False)
             last = _text(row[1], maximum=NAME_MAX, required=False)
             if first is None:
                 refused.append((number, REASONS["first_name"]))
                 continue
             if last is None:
                 refused.append((number, REASONS["last_name"]))
+                continue
+            if is_shortened_by_excel(row[2]):
+                refused.append((number, REASONS["shortened"]))
+                shortened += 1
                 continue
             try:
                 mobile = normalise_ph_mobile(row[2])
@@ -402,11 +408,13 @@ def read_file(text):
                 continue
             if mobile in people:
                 repeated += 1
+                if not any(people[mobile]) and (first or last):
+                    people[mobile] = (first, last)  # the first line with a name gives the name
             else:
                 people[mobile] = (first, last)
     except csv.Error:
         raise ApiError("invalid_file", "The file could not be read as a CSV file.")
-    return people, refused, repeated, lines
+    return people, refused, repeated, lines, shortened
 
 
 def _in_contacts(scope, mobiles):
@@ -427,7 +435,7 @@ def check_upload(scope, text, group_id):
     """What a save would do. Saves nothing and writes no audit entry."""
     _may_change(scope)
     _upload_group(scope, group_id)
-    people, refused, repeated, lines = read_file(text)
+    people, refused, repeated, lines, shortened = read_file(text)
     existing = _in_contacts(scope, people)
     return {
         "lines": lines,
@@ -437,6 +445,7 @@ def check_upload(scope, text, group_id):
         "repeated": repeated,
         "refused": [{"line": number, "reason": reason} for number, reason in refused[:MAX_REFUSED_SHOWN]],
         "refused_count": len(refused),
+        "shortened": shortened,
     }
 
 
@@ -447,7 +456,7 @@ def save_upload(scope, text, group_id, expected_new):
     with transaction.atomic():
         group = _upload_group(scope, group_id)
         group = scope.groups.select_for_update().get(pk=group.pk)
-        people, refused, repeated, lines = read_file(text)
+        people, refused, repeated, lines, shortened = read_file(text)
         existing = _in_contacts(scope, people)
         new = [mobile for mobile in people if mobile not in existing]
         if len(new) != expected_new:
@@ -471,7 +480,7 @@ def save_upload(scope, text, group_id, expected_new):
             group.contacts.add(*scope.contacts.filter(mobile__in=everyone[start:start + CHUNK]))
         counts = {
             "lines": lines, "added": len(new), "existing": len(existing),
-            "refused": len(refused), "repeated": repeated,
+            "refused": len(refused), "repeated": repeated, "shortened": shortened,
         }
         audit.record(scope.actor, "contact_upload", target_type=GROUP, target_id=group.public_id, detail=counts)
     return counts
