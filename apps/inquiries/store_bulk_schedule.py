@@ -151,33 +151,49 @@ def cancel(site, account, public_id, now=None):
     return batch_out(batch)
 
 
-def _picked_names(batch):
-    """For a "pick" batch: the picked groups ({id, name}) and contacts ({id, first_name, last_name,
-    mobile_masked}), of the batch's own store only, in the picked order; ids that are gone are
-    skipped. Two queries; never a full number."""
+def picked_names(site, batches):
+    """{batch pk: (groups, contacts)} for a page of batches of one store. For a "pick" batch: the
+    picked groups ({id, name}) and contacts ({id, first_name, last_name, mobile_masked}), of the
+    store only, in the picked order; ids that are gone are skipped. "all" batches get ([], []).
+    At most two queries for the whole page; never a full number; no audit entry."""
     from apps.inbox import contacts as inbox_contacts  # not at import: inbox is a later layer
 
-    picked = batch.picked or {}
-    groups, contacts = picked.get("groups") or [], picked.get("contacts") or []
-    scope = inbox_contacts.site_scope(batch.created_by, batch.site) if (groups or contacts) else None
-    if scope is None:
-        return [], []
-    found_groups = {g[0]: g for g in scope.groups.filter(public_id__in=groups).values_list("public_id", "name")} if groups else {}
-    found = {c[0]: c for c in scope.contacts.filter(public_id__in=contacts).values_list(
-        "public_id", "first_name", "last_name", "mobile")} if contacts else {}
-    return (
-        [{"id": i, "name": found_groups[i][1]} for i in groups if i in found_groups],
-        [{"id": i, "first_name": found[i][1], "last_name": found[i][2], "mobile_masked": mask_mobile(found[i][3])}
-         for i in contacts if i in found],
-    )
+    wanted = {b.pk: (b.picked or {}) for b in batches if b.audience == StoreBulkBatch.PICK}
+    group_ids = list(dict.fromkeys(i for p in wanted.values() for i in p.get("groups") or []))
+    contact_ids = list(dict.fromkeys(i for p in wanted.values() for i in p.get("contacts") or []))
+    scope = inbox_contacts.site_scope(None, site) if (group_ids or contact_ids) else None
+    found_groups, found = {}, {}
+    if scope is not None:
+        if group_ids:
+            found_groups = {g[0]: g for g in scope.groups.filter(public_id__in=group_ids).values_list("public_id", "name")}
+        if contact_ids:
+            found = {c[0]: c for c in scope.contacts.filter(public_id__in=contact_ids).values_list(
+                "public_id", "first_name", "last_name", "mobile")}
+    out = {}
+    for b in batches:
+        p = wanted.get(b.pk, {})
+        out[b.pk] = (
+            [{"id": i, "name": found_groups[i][1]} for i in p.get("groups") or [] if i in found_groups],
+            [{"id": i, "first_name": found[i][1], "last_name": found[i][2], "mobile_masked": mask_mobile(found[i][3])}
+             for i in p.get("contacts") or [] if i in found],
+        )
+    return out
+
+
+def with_names(site, batches):
+    """The `batch_out` of each batch plus its `groups` and `contacts` (see `picked_names`)."""
+    names = picked_names(site, batches)
+    rows = []
+    for b in batches:
+        row = batch_out(b)
+        row["groups"], row["contacts"] = names[b.pk]
+        rows.append(row)
+    return rows
 
 
 def get(site, public_id):
     store_bulk.refresh(site)
-    batch = _find_scheduled(site, public_id)
-    answer = batch_out(batch)
-    answer["groups"], answer["contacts"] = _picked_names(batch) if batch.audience == StoreBulkBatch.PICK else ([], [])
-    return answer
+    return with_names(site, [_find_scheduled(site, public_id)])[0]
 
 
 def list_scheduled(site, *, cursor="", limit=None):
@@ -195,7 +211,7 @@ def list_scheduled(site, *, cursor="", limit=None):
     items = list(rows[: size + 1])
     more = len(items) > size
     items = items[:size]
-    return [batch_out(b) for b in items], (items[-1].public_id if more else None)
+    return with_names(site, items), (items[-1].public_id if more else None)
 
 
 # -- the runner -----------------------------------------------------------------------------

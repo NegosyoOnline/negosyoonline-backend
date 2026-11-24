@@ -5,7 +5,9 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest import mock
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from apps.accounts.models import AccountAuditEvent
 from apps.inbox.models import Contact, ContactGroup
@@ -383,7 +385,65 @@ class DetailNamesTests(pick.PickCase):
         batch_id = self.schedule(audience="all")
         body = self.detail(batch_id).json()
         self.assertEqual((body["groups"], body["contacts"]), ([], []))
-        self.assertNotIn("groups", self.get(self.sroot).json()["items"][0])
+
+    def counted(self, url):
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.get(url)
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()["items"], len(ctx)
+
+    def row(self, key, audience, state, **picked):
+        return StoreBulkBatch.objects.create(
+            site=self.site, created_by=self.account, request_id=key, text=TEXT, audience=audience,
+            picked=picked if audience == "pick" else {}, state=state, size=1,
+            scheduled_at=LATER_AT if state == "scheduled" else None)
+
+    def check_rows(self, items, a, other_group):
+        pick_rows = [r for r in items if r["audience"] == "pick"]
+        all_rows = [r for r in items if r["audience"] == "all"]
+        self.assertTrue(pick_rows and all_rows)
+        for row in all_rows:
+            self.assertEqual((row["groups"], row["contacts"]), ([], []))
+        for row in pick_rows:
+            self.assertEqual([g["id"] for g in row["groups"]], [self.gid])
+            self.assertEqual([c["id"] for c in row["contacts"]], [a])
+            self.assertEqual(row["contacts"][0]["first_name"], "Ana")
+            self.assertIn("*", row["contacts"][0]["mobile_masked"])
+
+    def test_the_history_list_carries_names_with_constant_queries(self):
+        a = self.add("Ana", "+639172000001", [self.gid])
+        other = ContactGroup.objects.create(owner_kind="site", site=self.ben_site, name="Bens")
+        picked = {"groups": [self.gid, other.public_id], "contacts": [a]}  # another store's group is never shown
+        self.row("key-h-0001", "pick", "finished", **picked)
+        self.row("key-h-0002", "all", "finished")
+        items, small = self.counted(self.root + "batches/")
+        self.check_rows(items, a, other)
+        for i in range(3, 9):
+            self.row(f"key-h-{i:04d}", "pick" if i % 2 else "all", "finished", **picked)
+        items, big = self.counted(self.root + "batches/")
+        self.assertEqual(len(items), 8)
+        self.check_rows(items, a, other)
+        self.assertEqual(small, big)
+        body = str(items)
+        self.assertNotIn("+639172000001", body)
+        self.assertNotIn(other.public_id, body)
+
+    def test_the_scheduled_list_carries_names_with_constant_queries(self):
+        a = self.add("Ana", "+639172000001", [self.gid])
+        other = ContactGroup.objects.create(owner_kind="site", site=self.ben_site, name="Bens")
+        picked = {"groups": [self.gid, other.public_id], "contacts": [a]}
+        self.row("key-s-0001", "pick", "scheduled", **picked)
+        self.row("key-s-0002", "all", "scheduled")
+        items, small = self.counted(self.sroot)
+        self.check_rows(items, a, other)
+        for i in range(3, 9):
+            self.row(f"key-s-{i:04d}", "pick" if i % 2 else "all", "scheduled", **picked)
+        items, big = self.counted(self.sroot)
+        self.assertEqual(len(items), 8)
+        self.check_rows(items, a, other)
+        self.assertEqual(small, big)
+        self.assertNotIn("+639172000001", str(items))
+        self.assertNotIn(other.public_id, str(items))
 
     def test_a_deleted_group_or_contact_is_skipped(self):
         a = self.add("Ana", "+639172000001", [self.gid])

@@ -639,7 +639,9 @@ def list_batches(site, *, cursor="", limit=None):
     items = list(rows[: size + 1])
     more = len(items) > size
     items = items[:size]
-    return [batch_out(b) for b in items], (items[-1].public_id if more else None)
+    from apps.inquiries import store_bulk_schedule  # not at import: that module imports this one
+
+    return store_bulk_schedule.with_names(site, items), (items[-1].public_id if more else None)
 
 
 def open_batch(site, public_id, *, cursor="", limit=None):
