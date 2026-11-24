@@ -25,8 +25,7 @@ from apps.inbox.switch import (
 from apps.notifications import services, sms
 from apps.operators import audit
 
-OPT_OUT = " Reply STOP to opt out"
-TEXT_MAX = 160 - len(OPT_OUT)  # 138
+TEXT_MAX = 160
 MAX_SOURCE_BYTES = 1_048_576
 MAX_REFUSED_SHOWN = 200
 MAX_GROUPS = 50
@@ -78,7 +77,7 @@ def _text(value):
         raise _invalid("invalid_text", text="Type the text.")
     if len(value) > TEXT_MAX:
         raise _invalid("invalid_text", text=f"The text can be up to {TEXT_MAX} characters.")
-    problem = services.sms_text_problem(value + OPT_OUT)
+    problem = services.sms_text_problem(value)
     if problem:
         raise _invalid("invalid_text", text=problem)
     return value
@@ -232,7 +231,7 @@ def check(scope, data):
         "left_out": len(eligible) - size,
         "seconds_min": size * SECONDS[0],
         "seconds_max": size * SECONDS[1],
-        "text_length": len(text) + len(OPT_OUT),
+        "text_length": len(text),
         "blocked": _blocked(room),
         "groups": source.groups,
     }
@@ -278,7 +277,7 @@ def _row(batch):
         "not_sent": batch.not_sent,
         "waiting": waiting,
         "left_out": batch.left_out,
-        "text_length": len(batch.text) + len(OPT_OUT),
+        "text_length": len(batch.text),
         "seconds_left": _seconds_left(batch, waiting),
     }
 
@@ -320,7 +319,7 @@ def confirm(scope, data):
                     "groups": batch.group_count, "lines_read": batch.lines_read,
                     "duplicates": batch.duplicates, "refused": batch.refused,
                     "opted_out": batch.opted_out, "size": batch.size, "left_out": batch.left_out,
-                    "text_length": len(batch.text) + len(OPT_OUT),
+                    "text_length": len(batch.text),
                 },
             )
     except IntegrityError:
@@ -407,7 +406,7 @@ def _drive(batch, now):
     if following is None:
         return
     result = services.send_sms(
-        to=following.mobile, purpose="inbox_bulk", text=batch.text + OPT_OUT,
+        to=following.mobile, purpose="inbox_bulk", text=batch.text,
         ttl=services.SMS_STAFF_TEXT_LIFETIME,
     )
     if result.outcome == services.SMS_QUEUED:
@@ -484,7 +483,6 @@ def status(scope):
         "used_today": used,
         "left_today": room,
         "reserved_for_codes": sms.RESERVED_FOR_CODES,
-        "opt_out_line": OPT_OUT,
         "text_max": TEXT_MAX,
     }
 
