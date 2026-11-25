@@ -31,7 +31,7 @@ OWN_MOBILE = "+639175550000"
 TEXT = "Sale this weekend, 20 percent off."
 FULL = TEXT  # nothing is added in front of the owner's text
 DAY = datetime(2026, 11, 24, 10, 0, tzinfo=MANILA)  # inside the window
-NIGHT = datetime(2026, 11, 24, 21, 0, tzinfo=MANILA)  # outside it
+NIGHT = datetime(2026, 11, 24, 22, 30, tzinfo=MANILA)  # outside it
 NUMBERS = ["+639171000001", "+639171000002", "+639171000003"]
 
 
@@ -205,7 +205,7 @@ class TextTests(BulkCase):
         body = self.status().json()
         self.assertEqual((body["prefix"], body["max_length"], body["daily_limit"], body["left_today"]), ("", 160, 2000, 2000))
         self.assertEqual((body["blocked"], body["phone_online"], body["active_batch"]), ("", True, None))
-        self.assertEqual(body["window"], {"start": "08:00", "end": "20:00", "timezone": "Asia/Manila"})
+        self.assertEqual(body["window"], {"start": "08:00", "end": "22:00", "timezone": "Asia/Manila"})
         self.assertEqual(body["seconds_between"], {"min": 18, "max": 25})
         self.assertIn("carrier", body["cost_note"])
 
@@ -347,9 +347,9 @@ class FeedTests(BulkCase):
         batch.refresh_from_db()
         self.assertEqual((batch.state, batch.sent, batch.failed), ("finished", 2, 1))
 
-    def test_nothing_goes_outside_08_to_20_manila_and_the_batch_waits(self):
+    def test_nothing_goes_outside_08_to_22_manila_and_the_batch_waits(self):
         batch = self.start()
-        for hour in (0, 7, 20, 21, 23):
+        for hour in (0, 7, 22, 23):
             self.feed(at(hour, 59 if hour == 7 else 0))
         self.assertFalse(self.records().exists())
         batch.refresh_from_db()
@@ -357,13 +357,21 @@ class FeedTests(BulkCase):
         self.feed(at(8))
         self.assertEqual(self.records().count(), 1)
         self.hand_in()
-        self.feed(at(19, 59))
+        self.feed(at(21, 59))
         self.assertEqual(self.records().count(), 2)
         self.hand_in()
-        self.feed(at(20))
+        self.feed(at(22))
         self.assertEqual(self.records().count(), 2)
-        self.assertTrue(store_bulk.in_window(at(8)) and store_bulk.in_window(at(19, 59)))
-        self.assertFalse(store_bulk.in_window(at(7, 59)) or store_bulk.in_window(at(20)))
+        self.assertTrue(store_bulk.in_window(at(8)) and store_bulk.in_window(at(21, 59)))
+        self.assertFalse(store_bulk.in_window(at(7, 59)) or store_bulk.in_window(at(22)))
+
+    def test_window_edges(self):
+        self.assertTrue(store_bulk.in_window(at(8)))
+        self.assertTrue(store_bulk.in_window(at(21, 59)))
+        self.assertFalse(store_bulk.in_window(at(22)))
+        self.assertFalse(store_bulk.in_window(at(7, 59)))
+        self.assertTrue(store_bulk.in_window(at(20, 30)))  # was outside before the 22:00 ruling
+        self.assertFalse(store_bulk.in_window(NIGHT))
 
     def test_the_paused_reason_says_why_nothing_is_going(self):
         batch = self.start()

@@ -74,9 +74,18 @@ class CreateTests(ScheduleCase):
         active = self.get(self.root + "status/").json()["active_batch"]
         self.assertIsNone(active["scheduled_at"])
 
+    def test_the_window_is_08_to_22_and_the_end_is_not_included(self):
+        for key, at in (("key-edge-0001", "2026-11-25T08:00:00+08:00"), ("key-edge-0002", "2026-11-25T20:00:00+08:00"),
+                        ("key-edge-0003", "2026-11-25T21:45:00+08:00"), ("key-edge-0004", "2026-11-25T21:59:00+08:00")):
+            with self.subTest(at=at):
+                self.assertEqual(self.schedule(key=key, at=at).status_code, 201)
+        for at in ("2026-11-25T22:00:00+08:00", "2026-11-25T07:59:00+08:00"):
+            with self.subTest(at=at):
+                self.assertEqual(self.code(self.schedule(at=at)), (422, "outside_window"))
+
     def test_time_rules(self):
         self.assertEqual(self.code(self.schedule(at="2026-11-24T09:09:00+08:00")), (422, "too_soon"))
-        self.assertEqual(self.code(self.schedule(at="2026-11-25T20:00:00+08:00")), (422, "outside_window"))
+        self.assertEqual(self.code(self.schedule(at="2026-11-25T22:00:00+08:00")), (422, "outside_window"))
         self.assertEqual(self.code(self.schedule(at="2026-11-25T07:59:00+08:00")), (422, "outside_window"))
         self.assertEqual(self.code(self.schedule(at="2026-12-25T10:00:00+08:00")), (422, "too_far"))
         self.assertEqual(self.code(self.schedule(at="soon")), (422, "invalid"))
@@ -203,7 +212,7 @@ class EditCancelTests(ScheduleCase):
         url = f"{self.sroot}{batch.public_id}/"
         for body, expected in (
             ({"scheduled_at": "2026-11-24T09:05:00+08:00"}, (422, "too_soon")),
-            ({"scheduled_at": "2026-11-25T21:00:00+08:00"}, (422, "outside_window")),
+            ({"scheduled_at": "2026-11-25T22:30:00+08:00"}, (422, "outside_window")),
             ({"scheduled_at": "2027-01-25T10:00:00+08:00"}, (422, "too_far")),
             ({"audience": "nobody"}, (400, "invalid_audience")),
             ({"audience": "pick"}, (400, "invalid_audience")),
@@ -315,7 +324,7 @@ class RunnerTests(ScheduleCase):
         self._blocked("billing_only", patch=mock.patch("apps.billing.services.position", **BILLING))
         self._blocked("daily_cap", patch=mock.patch.object(store_bulk, "_at_cap", return_value=True))
         self._blocked("phone_offline", patch=mock.patch("apps.notifications.sms.gateway_online", return_value=False))
-        self._blocked("outside_window", now=datetime(2026, 11, 25, 20, 30, tzinfo=MANILA))
+        self._blocked("outside_window", now=datetime(2026, 11, 25, 22, 30, tzinfo=MANILA))
 
     def test_due_while_another_batch_is_active_waits_then_starts_when_it_is_over(self):
         batch = self.make()
@@ -334,7 +343,7 @@ class RunnerTests(ScheduleCase):
     def test_due_while_another_is_active_and_the_window_has_ended(self):
         batch = self.make()
         self.start(key="key-batch-0002")
-        self.run_due(now=datetime(2026, 11, 25, 20, 1, tzinfo=MANILA))
+        self.run_due(now=datetime(2026, 11, 25, 22, 1, tzinfo=MANILA))
         batch.refresh_from_db()
         self.assertEqual((batch.state, batch.end_reason), ("ended", "batch_running"))
 
