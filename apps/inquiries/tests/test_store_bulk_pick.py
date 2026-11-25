@@ -13,6 +13,8 @@ on = override_settings(STORE_CONTACTS_ENABLED=True)
 
 @on
 class PickCase(BulkCase):
+    mirror_members = False
+
     def setUp(self):
         super().setUp()
         self.cbase = f"/v1/sites/{self.site_id}/contacts/"
@@ -66,8 +68,9 @@ class PickAudienceTests(PickCase):
 
     def test_an_explicit_all_still_works(self):
         self.add("Ana", "+639172000001")
+        self.add("Bo", "+639172000009", [self.gid])
         body = self.send("post", self.root + "audience/", {"audience": "all"}).json()
-        self.assertEqual((body["audience"], body["will_send"]), ("all", 3))
+        self.assertEqual((body["audience"], body["will_send"]), ("all", 1))  # All groups: Ana is in no group
 
     def test_switch_off_refuses_pick(self):
         a = self.add("Ana", "+639172000001")

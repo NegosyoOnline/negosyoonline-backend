@@ -99,8 +99,7 @@ class CreateTests(ScheduleCase):
 
     def test_audience_rules_are_bulks(self):
         self.assertEqual(self.code(self.schedule(audience="everyone")), (400, "invalid_audience"))
-        for member in self.members:
-            member.delete()
+        Contact.objects.filter(site=self.site).delete()
         self.assertEqual(self.code(self.schedule()), (409, "empty_audience"))
 
     def test_a_missing_null_or_blank_audience_is_refused_and_nothing_is_created(self):
@@ -195,7 +194,7 @@ class ListAndTenancyTests(ScheduleCase):
 class EditCancelTests(ScheduleCase):
     def test_edit_changes_text_time_and_recounts(self):
         batch = self.make()
-        make_member(self.site, "+639171000009", name="New")
+        self.group_contact(self.site, "+639171000009", "New")
         InquirySmsOptOut.objects.create(site=self.site, mobile=NUMBERS[0])
         response = self.send("patch", f"{self.sroot}{batch.public_id}/", {"text": "New text.", "scheduled_at": "2026-11-26T11:00:00+08:00"})
         self.assertEqual(response.status_code, 200, response.content)
@@ -224,8 +223,7 @@ class EditCancelTests(ScheduleCase):
 
     def test_edit_to_an_empty_audience(self):
         batch = self.make()
-        for member in self.members:
-            member.delete()
+        Contact.objects.filter(site=self.site).delete()
         self.assertEqual(self.code(self.send("patch", f"{self.sroot}{batch.public_id}/", {"text": "Hi."})), (409, "empty_audience"))
 
     def test_edit_with_a_blank_audience_is_refused_and_leaving_it_out_keeps_it(self):
@@ -272,7 +270,7 @@ class RunnerTests(ScheduleCase):
     def test_start_recounts_with_todays_exclusions(self):
         batch = self.make()
         InquirySmsOptOut.objects.create(site=self.site, mobile=NUMBERS[1])
-        make_member(self.site, "+639171000008", name="Joined later")
+        self.group_contact(self.site, "+639171000008", "Joined later")
         self.run_due()
         batch.refresh_from_db()
         self.assertEqual((batch.state, batch.size, batch.left_out["opted_out"]), ("waiting", 3, 1))
@@ -293,8 +291,7 @@ class RunnerTests(ScheduleCase):
 
     def test_nobody_left_at_start(self):
         batch = self.make()
-        for member in self.members:
-            member.delete()
+        Contact.objects.filter(site=self.site).delete()
         self.run_due()
         batch.refresh_from_db()
         self.assertEqual((batch.state, batch.end_reason, batch.recipients.count()), ("ended", "empty_audience", 0))
@@ -415,6 +412,7 @@ class DetailNamesTests(pick.PickCase):
         self.assertEqual(AccountAuditEvent.objects.count(), events)
 
     def test_all_batch_has_empty_lists_and_the_list_has_none(self):
+        self.add("Ana", "+639172000003", [self.gid])  # All groups needs a grouped contact
         batch_id = self.schedule(audience="all")
         body = self.detail(batch_id).json()
         self.assertEqual((body["groups"], body["contacts"]), ([], []))
