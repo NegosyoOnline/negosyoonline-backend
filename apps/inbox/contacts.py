@@ -30,7 +30,6 @@ GROUP_NAME_MAX = 60
 QUERY_MIN = 2
 MAX_GROUPS = 500
 DEFAULT_PAGE, MAX_PAGE = 20, 100
-MAX_STORE_CONTACTS = 20_000
 MAX_GROUPS_PER_CONTACT = 50
 MAX_CSV_BYTES = 1_048_576
 MAX_REFUSED_SHOWN = 200
@@ -71,7 +70,7 @@ class ContactScope:
     can_change: bool
     owner_kind: str = "hq"
     site: object = None
-    max_contacts: int | None = None  # None: no cap (HQ)
+    max_contacts: int | None = None  # None: no cap (HQ and stores alike; kept for the status answer)
     nameless: bool = False  # a CSV line may be a number alone (a store's)
 
     @property
@@ -108,7 +107,6 @@ def site_scope(account, site):
         can_change=True,
         owner_kind="site",
         site=site,
-        max_contacts=MAX_STORE_CONTACTS,
         nameless=True,
     )
 
@@ -337,17 +335,9 @@ def open_contact(scope, contact_id):
 
 
 def _lock_site(scope):
-    """Serialise a store's writes that count rows, so two at once cannot pass the cap together."""
+    """Serialise a store's writes that compare a count or a list of numbers with what is stored, so two at once see the same list."""
     if scope.is_site:
         type(scope.site).objects.select_for_update().filter(pk=scope.site.pk).first()
-
-
-def _room(scope, adding):
-    if scope.max_contacts is not None and scope.contacts.count() + adding > scope.max_contacts:
-        raise ApiError(
-            "contact_limit", f"A store can keep up to {scope.max_contacts:,} contacts.",
-            fields={"contacts": [f"A store can keep up to {scope.max_contacts:,} contacts."]},
-        )
 
 
 def add_contact(scope, data):
@@ -359,7 +349,6 @@ def add_contact(scope, data):
         existing = scope.contacts.filter(mobile=mobile).first()
         if existing:
             raise _already(existing)
-        _room(scope, 1)
         try:
             with transaction.atomic():
                 contact = Contact.objects.create(
@@ -596,7 +585,6 @@ def check_upload(scope, text, group_id):
     _upload_group(scope, group_id)
     people, refused, repeated, lines = read_file(text, scope.nameless, scope.is_site)
     existing = _in_contacts(scope, people)
-    _room(scope, len(people) - len(existing))
     return {
         "lines": lines,
         "new": len(people) - len(existing),
@@ -626,7 +614,6 @@ def save_upload(scope, text, group_id, expected_new):
                 "The file or the list of contacts is not as it was when it was checked. Check it again.",
                 status=409,
             )
-        _room(scope, len(new))
         Contact.objects.bulk_create(
             [
                 Contact(

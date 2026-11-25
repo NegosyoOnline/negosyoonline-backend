@@ -6,7 +6,7 @@ no other (the shared phone is never used). Coach Ed's ruling (2026-11-23): "All 
 only audience (no promo filter, no promo label); no consent nudge; always left out:
 the store's STOP list, unverified numbers and repeats; no web links; no forced STOP footer; a daily
 cap of 2,000 a store (SmsPolicy.store_bulk_daily_limit); one text every 18 to 25 s, only from 08:00
-to 20:00 Manila time.
+to 22:00 Manila time.
 
 Nothing here logs or audits a number or a text. The audit entries carry the batch id and counts
 only. A recipient's number is held in full only while its batch is active; once the batch is over it
@@ -40,13 +40,12 @@ from apps.notifications.models import StoreBulkBatch, StoreBulkRecipient
 logger = logging.getLogger(__name__)
 
 MANILA = ZoneInfo("Asia/Manila")
-WINDOW = (time(8, 0), time(20, 0))  # texts go only from 08:00 up to, not including, 20:00 Manila time
+WINDOW = (time(8, 0), time(22, 0))  # texts go only from 08:00 up to, not including, 22:00 Manila time
 SECONDS = (18, 25)  # the phone keeps this gap between two texts (apps/notifications/gateway.py)
 TEST_KEPT = 24 * 3600
 MAX_SKIPS = 100  # members passed over (gone, opted out ...) in one poll before the next poll goes on
 PAGE = (20, 100)
 KINDS = (StoreBulkBatch.ALL, StoreBulkBatch.PICK)
-MAX_PICKED = 20_000
 CHUNK = 500
 TARGET = "store_bulk_batch"
 PURPOSE = "store_bulk"
@@ -85,7 +84,7 @@ REASON_TEXTS = {
     "cancelled": "Cancelled by you.",
     "batch_running": "Another batch was still sending at the start time.",
     "empty_audience": "There was nobody to send to at the start time.",
-    "outside_window": "The start time came after texts may go out (08:00 to 20:00 Manila time).",
+    "outside_window": "The start time came after texts may go out (08:00 to 22:00 Manila time).",
     "daily_cap": "The store's daily bulk text limit was reached at the start time.",
     "phone_offline": "Your phone was offline at the start time.",
     NO_LINE: BLOCKED_TEXTS[NO_LINE],
@@ -98,7 +97,7 @@ PAUSED_REASONS = ("outside_window", "daily_cap", "phone_offline")
 # -- time and availability ------------------------------------------------------------------
 
 def in_window(now=None):
-    """True from 08:00 up to, not including, 20:00 Manila time."""
+    """True from 08:00 up to, not including, 22:00 Manila time."""
     local = (now or timezone.now()).astimezone(MANILA).time()
     return WINDOW[0] <= local < WINDOW[1]
 
@@ -161,7 +160,7 @@ def _kind(value):
 def _ids(value, what):
     if value is None:
         return []
-    if not isinstance(value, list) or len(value) > MAX_PICKED or not all(isinstance(i, str) for i in value):
+    if not isinstance(value, list) or not all(isinstance(i, str) for i in value):
         raise _invalid_audience(f"Choose {what} from your list.")
     return list(dict.fromkeys(value))
 
@@ -188,19 +187,19 @@ def _select_pick(site, account, picked):
         found_groups.update(scope.groups.filter(public_id__in=groups[i:i + CHUNK]).values_list("pk", flat=True))
     if len(found_groups) != len(groups):
         raise _invalid_audience("Choose groups from your list.")
-    pks = set(scope.contacts.filter(groups__in=found_groups).values_list("pk", flat=True)) if found_groups else set()
+    fields = ("pk", "first_name", "last_name", "mobile")
+    people, group_pks = {}, list(found_groups)  # contact pk -> row, so a contact in two groups is read once
+    for i in range(0, len(group_pks), CHUNK):  # one query per 500 groups, whatever the size of the groups
+        for row in scope.contacts.filter(groups__in=group_pks[i:i + CHUNK]).values_list(*fields):
+            people[row[0]] = row
     found_contacts = 0
     for i in range(0, len(contacts), CHUNK):
-        got = list(scope.contacts.filter(public_id__in=contacts[i:i + CHUNK]).values_list("pk", flat=True))
+        got = list(scope.contacts.filter(public_id__in=contacts[i:i + CHUNK]).values_list(*fields))
         found_contacts += len(got)
-        pks.update(got)
+        people.update((row[0], row) for row in got)
     if found_contacts != len(contacts):
         raise _invalid_audience("Choose contacts from your list.")
-    rows = []
-    ordered = sorted(pks)
-    for i in range(0, len(ordered), CHUNK):
-        rows += list(scope.contacts.filter(pk__in=ordered[i:i + CHUNK]).values_list("pk", "first_name", "last_name", "mobile"))
-    rows.sort()
+    rows = sorted(people.values())
     stopped = set(InquirySmsOptOut.objects.filter(site=site).values_list("mobile", flat=True))
     left = dict.fromkeys(LEFT_OUT, 0)
     chosen, seen = [], set()
