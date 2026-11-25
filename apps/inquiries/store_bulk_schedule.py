@@ -78,7 +78,7 @@ def create(site, account, data, now=None):
     if existing:
         return batch_out(existing), False
     kind = _kind(data["audience"])
-    full = sms_inbox._full_text(site, data["text"])
+    full = store_bulk.template_text(site, data["text"])
     when = parse_time(data["scheduled_at"])
     _check_time(when, now)
     if StoreBulkBatch.objects.filter(site=site, state=StoreBulkBatch.SCHEDULED).count() >= MAX_SCHEDULED:
@@ -119,7 +119,7 @@ def edit(site, account, public_id, data, now=None):
         if batch.state != StoreBulkBatch.SCHEDULED:
             raise _started()
         if "text" in data:
-            batch.text = sms_inbox._full_text(site, data["text"])
+            batch.text = store_bulk.template_text(site, data["text"])
         if "scheduled_at" in data:
             when = parse_time(data["scheduled_at"])
             _check_time(when, now)

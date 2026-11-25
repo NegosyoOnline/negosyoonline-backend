@@ -163,7 +163,7 @@ def edit(request, site_id: str, contact_id: str, payload: ContactPatch):
             )
     if "last_name" in data and data["last_name"] is None:
         data["last_name"] = ""
-    row = contacts.edit_contact(_scope(request), contact_id, data, partial=True)
+    row = contacts.edit_contact(_scope(request), contact_id, data, partial=True, require_first_on_edit=True)
     if row is None:
         raise _not_found()
     return _list_row(row)

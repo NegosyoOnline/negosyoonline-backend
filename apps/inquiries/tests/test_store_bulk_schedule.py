@@ -94,6 +94,17 @@ class CreateTests(ScheduleCase):
             member.delete()
         self.assertEqual(self.code(self.schedule()), (409, "empty_audience"))
 
+    def test_a_missing_null_or_blank_audience_is_refused_and_nothing_is_created(self):
+        for extra in ({}, {"audience": None}, {"audience": ""}, {"audience": "  "}):
+            body = {"text": TEXT, "scheduled_at": LATER, "idempotency_key": "key-missing-01", **extra}
+            response = self.send("post", self.sroot, body)
+            self.assertEqual(self.code(response), (400, "invalid_audience"), extra)
+            self.assertIn("audience", response.json()["error"]["fields"], extra)
+        self.assertFalse(StoreBulkBatch.objects.exists())
+
+    def test_an_explicit_all_still_schedules(self):
+        self.assertEqual(self.make(audience="all").audience, "all")
+
     def test_at_most_twenty_scheduled(self):
         for i in range(20):
             self.make(key=f"key-sched-{i:04d}")
@@ -207,6 +218,19 @@ class EditCancelTests(ScheduleCase):
         for member in self.members:
             member.delete()
         self.assertEqual(self.code(self.send("patch", f"{self.sroot}{batch.public_id}/", {"text": "Hi."})), (409, "empty_audience"))
+
+    def test_edit_with_a_blank_audience_is_refused_and_leaving_it_out_keeps_it(self):
+        batch = self.make()
+        url = f"{self.sroot}{batch.public_id}/"
+        for blank in ("", "  "):
+            response = self.send("patch", url, {"audience": blank})
+            self.assertEqual(self.code(response), (400, "invalid_audience"), blank)
+            self.assertIn("audience", response.json()["error"]["fields"])
+        batch.refresh_from_db()
+        self.assertEqual(batch.audience, "all")
+        self.assertEqual(self.send("patch", url, {"text": "Hello again."}).status_code, 200)
+        batch.refresh_from_db()
+        self.assertEqual(batch.audience, "all")
 
     def test_cancel_and_a_second_cancel(self):
         batch = self.make()

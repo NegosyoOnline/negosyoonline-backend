@@ -17,6 +17,7 @@ A batch with a future start time (Schedule SMS) lives in apps/inquiries/store_bu
 
 Dark behind STORE_BULK_SMS_ENABLED and the three switches it needs (`switch.store_bulk_ready`)."""
 import logging
+import re
 from datetime import time
 from zoneinfo import ZoneInfo
 
@@ -247,12 +248,74 @@ def audience(site, kind, account=None, picked=None):
     return {"audience": kind, "total_members": total, "will_send": len(chosen), "left_out": left}
 
 
+# -- the {first_name} merge field -----------------------------------------------------------
+
+PLACEHOLDER = "{first_name}"
+BRACE_MESSAGE = "Only {first_name} can go inside { }."
+_SPACES = re.compile(r" {2,}")
+_BEFORE_PUNCT = re.compile(r" +([,.!?;:])")
+
+
+def template_text(site, text):
+    """The template as the owner typed it (trimmed): one SMS long counted as typed (`{first_name}` is
+    its 12 characters), `{first_name}` the only thing allowed inside braces, and the plain-character
+    and no-link rules checked on the text with the placeholder removed. Raises the 422 on `text`."""
+    text = text.strip()
+    if not text:
+        raise sms_inbox._invalid("Write a text first.")
+    rest = text.replace(PLACEHOLDER, "")
+    if "{" in rest or "}" in rest:
+        raise sms_inbox._invalid(BRACE_MESSAGE)
+    if len(text) > sms.MAX_LENGTH:
+        raise sms_inbox._invalid(f"A text is at most {sms.MAX_LENGTH} characters.")
+    problem = sms.text_problem(rest)
+    if problem:
+        raise sms_inbox._invalid(problem)
+    return text
+
+
+def _without_name(template):
+    """The template with the placeholder removed and the spaces tidied."""
+    text = _SPACES.sub(" ", template.replace(PLACEHOLDER, ""))
+    return _BEFORE_PUNCT.sub(r"\1", text).strip()
+
+
+def fill_text(template, name):
+    """The text one recipient gets: the placeholder replaced by `name`; with no name, or when the
+    filled text would be too long or fail the text check, the template without the placeholder.
+    Never raises and never cuts a name."""
+    if PLACEHOLDER not in template:
+        return template
+    name = " ".join((name or "").split())
+    if name:
+        filled = template.replace(PLACEHOLDER, name)
+        if not sms.text_problem(filled):
+            return filled
+    return _without_name(template)
+
+
+def _first_word(name):
+    words = (name or "").split()
+    return words[0] if words else ""
+
+
+def _recipient_first_name(batch, recipient):
+    """The first name of the contact or member behind a recipient, read now; "" when gone or blank."""
+    if recipient.contact_ref:
+        from apps.inbox.models import Contact
+
+        contact = Contact.objects.filter(pk=recipient.contact_ref, owner_kind="site", site=batch.site).first()
+        return contact.first_name if contact else ""
+    member = Member.objects.filter(pk=recipient.member_ref, site=batch.site).first() if recipient.member_ref else None
+    return _first_word(member.full_name) if member else ""
+
+
 # -- preview and test -----------------------------------------------------------------------
 
 def preview(site, text):
     """The exact text as it will arrive (as typed, nothing added; one SMS, plain characters, no
     web link, nothing added at the end), or the 422 a person can act on."""
-    full = sms_inbox._full_text(site, text)
+    full = template_text(site, text)
     return {"text": full, "length": len(full), "max_length": sms.MAX_LENGTH, "remaining": sms.MAX_LENGTH - len(full)}
 
 
@@ -277,7 +340,8 @@ def test_send(site, account, text, key):
     """One text to the owner's own account mobile, from the store's phone. It counts as one of the
     day's bulk texts. The same key twice sends once."""
     _refuse_if_blocked(site)
-    full = sms_inbox._full_text(site, text)
+    template = template_text(site, text)
+    full = fill_text(template, _first_word(account.name))
     try:
         mobile = account.mobile.number
     except AccountMobile.DoesNotExist:
@@ -369,7 +433,7 @@ def confirm(site, account, data):
         raise ApiError("invalid", "Tick the box to confirm.", status=422, fields={"confirm": ["Tick the box to confirm."]})
     kind = _kind(data["audience"])
     _refuse_if_blocked(site)
-    full = sms_inbox._full_text(site, data["text"])
+    full = template_text(site, data["text"])
     if StoreBulkBatch.objects.filter(site=site, state__in=StoreBulkBatch.ACTIVE).exists():
         raise ApiError("batch_running", "A batch is already sending. Wait for it to finish or stop it.", status=409)
     picked = {"groups": _ids(data.get("groups"), "groups"), "contacts": _ids(data.get("contacts"), "contacts")} if kind == StoreBulkBatch.PICK else {}
@@ -512,9 +576,10 @@ def _drive(batch, now):
     else:
         settle(batch)
         return
+    text = fill_text(batch.text, _recipient_first_name(batch, following)) if PLACEHOLDER in batch.text else batch.text
     try:
         result = services.send_sms(
-            to=following.mobile, purpose=PURPOSE, text=batch.text, site=batch.site,
+            to=following.mobile, purpose=PURPOSE, text=text, site=batch.site,
             ttl=services.SMS_STAFF_TEXT_LIFETIME,
         )
     except ValueError:

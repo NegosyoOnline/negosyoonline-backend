@@ -40,6 +40,7 @@ GROUP = "contact_group"
 REASONS = {
     "columns": "This line has fewer than three columns.",
     "first_name": "The first name is too long or has odd characters.",
+    "no_first_name": "This line has no first name.",
     "last_name": "The last name is too long.",
     "mobile": "The mobile number is not a Philippine mobile.",
 }
@@ -373,9 +374,11 @@ def add_contact(scope, data):
     return _row(saved, opted_out=_opted_out([saved.mobile], scope))
 
 
-def edit_contact(scope, contact_id, data, partial=False):
+def edit_contact(scope, contact_id, data, partial=False, require_first_on_edit=False):
     """The changed contact, or None when there is no such contact. With `partial`, a field that is
-    missing from `data` keeps its value (a PATCH); otherwise all of them are replaced."""
+    missing from `data` keeps its value (a PATCH); otherwise all of them are replaced.
+    With `require_first_on_edit` (the store owner route), every edit must end with a first name,
+    so a number-only contact cannot be saved again until one is given."""
     _may_change(scope)
     if not partial:
         first, last, mobile = _clean(data)
@@ -393,7 +396,9 @@ def edit_contact(scope, contact_id, data, partial=False):
                 **{key: data[key] for key in ("first_name", "last_name", "mobile") if key in data},
             }
             # a number-only contact (from a CSV file) stays without a name until one is given
-            first, last, mobile = _clean(merged, first_required=bool(contact.first_name) or "first_name" in data)
+            first, last, mobile = _clean(merged, first_required=(
+                require_first_on_edit or bool(contact.first_name) or "first_name" in data
+            ))
             groups = (
                 _groups_from(scope, data["groups"]) if "groups" in data else list(contact.groups.all())
             )
@@ -524,10 +529,11 @@ def _data_lines(text, nameless=False):
         yield number, row
 
 
-def read_file(text, nameless=False):
+def read_file(text, nameless=False, first_required=False):
     """Sort the file's lines. Reads no table. Returns (people, refused, repeated, lines):
     people {mobile: (first, last)} with the first line winning; refused [(line, reason)];
-    repeated, the lines whose number came earlier; lines, every data line."""
+    repeated, the lines whose number came earlier; lines, every data line. With `first_required`
+    (a store's file), a line with no first name is refused and the rest still count."""
     if not isinstance(text, str):
         raise _invalid(csv="Choose a CSV file.")
     if len(text.encode("utf-8")) > MAX_CSV_BYTES:
@@ -545,6 +551,9 @@ def read_file(text, nameless=False):
             last = _text(row[1], maximum=NAME_MAX, required=False)
             if first is None:
                 refused.append((number, REASONS["first_name"]))
+                continue
+            if first_required and not first:
+                refused.append((number, REASONS["no_first_name"]))
                 continue
             if last is None:
                 refused.append((number, REASONS["last_name"]))
@@ -585,7 +594,7 @@ def check_upload(scope, text, group_id):
     """What a save would do. Saves nothing and writes no audit entry."""
     _may_change(scope)
     _upload_group(scope, group_id)
-    people, refused, repeated, lines = read_file(text, scope.nameless)
+    people, refused, repeated, lines = read_file(text, scope.nameless, scope.is_site)
     existing = _in_contacts(scope, people)
     _room(scope, len(people) - len(existing))
     return {
@@ -608,7 +617,7 @@ def save_upload(scope, text, group_id, expected_new):
         group = _upload_group(scope, group_id)
         if group is not None:
             group = scope.groups.select_for_update().get(pk=group.pk)
-        people, refused, repeated, lines = read_file(text, scope.nameless)
+        people, refused, repeated, lines = read_file(text, scope.nameless, scope.is_site)
         existing = _in_contacts(scope, people)
         new = [mobile for mobile in people if mobile not in existing]
         if len(new) != expected_new:

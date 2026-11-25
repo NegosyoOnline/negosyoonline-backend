@@ -9,7 +9,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from apps.billing import staff as billing_staff
-from apps.inbox import bulk_staff, contacts_staff
+from apps.inbox import bulk_staff, contacts, contacts_staff
 from apps.inbox import staff as inbox_staff
 from apps.inbox.models import Contact, InboxAccess
 from apps.inbox.tests.base import inbox_on
@@ -155,6 +155,15 @@ class RouteTests(ContactsRouteCase):
             self.assertNotIn("917000", without_ids(body))
             self.assertNotIn(FULL, without_ids(body))
         self.assertEqual(Contact.objects.count(), 0)
+
+    def test_hq_keeps_its_rules_for_nameless_lines_and_edits(self):
+        gid = self.post("groups/add/", {"name": "G"}).json()["id"]
+        text = ",Q,09170000231\nAna,S,09170000232\n"
+        checked = self.post("upload/check/", {"group": gid, "csv": text}).json()
+        self.assertEqual((checked["new"], checked["refused_count"]), (2, 0))
+        nameless = Contact.objects.create(owner_kind="hq", mobile="+639170000233", created_by=self.operator)
+        done = contacts.edit_contact(contacts.contact_scope(self.operator), nameless.public_id, {"last_name": "Q"}, partial=True)
+        self.assertEqual(done["last_name"], "Q")
 
     def test_3_the_errors(self):
         self.add()
