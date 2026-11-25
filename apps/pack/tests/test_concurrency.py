@@ -7,7 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.test import TransactionTestCase, override_settings
 
-from apps.billing.tests.base import make_subscription
+from apps.billing.tests.base import make_live_subscription
 from apps.common.errors import ApiError
 from apps.members.tests.test_concurrency import run_together
 from apps.pack import checkout, constants as C, fulfillment, placement, records, review
@@ -23,14 +23,14 @@ from django.utils import timezone
 @skipUnless(connection.vendor == "postgresql", "row locks need PostgreSQL")
 @override_settings(
     PACK_ENABLED=True, MEMBERS_ENABLED=True, SANTE_AGREEMENT_ENABLED=True, PAYMENT_METHODS_ENABLED=True,
-    BILLING_ENABLED=True,  # make_subscription answers None with Billing off
+    BILLING_ENABLED=True,  # make_live_subscription answers None with Billing off
 )
 class PackConcurrencyTests(TransactionTestCase):
     def setUp(self):
         cache.clear()
         self.addCleanup(cache.clear)
         use_local_private_store(self)
-        self.site = make_subscription().site
+        self.site = make_live_subscription().site
         operator = make_operator()
         make_master(operator)
         self.version = published(operator)
