@@ -682,9 +682,9 @@ class TwoOwnersTestCase(SitesApiTestCase):
             self.creates += 1
             number = f"+639171{self.creates:06d}"
             if template.endswith("/upload/check/"):
-                return {"text": number + "\n"}
+                return {"text": "Fixture,," + number + "\n"}
             if template.endswith("/upload/save/"):
-                return {"text": number + "\n", "expected_new": 1}
+                return {"text": "Fixture,," + number + "\n", "expected_new": 1}
             if "/groups/" in template:
                 return {"name": f"Body group {self.creates}"}
             if method == "PATCH":
