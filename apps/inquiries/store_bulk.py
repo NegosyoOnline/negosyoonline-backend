@@ -2,8 +2,9 @@
 docs/plans/store-bulk-sms-plan-2026-11-23.md; contract docs/plans/store-bulk-sms-be-api-2026-11-23.md).
 
 The owner texts the store's own members, one text at a time, from the store's own paired phone and
-no other (the shared phone is never used). Coach Ed's ruling (2026-11-23): "All my members" is the
-only audience (no promo filter, no promo label); no consent nudge; always left out:
+no other (the shared phone is never used). Coach Ed's ruling (2026-11-23): "All my members" was the
+audience; since 2026-11-25 (ALL-GROUPS-OPTION) "all" means All groups: every contact in any of the
+store's groups, each phone once (verified Members are not read). No promo filter, no promo label; no consent nudge; always left out:
 the store's STOP list, unverified numbers and repeats; no web links; no forced STOP footer; a daily
 cap of 2,000 a store (SmsPolicy.store_bulk_daily_limit); one text every 18 to 25 s, only from 08:00
 to 22:00 Manila time.
@@ -45,6 +46,7 @@ SECONDS = (18, 25)  # the phone keeps this gap between two texts (apps/notificat
 TEST_KEPT = 24 * 3600
 MAX_SKIPS = 100  # members passed over (gone, opted out ...) in one poll before the next poll goes on
 PAGE = (20, 100)
+# "all" now means All groups (ALL-GROUPS-OPTION, 2026-11-25); the stored value and the model choices are unchanged.
 KINDS = (StoreBulkBatch.ALL, StoreBulkBatch.PICK)
 CHUNK = 500
 TARGET = "store_bulk_batch"
@@ -147,7 +149,7 @@ def _at_cap(site):
 
 # -- audience -------------------------------------------------------------------------------
 
-def _invalid_audience(message="The only audiences are all your members or the groups and contacts you pick."):
+def _invalid_audience(message="Choose All groups, or pick groups or contacts."):
     return ApiError("invalid_audience", message, status=400, fields={"audience": [message]})
 
 
@@ -216,20 +218,31 @@ def _select_pick(site, account, picked):
     return chosen, left, len(rows)
 
 
+def _group_contacts(site, account):
+    """[(pk, first_name, last_name, mobile)] of every contact of this store that is in at least one of
+    the store's groups, in the order they were added; [] when the store-contacts switch is off or
+    the tables are not there (`site_scope` is None)."""
+    from apps.inbox import contacts  # not at import: inbox is a later layer for this module
+
+    scope = contacts.site_scope(account, site)
+    if scope is None:
+        return []
+    return list(scope.contacts.filter(groups__isnull=False).values_list("pk", "first_name", "last_name", "mobile").distinct().order_by("pk"))
+
+
 def _select(site, kind, account=None, picked=None):
-    """([(member or contact id, name, mobile)], {reason: count}, total). "all": the store's own
-    members only, in the order they joined; every member is counted once, under the first reason that
-    applies. "pick": see `_select_pick`."""
+    """([(contact id, name, mobile)], {reason: count}, total). "all" means All groups (ALL-GROUPS-OPTION,
+    Coach Ed, 2026-11-25): every contact of this store that is in at least one of its groups, in the
+    order they were added, each phone once, under the first reason that applies. Members are not
+    read at all. With the store-contacts switch off there is nobody. "pick": see `_select_pick`."""
     if kind == StoreBulkBatch.PICK:
         return _select_pick(site, account, picked)
-    members = list(Member.objects.filter(site=site).order_by("pk").values_list("pk", "full_name", "mobile", "mobile_state"))
+    rows = _group_contacts(site, account)
     stopped = set(InquirySmsOptOut.objects.filter(site=site).values_list("mobile", flat=True))
     left = dict.fromkeys(LEFT_OUT, 0)
     chosen, seen = [], set()
-    for pk, name, mobile, state in members:
-        if state != "verified":
-            left[UNVERIFIED] += 1
-        elif mobile.startswith("+63900"):  # a test number (apps/inquiries/sms_inbox._sendable_member)
+    for pk, first, last, mobile in rows:
+        if mobile.startswith("+63900"):
             left[INVALID_NUMBER] += 1
         elif mobile in stopped:
             left[OPTED_OUT] += 1
@@ -237,8 +250,8 @@ def _select(site, kind, account=None, picked=None):
             left[DUPLICATES] += 1
         else:
             seen.add(mobile)
-            chosen.append((pk, name, mobile))
-    return chosen, left, len(members)
+            chosen.append((pk, f"{first} {last}".strip(), mobile))
+    return chosen, left, len(rows)
 
 
 def audience(site, kind, account=None, picked=None):
@@ -411,11 +424,13 @@ def _audit(batch, event, actor=None, **counts):
 
 
 def make_recipients(batch, kind, chosen):
-    """The recipient rows of a batch, one per chosen (id, name, mobile), in order."""
+    """The recipient rows of a batch, one per chosen (contact id, name, mobile), in order. Every audience
+    ("all" = All groups, and "pick") is made of contacts, so each row carries `contact_ref`; `kind` is kept
+    for the callers."""
     StoreBulkRecipient.objects.bulk_create(
         [StoreBulkRecipient(
             batch=batch, position=i, name=name[:120], mobile=mobile,
-            **({"contact_ref": pk} if kind == StoreBulkBatch.PICK else {"member_ref": pk}))
+            contact_ref=pk)
          for i, (pk, name, mobile) in enumerate(chosen)],
         batch_size=500,
     )

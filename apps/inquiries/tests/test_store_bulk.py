@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from apps.accounts.models import AccountAuditEvent, AccountMobile
 from apps.common import retention
+from apps.inbox.models import Contact, ContactGroup
 from apps.inbox.tests.base import inbox_on
 from apps.inquiries import retention as inquiry_retention
 from apps.inquiries import store_bulk
@@ -41,8 +42,10 @@ def at(hour, minute=0):
 
 @inbox_on
 @gateway_on
-@override_settings(INQUIRY_SMS_ENABLED=True, SMS_SITE_LINES_ENABLED=True, STORE_BULK_SMS_ENABLED=True)
+@override_settings(INQUIRY_SMS_ENABLED=True, SMS_SITE_LINES_ENABLED=True, STORE_BULK_SMS_ENABLED=True, STORE_CONTACTS_ENABLED=True)
 class BulkCase(StoredOwnerTestCase):
+    mirror_members = True  # each member's number is also a contact in one group; the pick tests switch it off
+
     def setUp(self):
         super().setUp()
         cache.clear()
@@ -60,8 +63,21 @@ class BulkCase(StoredOwnerTestCase):
         AccountMobile.objects.create(account=self.account, number=OWN_MOBILE, verified_at=timezone.now())
         self.members = [make_member(self.site, mobile, name=f"Member {i}") for i, mobile in enumerate(NUMBERS)]
         self.root = f"{self.base}sms/bulk/"
+        # "all" is All groups (ALL-GROUPS-OPTION, 2026-11-25): each member's number is also a contact in one group
+        self.everyone = ContactGroup.objects.create(owner_kind="site", site=self.site, name="Everyone")
+        self.contacts = []
+        if self.mirror_members:
+            self.contacts = [self.group_contact(self.site, m.mobile, f"Member {i}") for i, m in enumerate(self.members)]
 
     # -- helpers
+    def group_contact(self, site, mobile, first, last="", group=None):
+        contact = Contact.objects.create(
+            owner_kind="site", site=site, first_name=first, last_name=last, mobile=mobile, created_by_account=self.account)
+        group = group or (self.everyone if site.pk == self.site.pk else ContactGroup.objects.get_or_create(
+            owner_kind="site", site=site, name="Everyone")[0])
+        contact.groups.add(group)
+        return contact
+
     def status(self, **kw):
         return self.get(self.root + "status/", **kw)
 
@@ -126,17 +142,19 @@ class SwitchTests(BulkCase):
 class AudienceTests(BulkCase):
     def setUp(self):
         super().setUp()
-        make_member(self.site, "+639171000004", state="pending", name="Pending")
-        make_member(self.site, "+639001000005", name="Test number")
-        make_member(self.site, "+639171000006", name="Stopped")
+        # Members are not read for "all": this one is in no group and is never counted or texted
+        make_member(self.site, "+639171000004", name="Member in no group")
+        self.group_contact(self.site, "+639001000005", "Test number")
+        self.group_contact(self.site, "+639171000006", "Stopped")
         InquirySmsOptOut.objects.create(site=self.site, mobile="+639171000006")
-        make_member(self.ben_site, "+639181000009", name="Ben's member")
+        Contact.objects.create(owner_kind="site", site=self.site, first_name="No group", mobile="+639171000007", created_by_account=self.account)
+        self.group_contact(self.ben_site, "+639181000009", "Ben's contact")
 
     def test_an_explicit_all_counts_each_left_out_group(self):
         body = self.audience("all").json()
         self.assertEqual(body["audience"], "all")
-        self.assertEqual((body["total_members"], body["will_send"]), (6, 3))
-        self.assertEqual(body["left_out"], {"unverified": 1, "invalid_number": 1, "opted_out": 1, "duplicates": 0})
+        self.assertEqual((body["total_members"], body["will_send"]), (5, 3))
+        self.assertEqual(body["left_out"], {"unverified": 0, "invalid_number": 1, "opted_out": 1, "duplicates": 0})
 
     def test_any_other_audience_is_refused(self):
         for value in ("promo", "everyone", "", "ALL"):
@@ -163,7 +181,7 @@ class AudienceTests(BulkCase):
         self.assertEqual(self.audience().json()["will_send"], 3)
 
     def test_another_stores_members_are_never_counted(self):
-        self.assertEqual(self.audience().json()["total_members"], 6)
+        self.assertEqual(self.audience().json()["total_members"], 5)
         self.assertEqual(self.send("post", f"{self.ben_base}sms/bulk/audience/", {"audience": "all"}, client=self.ben).json()["total_members"], 1)
 
     def test_no_number_is_ever_in_the_answer(self):
@@ -267,7 +285,7 @@ class ConfirmTests(BulkCase):
         self.start()
         self.assertEqual(self.confirm(key="key-batch-0002").json()["error"]["code"], "batch_running")
         # ... and each store has its own
-        make_member(self.ben_site, "+639181000009")
+        self.group_contact(self.ben_site, "+639181000009", "Ben")
         make_phone("ben-line", "token-ben-line", site=self.ben_site)
         response = self.send("post", f"{self.ben_base}sms/bulk/batches/", {"text": TEXT, "audience": "all", "idempotency_key": "key-batch-0003", "confirm": True}, client=self.ben)
         self.assertEqual(response.status_code, 201, response.content)
@@ -279,7 +297,7 @@ class ConfirmTests(BulkCase):
         self.assertEqual(self.confirm(expected_count=3).status_code, 201)
 
     def test_nobody_to_send_to_is_409(self):
-        Member.objects.filter(site=self.site).update(mobile_state="pending")
+        Contact.objects.filter(site=self.site).delete()
         self.assertEqual(self.confirm().json()["error"]["code"], "empty_audience")
 
     def test_a_held_store_is_refused_site_held(self):
@@ -431,11 +449,11 @@ class FeedTests(BulkCase):
 
     def test_a_removed_member_or_a_changed_number_is_skipped(self):
         batch = self.start()
-        Member.objects.filter(pk=self.members[0].pk).delete()
-        Member.objects.filter(pk=self.members[1].pk).update(mobile="+639171999999")
+        self.contacts[0].delete()
+        Contact.objects.filter(pk=self.contacts[1].pk).update(mobile="+639171999999")
         self.pump(3)
         reasons = dict(batch.recipients.values_list("position", "reason"))
-        self.assertEqual((reasons[0], reasons[1], reasons[2]), ("member_removed", "number_changed", ""))
+        self.assertEqual((reasons[0], reasons[1], reasons[2]), ("contact_removed", "number_changed", ""))
         self.assertEqual([r.recipient for r in self.records()], [NUMBERS[2]])
 
     def test_another_stores_members_are_never_sent_to(self):

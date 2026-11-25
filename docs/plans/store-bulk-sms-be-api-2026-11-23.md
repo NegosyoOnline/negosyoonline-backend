@@ -18,7 +18,7 @@ Plan and Coach Ed's D1-D4 ruling: `docs/plans/store-bulk-sms-plan-2026-11-23.md`
 
 ## Rules (ruled by Coach Ed, 2026-11-23; the FE must not add anything on top)
 
-- The audience is `all` ("All my members") or `pick` (chosen groups and contacts, see Audience below). There is no
+- The audience is `all` ("All groups", see the dated note below) or `pick` (chosen groups and contacts, see Audience below). There is no
   promo filter or promo label (Coach Ed, 2026-11-24). No consent warning, nudge or extra confirm wording.
 - Always left out: unverified mobiles, test numbers (+63900...), numbers on the store's own STOP list, repeats.
 - The text: one SMS of at most 160 plain characters, all typed by the owner. There is **no store-name prefix** and
@@ -69,9 +69,19 @@ Reads only; never a number or a list.
   "left_out": {"unverified": 10, "invalid_number": 0, "opted_out": 5, "duplicates": 0}
 }
 ```
-Every member is counted once, under the first reason
+Every row is counted once, under the first reason
 that applies, in the order shown. `will_send + sum(left_out) = total_members` (for `pick`, `total_members` is the
-number of picked contacts).
+number of picked contacts; for `all`, the contacts in the store's groups).
+
+> **Update 2026-11-25 (ALL-GROUPS-OPTION, Coach Ed).** "All my members" is removed; `all` now means **All groups**:
+> every contact of this store that is in at least one of its groups, each phone once, in the order added. Verified
+> Members are no longer part of it (a member in no group is not texted). Left out, under the first reason that
+> applies: `+63900` numbers (`invalid_number`), the store's STOP list (`opted_out`), a repeated phone
+> (`duplicates`); `unverified` is always 0 for `all`. Recipients carry `contact_ref`, and `{first_name}` is the
+> contact's first name. With the store-contacts switch off, `all` has no recipients (`will_send` 0) and confirm,
+> schedule and start refuse it with 409 `empty_audience`. The stored/API value `all` and the response shape are
+> unchanged; no migration. A missing audience is still 400 `invalid_audience` ("Choose All groups, or pick groups
+> or contacts."). Text above that says "all members" is the 2026-11-23 record.
 
 ## POST `.../bulk/preview/`  `{ "text": "Sale this weekend, 20% off." }`
 
