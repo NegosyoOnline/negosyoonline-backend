@@ -1,9 +1,11 @@
-"""A store's bulk text to its own members (STORE-BULK, ClickUp z8uq9mbreu; plan
+"""A store's bulk text to its own members and contacts (STORE-BULK, ClickUp z8uq9mbreu; plan
 docs/plans/store-bulk-sms-plan-2026-11-23.md; contract docs/plans/store-bulk-sms-be-api-2026-11-23.md).
 
 The owner texts the store's own members, one text at a time, from the store's own paired phone and
 no other (the shared phone is never used). Coach Ed's ruling (2026-11-23): "All my members" is the
-only audience (no promo filter, no promo label); no consent nudge; always left out:
+audience, and since 2026-11-25 "all" means the verified members plus every contact in any of the
+store's groups, each phone once (a phone in both is the member's). No promo filter, no promo label;
+no consent nudge; always left out:
 the store's STOP list, unverified numbers and repeats; no web links; no forced STOP footer; a daily
 cap of 2,000 a store (SmsPolicy.store_bulk_daily_limit); one text every 18 to 25 s, only from 08:00
 to 20:00 Manila time.
@@ -55,6 +57,7 @@ PURPOSE = "store_bulk"
 UNVERIFIED, INVALID_NUMBER, OPTED_OUT, DUPLICATES = (
     "unverified", "invalid_number", "opted_out", "duplicates",
 )
+MEMBER, CONTACT = "member", "contact"  # where a chosen recipient comes from
 LEFT_OUT = (UNVERIFIED, INVALID_NUMBER, OPTED_OUT, DUPLICATES)
 
 # Why the whole store cannot start a batch now, or why a running one is ended.
@@ -176,7 +179,7 @@ def _picked_scope(site, account):
 
 
 def _select_pick(site, account, picked):
-    """([(contact pk, name, mobile)], {reason: count}, total). The contacts in the picked groups plus
+    """([(CONTACT, contact pk, name, mobile)], {reason: count}, total). The contacts in the picked groups plus
     the picked contacts, of this store only, in the order they were added; each counted once, under
     the first reason that applies. No consent filter: a contact is the store's own list."""
     groups, contacts = _ids((picked or {}).get("groups"), "groups"), _ids((picked or {}).get("contacts"), "contacts")
@@ -213,17 +216,33 @@ def _select_pick(site, account, picked):
             left[DUPLICATES] += 1
         else:
             seen.add(mobile)
-            chosen.append((pk, f"{first} {last}".strip(), mobile))
+            chosen.append((CONTACT, pk, f"{first} {last}".strip(), mobile))
     return chosen, left, len(rows)
 
 
+def _group_contacts(site, account):
+    """[(pk, first_name, last_name, mobile)] of every contact of this store that is in at least one of
+    the store's groups, in the order they were added; [] when the store-contacts switch is off or
+    the tables are not there (`site_scope` is None)."""
+    from apps.inbox import contacts  # not at import: inbox is a later layer for this module
+
+    scope = contacts.site_scope(account, site)
+    if scope is None:
+        return []
+    return list(scope.contacts.filter(groups__isnull=False).values_list("pk", "first_name", "last_name", "mobile").distinct().order_by("pk"))
+
+
 def _select(site, kind, account=None, picked=None):
-    """([(member or contact id, name, mobile)], {reason: count}, total). "all": the store's own
-    members only, in the order they joined; every member is counted once, under the first reason that
-    applies. "pick": see `_select_pick`."""
+    """([(source, id, name, mobile)], {reason: count}, total); `source` is MEMBER or CONTACT, the
+    table `id` is from. "all" (Coach Ed, 2026-11-25): the store's own members, in the order they
+    joined, then every contact in any of the store's groups, in the order they were added; every
+    row is counted once, under the first reason that applies, and a phone that is both a member and
+    a group contact is the member's (the contact counts under duplicates). With the store-contacts
+    switch off, members only. "pick": see `_select_pick`."""
     if kind == StoreBulkBatch.PICK:
         return _select_pick(site, account, picked)
     members = list(Member.objects.filter(site=site).order_by("pk").values_list("pk", "full_name", "mobile", "mobile_state"))
+    group_contacts = _group_contacts(site, account)
     stopped = set(InquirySmsOptOut.objects.filter(site=site).values_list("mobile", flat=True))
     left = dict.fromkeys(LEFT_OUT, 0)
     chosen, seen = [], set()
@@ -238,8 +257,18 @@ def _select(site, kind, account=None, picked=None):
             left[DUPLICATES] += 1
         else:
             seen.add(mobile)
-            chosen.append((pk, name, mobile))
-    return chosen, left, len(members)
+            chosen.append((MEMBER, pk, name, mobile))
+    for pk, first, last, mobile in group_contacts:
+        if mobile.startswith("+63900"):
+            left[INVALID_NUMBER] += 1
+        elif mobile in stopped:
+            left[OPTED_OUT] += 1
+        elif mobile in seen:
+            left[DUPLICATES] += 1
+        else:
+            seen.add(mobile)
+            chosen.append((CONTACT, pk, f"{first} {last}".strip(), mobile))
+    return chosen, left, len(members) + len(group_contacts)
 
 
 def audience(site, kind, account=None, picked=None):
@@ -411,13 +440,14 @@ def _audit(batch, event, actor=None, **counts):
     account_services.record_event(actor or batch.created_by, event, batch=batch.public_id, site=batch.site.public_id, **counts)
 
 
-def make_recipients(batch, kind, chosen):
-    """The recipient rows of a batch, one per chosen (id, name, mobile), in order."""
+def make_recipients(batch, chosen):
+    """The recipient rows of a batch, one per chosen (source, id, name, mobile), in order. Each row
+    carries its own ref: `member_ref` for a member, `contact_ref` for a contact."""
     StoreBulkRecipient.objects.bulk_create(
         [StoreBulkRecipient(
             batch=batch, position=i, name=name[:120], mobile=mobile,
-            **({"contact_ref": pk} if kind == StoreBulkBatch.PICK else {"member_ref": pk}))
-         for i, (pk, name, mobile) in enumerate(chosen)],
+            **({"contact_ref": pk} if source == CONTACT else {"member_ref": pk}))
+         for i, (source, pk, name, mobile) in enumerate(chosen)],
         batch_size=500,
     )
 
@@ -453,7 +483,7 @@ def confirm(site, account, data):
                 site=site, created_by=account, request_id=key, text=full,
                 audience=kind, picked=picked, size=len(chosen), left_out=left,
             )
-            make_recipients(batch, kind, chosen)
+            make_recipients(batch, chosen)
             _audit(batch, "store_bulk_confirmed", size=batch.size, audience=kind, left_out=left)
     except IntegrityError:
         again = StoreBulkBatch.objects.filter(site=site, request_id=key).first()

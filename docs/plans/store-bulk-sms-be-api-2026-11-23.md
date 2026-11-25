@@ -18,7 +18,9 @@ Plan and Coach Ed's D1-D4 ruling: `docs/plans/store-bulk-sms-plan-2026-11-23.md`
 
 ## Rules (ruled by Coach Ed, 2026-11-23; the FE must not add anything on top)
 
-- The audience is `all` ("All my members") or `pick` (chosen groups and contacts, see Audience below). There is no
+- The audience is `all` ("All my members") or `pick` (chosen groups and contacts, see Audience below). Since
+  2026-11-25 (Coach Ed, ALL-MEMBERS-ALL-GROUPS) `all` means the store's verified members **plus every contact in any of
+  the store's contact groups**, each phone once, this store only. There is no
   promo filter or promo label (Coach Ed, 2026-11-24). No consent warning, nudge or extra confirm wording.
 - Always left out: unverified mobiles, test numbers (+63900...), numbers on the store's own STOP list, repeats.
 - The text: one SMS of at most 160 plain characters, all typed by the owner. There is **no store-name prefix** and
@@ -55,6 +57,11 @@ Used by audience, confirm and the schedule routes. `audience` is required: `all`
 For `pick`, send `groups` and/or `contacts`: lists of public ids (strings, at most 20,000 each). The members are the
 contacts in the picked groups plus the picked contacts, of this store only, each counted once. At least one
 group or contact is needed. For `all`, `groups` and `contacts` are ignored.
+`all` is the store's members, in the order they joined, then every contact that is in at least one of the store's
+groups, in the order they were added (a contact in no group is not included). A phone that is both a member and a
+group contact is the member's row; the contact counts under `duplicates`. Unverified applies to members only. While
+the store-contacts switch is off, `all` is members only (it never errors). The same `all` is used by the audience
+count, confirm, the scheduled create/edit count and the scheduled send at its start time.
 400 `invalid_audience` for: any other audience value, `pick` with nothing picked, an id that is not this store's
 group or contact, a bad list, or the store-contacts switch being off.
 
@@ -69,9 +76,9 @@ Reads only; never a number or a list.
   "left_out": {"unverified": 10, "invalid_number": 0, "opted_out": 5, "duplicates": 0}
 }
 ```
-Every member is counted once, under the first reason
-that applies, in the order shown. `will_send + sum(left_out) = total_members` (for `pick`, `total_members` is the
-number of picked contacts).
+Every row is counted once, under the first reason
+that applies, in the order shown. `will_send + sum(left_out) = total_members` (for `all`, `total_members` is the
+members plus the group contacts; for `pick`, the number of picked contacts).
 
 ## POST `.../bulk/preview/`  `{ "text": "Sale this weekend, 20% off." }`
 

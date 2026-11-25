@@ -259,7 +259,7 @@ def _start_one(pk, now):
         with transaction.atomic():
             batch.size, batch.left_out, batch.state = len(chosen), left, StoreBulkBatch.WAITING
             batch.save(update_fields=["size", "left_out", "state"])
-            make_recipients(batch, batch.audience, chosen)
+            make_recipients(batch, chosen)
             _audit(batch, "store_bulk_schedule_started", size=batch.size, left_out=left)
     except IntegrityError:  # an ordinary batch took the place a moment ago: wait for the next run
         pass
