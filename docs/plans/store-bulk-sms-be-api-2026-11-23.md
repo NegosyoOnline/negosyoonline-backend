@@ -52,7 +52,7 @@ and disable "Text many members" (for `no_line`, with the pairing hint).
 ## Audience (`audience`, `groups`, `contacts`)
 
 Used by audience, confirm and the schedule routes. `audience` is required: `all` or `pick`. A missing, null or blank audience is refused (400 `invalid_audience`, `fields.audience`); nothing defaults to all.
-For `pick`, send `groups` and/or `contacts`: lists of public ids (strings, at most 20,000 each). The members are the
+For `pick`, send `groups` and/or `contacts`: lists of public ids (strings, no limit on how many). The members are the
 contacts in the picked groups plus the picked contacts, of this store only, each counted once. At least one
 group or contact is needed. For `all`, `groups` and `contacts` are ignored.
 400 `invalid_audience` for: any other audience value, `pick` with nothing picked, an id that is not this store's

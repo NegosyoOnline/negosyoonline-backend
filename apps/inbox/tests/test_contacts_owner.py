@@ -107,7 +107,7 @@ class GateTests(OwnerCase):
             self.assertEqual(foreign.json(), gone.json())
 
     def test_status(self):
-        self.assertEqual(self.get(self.base + "status/").json(), {"contacts": True, "count": 0, "max": 20000})
+        self.assertEqual(self.get(self.base + "status/").json(), {"contacts": True, "count": 0, "max": None})
         self.add()
         self.assertEqual(self.get(self.base + "status/").json()["count"], 1)
 
@@ -286,10 +286,9 @@ class GroupTests(OwnerCase):
         with mock.patch.object(contacts, "MAX_GROUPS_PER_CONTACT", 2):
             self.error(self.post(self.base, {**ANA, "groups": ids}), 400, "invalid_request")
             self.add({**ANA, "groups": ids[:2]})
-        with mock.patch.object(contacts, "MAX_STORE_CONTACTS", 1):
-            self.error(self.post(self.base, BEN), 400, "contact_limit")
-            self.assertEqual(self.get(self.base + "status/").json()["max"], 1)
-        self.assertEqual(Contact.objects.count(), 1)
+        self.add(BEN)  # a store has no cap on its contacts
+        self.assertIsNone(self.get(self.base + "status/").json()["max"])
+        self.assertEqual(Contact.objects.count(), 2)
 
 
 class UploadTests(OwnerCase):
@@ -348,11 +347,10 @@ class UploadTests(OwnerCase):
         self.error(self.post(self.base + "upload/check/", {"text": "a" * 1_048_577}), 413, "file_too_large")
         self.assertEqual(Contact.objects.count(), 0)
 
-    def test_over_the_store_limit_is_refused(self):
-        with mock.patch.object(contacts, "MAX_STORE_CONTACTS", 1):
-            self.error(self.post(self.base + "upload/check/", {"text": self.FILE}), 400, "contact_limit")
-            self.error(self.post(self.base + "upload/save/", {"text": self.FILE, "expected_new": 2}), 400, "contact_limit")
-        self.assertEqual(Contact.objects.count(), 0)
+    def test_a_store_has_no_contact_limit_on_a_file(self):
+        self.assertEqual(self.post(self.base + "upload/check/", {"text": self.FILE}).status_code, 200)
+        self.assertEqual(self.post(self.base + "upload/save/", {"text": self.FILE, "expected_new": 2}).status_code, 201)
+        self.assertEqual(Contact.objects.count(), 2)
 
 
 class ScopeTests(OwnerCase):
@@ -442,3 +440,45 @@ class PickerQueryTests(OwnerCase):
             with self.subTest(query=query):
                 self.assertEqual(self.get(self.base + f"?q={query}").json()["count"], found)
         self.error(self.get(self.base + "?q=a"), 400, "invalid_request")
+
+
+class NoContactLimitTests(OwnerCase):
+    """A store keeps as many contacts as it likes (Coach Ed, 2026-11-25: "No limit"). The big list is
+    made with bulk_create, then one contact is added by the API and some by a file."""
+
+    BIG = 20_005
+
+    def setUp(self):
+        super().setUp()
+        Contact.objects.bulk_create(
+            [
+                Contact(
+                    owner_kind="site", site=self.site, created_by_account=self.site.account,
+                    first_name=f"C{n}", mobile=f"+6391{n:08d}",
+                )
+                for n in range(self.BIG)
+            ],
+            batch_size=1000,
+        )
+
+    def test_adding_past_twenty_thousand_is_not_refused(self):
+        self.assertEqual(self.post(self.base, BEN).status_code, 201)
+        self.assertEqual(Contact.objects.filter(site=self.site).count(), self.BIG + 1)
+
+    def test_a_file_past_twenty_thousand_is_checked_and_saved(self):
+        text = "first,last,mobile\nAna,Sample,0917 000 0301\nBen,,+639170000302\n"
+        self.assertEqual(self.post(self.base + "upload/check/", {"text": text}).json()["new"], 2)
+        self.assertEqual(self.post(self.base + "upload/save/", {"text": text, "expected_new": 2}).status_code, 201)
+        self.assertEqual(Contact.objects.filter(site=self.site).count(), self.BIG + 2)
+
+    def test_status_answers_max_null(self):
+        body = self.get(self.base + "status/").json()
+        self.assertEqual((body["count"], body["max"]), (self.BIG, None))
+        self.assertIn("max", body)
+
+    def test_a_group_takes_a_new_contact_past_the_old_limit(self):
+        gid = self.group()["id"]
+        self.assertEqual(self.post(self.base, {**BEN, "groups": [gid]}).status_code, 201)
+
+    def test_the_file_size_limit_still_holds(self):
+        self.error(self.post(self.base + "upload/check/", {"text": "a" * 1_048_577}), 413, "file_too_large")

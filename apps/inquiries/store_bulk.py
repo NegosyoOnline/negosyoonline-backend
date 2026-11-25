@@ -46,7 +46,6 @@ TEST_KEPT = 24 * 3600
 MAX_SKIPS = 100  # members passed over (gone, opted out ...) in one poll before the next poll goes on
 PAGE = (20, 100)
 KINDS = (StoreBulkBatch.ALL, StoreBulkBatch.PICK)
-MAX_PICKED = 20_000
 CHUNK = 500
 TARGET = "store_bulk_batch"
 PURPOSE = "store_bulk"
@@ -161,7 +160,7 @@ def _kind(value):
 def _ids(value, what):
     if value is None:
         return []
-    if not isinstance(value, list) or len(value) > MAX_PICKED or not all(isinstance(i, str) for i in value):
+    if not isinstance(value, list) or not all(isinstance(i, str) for i in value):
         raise _invalid_audience(f"Choose {what} from your list.")
     return list(dict.fromkeys(value))
 
@@ -188,19 +187,19 @@ def _select_pick(site, account, picked):
         found_groups.update(scope.groups.filter(public_id__in=groups[i:i + CHUNK]).values_list("pk", flat=True))
     if len(found_groups) != len(groups):
         raise _invalid_audience("Choose groups from your list.")
-    pks = set(scope.contacts.filter(groups__in=found_groups).values_list("pk", flat=True)) if found_groups else set()
+    fields = ("pk", "first_name", "last_name", "mobile")
+    people, group_pks = {}, list(found_groups)  # contact pk -> row, so a contact in two groups is read once
+    for i in range(0, len(group_pks), CHUNK):  # one query per 500 groups, whatever the size of the groups
+        for row in scope.contacts.filter(groups__in=group_pks[i:i + CHUNK]).values_list(*fields):
+            people[row[0]] = row
     found_contacts = 0
     for i in range(0, len(contacts), CHUNK):
-        got = list(scope.contacts.filter(public_id__in=contacts[i:i + CHUNK]).values_list("pk", flat=True))
+        got = list(scope.contacts.filter(public_id__in=contacts[i:i + CHUNK]).values_list(*fields))
         found_contacts += len(got)
-        pks.update(got)
+        people.update((row[0], row) for row in got)
     if found_contacts != len(contacts):
         raise _invalid_audience("Choose contacts from your list.")
-    rows = []
-    ordered = sorted(pks)
-    for i in range(0, len(ordered), CHUNK):
-        rows += list(scope.contacts.filter(pk__in=ordered[i:i + CHUNK]).values_list("pk", "first_name", "last_name", "mobile"))
-    rows.sort()
+    rows = sorted(people.values())
     stopped = set(InquirySmsOptOut.objects.filter(site=site).values_list("mobile", flat=True))
     left = dict.fromkeys(LEFT_OUT, 0)
     chosen, seen = [], set()

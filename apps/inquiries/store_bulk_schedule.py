@@ -155,7 +155,7 @@ def picked_names(site, batches):
     """{batch pk: (groups, contacts)} for a page of batches of one store. For a "pick" batch: the
     picked groups ({id, name}) and contacts ({id, first_name, last_name, mobile_masked}), of the
     store only, in the picked order; ids that are gone are skipped. "all" batches get ([], []).
-    At most two queries for the whole page; never a full number; no audit entry."""
+    One query per 500 picked ids (two for a small page); never a full number; no audit entry."""
     from apps.inbox import contacts as inbox_contacts  # not at import: inbox is a later layer
 
     wanted = {b.pk: (b.picked or {}) for b in batches if b.audience == StoreBulkBatch.PICK}
@@ -164,11 +164,11 @@ def picked_names(site, batches):
     scope = inbox_contacts.site_scope(None, site) if (group_ids or contact_ids) else None
     found_groups, found = {}, {}
     if scope is not None:
-        if group_ids:
-            found_groups = {g[0]: g for g in scope.groups.filter(public_id__in=group_ids).values_list("public_id", "name")}
-        if contact_ids:
-            found = {c[0]: c for c in scope.contacts.filter(public_id__in=contact_ids).values_list(
-                "public_id", "first_name", "last_name", "mobile")}
+        for i in range(0, len(group_ids), store_bulk.CHUNK):
+            found_groups.update({g[0]: g for g in scope.groups.filter(public_id__in=group_ids[i:i + store_bulk.CHUNK]).values_list("public_id", "name")})
+        for i in range(0, len(contact_ids), store_bulk.CHUNK):
+            found.update({c[0]: c for c in scope.contacts.filter(public_id__in=contact_ids[i:i + store_bulk.CHUNK]).values_list(
+                "public_id", "first_name", "last_name", "mobile")})
     out = {}
     for b in batches:
         p = wanted.get(b.pk, {})
