@@ -23,7 +23,7 @@ Plan and Coach Ed's D1-D4 ruling: `docs/plans/store-bulk-sms-plan-2026-11-23.md`
 - Always left out: unverified mobiles, test numbers (+63900...), numbers on the store's own STOP list, repeats.
 - The text: one SMS of at most 160 plain characters, all typed by the owner. There is **no store-name prefix** and
   **nothing is added at the end** (no STOP footer) (Coach Ed, NO-SMS-PREFIX). No web link (422).
-- Sent from the store's own paired phone only, one text every 18 to 25 seconds, only 08:00 to 20:00 Manila time
+- Sent from the store's own paired phone only, one text every 18 to 25 seconds, only 08:00 to 22:00 Manila time
   (a batch waits overnight and goes on the next morning), at most `daily_limit` bulk texts a day per store
   (default 2,000, HQ-editable; a test text counts as one). A batch that meets the cap waits for the next day.
 - One active batch (state `waiting` or `sending`) per store.
@@ -39,7 +39,7 @@ Plan and Coach Ed's D1-D4 ruling: `docs/plans/store-bulk-sms-plan-2026-11-23.md`
   "phone_online": true,               // the store's own paired phone polled in the last minute
   "daily_limit": 2000, "used_today": 0, "left_today": 2000,
   "prefix": "", "max_length": 160,    // prefix is always "" (kept for old clients); max_length = the whole text
-  "window": {"start": "08:00", "end": "20:00", "timezone": "Asia/Manila"},
+  "window": {"start": "08:00", "end": "22:00", "timezone": "Asia/Manila"},
   "in_window": true,                  // right now
   "seconds_between": {"min": 18, "max": 25},
   "cost_note": "Texts go out from your own phone and SIM. Your carrier's normal SMS rates apply.",
@@ -180,7 +180,7 @@ recipients yet. Its `size` and `left_out` are a count for display, redone at sta
   answers the same; 409 `already_started` for a batch that has started.
 
 `scheduled_at` rules (422, field `scheduled_at`): `invalid` (not a date and time); `too_soon` (under 10 minutes
-ahead); `outside_window` (not 08:00 to 20:00 Manila time); `too_far` (over 30 days ahead). Other errors: 409
+ahead); `outside_window` (not 08:00 to 22:00 Manila time); `too_far` (over 30 days ahead). Other errors: 409
 `schedule_limit` (20 scheduled already), 409 `empty_audience` (nobody to send to now), 400 `invalid_audience`, 422
 `invalid` (text, `idempotency_key`).
 

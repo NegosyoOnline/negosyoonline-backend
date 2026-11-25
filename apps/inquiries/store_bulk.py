@@ -6,7 +6,7 @@ no other (the shared phone is never used). Coach Ed's ruling (2026-11-23): "All 
 only audience (no promo filter, no promo label); no consent nudge; always left out:
 the store's STOP list, unverified numbers and repeats; no web links; no forced STOP footer; a daily
 cap of 2,000 a store (SmsPolicy.store_bulk_daily_limit); one text every 18 to 25 s, only from 08:00
-to 20:00 Manila time.
+to 22:00 Manila time.
 
 Nothing here logs or audits a number or a text. The audit entries carry the batch id and counts
 only. A recipient's number is held in full only while its batch is active; once the batch is over it
@@ -40,7 +40,7 @@ from apps.notifications.models import StoreBulkBatch, StoreBulkRecipient
 logger = logging.getLogger(__name__)
 
 MANILA = ZoneInfo("Asia/Manila")
-WINDOW = (time(8, 0), time(20, 0))  # texts go only from 08:00 up to, not including, 20:00 Manila time
+WINDOW = (time(8, 0), time(22, 0))  # texts go only from 08:00 up to, not including, 22:00 Manila time
 SECONDS = (18, 25)  # the phone keeps this gap between two texts (apps/notifications/gateway.py)
 TEST_KEPT = 24 * 3600
 MAX_SKIPS = 100  # members passed over (gone, opted out ...) in one poll before the next poll goes on
@@ -84,7 +84,7 @@ REASON_TEXTS = {
     "cancelled": "Cancelled by you.",
     "batch_running": "Another batch was still sending at the start time.",
     "empty_audience": "There was nobody to send to at the start time.",
-    "outside_window": "The start time came after texts may go out (08:00 to 20:00 Manila time).",
+    "outside_window": "The start time came after texts may go out (08:00 to 22:00 Manila time).",
     "daily_cap": "The store's daily bulk text limit was reached at the start time.",
     "phone_offline": "Your phone was offline at the start time.",
     NO_LINE: BLOCKED_TEXTS[NO_LINE],
@@ -97,7 +97,7 @@ PAUSED_REASONS = ("outside_window", "daily_cap", "phone_offline")
 # -- time and availability ------------------------------------------------------------------
 
 def in_window(now=None):
-    """True from 08:00 up to, not including, 20:00 Manila time."""
+    """True from 08:00 up to, not including, 22:00 Manila time."""
     local = (now or timezone.now()).astimezone(MANILA).time()
     return WINDOW[0] <= local < WINDOW[1]
 
