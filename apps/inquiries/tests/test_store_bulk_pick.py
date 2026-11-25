@@ -142,7 +142,7 @@ class BigListTests(PickCase):
             [
                 Contact(
                     owner_kind="site", site=site, created_by_account=self.account,
-                    first_name=f"C{n}", mobile=f"+6391{n:09d}",
+                    first_name=f"C{n}", mobile=f"+6391{n:08d}",
                 )
                 for n in range(self.BIG)
             ],

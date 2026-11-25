@@ -454,7 +454,7 @@ class NoContactLimitTests(OwnerCase):
             [
                 Contact(
                     owner_kind="site", site=self.site, created_by_account=self.site.account,
-                    first_name=f"C{n}", mobile=f"+6391{n:09d}",
+                    first_name=f"C{n}", mobile=f"+6391{n:08d}",
                 )
                 for n in range(self.BIG)
             ],
