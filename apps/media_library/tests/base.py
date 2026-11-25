@@ -53,6 +53,7 @@ class FakeStore:
 
     def __init__(self):
         self.files, self.deleted, self.count = {}, [], 0
+        self.fail_delete = False  # a test sets it to make every ledger delete fail
 
     def _save(self, asset, content, content_type):
         self.count += 1
@@ -65,12 +66,19 @@ class FakeStore:
             self.deleted.append(key)
             self.files.pop(key, None)
 
+    def _delete(self, key):
+        """store.delete (the ledger's raising delete): an absent key is gone, not an error."""
+        if self.fail_delete:
+            raise store.StoreError("The media store delete failed (500).")
+        self._discard(key)
+
     def __enter__(self):
         self.settings = override_settings(**MEDIA)
         self.settings.enable()
         self.patches = [
             mock.patch("apps.media_library.store.save", side_effect=self._save),
             mock.patch("apps.media_library.store.discard", side_effect=self._discard),
+            mock.patch("apps.media_library.store.delete", side_effect=self._delete),
         ]
         for patch in self.patches:
             patch.start()

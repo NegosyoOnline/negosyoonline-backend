@@ -60,3 +60,9 @@ def save(asset, content, content_type):
 def discard(key):
     """Remove the file unless another row still names its key (apps/common/file_refs.py)."""
     file_refs.discard_if_unreferenced(key)
+
+
+def delete(key):
+    """Remove the file, raising StoreError when the store cannot. A key already absent is gone, not
+    an error (Vercel Blob answers a delete of an absent key with success). Used by the ledger."""
+    media.delete(key)

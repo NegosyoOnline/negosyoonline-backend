@@ -33,6 +33,8 @@ from django.utils import timezone
 
 from apps.catalog import media
 from apps.common.errors import ApiError
+from apps.media_library import ledger
+from apps.media_library import services as media_services
 from apps.media_library import store as media_store
 from apps.media_library.models import MediaAsset
 from apps.sante import services
@@ -268,13 +270,16 @@ class _Staged:
 
     def __init__(self):
         self.keys = []
+        self.stored = {}  # key -> (size, content type), for the ledger rows of a media copy
         self.videos = []  # (library id, video id) created in a target library
 
     def copy(self, src_key, dest_key):
         if not src_key:
             return ""
-        self.keys.append(media.copy(src_key, dest_key))
-        return dest_key
+        key, size, content_type = media.copy_sized(src_key, dest_key)
+        self.keys.append(key)
+        self.stored[key] = (size, content_type)
+        return key
 
     def discard(self):
         for key in self.keys:
@@ -312,15 +317,25 @@ def run_copy(copy_pk):
             item = offered_media(source).filter(public_id=row.source_public_id).first()
             if item is None:
                 return _fail(row, GONE_MSG)
+            if media_services.library_full(row.site):  # before any file is copied
+                return _fail(row, media_services.full_message())
             target = _copy_media(row, item, staged)
     except BaseException as exc:  # noqa: BLE001 - nothing half-made stays behind
         staged.discard()
         logger.warning("A content copy failed (%s).", type(exc).__name__)
-        _fail(row, stream.NOT_AVAILABLE_MSG if isinstance(exc, _VideoUnavailable) else COPY_FAILED_MSG)
+        _fail(row, _failure_message(exc))
         if not isinstance(exc, Exception):
             raise
         return None
     return target
+
+
+def _failure_message(exc):
+    if isinstance(exc, _VideoUnavailable):
+        return stream.NOT_AVAILABLE_MSG
+    if isinstance(exc, _LibraryFull):
+        return media_services.full_message()
+    return COPY_FAILED_MSG
 
 
 def _fail(row, message):
@@ -346,10 +361,18 @@ def _copy_media(row, src, staged):
     asset.thumb_key = staged.copy(src.thumb_key, dest(src.thumb_key))
     asset.poster_key = staged.copy(src.poster_key, dest(src.poster_key))
     with transaction.atomic():
+        media_services.lock_site(site)
+        if media_services.library_full(site):  # a slot taken since the first check
+            raise _LibraryFull()
         asset.order = (
             MediaAsset.objects.filter(site=site).order_by("-order").values_list("order", flat=True).first() or 0
         ) + 1
         asset.save()
+        # One ledger row per copied object, in the destination site only (the source keeps its own).
+        for role, key in (("file", asset.file_key), ("thumb", asset.thumb_key), ("poster", asset.poster_key)):
+            if key:
+                size, content_type = staged.stored[key]
+                ledger.record(site, asset=asset, role=role, key=key, content_type=content_type, size=size)
         _finish_rows(row, asset.public_id)
     return asset.public_id
 
@@ -422,6 +445,10 @@ def _copy_course(row, src, staged):
         else:
             _finish_rows(row, course.public_id)
     return course.public_id
+
+
+class _LibraryFull(Exception):
+    """The target library holds the most items it may."""
 
 
 class _VideoUnavailable(Exception):

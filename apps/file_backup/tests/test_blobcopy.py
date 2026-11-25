@@ -25,7 +25,10 @@ class FakeStore:
     existing name is refused."""
 
     def __init__(self, access, store_id="fake01"):
-        self.access, self.store_id = access, store_id
+        # `access` is the store's REAL kind; `declared` is what the command was told (--access).
+        self.access, self.declared, self.store_id = access, access, store_id
+        self.probe_log = []  # ("put" | "fetch" | "delete" | "public", pathname) of probe objects
+        self.fail_probe_put = self.fail_probe_delete = False
         self.objects = {}  # pathname -> (bytes, content type)
         self.puts, self.deletes, self.fetches = [], [], []
         self.fail_fetch, self.corrupt_put = set(), set()
@@ -39,13 +42,28 @@ class FakeStore:
                 yield {"pathname": pathname, "size": len(self.objects[pathname][0]),
                        "uploaded_at": "t", "etag": "e"}
 
+    def served_publicly(self, pathname):
+        self.probe_log.append(("public", pathname))
+        return self.access == "public" and pathname in self.objects
+
     def fetch(self, pathname):
-        self.fetches.append(pathname)
+        if pathname.startswith(blobcopy.PROBE_PREFIX):
+            self.probe_log.append(("fetch", pathname))
+        else:
+            self.fetches.append(pathname)
+        if self.declared != self.access:  # the wrong host: a private object is not on the public one
+            raise SourceError("The private store get failed (404).")
         if pathname in self.fail_fetch or pathname not in self.objects:
             raise SourceError("The private store get failed (404).")
         return self.objects[pathname]
 
     def put(self, pathname, content, content_type):
+        if pathname.startswith(blobcopy.PROBE_PREFIX):
+            self.probe_log.append(("put", pathname))
+            if self.fail_probe_put:
+                raise SourceError("The private store put failed (403).")
+            self.objects[pathname] = (content, content_type)
+            return
         if pathname in self.objects:
             raise SourceError("The private store put failed (400).")
         self.puts.append((pathname, content_type, self.access))
@@ -54,6 +72,12 @@ class FakeStore:
         self.objects[pathname] = (content, content_type)
 
     def delete(self, pathname):
+        if pathname.startswith(blobcopy.PROBE_PREFIX):
+            self.probe_log.append(("delete", pathname))
+            if self.fail_probe_delete:
+                raise SourceError("The private store delete failed (500).")
+            self.objects.pop(pathname, None)
+            return
         self.deletes.append(pathname)
         self.objects.pop(pathname, None)
 
@@ -66,18 +90,25 @@ def seeded(access="private"):
     return source, dest
 
 
-def run_command(source, dest, *args, env=None):
+def _declare(store, declared):
+    store.declared = declared
+    return store
+
+
+def run_command(source, dest, *args, env=None, access=None):
     """Run the command with the two fake stores in place of the real ones. Returns (stdout,
     stderr, error or None)."""
     stores = {SRC_TOKEN: source, DST_TOKEN: dest}
     out, err = io.StringIO(), io.StringIO()
-    environ = {"SRC_TOK": SRC_TOKEN, "DST_TOK": DST_TOKEN}
+    access = access or source.access
+    word = access.upper()
+    environ = {f"SRC_{word}_TOK": SRC_TOKEN, f"DST_{word}_TOK": DST_TOKEN}
     environ.update(env or {})
-    base = ["--access", source.access, "--source-token-env", "SRC_TOK", "--dest-token-env", "DST_TOK",
-            "--rate", "100000"]
+    base = ["--access", access, "--source-token-env", f"SRC_{word}_TOK",
+            "--dest-token-env", f"DST_{word}_TOK", "--rate", "100000"]
     error = None
     with mock.patch.dict(os.environ, environ), \
-            mock.patch(f"{CMD}.build_store", side_effect=lambda token, access: stores[token]):
+            mock.patch(f"{CMD}.build_store", side_effect=lambda token, declared: _declare(stores[token], declared)):
         try:
             call_command("copy_blob_store", *base, *args, stdout=out, stderr=err)
         except CommandError as caught:
@@ -96,9 +127,9 @@ class CopyTests(SimpleTestCase):
         self.assertIn("already at the destination: 1", out)
         self.assertIn("would copy: 2", out)
         self.assertEqual(dest.puts, [])
-        self.assertEqual(source.fetches, [])
+        self.assertEqual(len(source.fetches), 1)  # the kind probe: one listed object
         self.assertEqual(dest.fetches, [])
-        self.assertEqual(len(dest.objects), 1)
+        self.assertEqual(len(dest.objects), 1)  # the probe is deleted again
 
     def test_apply_copies_bytes_and_content_types(self):
         source, dest = seeded()
@@ -145,25 +176,25 @@ class CopyTests(SimpleTestCase):
 
     def test_sha_mismatch_after_upload_is_failed_and_the_bad_copy_removed(self):
         source, dest = seeded()
-        dest.corrupt_put.add(PATH_B)
+        dest.corrupt_put.add(PATH_C)  # the first object copied (listing order: C, A, B)
         out, _, error = run_command(source, dest, "--apply")
         self.assertIn("failed: 1", out)
-        self.assertIn("copied: 2", out)
+        self.assertIn("copied: 0", out)  # fail fast: A and B were never tried
         self.assertIsNotNone(error)
         self.assertIn("Not done:", str(error))
-        self.assertNotIn(PATH_B, dest.objects)  # removed, so a re-run can try again
-        self.assertEqual(dest.deletes, [PATH_B])
+        self.assertEqual(dest.objects, {})  # the bad copy removed, so a re-run can try again
+        self.assertEqual(dest.deletes, [PATH_C])
         dest.corrupt_put.clear()
         out, _, error = run_command(source, dest, "--apply")
         self.assertIsNone(error)
-        self.assertIn("copied: 1", out)
+        self.assertIn("copied: 3", out)
 
     def test_failed_read_back_keeps_the_object_and_a_rerun_accepts_it(self):
         source, dest = seeded()
         real_fetch = dest.fetch
 
         def flaky(pathname):
-            if pathname == PATH_A and PATH_A in dest.objects:
+            if pathname == PATH_C and PATH_C in dest.objects:
                 raise SourceError("The private store get failed (500).")
             return real_fetch(pathname)
 
@@ -174,11 +205,12 @@ class CopyTests(SimpleTestCase):
         self.assertEqual(dest.deletes, [])
         out, _, error = run_command(source, dest, "--apply")
         self.assertIsNone(error)
-        self.assertIn("skipped_existing: 3", out)
+        self.assertIn("skipped_existing: 1", out)
+        self.assertIn("copied: 2", out)
 
     def test_source_fetch_failure_counts_failed_and_goes_on(self):
         source, dest = seeded()
-        source.fail_fetch.add(PATH_A)
+        source.fail_fetch.add(PATH_A)  # not the object the kind probe fetches (the first listed, C)
         out, _, error = run_command(source, dest, "--apply")
         self.assertIn("failed: 1", out)
         self.assertIn("copied: 2", out)
@@ -270,9 +302,9 @@ class AccessTests(SimpleTestCase):
 class SafetyTests(SimpleTestCase):
     def test_no_token_or_pathname_in_stdout_stderr_or_logs(self):
         source, dest = seeded()
-        dest.corrupt_put.add(PATH_B)
-        source.fail_fetch.add(PATH_C)
-        dest.add(PATH_A, b"different")
+        dest.corrupt_put.add(PATH_A)
+        source.fail_fetch.add(PATH_B)
+        dest.add(PATH_C, b"different")
         with self.assertLogs(level="DEBUG") as logs:
             import logging
             logging.getLogger("apps.file_backup").warning("sentinel")
@@ -281,7 +313,8 @@ class SafetyTests(SimpleTestCase):
         for out, err, error in outputs:
             seen += "\n".join([out, err, str(error or "")])
         for secret in (SRC_TOKEN, DST_TOKEN, "SECRETSOURCEVALUE", "SECRETDESTVALUE",
-                       PATH_A, PATH_B, PATH_C, "sante/proofs", "media-library", "site-1"):
+                       PATH_A, PATH_B, PATH_C, "sante/proofs", "media-library", "site-1",
+                       blobcopy.PROBE_PREFIX):
             self.assertNotIn(secret, seen)
 
     def test_real_client_failure_logs_no_token_or_pathname(self):
@@ -302,21 +335,21 @@ class SafetyTests(SimpleTestCase):
 
     def test_tokens_only_from_the_named_variables(self):
         source, dest = seeded()
-        _, _, error = run_command(source, dest, env={"DST_TOK": ""})
+        _, _, error = run_command(source, dest, env={"DST_PRIVATE_TOK": ""})
         self.assertIn("Not done:", str(error))
-        self.assertIn("DST_TOK", str(error))
+        self.assertIn("DST_PRIVATE_TOK", str(error))
         self.assertNotIn("SECRET", str(error))
         with self.assertRaises(CommandError):
             call_command("copy_blob_store", "--access", "private", "--source-token", SRC_TOKEN,
-                         "--dest-token-env", "DST_TOK")
+                         "--dest-token-env", "DST_PRIVATE_TOK")
 
     def test_same_variable_or_same_store_is_refused(self):
         source, dest = seeded()
         out = io.StringIO()
-        with mock.patch.dict(os.environ, {"SRC_TOK": SRC_TOKEN}), \
+        with mock.patch.dict(os.environ, {"SRC_PRIVATE_TOK": SRC_TOKEN}), \
                 self.assertRaises(CommandError) as caught:
-            call_command("copy_blob_store", "--access", "private", "--source-token-env", "SRC_TOK",
-                         "--dest-token-env", "SRC_TOK", stdout=out)
+            call_command("copy_blob_store", "--access", "private", "--source-token-env", "SRC_PRIVATE_TOK",
+                         "--dest-token-env", "SRC_PRIVATE_TOK", stdout=out)
         self.assertIn("Not done:", str(caught.exception))
         dest.store_id = source.store_id
         _, _, error = run_command(source, dest, "--apply")

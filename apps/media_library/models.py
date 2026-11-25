@@ -47,3 +47,43 @@ class MediaAsset(models.Model):
 
     def __str__(self):
         return self.public_id
+
+
+class MediaObject(models.Model):
+    """One stored object of the media library: the byte ledger (docs/runbooks/storage.md).
+
+    One row per key the library puts in the public store (an image or video file, a thumbnail, a
+    poster). Rows are never deleted: only `removed_at` is written after the row is created, and
+    only when the object is confirmed gone. The bytes held at an instant are the rows added at or
+    before it and not removed by it (apps/media_library/ledger.py, the only code that writes this
+    table). `asset` goes null when the asset row is deleted; the ledger row outlives it.
+    """
+
+    FILE, THUMB, POSTER = "file", "thumb", "poster"
+    ROLES = ((FILE, "File"), (THUMB, "Thumbnail"), (POSTER, "Poster"))
+
+    site = models.ForeignKey("sites.Site", on_delete=models.PROTECT, related_name="media_objects")
+    asset = models.ForeignKey(MediaAsset, null=True, blank=True, on_delete=models.SET_NULL, related_name="ledger_rows")
+    role = models.CharField(max_length=10, choices=ROLES)
+    key = models.CharField(max_length=255, unique=True)
+    content_type = models.CharField(max_length=100, blank=True, default="")
+    bytes = models.BigIntegerField()
+    added_at = models.DateTimeField(default=timezone.now)
+    removed_at = models.DateTimeField(null=True, blank=True)  # empty while the object is stored
+
+    class Meta:
+        ordering = ["pk"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(bytes__gte=0), name="media_object_bytes_gte_0"),
+            models.CheckConstraint(
+                condition=models.Q(removed_at__isnull=True) | models.Q(removed_at__gte=models.F("added_at")),
+                name="media_object_removed_after_added",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["site", "added_at"], name="media_obj_site_added"),
+            models.Index(fields=["site", "removed_at"], name="media_obj_site_removed"),
+        ]
+
+    def __str__(self):
+        return f"{self.role} {self.key}"
