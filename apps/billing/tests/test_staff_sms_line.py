@@ -9,7 +9,7 @@ from django.core.cache import cache
 from django.test import Client, override_settings
 
 from apps.accounts.tests.base import ORIGIN
-from apps.billing.tests.base import T0, make_subscription as _make_subscription, days
+from apps.billing.tests.base import make_live_subscription as _make_subscription
 from apps.notifications import sms
 from apps.notifications.models import SmsDevice, SmsLineDisable
 from apps.notifications.tests.base import gateway_on, make_phone
@@ -36,9 +36,9 @@ class SmsLineStaffTestCase(StaffTestCase):
         super().setUp()
         cache.clear()
         self.identity = self.enrolled()
-        self.sub = _make_subscription(email="ana@example.test", name="anas-store", now=T0 + days(1))
+        self.sub = _make_subscription(email="ana@example.test", name="anas-store")
         self.site = self.sub.site
-        self.other = _make_subscription(email="ben@example.test", name="bens-store", now=T0 + days(1)).site
+        self.other = _make_subscription(email="ben@example.test", name="bens-store").site
 
     def fresh(self):
         self.identity.refresh_from_db()

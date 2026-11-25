@@ -8,7 +8,7 @@ from django.test import override_settings
 
 from apps.accounts.tests.base import ORIGIN
 from apps.billing.models import BillingNotice, Subscription
-from apps.billing.tests.base import T0, days, make_subscription as _make_subscription
+from apps.billing.tests.base import make_live_subscription as _make_subscription
 from apps.inquiries import sms_inbox
 from apps.operators.models import OperatorAuditEntry
 from apps.operators.tests.test_staff_routes import StaffTestCase, on_staff
@@ -32,9 +32,9 @@ class HoldTestCase(StaffTestCase):
         super().setUp()
         cache.clear()
         self.identity = self.enrolled()
-        self.sub = _make_subscription(email="ana@example.test", name="anas-store", now=T0 + days(1))
+        self.sub = _make_subscription(email="ana@example.test", name="anas-store")
         self.site = self.sub.site
-        self.other = _make_subscription(email="ben@example.test", name="bens-store", now=T0 + days(1)).site
+        self.other = _make_subscription(email="ben@example.test", name="bens-store").site
         self.staff_sign_in()
 
     def fresh(self):

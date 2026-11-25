@@ -9,7 +9,7 @@ from django.db import connection
 from django.test import TransactionTestCase, override_settings
 
 from apps.accounts.models import Account
-from apps.billing.tests.base import make_subscription
+from apps.billing.tests.base import make_live_subscription
 from apps.catalog.models import CatalogProduct
 from apps.catalog.tests.base import make_product
 from apps.common.errors import ApiError
@@ -31,7 +31,7 @@ class ShopConcurrencyTests(TransactionTestCase):
         cache.clear()
         self.addCleanup(cache.clear)
         use_local_private_store(self)
-        self.site = make_subscription().site
+        self.site = make_live_subscription().site
         self.account = make_payment_account(self.site)
         self.product = make_product("FX-A", "FX-A", 10000, "0.3500")
         CatalogProduct.objects.filter(pk=self.product.pk).update(

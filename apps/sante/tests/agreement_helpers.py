@@ -3,7 +3,7 @@ from datetime import date
 
 from django.contrib.auth import get_user_model
 
-from apps.billing.tests.base import make_subscription
+from apps.billing.tests.base import make_live_subscription
 from apps.sante import agreement, services
 
 PDF = b"%PDF-1.4\n" + b"sample agreement\n" * 20 + b"%%EOF"
@@ -21,7 +21,7 @@ def make_operator(username="op", **fields):
 
 def make_master(operator, email="master@example.test", name="master-store"):
     """A Santé site named the catalog owner; returns it."""
-    site = make_subscription(email, name).site
+    site = make_live_subscription(email, name).site
     services.set_catalog_owner(site, operator=operator)
     return site
 
