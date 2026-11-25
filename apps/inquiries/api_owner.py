@@ -95,7 +95,7 @@ class ReplyIn(Schema):
 
 class BulkAudienceIn(Schema):
     model_config = ConfigDict(extra="forbid")
-    audience: str = "all"
+    audience: str | None = None  # no default: a missing audience is refused (400 invalid_audience), never "all"
     groups: list[str] | None = None
     contacts: list[str] | None = None
 
@@ -114,7 +114,7 @@ class BulkTestIn(Schema):
 class BulkConfirmIn(Schema):
     model_config = ConfigDict(extra="forbid")
     text: str
-    audience: str = "all"
+    audience: str | None = None  # no default: a missing audience is refused (400 invalid_audience), never "all"
     idempotency_key: str
     confirm: bool = False
     expected_count: int | None = None
@@ -125,7 +125,7 @@ class BulkConfirmIn(Schema):
 class BulkScheduleIn(Schema):
     model_config = ConfigDict(extra="forbid")
     text: str
-    audience: str = "all"
+    audience: str | None = None  # no default: a missing audience is refused (400 invalid_audience), never "all"
     scheduled_at: str
     idempotency_key: str
     groups: list[str] | None = None

@@ -58,9 +58,9 @@ class PickAudienceTests(PickCase):
         self.assertEqual(self.code(self.pick(groups=[ben])), (400, "invalid_audience"))
         self.assertEqual(self.code(self.pick(contacts=["cont_nope"])), (400, "invalid_audience"))
 
-    def test_all_stays_the_default(self):
+    def test_an_explicit_all_still_works(self):
         self.add("Ana", "+639172000001")
-        body = self.send("post", self.root + "audience/", {}).json()
+        body = self.send("post", self.root + "audience/", {"audience": "all"}).json()
         self.assertEqual((body["audience"], body["will_send"]), ("all", 3))
 
     def test_switch_off_refuses_pick(self):

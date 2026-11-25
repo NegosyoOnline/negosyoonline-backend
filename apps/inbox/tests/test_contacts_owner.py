@@ -182,6 +182,35 @@ class ContactTests(OwnerCase):
         self.error(self.patch(self.base + row["id"] + "/", {"first_name": None}), 400, "invalid_request")
         self.error(self.patch(self.base + row["id"] + "/", {"owner_kind": "hq"}), 400, "invalid_request")
 
+    def test_first_name_is_required_on_add(self):
+        for body in ({"mobile": "0917 000 0211"}, {"first_name": "", "mobile": "0917 000 0211"},
+                     {"first_name": "  ", "mobile": "0917 000 0211"}):
+            bad = self.error(self.post(self.base, body), 400, "invalid_request")
+            self.assertIn("first_name", bad["fields"])
+        self.assertEqual(Contact.objects.count(), 0)
+
+    def test_every_patch_ends_with_a_first_name(self):
+        nameless = Contact.objects.create(owner_kind="site", site=self.site, mobile="+639170000221", created_by_account=self.account)
+        url = self.base + nameless.public_id + "/"
+        group = self.group()
+        for body in ({"last_name": "Q"}, {"mobile": "0917 000 0222"}, {"first_name": "  "}, {"first_name": ""},
+                     {"groups": [group["id"]]}):
+            bad = self.error(self.patch(url, body), 400, "invalid_request")
+            self.assertIn("first_name", bad["fields"], body)
+            self.assertEqual(bad["fields"]["first_name"], ["Enter a first name of up to 80 characters."])
+        nameless.refresh_from_db()
+        self.assertEqual((nameless.first_name, nameless.last_name, nameless.mobile), ("", "", "+639170000221"))
+        done = self.patch(url, {"groups": [group["id"]], "first_name": "Ana"})
+        self.assertEqual(done.status_code, 200, done.content)
+        self.assertEqual(Contact.objects.get().first_name, "Ana")
+
+    def test_a_named_contact_cannot_be_blanked(self):
+        row = self.add()
+        for blank in ("", "  "):
+            bad = self.error(self.patch(self.base + row["id"] + "/", {"first_name": blank}), 400, "invalid_request")
+            self.assertIn("first_name", bad["fields"])
+        self.assertEqual(Contact.objects.get().first_name, "Ana")
+
     def test_delete_is_204_and_a_second_delete_404(self):
         row = self.add()
         self.assertEqual(self.send("delete", self.base + row["id"] + "/").status_code, 204)
@@ -268,34 +297,50 @@ class UploadTests(OwnerCase):
 
     def test_check_counts_and_saves_nothing(self):
         body = self.post(self.base + "upload/check/", {"text": self.FILE}).json()
-        self.assertEqual((body["new"], body["already"]), (3, 0))
-        self.assertEqual([r["line"] for r in body["refused"]], [5, 6])
+        self.assertEqual((body["new"], body["already"]), (2, 0))
+        self.assertEqual([r["line"] for r in body["refused"]], [4, 5, 6])
+        self.assertEqual(body["refused"][0]["reason"], "This line has no first name.")
         self.assertEqual(set(body), {"new", "already", "refused"})
         self.assertNotIn("12345", json.dumps(body))
         self.assertEqual(Contact.objects.count(), 0)
 
-    def test_save_with_a_group_keeps_number_only_lines_without_a_name(self):
+    def test_save_with_a_group_refuses_lines_without_a_first_name(self):
         group = self.group()
-        checked = self.post(self.base + "upload/check/", {"text": self.FILE, "group": group["id"]}).json()
-        saved = self.post(self.base + "upload/save/", {"text": self.FILE, "group": group["id"], "expected_new": checked["new"]})
+        old = Contact.objects.create(owner_kind="site", site=self.site, mobile="+639170000304", created_by_account=self.account)
+        text = self.FILE + ",Last,0917 000 0305\n   ,Last,0917 000 0306\n0917 000 0304\n"
+        checked = self.post(self.base + "upload/check/", {"text": text, "group": group["id"]}).json()
+        self.assertEqual((checked["new"], checked["already"]), (2, 0))
+        reasons = [r["reason"] for r in checked["refused"]]
+        self.assertEqual(reasons.count("This line has no first name."), 4)
+        saved = self.post(self.base + "upload/save/", {"text": text, "group": group["id"], "expected_new": checked["new"]})
         self.assertEqual(saved.status_code, 201, saved.content)
-        self.assertEqual(saved.json()["added"], 3)
-        nameless = Contact.objects.get(mobile="+639170000303")
-        self.assertEqual((nameless.first_name, nameless.last_name, nameless.created_by_account), ("", "", self.account))
-        self.assertEqual(ContactGroup.objects.get().contacts.count(), 3)
+        self.assertEqual(saved.json()["added"], 2)
+        self.assertEqual(saved.json()["refused"], 6)
+        self.assertEqual(Contact.objects.filter(first_name="").count(), 1)  # only the one that was there before
+        old.refresh_from_db()
+        self.assertEqual((old.first_name, old.mobile), ("", "+639170000304"))
+        self.assertEqual(ContactGroup.objects.get().contacts.count(), 2)
+        self.assertFalse(Contact.objects.filter(mobile="+639170000303").exists())
         again = self.post(self.base + "upload/check/", {"text": self.FILE}).json()
-        self.assertEqual((again["new"], again["already"]), (0, 3))
-        edited = self.patch(self.base + f"{self.get(self.base).json()['results'][0]['id']}/", {"last_name": "Q"})
-        self.assertEqual(edited.status_code, 200, edited.content)
+        self.assertEqual((again["new"], again["already"]), (0, 2))
         event = AccountAuditEvent.objects.get(event="store_contact_uploaded")
-        self.assertEqual(event.detail["added"], 3)
+        self.assertEqual(event.detail["added"], 2)
         self.assertNotIn("0917", json.dumps(event.detail))
 
-    def test_number_only_file_with_a_header_and_no_group(self):
-        text = "mobile\n09170000401\n09170000402\n"
-        saved = self.post(self.base + "upload/save/", {"text": text, "expected_new": 2})
+    def test_a_refused_nameless_line_does_not_block_a_later_named_line_with_the_same_number(self):
+        text = "09170000411\nAna,Sample,09170000411\n"
+        saved = self.post(self.base + "upload/save/", {"text": text, "expected_new": 1})
         self.assertEqual(saved.status_code, 201, saved.content)
-        self.assertEqual(Contact.objects.filter(site=self.site, first_name="").count(), 2)
+        self.assertEqual(Contact.objects.get().first_name, "Ana")
+
+    def test_number_only_file_is_refused_line_by_line(self):
+        text = "mobile\n09170000401\n09170000402\n"
+        checked = self.post(self.base + "upload/check/", {"text": text}).json()
+        self.assertEqual((checked["new"], len(checked["refused"])), (0, 2))
+        self.assertEqual(checked["refused"][0]["reason"], "This line has no first name.")
+        saved = self.post(self.base + "upload/save/", {"text": text, "expected_new": 0})
+        self.assertLess(saved.status_code, 300, saved.content)
+        self.assertEqual(Contact.objects.count(), 0)
 
     def test_expected_new_guard_group_checks_size_and_type(self):
         self.error(self.post(self.base + "upload/save/", {"text": self.FILE, "expected_new": 1}), 409, "changed")
@@ -304,9 +349,9 @@ class UploadTests(OwnerCase):
         self.assertEqual(Contact.objects.count(), 0)
 
     def test_over_the_store_limit_is_refused(self):
-        with mock.patch.object(contacts, "MAX_STORE_CONTACTS", 2):
+        with mock.patch.object(contacts, "MAX_STORE_CONTACTS", 1):
             self.error(self.post(self.base + "upload/check/", {"text": self.FILE}), 400, "contact_limit")
-            self.error(self.post(self.base + "upload/save/", {"text": self.FILE, "expected_new": 3}), 400, "contact_limit")
+            self.error(self.post(self.base + "upload/save/", {"text": self.FILE, "expected_new": 2}), 400, "contact_limit")
         self.assertEqual(Contact.objects.count(), 0)
 
 

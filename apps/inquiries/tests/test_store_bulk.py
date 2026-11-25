@@ -132,8 +132,8 @@ class AudienceTests(BulkCase):
         InquirySmsOptOut.objects.create(site=self.site, mobile="+639171000006")
         make_member(self.ben_site, "+639181000009", name="Ben's member")
 
-    def test_all_is_the_default_and_counts_each_left_out_group(self):
-        body = self.send("post", self.root + "audience/", {}).json()
+    def test_an_explicit_all_counts_each_left_out_group(self):
+        body = self.audience("all").json()
         self.assertEqual(body["audience"], "all")
         self.assertEqual((body["total_members"], body["will_send"]), (6, 3))
         self.assertEqual(body["left_out"], {"unverified": 1, "invalid_number": 1, "opted_out": 1, "duplicates": 0})
@@ -144,13 +144,27 @@ class AudienceTests(BulkCase):
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.json()["error"]["code"], "invalid_audience")
 
+    def test_a_missing_null_or_blank_audience_is_refused_and_nothing_is_sent(self):
+        for body in ({}, {"audience": None}, {"audience": ""}, {"audience": "   "}):
+            response = self.send("post", self.root + "audience/", body)
+            self.assertEqual(response.status_code, 400, body)
+            error = response.json()["error"]
+            self.assertEqual(error["code"], "invalid_audience", body)
+            self.assertIn("audience", error["fields"], body)
+            confirm = {"text": TEXT, "idempotency_key": "key-missing-01", "confirm": True, **body}
+            response = self.send("post", self.root + "batches/", confirm)
+            self.assertEqual((response.status_code, response.json()["error"]["code"]), (400, "invalid_audience"), body)
+            self.assertIn("audience", response.json()["error"]["fields"], body)
+        self.assertFalse(StoreBulkBatch.objects.exists())
+        self.assertFalse(self.records().exists())
+
     def test_a_promo_agreement_changes_nothing(self):
         Member.objects.filter(site=self.site).update(promo_sms_ok=False)
         self.assertEqual(self.audience().json()["will_send"], 3)
 
     def test_another_stores_members_are_never_counted(self):
         self.assertEqual(self.audience().json()["total_members"], 6)
-        self.assertEqual(self.send("post", f"{self.ben_base}sms/bulk/audience/", {}, client=self.ben).json()["total_members"], 1)
+        self.assertEqual(self.send("post", f"{self.ben_base}sms/bulk/audience/", {"audience": "all"}, client=self.ben).json()["total_members"], 1)
 
     def test_no_number_is_ever_in_the_answer(self):
         text = self.audience().content.decode()
@@ -255,7 +269,7 @@ class ConfirmTests(BulkCase):
         # ... and each store has its own
         make_member(self.ben_site, "+639181000009")
         make_phone("ben-line", "token-ben-line", site=self.ben_site)
-        response = self.send("post", f"{self.ben_base}sms/bulk/batches/", {"text": TEXT, "idempotency_key": "key-batch-0003", "confirm": True}, client=self.ben)
+        response = self.send("post", f"{self.ben_base}sms/bulk/batches/", {"text": TEXT, "audience": "all", "idempotency_key": "key-batch-0003", "confirm": True}, client=self.ben)
         self.assertEqual(response.status_code, 201, response.content)
 
     def test_a_changed_count_is_409_with_the_new_count(self):
