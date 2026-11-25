@@ -1,5 +1,7 @@
 """STORE-CONTACTS slice B (c): a bulk text to picked groups and contacts. Every name and number is made up."""
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from apps.inbox.models import Contact, ContactGroup
 from apps.inquiries.models import InquirySmsOptOut
@@ -27,6 +29,10 @@ class PickCase(BulkCase):
 
     def code(self, response):
         return response.status_code, response.json()["error"]["code"]
+
+    def confirm_pick(self, key="key-pick-0001", **extra):
+        return self.send("post", self.root + "batches/", {
+            "text": TEXT, "audience": "pick", "idempotency_key": key, "confirm": True, **extra})
 
 
 class PickAudienceTests(PickCase):
@@ -70,10 +76,6 @@ class PickAudienceTests(PickCase):
 
 
 class PickBatchTests(PickCase):
-    def confirm_pick(self, key="key-pick-0001", **extra):
-        return self.send("post", self.root + "batches/", {
-            "text": TEXT, "audience": "pick", "idempotency_key": key, "confirm": True, **extra})
-
     def test_a_batch_sends_to_a_contact_and_masks_it_at_the_end(self):
         a = self.add("Ana", "+639172000001", [self.gid])
         response = self.confirm_pick(groups=[self.gid])
@@ -123,3 +125,61 @@ class PickBatchTests(PickCase):
     def test_an_unknown_group_or_other_audience_is_refused(self):
         self.assertEqual(self.confirm_pick(groups=["grp_nope"]).status_code, 400)
         self.assertEqual(self.send("post", self.root + "audience/", {"audience": "promo"}).status_code, 400)
+
+
+class BigListTests(PickCase):
+    """A store with more than 20,000 contacts (Coach Ed, 2026-11-25: "No limit"). The data is made with
+    bulk_create; the audience and confirm must take a fixed number of queries however many contacts
+    a group holds."""
+
+    BIG = 25_000
+    QUERY_BOUND = 40  # the auth, site and switch checks, the groups, one join, the opt-outs, the batch rows
+
+    def setUp(self):
+        super().setUp()
+        site = self.site
+        Contact.objects.bulk_create(
+            [
+                Contact(
+                    owner_kind="site", site=site, created_by_account=self.account,
+                    first_name=f"C{n}", mobile=f"+6391{n:09d}",
+                )
+                for n in range(self.BIG)
+            ],
+            batch_size=1000,
+        )
+        group = ContactGroup.objects.get(public_id=self.gid)
+        through = Contact.groups.through
+        through.objects.bulk_create(
+            [through(contact_id=pk, contactgroup_id=group.pk) for pk in Contact.objects.filter(site=site).values_list("pk", flat=True)],
+            batch_size=1000,
+        )
+
+    def test_the_audience_of_a_big_group_takes_a_fixed_number_of_queries(self):
+        with CaptureQueriesContext(connection) as queries:
+            body = self.pick(groups=[self.gid]).json()
+        self.assertEqual((body["total_members"], body["will_send"]), (self.BIG, self.BIG))
+        self.assertLess(len(queries), self.QUERY_BOUND, len(queries))
+
+    def test_confirming_a_big_group_takes_a_fixed_number_of_queries(self):
+        with CaptureQueriesContext(connection) as queries:
+            response = self.confirm_pick(groups=[self.gid])
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["size"], self.BIG)
+        self.assertEqual(StoreBulkRecipient.objects.count(), self.BIG)
+        # the recipient rows go in by bulk_create (batch_size=500; SQLite cuts that by its variable
+        # limit); every other query is fixed, however many contacts the group holds
+        others = [q["sql"] for q in queries if not q["sql"].startswith('INSERT INTO "notifications_storebulkrecipient"')]
+        self.assertLess(len(others), self.QUERY_BOUND, others[:5])
+
+    def test_a_pick_of_more_than_twenty_thousand_contact_ids_is_accepted(self):
+        ids = list(Contact.objects.filter(site=self.site).values_list("public_id", flat=True))
+        self.assertGreater(len(ids), 20_000)
+        body = self.pick(contacts=ids).json()
+        self.assertEqual((body["total_members"], body["will_send"]), (self.BIG, self.BIG))
+        response = self.confirm_pick(contacts=ids)
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["size"], self.BIG)
+
+    def test_the_daily_limit_is_still_2000(self):
+        self.assertEqual(self.status().json()["daily_limit"], 2000)
