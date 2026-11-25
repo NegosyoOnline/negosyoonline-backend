@@ -119,12 +119,12 @@ class ScheduleRefusalTests(ScheduleCase):
         self.assertEqual(response.json()["error"]["fields"]["text"], [BRACES])
 
 
-class MemberFillTests(SpyMixin, BulkCase):
+class GroupContactFillTests(SpyMixin, BulkCase):
     def setUp(self):
         super().setUp()
         self.spy = self.spy_on_sends()
-        for member, name in zip(self.members, ("Ana Reyes", "  Ben   Cruz ", "")):
-            Member.objects.filter(pk=member.pk).update(full_name=name)
+        for contact, name in zip(self.contacts, ("Ana", "Ben", "")):  # first names come from the contacts
+            Contact.objects.filter(pk=contact.pk).update(first_name=name)
 
     def test_first_word_and_fallback_for_a_blank_name(self):
         batch = self.start(text=HI)
@@ -136,7 +136,7 @@ class MemberFillTests(SpyMixin, BulkCase):
 
     def test_name_is_read_at_send_time(self):
         self.start(text=HI)
-        Member.objects.filter(pk=self.members[0].pk).update(full_name="Cy Dela")
+        Contact.objects.filter(pk=self.contacts[0].pk).update(first_name="Cy")
         self.pump(1)
         self.assertEqual(sent_texts(self.spy)[0], "Hi Cy, sale today!")
 
@@ -151,23 +151,23 @@ class MemberFillTests(SpyMixin, BulkCase):
         self.assertEqual(sent_texts(self.spy)[0], "Ana, hi Ana")
 
     def test_over_length_falls_back_and_is_never_refused(self):
-        Member.objects.filter(pk=self.members[0].pk).update(full_name="B" * 100)
+        Contact.objects.filter(pk=self.contacts[0].pk).update(first_name="B" * 80, last_name="B" * 20)
         batch = self.start(text="x" * 100 + " {first_name}")
         self.pump(1)
         self.assertEqual(sent_texts(self.spy)[0], "x" * 100)
         self.assertEqual(StoreBulkRecipient.objects.get(batch=batch, position=0).state, StoreBulkRecipient.SENT)
 
     def test_text_check_failure_falls_back(self):
-        Member.objects.filter(pk=self.members[0].pk).update(full_name="a.com")
+        Contact.objects.filter(pk=self.contacts[0].pk).update(first_name="a.com")
         self.start(text="See {first_name}")
         self.pump(1)
         self.assertEqual(sent_texts(self.spy)[0], "See")
 
     def test_a_removed_member_is_skipped_as_before(self):
         batch = self.start(text=HI)
-        self.members[0].delete()
+        self.contacts[0].delete()
         self.pump(1)
-        self.assertEqual(StoreBulkRecipient.objects.get(batch=batch, position=0).reason, "member_removed")
+        self.assertEqual(StoreBulkRecipient.objects.get(batch=batch, position=0).reason, "contact_removed")
         self.assertEqual(sent_texts(self.spy)[0], "Hi Ben, sale today!")
 
     def test_no_name_or_text_in_the_audit(self):
@@ -212,7 +212,7 @@ class ContactFillTests(SpyMixin, PickCase):
 class ScheduleStartTests(SpyMixin, ScheduleCase):
     def test_a_batch_started_from_a_schedule_is_filled(self):
         spy = self.spy_on_sends()
-        Member.objects.filter(pk=self.members[0].pk).update(full_name="Ana Reyes")
+        Contact.objects.filter(pk=self.contacts[0].pk).update(first_name="Ana")
         batch = self.make(text=HI)
         self.assertEqual(self.run_due(), 1)
         batch.refresh_from_db()

@@ -1,7 +1,7 @@
 """Schedule SMS: a store's bulk batch with a future start time (ClickUp z8uq9mj9q4, part of #13 round 9).
 
 A scheduled batch holds the text, the audience and `scheduled_at` but no recipients; its `size` and
-`left_out` are a count for display, replaced by the recount at start. The text, audience, exclusions,
+`left_out` are a count for display, replaced by the recount at start. The text, audience ("all" means All groups since 2026-11-25), exclusions,
 cap, window and pace are Bulk's (apps/inquiries/store_bulk.py). `start_due` turns a due batch into an
 ordinary `waiting` batch, or ends it with a reason code; it runs under the batch's row lock, from the
 beat task, the phone's pull, and the store's reads, and is idempotent.
