@@ -201,8 +201,8 @@ class CreateTests(OrderLogCase):
 
     def test_date_rules(self):
         today = timezone.localdate()
-        for good in (today.isoformat(), "2007-01-01"):
-            self.assertEqual(self.create(order_number=f"PH-{good[-2:]}", ordered_on=good).status_code, 201, good)
+        for number, good in enumerate((today.isoformat(), "2007-01-01")):  # distinct numbers: day 01 would repeat
+            self.assertEqual(self.create(order_number=f"PH-{number}", ordered_on=good).status_code, 201, good)
         for bad in ((today + timedelta(days=1)).isoformat(), "2006-12-31", "2026-02-30", "26-11-01", "2026/11/01",
                     "2026-1-1", "", None, 20261101):
             response = self.create(ordered_on=bad)

@@ -567,8 +567,10 @@ class StatementJourneyTests(Fixture, TestCase):
         self.assertEqual(StatementNumberSeries.objects.get(pk=series.pk).last_value, 1)
         self.assertEqual(Statement.objects.count(), 1)
         self.pay(make_active(email="two@example.test", name="two-store"), RENEWAL_AT)
-        self.assertEqual(issue.ensure_statements(), 1)  # the safety net issues the missing one
-        self.assertEqual(issue.ensure_statements(), 0)
+        # The safety net reads the clock for the number's year, so hold it inside 2026.
+        with mock.patch("django.utils.timezone.now", return_value=RENEWAL_AT + 6 * HOUR):
+            self.assertEqual(issue.ensure_statements(), 1)  # the safety net issues the missing one
+            self.assertEqual(issue.ensure_statements(), 0)
         self.assertEqual(
             sorted(Statement.objects.values_list("number", flat=True)),
             ["NOBS-2026-000001", "NOBS-2026-000002"],

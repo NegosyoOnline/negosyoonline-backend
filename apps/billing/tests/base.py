@@ -1,9 +1,14 @@
-"""Helpers shared by the billing tests. Time is always passed in; no test reads the clock."""
+"""Helpers shared by the billing tests. Time is passed in, so the billing tests do not read the clock.
+
+The constants below are fixed calendar dates and are in the past. A test that goes through the app
+with the real clock (a route, a gate, the Santé or pack surfaces) must use `make_live_subscription`,
+whose trial starts now, or a site made at T0 is suspended once the real date passes TRIAL_END."""
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from unittest import mock
 
 from django.test import override_settings
+from django.utils import timezone
 
 from apps.accounts.models import Account
 from apps.billing import clock, plan, proofs, services
@@ -48,6 +53,14 @@ def make_subscription(email="ana@example.test", name="anas-store", start=T0, now
     Site.objects.filter(pk=site.pk).update(created_at=now or start)
     site.refresh_from_db()
     return services.start_subscription(site, account, now=now or start)
+
+
+def make_live_subscription(email="ana@example.test", name="anas-store"):
+    """A site in good standing at the real clock: its trial starts now and runs 14 days.
+
+    For tests that reach the app through code that reads the clock, so they never expire."""
+    start = timezone.now()
+    return make_subscription(email, name, start=start, now=start)
 
 
 def fresh(subscription):

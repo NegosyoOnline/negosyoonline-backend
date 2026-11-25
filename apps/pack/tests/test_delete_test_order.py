@@ -10,7 +10,7 @@ from django.db.models import ForeignKey, OneToOneField
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from apps.billing.tests.base import make_subscription
+from apps.billing.tests.base import make_live_subscription
 from apps.common import private_files
 from apps.members.models import (
     ImmutableRecordError as MemberImmutable, Member, MemberAddressEvent, MemberContactAudit,
@@ -76,8 +76,8 @@ class DeleteTestOrderTests(TestCase):
         self.operator = make_operator("op")
         make_master(self.operator)
         self.version = published(self.operator)
-        self.site = make_subscription().site
-        self.other_site = make_subscription(email="ben@example.test", name="bens-store").site
+        self.site = make_live_subscription().site
+        self.other_site = make_live_subscription(email="ben@example.test", name="bens-store").site
         self.order, self.proof = make_order(self.site)
         self.member = self.order.member
         self.fill(self.site, self.order)
