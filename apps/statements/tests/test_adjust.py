@@ -171,7 +171,7 @@ class AdjustTests(TestCase):
             "apps.statements.adjust.audit.record", side_effect=RuntimeError("boom")
         ):
             with self.assertRaises(RuntimeError):
-                self.adjust()
+                self.adjust(now=WHEN)  # the number's year comes from the given time, not the clock
         discard.assert_called_once_with(f"pdf-NOCN-{WHEN.year}-000001")
         self.assertFalse(Statement.objects.filter(document_type="adjustment").exists())
 
