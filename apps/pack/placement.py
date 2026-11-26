@@ -10,6 +10,7 @@ posted except the proof fields is read. The proof file is stored BEFORE the tran
 discarded on any rollback."""
 import hashlib
 import logging
+import re
 from dataclasses import dataclass
 
 from django.db import transaction
@@ -48,7 +49,12 @@ def _replay(site, key):
 
 
 def _next_number(site):
-    return "SMP%05d" % (PackOrder.objects.filter(site=site).count() + 1)
+    """One more than the highest SMPnnnnn of this site (1 when none): a gap in the numbering never collides.
+    Runs inside the site-row lock; numbers that do not match the pattern are ignored."""
+    numbers = PackOrder.objects.filter(site=site, order_number__startswith="SMP").values_list(
+        "order_number", flat=True)
+    highest = max((int(n[3:]) for n in numbers if re.fullmatch(r"SMP\d+", n)), default=0)
+    return "SMP%05d" % (highest + 1)
 
 
 def _policy_version(site):
