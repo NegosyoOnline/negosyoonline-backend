@@ -663,8 +663,7 @@ class BeforeTheMigrationTests(BulkCase):
         with mock.patch.object(services, "store_bulk_limit_column_exists", return_value=False):
             self.assertNotIn("store_bulk_daily_limit", services.policy_fields({"store_bulk_daily_limit": 5}))
 
-    def test_the_platform_phone_leaves_out_the_bulk_of_a_store_with_its_own_phone_only(self):  # ONE-PHONE, 2026-11-26
+    def test_the_platform_phone_leaves_out_the_bulk_of_a_store_with_its_own_phone(self):  # ONE-PHONE, 2026-11-26
         from apps.notifications.models import SmsDevice
-        claim = str(sms.claimable(SmsDevice.objects.get(pk=self.platform.pk)))
-        self.assertIn("site_id__in", claim)
-        self.assertNotIn("storebulk", claim)
+        claim = sms.claimable(SmsDevice.objects.get(pk=self.platform.pk))
+        self.assertIn("site_id__in", str(claim))

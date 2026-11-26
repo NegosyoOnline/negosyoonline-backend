@@ -641,6 +641,32 @@ def feed(site, now=None):
             _settle_over(site)
 
 
+PLATFORM_FEED_SITES = 50  # stores fed in one poll of the platform phone
+
+
+def feed_platform(device, now=None):
+    """The platform phone is asking (ONE-PHONE, 2026-11-26): queue the next text of each store whose
+    bulk goes from this phone, i.e. a store with an active (or due scheduled) batch and no phone of
+    its own. One query for the stores, each fed once. A store with its own phone is fed by its own
+    phone's poll and never here. (The beat task `inquiries.store_bulk_start_due` also starts due
+    scheduled batches; they are included here so a store with no batch yet is reached too.)"""
+    from apps.sites.models import Site
+
+    now = now or timezone.now()
+    live = StoreBulkBatch.objects.filter(state__in=StoreBulkBatch.ACTIVE).values_list("site_id", flat=True)
+    due = StoreBulkBatch.objects.filter(
+        state=StoreBulkBatch.SCHEDULED, scheduled_at__lte=now).values_list("site_id", flat=True)
+    ids = sorted(set(live.distinct()) | set(due.distinct()))
+    done = 0
+    for site in Site.objects.filter(pk__in=ids[:PLATFORM_FEED_SITES * 4]).order_by("pk"):
+        if done >= PLATFORM_FEED_SITES:
+            break
+        if sms.bulk_phone(site) == device:
+            feed(site, now)
+            done += 1
+    return done
+
+
 # -- stop, read -----------------------------------------------------------------------------
 
 def _find(site, public_id, *, lock=False):

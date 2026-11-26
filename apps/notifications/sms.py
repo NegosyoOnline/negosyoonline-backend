@@ -518,13 +518,16 @@ def claimable(device):
         return Q(pk__in=[])
     if not site_column_exists():
         return Q()
+    never_bulk = ~Q(category=STORE_BULK)
     if not site_lines_on():
-        return Q()
+        return never_bulk  # bulk_phone is None with the switch off: the platform phone takes no bulk
     sites = SmsDevice.objects.filter(is_active=True, site__isnull=False).select_related("site")
+    own = [phone.site_id for phone in sites]  # a store with its own phone keeps its bulk off this phone
     lined = [phone.site_id for phone in sites if site_has_line(phone.site)]
-    if not lined:
+    if not own:
         return Q()
-    return Q(site__isnull=True) | ~Q(site_id__in=lined) | Q(category=CODE)
+    others = Q(site__isnull=True) | ~Q(site_id__in=lined) | Q(category=CODE)
+    return others & ~(Q(category=STORE_BULK) & Q(site_id__in=own))
 
 
 def may_be_handed_texts(device):
