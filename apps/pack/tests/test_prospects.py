@@ -42,8 +42,9 @@ class ProspectTests(OwnerTestCase):
     def by_number(self, order):
         return next(r for r in self.rows() if r["order_number"] == order.order_number)
 
-    def bare_order(self, number="SMP90001"):
-        """An order with no proof: make_order always files one, and proofs are append-only."""
+    def bare_order(self, number="SMP80001"):
+        """An order with no proof: make_order always files one, and proofs are append-only.
+        Numbers use SMP8; make_order uses SMP9nnnn, so the two never collide in any test order."""
         member = Member.objects.create(
             site=self.site, full_name="Bare Buyer", mobile=f"+6391700{number[-5:]}", mobile_state="verified",
             email=f"bare{number.lower()}@buyer.test")
@@ -67,7 +68,7 @@ class ProspectTests(OwnerTestCase):
         SanteRegistration.objects.create(site=self.site, member=dash.member, pack_order=dash, status="registered")
         session(self.site, dash.member)
         # A sign-in before any payment details is not a step.
-        early = self.bare_order("SMP90002")
+        early = self.bare_order("SMP80002")
         session(self.site, early.member)
 
         self.assertEqual(self.by_number(placed)["stage"], "checked_out")
