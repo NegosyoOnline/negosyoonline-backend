@@ -104,6 +104,15 @@ def _transferred(payment):
     return payment.amount_centavos - payment.credit_centavos
 
 
+def _credit_line(payment):
+    """One line when Subscription Credit paid part of the bill (draft wording, Billing B6)."""
+    if not payment.credit_centavos:
+        return ""
+    from apps.billing import credits  # noqa: PLC0415
+
+    return f" Subscription Credit applied: \u2212{credits.money(payment.credit_centavos)}."
+
+
 def _proof_received(payment, hi):
     return "We received your bank transfer proof", (
         f"{hi} we received the proof of your bank transfer of {_money(_transferred(payment))} "
@@ -127,15 +136,15 @@ def _payment_approved(payment, hi):
     site = payment.subscription.site.display_name
     cycle = payment.cycle
     if cycle is None:  # a payment of overage alone buys no term
-        what = f"we approved your payment of {_money(payment.amount_centavos)} for {site}."
-        extra = ""
+        what = f"we approved your payment of {_money(_transferred(payment))} for {site}."
+        extra = _credit_line(payment)
     else:
         bought = plan.version_of(payment.plan_code, payment.plan_version or 1)
         what = (
-            f"we approved your payment of {_money(payment.amount_centavos)} for {site}: "
+            f"we approved your payment of {_money(_transferred(payment))} for {site}: "
             f"{bought.name}, {_day(cycle.start_at)} to {_day(cycle.end_at)}."
         )
-        extra = _approved_next(payment)
+        extra = _credit_line(payment) + _approved_next(payment)
         if payment.subscription.transitions.filter(
             code="reactivated", detail__cycle=cycle.sequence
         ).exists():

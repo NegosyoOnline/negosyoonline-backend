@@ -560,3 +560,73 @@ class ReserveConcurrencyTests(TransactionTestCase):
         self.assertEqual(taken, [0, 100_000])
         self.assertEqual(credits.balance(account), 0)
         self.assertEqual(sum(a for _, a in kinds(account)), 0)
+
+
+@override_settings(BILLING_INVOICE_REGISTER_ENABLED=True)
+class InvoiceRegisterTests(CreditCase):
+    """The BIR invoice item shows what was paid: the base reduced by the credit, no credit line."""
+
+    def item_of(self, payment):
+        from apps.invoices.models import ManualInvoiceItem
+
+        return ManualInvoiceItem.objects.filter(source_ref=payment.public_id).first()
+
+    def test_a_partial_credit_opens_an_item_that_adds_up_to_the_amount_received(self):
+        subscription = make_subscription("owner@example.test", "owner-store")
+        self.grant(subscription.site.account, 100_000)
+        payment = self.confirm(submit(subscription, AT))
+        item = self.item_of(payment)
+        self.assertEqual(item.total_centavos, MONTHLY - 100_000)
+        self.assertEqual([(l["kind"], l["amount_centavos"]) for l in item.lines],
+                         [("base", MONTHLY - 100_000)])
+        self.assertEqual(sum(l["amount_centavos"] for l in item.lines), payment.amount_received_centavos)
+
+    def test_a_bill_covered_in_full_opens_no_item_and_the_net_does_not_retry_it(self):
+        from apps.invoices import services as invoices
+
+        subscription = make_subscription("owner@example.test", "owner-store")
+        self.grant(subscription.site.account, MONTHLY)
+        payment = services.pay_with_credit(
+            subscription, subscription.site.account, plan_code="monthly", now=AT
+        )
+        self.assertIsNone(self.item_of(payment))
+        with self.assertLogs("apps.invoices.services", level="INFO") as logged:
+            self.assertIsNone(invoices.open_item(payment))
+        self.assertNotIn("ERROR", "".join(logged.output))
+        self.assertEqual((invoices.ensure_items(), invoices.missing_items()), (0, 0))
+
+    def test_a_payment_with_no_credit_is_unchanged(self):
+        subscription = make_subscription("owner@example.test", "owner-store")
+        payment = self.confirm(submit(subscription, AT))
+        item = self.item_of(payment)
+        self.assertEqual(item.total_centavos, MONTHLY)
+        self.assertEqual([(l["kind"], l["amount_centavos"]) for l in item.lines], [("base", MONTHLY)])
+
+    @override_settings(BILLING_USAGE_ENABLED=True)
+    def test_credit_beyond_the_base_comes_off_the_overage_lines(self):
+        from apps.billing.tests.test_usage_collection import LINE, snapshot
+
+        with mock.patch.object(plan, "STORAGE_METERED", True):
+            subscription = make_active()
+            snapshot(subscription)
+            at = CYCLE_1_END + days(1)
+            self.grant(subscription.site.account, MONTHLY + 3000)
+            payment = self.confirm(submit(subscription, at), at=at)
+        self.assertEqual((payment.amount_centavos, payment.credit_centavos), (MONTHLY + LINE, MONTHLY + 3000))
+        item = self.item_of(payment)
+        self.assertEqual([(l["kind"], l["amount_centavos"]) for l in item.lines], [("usage", LINE - 3000)])
+        self.assertEqual(item.total_centavos, payment.amount_received_centavos)
+
+
+class ApprovedEmailTests(CreditCase):
+    def test_the_approved_email_names_the_credit_and_the_amount_transferred(self):
+        from apps.billing import notices
+
+        subscription = make_subscription("owner@example.test", "owner-store")
+        self.grant(subscription.site.account, 100_000)
+        payment = self.confirm(submit(subscription, AT))
+        _, body = notices._payment_approved(payment, "Hi,")
+        self.assertIn("Subscription Credit applied: \u2212\u20b11,000.", body)
+        self.assertIn("PHP 1,499.00", body)
+        plain = self.confirm(submit(make_subscription("p@example.test", "p-store"), AT))
+        self.assertNotIn("Subscription Credit", notices._payment_approved(plain, "Hi,")[1])

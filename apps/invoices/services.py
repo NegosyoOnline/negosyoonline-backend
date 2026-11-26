@@ -72,9 +72,15 @@ def _lines(payment):
     """The frozen lines of a confirmed payment: its base fee, then each overage charge it
     settled. They add up to the amount received; nothing here reads usage or a price."""
     lines = []
+    # Subscription Credit (Billing B6) reduces the base first: the item shows what was paid. A
+    # payment with no credit is unchanged. No credit or discount line is added.
     base = payment.amount_centavos - payment.usage_centavos
+    credit_left = payment.credit_centavos
+    taken = min(credit_left, base)
+    base -= taken
+    credit_left -= taken
     cycle = payment.cycle
-    if payment.plan_code != "usage_only":
+    if payment.plan_code != "usage_only" and (base > 0 or not payment.credit_centavos):
         wording = WORDING.get(payment.plan_code)
         if wording is not None:
             description = wording.format(
@@ -113,7 +119,17 @@ def _lines(payment):
             "amount_centavos": charge.amount_centavos,
             "source_ref": f"charge:{charge.pk}",
         })
-    return lines
+    # Credit beyond the base (a payment that carried overage): it comes off the usage lines in
+    # order, so the lines still add up to the amount received.
+    for line in lines:
+        if credit_left <= 0:
+            break
+        if line["kind"] == "usage":
+            cut = min(credit_left, line["amount_centavos"])
+            credit_left -= cut
+            line["amount_centavos"] -= cut
+            line["quantity"], line["unit_centavos"] = 1, line["amount_centavos"]
+    return [line for line in lines if line["amount_centavos"] > 0 or not payment.credit_centavos]
 
 
 def open_item(payment, *, now=None):
@@ -129,6 +145,11 @@ def open_item(payment, *, now=None):
     existing = Item.objects.filter(source_kind="bank_transfer", source_ref=payment.public_id).first()
     if existing is not None:
         return existing
+    if payment.amount_received_centavos == 0:
+        # A bill that Subscription Credit covered in full: nothing was received, so there is
+        # no sale to invoice. Not an error; the safety net skips it too.
+        logger.info("no invoice item for payment %s: covered by credit", payment.public_id)
+        return None
     paid_at = payment.decided_at or now or timezone.now()
     lines = _lines(payment)
     total = sum(line["amount_centavos"] for line in lines)
@@ -181,7 +202,8 @@ def ensure_items():
     opened = 0
     rows = (
         BankTransferPayment.objects.filter(status=BankTransferPayment.Status.CONFIRMED)
-        .exclude(public_id__in=have).select_related("subscription__site", "cycle").order_by("pk")
+        .exclude(public_id__in=have).exclude(amount_received_centavos=0)
+        .select_related("subscription__site", "cycle").order_by("pk")
     )
     for payment in rows:
         if open_item_safely(payment) is not None:
@@ -194,7 +216,7 @@ def missing_items():
     have = Item.objects.filter(source_kind="bank_transfer").values("source_ref")
     return (
         BankTransferPayment.objects.filter(status=BankTransferPayment.Status.CONFIRMED)
-        .exclude(public_id__in=have).count()
+        .exclude(public_id__in=have).exclude(amount_received_centavos=0).count()
     )
 
 
