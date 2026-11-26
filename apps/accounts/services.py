@@ -102,7 +102,7 @@ def _create_account(email, request, *, method, name="", referral_code=""):
     """
     referrer = find_referrer(referral_code) if referral_code else None
     if referrer is not None and referrer.email == email:
-        referrer = None
+        referrer = None  # defence in depth: email is unique, so this cannot happen today
     account = Account.objects.create(
         email=email, name=name, email_verified_at=timezone.now(), referred_by=referrer
     )
@@ -163,7 +163,7 @@ def verify_signin_code(email, code, accept_policies, request, referral_code=""):
 
 
 @transaction.atomic
-def sign_in_with_google(profile, accept_policies, request):
+def sign_in_with_google(profile, accept_policies, request, referral_code=""):
     """Sign in with a profile from apps.accounts.google. Returns (account, session, token, created).
 
     The Google user id is matched first, then the email. Other sessions are left signed in.
@@ -185,7 +185,9 @@ def sign_in_with_google(profile, accept_policies, request):
         if account is None:
             if not accept_policies:
                 raise _policies_required()
-            account = _create_account(email, request, method="google", name=profile.name)
+            account = _create_account(
+                email, request, method="google", name=profile.name, referral_code=referral_code
+            )
             created = True
         else:
             _refuse_closed(account)
@@ -258,7 +260,7 @@ def send_facebook_email_code(user_id, email, ip):
 
 
 @transaction.atomic
-def confirm_facebook_email(user_id, name, email, code, accept_policies, request):
+def confirm_facebook_email(user_id, name, email, code, accept_policies, request, referral_code=""):
     """First Facebook sign-in: check the emailed code, then link Facebook to the account with
     that email, creating the account if there is none.
 
@@ -286,7 +288,9 @@ def confirm_facebook_email(user_id, name, email, code, accept_policies, request)
         )
     codes.clear_code(email, purpose)
     if created:
-        account = _create_account(email, request, method="facebook", name=name[:120])
+        account = _create_account(
+            email, request, method="facebook", name=name[:120], referral_code=referral_code
+        )
     else:
         if account.email_verified_at is None:
             account.email_verified_at = timezone.now()
