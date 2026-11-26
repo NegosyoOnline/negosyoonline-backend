@@ -1,8 +1,9 @@
 """A store's bulk text to its own members (STORE-BULK, ClickUp z8uq9mbreu; plan
 docs/plans/store-bulk-sms-plan-2026-11-23.md; contract docs/plans/store-bulk-sms-be-api-2026-11-23.md).
 
-The owner texts the store's own members, one text at a time, from the store's own paired phone and
-no other (the shared phone is never used). Coach Ed's ruling (2026-11-23): "All my members" was the
+The owner texts the store's own members, one text at a time, from the store's own paired phone; a store
+entitled to a line with no phone of its own sends from the platform phone (ONE-PHONE, Coach Ed
+2026-11-26). Coach Ed's ruling (2026-11-23): "All my members" was the
 audience; since 2026-11-25 (ALL-GROUPS-OPTION) "all" means All groups: every contact in any of the
 store's groups, each phone once (verified Members are not read). No promo filter, no promo label; no consent nudge; always left out:
 the store's STOP list, unverified numbers and repeats; no web links; no forced STOP footer; a daily
@@ -123,7 +124,7 @@ def blocked(site):
     code = sms_inbox.unavailable(site)
     if code:
         return code
-    if sms._lined(site) is None:
+    if sms.bulk_phone(site) is None:
         return NO_LINE
     return ""
 
@@ -688,6 +689,9 @@ def active_batch(site):
     return batch_out(batch) if batch else None
 
 
+COST_NOTE = "Texts go out from your own phone and SIM. Your carrier's normal SMS rates apply."
+
+
 def status(site):
     """The bulk screen's state: the gateway's numbers and room, why a batch cannot start,
     the window and the pace, and the active batch."""
@@ -700,7 +704,8 @@ def status(site):
         "left_today": cap["left_today"], "prefix": base["prefix"], "max_length": base["max_length"],
         "window": {"start": WINDOW[0].strftime("%H:%M"), "end": WINDOW[1].strftime("%H:%M"), "timezone": "Asia/Manila"},
         "in_window": in_window(), "seconds_between": {"min": SECONDS[0], "max": SECONDS[1]},
-        "cost_note": "Texts go out from your own phone and SIM. Your carrier's normal SMS rates apply.",
+        # ONE-PHONE (2026-11-26): empty for a store whose bulk goes from the platform phone.
+        "cost_note": COST_NOTE if sms._lined(site) is not None else "",
         "active_batch": active_batch(site),
     }
 

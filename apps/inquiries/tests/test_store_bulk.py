@@ -227,6 +227,11 @@ class TextTests(BulkCase):
         self.assertEqual(body["seconds_between"], {"min": 18, "max": 25})
         self.assertIn("carrier", body["cost_note"])
 
+    def test_cost_note_is_empty_for_a_store_with_no_phone_of_its_own(self):  # ONE-PHONE, 2026-11-26
+        self.assertIn("carrier", self.status().json()["cost_note"])
+        self.line.delete()
+        self.assertEqual(self.status().json()["cost_note"], "")
+
 
 class TestSendTests(BulkCase):
     def test_a_test_goes_to_the_owners_own_mobile_from_the_store_phone_and_counts_as_one(self):
@@ -254,11 +259,20 @@ class TestSendTests(BulkCase):
         set_policy(platform_daily_limit=0, store_daily_limit=0, all_stores_daily_limit=0, site_daily_limit=0)
         self.assertEqual(self.test().status_code, 200)
 
-    def test_a_test_never_goes_from_the_shared_phone(self):
+    def test_a_test_from_a_store_with_no_line_is_refused_and_nothing_is_queued(self):
+        # ONE-PHONE (Coach Ed, 2026-11-26): a store with no phone of its own but entitled to a line
+        # uses the platform phone; a store that is not entitled is still refused no_line.
         SmsMessage.objects.all().delete()
         self.line.delete()
+        self.has_line.return_value = False
         self.assertEqual(self.test().json()["error"]["code"], "no_line")
         self.assertFalse(self.records().exists())
+
+    def test_a_test_from_a_store_with_no_phone_of_its_own_goes_from_the_platform_phone(self):
+        SmsMessage.objects.all().delete()
+        self.line.delete()
+        self.assertEqual(self.test().status_code, 200)
+        self.assertEqual(self.records().get().purpose, "store_bulk")
 
 
 class ConfirmTests(BulkCase):
@@ -306,8 +320,10 @@ class ConfirmTests(BulkCase):
         self.assertEqual(body["code"], "site_held")
         self.assertEqual(self.status().json()["blocked"], "site_held")
 
-    def test_no_own_phone_is_refused_no_line_with_the_pairing_hint(self):
+    def test_a_store_not_entitled_to_a_line_is_refused_no_line_with_the_pairing_hint(self):
+        # ONE-PHONE (2026-11-26): no own phone is no longer enough to be refused; no entitlement is.
         self.line.delete()
+        self.has_line.return_value = False
         body = self.confirm().json()["error"]
         self.assertEqual(body["code"], "no_line")
         self.assertIn("Settings", body["message"])
@@ -487,7 +503,7 @@ class PollTests(BulkCase):
         with mock.patch.object(store_bulk, "in_window", return_value=True):
             self.assertEqual(self.poll().json()["messages"], [], "one at a time until it is reported")
 
-    def test_the_shared_phone_never_gets_a_store_bulk_text(self):
+    def test_the_shared_phone_never_gets_a_text_of_a_store_that_has_its_own_phone(self):  # ONE-PHONE, 2026-11-26
         self.platform.token_hash = sms.token_hash("token-shared")
         self.platform.save()
         self.start()
@@ -647,6 +663,8 @@ class BeforeTheMigrationTests(BulkCase):
         with mock.patch.object(services, "store_bulk_limit_column_exists", return_value=False):
             self.assertNotIn("store_bulk_daily_limit", services.policy_fields({"store_bulk_daily_limit": 5}))
 
-    def test_the_shared_phone_is_never_given_a_bulk_text_and_a_plain_phone_is_unchanged(self):
+    def test_the_platform_phone_leaves_out_the_bulk_of_a_store_with_its_own_phone_only(self):  # ONE-PHONE, 2026-11-26
         from apps.notifications.models import SmsDevice
-        self.assertIn("storebulk", str(sms.claimable(SmsDevice.objects.get(pk=self.platform.pk))))
+        claim = str(sms.claimable(SmsDevice.objects.get(pk=self.platform.pk)))
+        self.assertIn("site_id__in", claim)
+        self.assertNotIn("storebulk", claim)

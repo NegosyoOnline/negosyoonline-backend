@@ -262,11 +262,25 @@ class PlatformPhoneUnchangedTests(SitePhoneCase):
         self.receive(sender=NUMBERS[0], token=PLATFORM_TOKEN)
         self.assertEqual(self.tables(), (1, 1, 1, 1, 0))
 
-    def test_a_store_bulk_text_is_not_a_shared_phone_route(self):
+    def test_a_store_bulk_text_from_the_stores_own_phone_is_not_a_shared_phone_route(self):
+        # ONE-PHONE (2026-11-26): only a bulk text the platform phone sent is routed.
         self.assertNotIn("store_bulk", sms_inbox.ROUTED_PURPOSES)
-        self.text_out(purpose="store_bulk", to=NUMBERS[0])
+        self.text_out(purpose="store_bulk", to=NUMBERS[0])  # sent by the store's own phone
         self.receive(sender=NUMBERS[0], token=PLATFORM_TOKEN)
         self.assertEqual(self.tables(), (0, 0, 1, 1, 0))
+        self.assertIsNone(sms_inbox.route_incoming(NUMBERS[0]))
+
+    def test_a_reply_to_a_platform_sent_store_bulk_text_goes_to_the_store(self):
+        self.text_out(purpose="store_bulk", to=NUMBERS[0], device=self.platform)
+        self.assertEqual(sms_inbox.route_incoming(NUMBERS[0]), self.site)
+        self.receive(sender=NUMBERS[0], token=PLATFORM_TOKEN)
+        self.assertEqual(self.tables(), (1, 1, 0, 0, 0))
+
+    def test_a_stop_to_a_platform_sent_store_bulk_text_goes_on_the_stores_opt_out_list(self):
+        self.text_out(purpose="store_bulk", to=NUMBERS[0], device=self.platform)
+        self.receive(body="STOP", sender=NUMBERS[0], token=PLATFORM_TOKEN)
+        self.assertTrue(InquirySmsOptOut.objects.filter(site=self.site, mobile=NUMBERS[0]).exists())
+        self.assertEqual(DoNotText.objects.count(), 0)
 
     def test_the_platform_phone_stores_nothing_with_its_own_switch_off(self):
         SmsDevice.objects.filter(pk=self.platform.pk).update(forwards_incoming=False)
