@@ -1,5 +1,10 @@
 """The one place an incoming text is stored. Called only by the gateway's `received` call.
 
+The platform phone's texts go to HQ's inbox (or to the store that texted the number last). A
+Site's phone forwards only when the server says so (`wanted`), and only the replies to that
+Site's own texts of the last 7 days are kept, in the Site's own Inbox; the rest are dropped
+unread (`_store_site`).
+
 No log line, cache entry or audit entry made here ever holds a number or a text."""
 import logging
 import unicodedata
@@ -29,8 +34,27 @@ def owner_of(device):
 
 
 def wanted(device):
-    """True when a text from this phone is to be stored. Never for a Site's phone."""
-    return device.site_id is None and inbox_on() and device.forwards_incoming
+    """True when a text from this phone is to be stored. The platform phone: the inbox switch and
+    the phone's own `forwards_incoming`. A Site's phone: the server decides (SITE-PHONE-REPLIES),
+    see `_site_wanted`; `forwards_incoming` is not read for it."""
+    if device.site_id is not None:
+        return _site_wanted(device)
+    return inbox_on() and device.forwards_incoming
+
+
+def _site_wanted(device):
+    """True when a Site's phone is to forward what it receives: the inbox and store-SMS switches
+    are on, Site phones are on, the Site has a line and its text conversations on, and this phone
+    is that Site's active line. Anything else and the phone is told not to forward."""
+    from apps.inquiries import sms_inbox  # not at import: inquiries sits above the inbox
+    from apps.notifications import sms
+
+    site = device.site
+    return bool(
+        inbox_on() and sms_inbox.sms_ready() and sms.site_lines_on()
+        and sms.site_has_line(site) and sms_inbox.enabled(site)
+        and (lined := sms._lined(site)) is not None and lined.pk == device.pk
+    )
 
 
 def _text(value, longest=None):
@@ -100,6 +124,39 @@ def _slot(raw):
     return raw if whole and 0 <= raw <= 9 else None
 
 
+def _store_site(device, texts, now, sms_inbox):
+    """The texts of one `received` call from a Site's phone (SITE-PHONE-REPLIES, option A). A text
+    is kept only when its sender can be replied to and this Site texted that number from this
+    phone's line in the last 7 days (a store_reply, store_compose or store_bulk text, still
+    queued, handed out or sent). It goes to the Site's own conversation, a STOP onto the Site's
+    opt-out list. Every other text is dropped: not stored, not logged, only counted. Nothing here
+    ever touches HQ's conversation tables. Always True: a dropped text is done with for good."""
+    from apps.notifications import sms
+    from apps.notifications.models import SmsMessage
+
+    since = now - sms_inbox.ROUTE_WITHIN
+    dropped = 0
+    with transaction.atomic():
+        SmsDevice.objects.select_for_update().get(pk=device.pk)  # one call per phone at a time
+        seen = sms_inbox.seen_refs(device, [ref for ref, *_ in texts])
+        for ref, sender, text, received_at, _slot_unused in texts:
+            if ref in seen:
+                continue
+            seen.add(ref)
+            contact, can_reply = _contact(sender)
+            texted = can_reply and SmsMessage.objects.filter(
+                site=device.site, recipient=contact, purpose__in=sms.STORE_PURPOSES,
+                status__in=sms_inbox.LIVE_STATUSES, created_at__gte=since,
+            ).exists()
+            if not texted:
+                dropped += 1
+                continue
+            sms_inbox.store_incoming(device.site, device, contact, ref, text, _when(received_at, now), _is_stop(text))
+    if dropped:
+        logger.info("sms_site_incoming_dropped count=%s", dropped)  # a count only, never who or what
+    return True
+
+
 def store(device, body):
     """Store the texts of one `received` call. True when the call is done with: its good
     texts are stored or were already, and its bad ones are skipped for good. False when the
@@ -113,8 +170,10 @@ def store(device, body):
     if not texts:
         return True
     now = timezone.now()
-    listing = dnt_tables_exist()
     from apps.inquiries import sms_inbox  # a store's own text conversations (SMS-OWNER)
+    if device.site_id is not None:
+        return _store_site(device, texts, now, sms_inbox)
+    listing = dnt_tables_exist()
     with transaction.atomic():
         # One call per phone at a time, so a repeat that overlaps the first cannot store twice.
         SmsDevice.objects.select_for_update().get(pk=device.pk)
