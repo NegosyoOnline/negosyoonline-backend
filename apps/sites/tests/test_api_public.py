@@ -267,10 +267,12 @@ class NotFoundTests(ByHostTestCase):
         self.assert_not_found(self.lookup())
         self.assert_served(self.lookup("anas-shop.negosyotest.com"))
 
-    def test_a_reserved_name_even_when_a_serving_site_holds_it(self):
-        for number, name in enumerate(("www", "api", "sante", "w-w-w")):
+    def test_a_reserved_name_with_no_active_row_is_not_found(self):
+        # LABEL-R2 (2026-11-26): an ACTIVE row on a reserved name is an operator assignment and
+        # is served (see ReservedLabelAssignedTests); with no such row the name is still 404.
+        make_subscription()
+        for name in ("www", "api", "sante", "w-w-w"):
             with self.subTest(name=name):
-                make_subscription(email=f"owner{number}@example.test", name=name)
                 self.assert_not_found(self.lookup(f"{name}.negosyotest.com"))
 
     def test_an_unknown_name(self):
@@ -365,3 +367,61 @@ class NotFoundTests(ByHostTestCase):
 
         self.assertEqual(len(answers), 1)
         self.assertEqual(Subscription.objects.get(pk=suspended.pk).state, "suspended")
+
+
+class ReservedLabelAssignedTests(ByHostTestCase):
+    """LABEL-R2, 2026-11-26: a reserved label is served only as an operator-assigned ACTIVE row."""
+
+    def host(self, label):
+        return f"{label}.negosyotest.com"
+
+    def assigned(self, state=Subdomain.State.ACTIVE):
+        subscription = make_subscription()
+        Subdomain.objects.filter(site=subscription.site).update(state=Subdomain.State.RETIRED)
+        Subdomain.objects.create(name="santebarley", site=subscription.site, state=state)
+        return subscription.site
+
+    def test_an_active_reserved_row_is_served(self):
+        from apps.sites import api_public
+
+        site = self.assigned()
+        self.assertEqual(api_public.site_label(self.host("santebarley")), "santebarley")
+        self.assertEqual(api_public.site_for_host(self.host("santebarley")), site)
+        body = self.assert_served(self.lookup(self.host("santebarley")))
+        self.assertEqual(body["id"], site.public_id)
+
+    def test_a_reserved_label_with_no_row_is_not_found(self):
+        make_subscription()
+        self.assert_not_found(self.lookup(self.host("santebarley")))
+
+    def test_a_retired_or_operator_reserved_row_is_not_found(self):
+        self.assigned(state=Subdomain.State.RETIRED)
+        self.assert_not_found(self.lookup(self.host("santebarley")))
+        Subdomain.objects.filter(name="santebarley").update(state=Subdomain.State.OPERATOR_RESERVED)
+        self.assert_not_found(self.lookup(self.host("santebarley")))
+
+    def test_system_names_with_no_row_are_none(self):
+        from apps.sites import api_public
+
+        make_subscription()
+        for label in ("www", "api", "hq"):
+            with self.subTest(label=label):
+                self.assertIsNone(api_public.site_label(self.host(label)))
+                self.assert_not_found(self.lookup(self.host(label)))
+
+    def test_a_deleted_sites_reserved_row_is_not_found(self):
+        site = self.assigned()
+        Site.objects.filter(pk=site.pk).update(deleted_at=timezone.now())
+        self.assert_not_found(self.lookup(self.host("santebarley")))
+
+    def test_a_retired_label_is_not_found(self):
+        subscription = make_subscription()
+        Subdomain.objects.filter(site=subscription.site).update(state=Subdomain.State.RETIRED)
+        self.assert_not_found(self.lookup(HOST))
+
+    def test_self_service_still_refuses_the_reserved_name(self):
+        from apps.sites import subdomains
+
+        self.assigned()
+        self.assertEqual(subdomains.check("santebarley")[1], "reserved")
+        self.assertTrue(subdomains.is_reserved("santebarley"))
