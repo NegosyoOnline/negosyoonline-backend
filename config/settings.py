@@ -194,6 +194,11 @@ BILLING_ORDER_OVERAGE_FROM = os.environ.get("BILLING_ORDER_OVERAGE_FROM", "").st
 # tables are not read or written. The register is built and turned on before the statements.
 BILLING_INVOICE_REGISTER_ENABLED = os.environ.get("BILLING_INVOICE_REGISTER_ENABLED", "").strip() == "1"
 BILLING_STATEMENTS_ENABLED = os.environ.get("BILLING_STATEMENTS_ENABLED", "").strip() == "1"
+# Referral codes and Subscription Credits (Billing B6). "1" lets a first payment of a referred
+# business earn its referrer a credit, lets a credit be reserved and spent on a bill, opens the
+# fully-covered "pay with credit" route and the account referrals figures. Off, none of that runs,
+# and payments behave exactly as they did before B6.
+BILLING_REFERRALS_ENABLED = os.environ.get("BILLING_REFERRALS_ENABLED", "").strip() == "1"
 # "1" marks new statements and register items as live. Anything else marks them as test, labelled
 # so and never shown as a paid charge. Set to "1" in production only on Coach Ed's approval.
 BILLING_LIVE_DOCUMENTS = os.environ.get("BILLING_LIVE_DOCUMENTS", "").strip() == "1"

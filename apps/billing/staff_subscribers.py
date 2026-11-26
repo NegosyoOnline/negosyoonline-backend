@@ -193,6 +193,7 @@ def _payment(payment):
         "plan": payment.plan_code,
         "amount_centavos": payment.amount_centavos,
         "amount_received_centavos": payment.amount_received_centavos,
+        "credit_centavos": payment.credit_centavos,
         "currency": payment.currency,
         "transferred_on": payment.transferred_on.isoformat(),
         "submitted_at": _iso(payment.submitted_at),

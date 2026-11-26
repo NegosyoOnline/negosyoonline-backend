@@ -327,16 +327,19 @@ class BillingIsolationTests(SitesApiTestCase):
                 ("GET", "/sites/{site_id}/billing/payments/{payment_id}/proof/"),
                 ("GET", "/sites/{site_id}/billing/usage/"),
                 ("POST", "/sites/{site_id}/billing/cancel/"),
+                ("POST", "/sites/{site_id}/billing/pay-with-credit/"),
                 ("POST", "/sites/{site_id}/billing/payments/"),
                 ("POST", "/sites/{site_id}/billing/reactivate/"),
             ],
             "A billing route was added or removed: add it to the isolation tests.",
         )
-        # The one route outside a site is the public plan list (Billing Build B3): it names no
-        # site, needs no sign-in and reads no billing table.
+        # Outside a site: the public plan list (Billing Build B3), which names no site, needs
+        # no sign-in and reads no billing table,
         outside = [p for p in billing_router.path_operations if "{site_id}" not in p]
-        self.assertEqual(outside, ["/plan/"])
-        self.assertEqual(len(billing_router.path_operations), 12)
+        # And the signed-in account's own referral figures (Billing B6), which name no site and
+        # read only the caller's own rows.
+        self.assertEqual(sorted(outside), ["/account/referrals/", "/plan/"])
+        self.assertEqual(len(billing_router.path_operations), 14)
 
     def test_another_accounts_site_is_404_on_every_billing_route_and_changes_nothing(self):
         before = billing_snapshot()
@@ -385,6 +388,10 @@ class BillingIsolationTests(SitesApiTestCase):
                 if "/billing/payment" in template:
                     # Bank transfer is switched off here, so its routes are 404 for the
                     # owner too; apps/billing/tests/test_transfer_api.py covers them on.
+                    expected = 404
+                if template.endswith("/billing/pay-with-credit/"):
+                    # BILLING_REFERRALS_ENABLED is off here (Billing B6); test_credits_api.py
+                    # covers the route with it on.
                     expected = 404
                 response = self.call(method, path, client=self.ben)
                 self.assertEqual(response.status_code, expected, response.content)

@@ -99,9 +99,14 @@ def _send_once(subscription, key, code, to, subject, body, now):
 # The texts. Plain, from DEFAULT_FROM_EMAIL, no attachment, nothing about a proof file, a bank
 # account, a tax claim or deletion.
 
+def _transferred(payment):
+    """What the Subscriber transfers: the amount due less any Subscription Credit (Billing B6)."""
+    return payment.amount_centavos - payment.credit_centavos
+
+
 def _proof_received(payment, hi):
     return "We received your bank transfer proof", (
-        f"{hi} we received the proof of your bank transfer of {_money(payment.amount_centavos)} "
+        f"{hi} we received the proof of your bank transfer of {_money(_transferred(payment))} "
         f"for {payment.subscription.site.display_name}. Our team will review it. Your payment "
         f"counts only after it is approved; we will email you the result. You can see it on "
         f"your Billing page: {_billing_link()}.\n\n{SIGN_OFF}"
@@ -149,7 +154,7 @@ def _payment_rejected(payment, hi, payable):
     retry = f" Please send a new proof on your Billing page: {_billing_link()}." if payable else ""
     return "We could not approve your payment proof", (
         f"{hi} we could not approve the proof you sent for {site} "
-        f"({_money(payment.amount_centavos)}). Reason: {reason}.{retry} If you think this is a "
+        f"({_money(_transferred(payment))}). Reason: {reason}.{retry} If you think this is a "
         f"mistake, contact {SUPPORT_EMAIL}.\n\n{SIGN_OFF}"
     )
 
@@ -264,7 +269,7 @@ def _staff_alert(payment):
         if settings.HQ_STAFF_ORIGIN else "Open the Finance page in HQ."
     )
     return f"Bank transfer proof waiting: {payment.public_id}", (
-        f"A bank transfer proof is waiting for review: {_money(payment.amount_centavos)}, "
+        f"A bank transfer proof is waiting for review: {_money(_transferred(payment))}, "
         f"{_plan_name(payment)}, sent {_day_time(payment.submitted_at)}. {where} No customer "
         f"details are in this email."
     )

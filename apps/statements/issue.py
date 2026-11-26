@@ -10,7 +10,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from apps.billing import clock, usage
+from apps.billing import clock, credits, usage
 from apps.billing.models import BankTransferPayment, ChargeLine
 from apps.statements import delivery, documents, services as issuer_services, switch
 from apps.statements.models import (
@@ -53,7 +53,7 @@ def _day(instant):
 
 def _lines(payment, cycle):
     """Frozen lines: the base fee of the term, then each overage charge this payment settled.
-    No order or product lines exist. A Subscription Credit line is omitted while it is zero."""
+    No order or product lines exist. A Subscription Credit line (negative) is added only when credit was applied."""
     lines = []
     if payment.plan_code != "usage_only":
         base = payment.amount_centavos - payment.usage_centavos
@@ -78,6 +78,12 @@ def _lines(payment, cycle):
             charge.amount_centavos // charge.quantity if exact else charge.amount_centavos,
             charge.amount_centavos,
             f"charge:{charge.pk}",
+        ))
+    if payment.credit_centavos:  # Billing B6: what Subscription Credit took off the amount due
+        taken = payment.credit_centavos
+        lines.append((
+            "credit", f"Subscription Credit applied \u2212{credits.money(taken)}", 1, -taken, -taken,
+            payment.public_id,
         ))
     return lines, [c.cycle for c in charges]
 
