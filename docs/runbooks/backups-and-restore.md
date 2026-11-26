@@ -2,21 +2,23 @@
 
 ClickUp z8uq9mekrk (gate z8uq9m7ydh). Plan approved by Coach Ed through the manager on 2026-11-13. Nothing here is a public uptime promise.
 
-Production does not exist yet. Everything below names staging; production gets the same once it exists. A restore of any environment needs Coach Ed's word each time. No standing approval covers production.
+Staging and production both exist and both take the nightly encrypted database copy (section 8): `/readyz/` reports `"db_backup": true` on both, read 2026-11-26. Railway is no longer the platform (ruling 1100430000597874); the database and Redis run on Bunny Magic Containers (`docs/runbooks/bunny-staging.md`). A restore of any environment needs Coach Ed's word each time. No standing approval covers production.
 
 ## 1. What is backed up, and what is not
 
-**Scope: the database is backed up by Railway. The private Blob files have no backup for now.** The daily file backup in section 7 is built (ClickUp z8uq9mewtf, BE #161) but not in use: Coach Ed declined the bucket on cost on 2026-11-14 ("for storage bucket, let's not create a backup. this is expensivce for now for me"). Until he decides otherwise the private Blob files have no backup and are not part of any restore test. The business continuity note (NPC P5, outside this repository) says files are covered by the yearly restore test and that one private file is restored. That stays untrue while the file backup is not in use; the note must not be signed as written. The public store (catalog images) is not backed up.
+**Scope: the database is backed up by the nightly encrypted dump in section 8 (switched on in staging and production, `/readyz/` `db_backup` true on both, read 2026-11-26); Bunny itself gives no database backup. The private Blob files have no backup for now.** The daily file backup in section 7 is built (ClickUp z8uq9mewtf, BE #161) but not in use: Coach Ed declined the bucket on cost on 2026-11-14 ("for storage bucket, let's not create a backup. this is expensivce for now for me"). Until he decides otherwise the private Blob files have no backup and are not part of any restore test. The business continuity note (NPC P5, outside this repository) says files are covered by the yearly restore test and that one private file is restored. That stays untrue while the file backup is not in use; the note must not be signed as written. The public store (catalog images) is not backed up.
 
 | Data | Backed up? | Where it lives |
 |---|---|---|
-| PostgreSQL | Railway's scheduled volume backups (below). | Railway Postgres service. |
+| PostgreSQL | Yes: nightly encrypted `pg_dump`, the newest copy of each of 14 days plus of 8 weeks (section 8). | Postgres in the Bunny data app (`docs/runbooks/bunny-staging.md`); the copies in the private Vercel Blob store under `db-backups/`. |
 | Private Blob files (billing proofs, shop payment proofs, statement and invoice PDFs, payment QR, pack files, membership agreement files, business seals) | No for now. A daily backup to a Railway Storage Bucket is built (section 7) but not in use: Coach Ed declined the bucket on cost on 2026-11-14 ("for storage bucket, let's not create a backup. this is expensivce for now for me"), and `FILE_BACKUP_ENABLED` stays off. Vercel Blob itself keeps no versions; a deleted file is gone. | Private Vercel Blob store, `PRIVATE_BLOB_READ_WRITE_TOKEN`; the copy in the bucket named by `FILE_BACKUP_BUCKET`. |
 | Public Blob files (catalog images) | No. Same as above. | Public Vercel Blob store, `PUBLIC_BLOB_READ_WRITE_TOKEN`. |
-| Redis | No, by design. | Railway Redis. Holds sign-in and verification codes, throttle counters, the encrypted text of queued SMS, the Celery queue and the beat heartbeat. Losing it expires codes and drops queued SMS texts. |
-| Variables | By name only, here and in `docs/runbooks/billing.md`. Values are in Railway (api, worker, beat) and Vercel and nowhere in the repository. | Railway service variables; Vercel project variables. |
+| Redis | No, by design. | Redis in the Bunny data app. Holds sign-in and verification codes, throttle counters, the encrypted text of queued SMS, the Celery queue and the beat heartbeat. Losing it expires codes and drops queued SMS texts. |
+| Variables | By name only, here and in `docs/runbooks/billing.md`. Values are on Bunny (api, worker, beat; data app) and Vercel and nowhere in the repository. | Bunny app variables (`docs/runbooks/bunny-staging.md`); Vercel project variables. |
 
-### Railway database backups (read from Railway's documentation on 2026-11-13)
+### Historical: Railway database backups (Railway era, before the move to Bunny; not in force)
+
+The database no longer runs on Railway, and none of the Railway volume-backup facts below apply to it. They are kept only as the record of 2026-11-09 to 2026-11-14. The backup in force is section 8.
 
 - Schedules a volume can use: daily (every 24 hours, kept 6 days), weekly (every 7 days, kept 27 days), monthly (every 30 days, kept 89 days). Several can be selected; manual backups are possible. Set under the service's Backups tab.
 - Chosen: Daily only (Coach Ed, 2026-11-14, "no, lets just use daily."): up to 24 hours of data lost, restores reach back 6 days. Confirmed in Edit schedule 2026-11-14 (Daily ticked, Weekly and Monthly not).
@@ -26,6 +28,8 @@ Production does not exist yet. Everything below names staging; production gets t
 - **A volume backup can only be restored in place**, into the same project and environment. It cannot go to a separate service. Restoring mounts a new volume (named with the backup's date stamp) at the original path; the previous volume stays unmounted in the project; the change takes effect when you click Deploy, which redeploys the service. Newer backups stay with the previous volume.
 - Point-in-time recovery (PITR) is different: it creates a sibling Postgres service at a chosen time and leaves the source untouched. It must be enabled first and only covers the time after it was enabled (a window of about four weeks). It is not enabled on staging as far as this runbook knows.
 - Only a `pg_dump` taken to somewhere else survives the loss of the project or the volume. Wiping a volume deletes its backups too.
+
+What still holds on Bunny: a nightly `pg_dump` taken to somewhere else is the only copy that survives the loss of the volume (section 8).
 
 ### After a restore: files and rows can disagree
 
@@ -49,7 +53,7 @@ Repeat for each column above. Files with no row are listed the other way round (
 1. Coach Ed gives his word for this environment and this backup, in the Manager session.
 2. Silence the uptime alert (section 5) and tell the Supervisor.
 3. **Stop the worker and beat** services first, and keep them stopped until step 8. The api may stay up read-only or be stopped; it does not send billing email or run sweeps.
-4. Restore the backup in Railway (Backups tab, Restore, review the staged change under Details, Deploy). Record the backup's date and time.
+4. Restore the chosen nightly copy into the data app's database with the restore job (`docs/runbooks/bunny-staging.md`, "Restore job (data app)"; list the copies first with `manage.py restore_database --list`; section 8). The target database must exist and be empty. Record the copy's name and time. (Railway-era steps, a volume backup restored in the Backups tab, no longer apply.)
 5. Run the restore safety checks (section 3) with worker and beat still stopped. If the file backup is on, restore the private files too, before the checks that list missing files (section 7, "Restore").
 6. Show what would migrate. This changes nothing: the `migrate --plan` command in `docs/runbooks/migrations.md` (Procedure, step 1). If it lists migrations, do not run them; take the list to the Supervisor (`docs/runbooks/migrations.md`).
 7. Start the api. Check `https://<api host>/healthz/` and `https://<api host>/readyz/`. `/readyz/` will say `"beat": false` until step 8; that is expected.
@@ -131,7 +135,7 @@ SmsMessage.objects.filter(status__in=("queued", "dispatched")).values("public_id
 | `cache` | one Redis set and get succeeds within 2 seconds. |
 | `beat` | the heartbeat is under 3 minutes old. The Celery task `health.heartbeat` (`apps/health/tasks.py`) runs every 60 seconds from the `health-heartbeat` beat entry and writes the time to the cache, so a fresh value proves beat, the broker and the worker. With no `REDIS_URL` (tasks run in-process) this is always true. |
 | `sms_queue` | no SMS row has been `queued` for more than 15 minutes. Counted only while `SMS_GATEWAY_ENABLED` is on; otherwise true. |
-| `email` | not (at least `READYZ_EMAIL_FAILURES` of the newest emails sent in the last `READYZ_EMAIL_WINDOW_MINUTES` failed and none sent). Defaults 3 failures and 30 minutes, both environment variables read in `config/settings.py`; change them in Railway without a code change. It reads the newest 20 `EmailMessage` rows by primary key (one query), ignores `pending`, and is true when there are no recent rows. The body says only `true` or `false`, never an address. |
+| `email` | not (at least `READYZ_EMAIL_FAILURES` of the newest emails sent in the last `READYZ_EMAIL_WINDOW_MINUTES` failed and none sent). Defaults 3 failures and 30 minutes, both environment variables read in `config/settings.py`; change them in the api's Bunny variables (`docs/runbooks/bunny-staging.md`) without a code change. It reads the newest 20 `EmailMessage` rows by primary key (one query), ignores `pending`, and is true when there are no recent rows. The body says only `true` or `false`, never an address. |
 | `files_backup` | True while `FILE_BACKUP_ENABLED` is off (the field then builds and calls no client); it stays true on staging because the switch is off and the backup is not in use. Switched on, true while the last fully good backup run (no failure, no anomaly, every source file copied) is younger than `FILE_BACKUP_STALE_HOURS` (default 36). One cache read (`file_backup:last_ok`), no database query. Redis is not backed up, so after a Redis loss the field is false until the next daily run (at most a day; a false alarm, not a miss). A false field turns `/readyz/` into 503, which the uptime check emails. |
 | `db_backup` | Reported only while `DB_BACKUP_ENABLED=1`; with the switch off the field is absent. True while the newest encrypted database copy (section 8) is younger than `DB_BACKUP_STALE_HOURS` (default 30); false when the newest is older or none exists. Read from the cache (`db_backup:last_ok`); after a Redis loss it is rebuilt from one listing of the private store. A false field turns `/readyz/` into 503. |
 | `meta_queue` | no Meta Conversions delivery (`MetaDelivery`) has been `queued` or `retrying` for more than 30 minutes (`READYZ_META_QUEUE_MINUTES` in `apps/health/views.py`, well above the normal span of about 12 minutes). Always true while `META_EVENTS_ENABLED` is off. One `.exists()` query. |
@@ -181,11 +185,13 @@ Pause the uptime monitors (or put them in the service's maintenance window) befo
 
 ### Weekly check
 
-Once a week the Manager checks, read-only, in the Railway dashboard: the Postgres Backups tab shows a backup no older than the schedule (24 hours for a daily schedule), and Postgres volume usage (the service Metrics or Volume view) is below 80%. Record the date and both readings (backup age, usage percent) in the ClickUp rulings or gates record. At 80% or more, or a late backup, raise it with Coach Ed.
+Once a week the Manager checks, read-only, that `GET /readyz/` on staging and on production reports `"db_backup": true` (the newest nightly copy is younger than `DB_BACKUP_STALE_HOURS`, default 30; the field is reported only while `DB_BACKUP_ENABLED` is on). Record the date and the two readings in the ClickUp rulings or gates record. A false field, or a missing one, is raised with Coach Ed. The Railway-era reading of the Postgres Backups tab and volume usage no longer applies; no Bunny volume-usage reading is recorded in the repository, so none is required here until Coach Ed rules one.
 
-With the file backup on, also run `manage.py backup_private_files --status` on the worker (`railway ssh`, whole remote command in single quotes) and record the last success time and the two counts (files in the store and files in the backup). The week fails if the last success is older than 36 hours or the two counts differ.
+With the file backup on, also run `manage.py backup_private_files --status` on the worker and record the last success time and the two counts (files in the store and files in the backup). The week fails if the last success is older than 36 hours or the two counts differ.
 
-## 6. Restore test (staging only, run 2026-11-13)
+## 6. Restore test (staging only, run 2026-11-13; historical, Railway era)
+
+**Historical.** This test ran on Railway before the move to Bunny and is kept as the record of 2026-11-13. Its steps (scratch Railway Postgres service, `railway ssh`) no longer apply. The current restore drill is in section 8 ("Restore drill").
 
 **Scope: the 2026-11-13 test below covers the database only.** Private files in the Vercel Blob private store (payment proofs, uploaded seals, payment QR codes, billing proofs, statement PDFs, invoice scans, agreement and pack files; `apps/common/private_files.py`) were not part of it. The file restore test is `backup_private_files --selftest` (section 7): three synthetic test files, backed up and restored byte for byte, no real member file read or restored. It has not been run on staging, and will not be while the file backup is not in use (declined for now on cost, 2026-11-14). The NPC P5 note (outside this repository) saying files are covered by the yearly restore test, with one private file restored, is not true while there is no file backup; the note must be corrected, or reworded if the backup is later turned on and the `--selftest` passes, by its owner before it is signed.
 
@@ -260,7 +266,7 @@ Code: `apps/file_backup/`. No migration and no table: the bucket holds all state
 
 ## 8. Nightly encrypted database backup on Bunny (ClickUp z8uq9mhben)
 
-**Switched off until the Manager gives the go** (staging first, then production). Code: `apps/db_backup/`. No migration and no table. This is a copy that survives the loss of the Bunny volume; Bunny itself gives no database backup (sections 1 to 3 describe the Railway era and apply to the restore order and safety checks only).
+**Switched on in staging and production** (`/readyz/` reports `"db_backup": true` on both, read 2026-11-26; staging commit a99c2bd). Code: `apps/db_backup/`. No migration and no table. This is the database backup, a copy that survives the loss of the Bunny volume; Bunny itself gives no database backup.
 
 **What it does.** Every day at 04:30 Manila time (after the 04:00 file backup) the `worker` runs `pg_dump --format=custom --no-owner --no-acl` of the default database, encrypts the dump (AES-256-GCM, the copy's name bound in, the same code as section 7: `apps/file_backup/crypto.py`) and puts it in the private Vercel Blob store as `db-backups/<UTC time>.dump.enc`. Only after a good upload it applies retention. The password goes to the tools in environment variables, never on a command line; the tools' output is never logged. Logs hold counts and the exception type only. It runs once per Manila day and one at a time.
 
