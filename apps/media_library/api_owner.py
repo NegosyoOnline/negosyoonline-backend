@@ -127,7 +127,10 @@ DELETED = {"status": "deleted"}
 
 @router.get("/sites/{site_id}/media/")
 def asset_list(request, site_id: str):
-    return _json({"assets": [svc.owner_out(a) for a in svc.list_for_owner(request.member_site)]})
+    body = {"assets": [svc.owner_out(a) for a in svc.list_for_owner(request.member_site)]}
+    if svc.uses_bunny(request.member_site):
+        body["video_host"] = "bunny"  # a new video goes to the store's own library (as the token route)
+    return _json(body)
 
 
 @router.post("/sites/{site_id}/media/")

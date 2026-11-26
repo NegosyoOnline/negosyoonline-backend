@@ -471,6 +471,11 @@ def _bunny_library(site):
         return None
 
 
+def uses_bunny(site):
+    """True when the video token route answers the Bunny shape for this store (the same predicate)."""
+    return _bunny_library(site) is not None
+
+
 def _bunny_instructions(library, asset):
     """Create the empty video in the store's library and sign the browser's direct TUS upload. The
     key is only hashed into the signature, never sent."""

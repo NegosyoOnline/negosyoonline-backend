@@ -175,6 +175,27 @@ class AttachTests(BunnyVideoCase):
         self.assertNotIn("embed_url", body)
 
 
+class VideoHostTests(BunnyVideoCase):
+    def listing(self):
+        response = self.get(self.url())
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def test_the_list_says_bunny_only_when_the_token_route_would(self):
+        self.assertEqual(self.listing()["video_host"], "bunny")
+        self.assertEqual(self.token().json()["host"], "bunny")  # the same predicate
+        with override_settings(MEDIA_VIDEO_BUNNY_ENABLED=False):
+            self.assertEqual(set(self.listing()), {"assets"})
+        from apps.training.models import StreamLibrary
+
+        StreamLibrary.objects.filter(site=self.site).delete()
+        self.assertEqual(set(self.listing()), {"assets"})
+
+    def test_a_key_less_library_gives_no_key(self):
+        with mock.patch.dict("os.environ", {"BUNNY_STREAM_KEY_ANA": ""}):
+            self.assertEqual(set(self.listing()), {"assets"})
+
+
 class OrphanTests(BunnyVideoCase):
     def key(self, guid):
         return f"bunny:{LIBRARY}:{guid}"
