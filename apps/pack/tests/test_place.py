@@ -72,6 +72,34 @@ class PlaceTests(PackTestCase):
         token = self.start(email="b@buyer.test", mobile="09170000002")
         self.assertEqual(self.place(token, submit_key="k2").json()["order_number"], "SMP00002")
 
+    def _place_more(self, count):
+        for i in range(count):
+            token = self.start(email=f"gap{i}@buyer.test", mobile=f"0917000{i:04d}")
+            self.assertEqual(self.place(token, submit_key=f"gap-{i}").status_code, 200)
+
+    def _next_after_numbers(self, numbers):
+        """Place len(numbers) orders, renumber them, then place one more; return its number."""
+        self._place_more(len(numbers))
+        for row, number in zip(PackOrder.objects.filter(site=self.site).order_by("pk"), numbers):
+            PackOrder.objects.filter(pk=row.pk).update(order_number=number)
+        token = self.start(email="next@buyer.test", mobile="09170009999")
+        return self.place(token, submit_key="gap-next").json()["order_number"]
+
+    def test_a_gap_in_the_numbering_never_collides(self):
+        self.assertEqual(self._next_after_numbers(["SMP00001", "SMP00002", "SMP00004"]), "SMP00005")
+
+    def test_an_empty_site_places_number_one(self):
+        self.assertEqual(self._next_after_numbers([]), "SMP00001")
+
+    def test_another_sites_numbers_do_not_affect_this_site(self):
+        self._place_more(1)
+        PackOrder.objects.filter(site=self.site).update(site=self.other_site, order_number="SMP00099")
+        token = self.start(email="next@buyer.test", mobile="09170009999")
+        self.assertEqual(self.place(token, submit_key="gap-next").json()["order_number"], "SMP00001")
+
+    def test_numbers_outside_the_pattern_are_ignored(self):
+        self.assertEqual(self._next_after_numbers(["SMP00001", "SMP00007", "LEGACY-1"]), "SMP00008")
+
     def test_a_replay_returns_the_first_order_and_writes_nothing(self):
         token, first = self.placed()
         files = self.proof_files()

@@ -50,6 +50,28 @@ class GuestPlacementTests(ShopTestCase):
         self.placed()
         self.assertEqual(self.placed()["order_number"], "SO00002")
 
+    def _next_after_numbers(self, numbers):
+        """Place len(numbers) orders, renumber them, then place one more; return its number."""
+        for _ in numbers:
+            self.placed()
+        for row, number in zip(ShopOrder.objects.filter(site=self.site).order_by("pk"), numbers):
+            ShopOrder.objects.filter(pk=row.pk).update(order_number=number)
+        return self.placed()["order_number"]
+
+    def test_a_gap_in_the_numbering_never_collides(self):
+        self.assertEqual(self._next_after_numbers(["SO00001", "SO00002", "SO00004"]), "SO00005")
+
+    def test_an_empty_site_places_number_one(self):
+        self.assertEqual(self._next_after_numbers([]), "SO00001")
+
+    def test_another_sites_numbers_do_not_affect_this_site(self):
+        self.placed()
+        ShopOrder.objects.filter(site=self.site).update(site=self.other_site, order_number="SO00099")
+        self.assertEqual(self.placed()["order_number"], "SO00001")
+
+    def test_numbers_outside_the_pattern_are_ignored(self):
+        self.assertEqual(self._next_after_numbers(["SO00001", "SO00007", "LEGACY-1"]), "SO00008")
+
     def test_the_server_prices_the_order_whatever_the_browser_sends(self):
         body = self.placed(price_centavos="1", total_centavos="1", subtotal_centavos="1",
                            shipping_charged_centavos="1")
