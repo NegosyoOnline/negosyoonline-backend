@@ -5,7 +5,10 @@ A conversation is a stored one (`provider="sms"`, refs `sm_`), one per store and
 store writes only to a verified member of the store, one member at a time; a text goes through the
 SMS gateway as the purposes `store_compose` and `store_reply` and is paced and capped per store
 (apps/notifications/sms.py). An incoming text on the shared phone goes to the store that texted
-that number last (route_incoming), else to HQ as before.
+that number last (route_incoming), else to HQ as before. An incoming text on a store's own phone
+is kept only as a reply to that store's own text of the last 7 days (apps/inbox/storing.py
+`_store_site`, SITE-PHONE-REPLIES); `store_bulk` is left out of ROUTED_PURPOSES because a store's
+bulk never goes from the shared phone.
 
 Nothing here logs or audits a number or a text. A number is held only in the conversation's
 `contact_mobile`, which the retention rules blank with the rest of the personal fields, and in

@@ -253,7 +253,7 @@ class IncomingTests(RoutingCase):
         store.assert_not_called()
 
     def test_11_the_command_refuses_incoming_on_for_a_site_phone(self):
-        with self.assertRaisesMessage(CommandError, "cannot forward"):
+        with self.assertRaisesMessage(CommandError, "is not switched here"):
             call_command(
                 "sms_device", "incoming", "on", name="line-a", actor="coach", stdout=StringIO()
             )
