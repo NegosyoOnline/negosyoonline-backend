@@ -28,6 +28,7 @@ from apps.accounts.sessions import (
     set_session_cookie,
 )
 from apps.common.errors import ApiError
+from apps.common.throttle import hit
 from apps.common.middleware import require_allowed_origin
 
 router = Router(tags=["accounts"])
@@ -50,6 +51,12 @@ class VerifyIn(Schema):
     email: str = Field(max_length=EMAIL_MAX)
     code: str
     accept_policies: bool = False
+    referral_code: str = Field("", max_length=64)
+
+
+class ReferralLookupOut(Schema):
+    valid: bool
+    referrer_first_name: str = ""
 
 
 class AccountOut(Schema):
@@ -213,11 +220,26 @@ def email_code_request(request, payload: EmailIn):
 def email_code_verify(request, response: HttpResponse, payload: VerifyIn):
     require_allowed_origin(request)
     account, _session, token, created = services.verify_signin_code(
-        payload.email, payload.code, payload.accept_policies, request
+        payload.email, payload.code, payload.accept_policies, request, payload.referral_code
     )
     expire_root_session_cookie(response)
     set_session_cookie(response, token)
     return {"account": account_out(account), "created": created}
+
+
+REFERRAL_LOOKUP_LIMIT = 30
+REFERRAL_LOOKUP_WINDOW = 600
+
+
+@router.get("/referrals/{code}/", response=ReferralLookupOut)
+def referral_lookup(request, code: str):
+    """Is this a live referral code? One shape for every miss, so codes cannot be probed."""
+    hit("referral-lookup", client_ip(request) or "unknown",
+        limit=REFERRAL_LOOKUP_LIMIT, window=REFERRAL_LOOKUP_WINDOW)
+    referrer = services.find_referrer(code)
+    if referrer is None:
+        return {"valid": False, "referrer_first_name": ""}
+    return {"valid": True, "referrer_first_name": (referrer.name.split() or [""])[0]}
 
 
 @router.post("/auth/logout/", response={204: None}, auth=signed_in)

@@ -80,9 +80,32 @@ def _policies_required():
     )
 
 
-def _create_account(email, request, *, method, name=""):
-    """A new account whose email is already proven, with its policy acceptance."""
-    account = Account.objects.create(email=email, name=name, email_verified_at=timezone.now())
+REFERRAL_CODE_MAX = 12  # Account.referral_code max_length
+
+
+def find_referrer(code):
+    """The open account that owns a referral code, or None. Never raises, whatever the input.
+
+    Off (BILLING_REFERRALS_ENABLED) it finds nobody. Every miss costs the same one query.
+    """
+    if not settings.BILLING_REFERRALS_ENABLED:
+        return None
+    code = str(code or "").strip()[:REFERRAL_CODE_MAX].lower()
+    return Account.objects.filter(referral_code=code, closed_at__isnull=True).first()
+
+
+def _create_account(email, request, *, method, name="", referral_code=""):
+    """A new account whose email is already proven, with its policy acceptance.
+
+    `referral_code` records who referred it, once, here only. A code that is unknown, closed or
+    the account's own is ignored: signup never fails because of it.
+    """
+    referrer = find_referrer(referral_code) if referral_code else None
+    if referrer is not None and referrer.email == email:
+        referrer = None
+    account = Account.objects.create(
+        email=email, name=name, email_verified_at=timezone.now(), referred_by=referrer
+    )
     PolicyAcceptance.objects.create(
         account=account,
         policy_version=settings.POLICY_VERSION,
@@ -115,7 +138,7 @@ def request_signin_code(email, ip):
 
 
 @transaction.atomic
-def verify_signin_code(email, code, accept_policies, request):
+def verify_signin_code(email, code, accept_policies, request, referral_code=""):
     """Sign in, creating the account on first use. Returns (account, session, token, created)."""
     email = normalise_email(email)
     _require_code(email, code, SIGNIN)
@@ -128,7 +151,7 @@ def verify_signin_code(email, code, accept_policies, request):
         _refuse_closed(account)
     codes.clear_code(email, SIGNIN)
     if created:
-        account = _create_account(email, request, method="email_code")
+        account = _create_account(email, request, method="email_code", referral_code=referral_code)
     else:
         if account.email_verified_at is None:
             account.email_verified_at = timezone.now()

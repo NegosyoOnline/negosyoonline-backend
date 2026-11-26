@@ -116,6 +116,9 @@ SMS_GATEWAY_ENABLED = os.environ.get("SMS_GATEWAY_ENABLED", "").strip() == "1"
 # HQ -> Settings -> SMS Gateway: register, rotate and stop the platform phone. "1" turns on its
 # routes; off, they answer 404. Needs SMS_GATEWAY_ENABLED as well.
 SMS_GATEWAY_MGMT_ENABLED = os.environ.get("SMS_GATEWAY_MGMT_ENABLED", "").strip() == "1"
+# Referral codes (B6): "1" turns on GET /v1/referrals/{code}/ and lets signup record who referred
+# the new account. Off, the lookup answers {"valid": false} for every code and signup ignores one.
+BILLING_REFERRALS_ENABLED = os.environ.get("BILLING_REFERRALS_ENABLED", "").strip() == "1"
 # HQ -> Subscribers: the read-only list of subscriber sites. "1" turns on its routes; off, they
 # answer 404 and read nothing.
 HQ_SUBSCRIBERS_ENABLED = os.environ.get("HQ_SUBSCRIBERS_ENABLED", "").strip() == "1"
