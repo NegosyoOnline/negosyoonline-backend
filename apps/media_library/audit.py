@@ -30,6 +30,7 @@ security = logging.getLogger("security")
 
 PREFIX = f"{store.FOLDER}/"
 GRACE = timedelta(hours=1)
+BUNNY_GRACE = timedelta(hours=24)  # a video may still be uploading to Bunny: an unattached one is retried after a day
 
 
 def _uploaded_at(value):
@@ -76,7 +77,7 @@ def run(now=None):
     for key, added in MediaObject.objects.filter(
         removed_at__isnull=True, key__startswith=store.BUNNY_PREFIX
     ).values_list("key", "added_at"):
-        if now - added < GRACE or file_refs.is_referenced(key):
+        if now - added < BUNNY_GRACE or file_refs.is_referenced(key):
             continue
         retried += 1
         released += bool(ledger.release(key, now))

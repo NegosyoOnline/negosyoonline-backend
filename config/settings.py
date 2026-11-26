@@ -303,6 +303,10 @@ BUNNY_STREAM_CDN_SCHEME = os.environ.get("BUNNY_STREAM_CDN_SCHEME", "https").str
 # task skips with a log line. BUNNY_STATS_API_BASE is the public statistics host.
 VIDEO_METER_ENABLED = os.environ.get("VIDEO_METER_ENABLED", "").strip() == "1"
 MEDIA_VIDEO_BUNNY_ENABLED = os.environ.get("MEDIA_VIDEO_BUNNY_ENABLED", "").strip() == "1"
+# Largest Media Library video (bytes, as Bunny stores it) that attach accepts; a larger one is deleted
+# from Bunny and refused (400 video_too_large). A PLACEHOLDER awaiting Coach Ed's decision at the V-1
+# local preview: not a plan limit and not a customer promise.
+MEDIA_VIDEO_MAX_BYTES = int(os.environ.get("MEDIA_VIDEO_MAX_BYTES", "2000000000"))
 BUNNY_STATS_API_KEY = os.environ.get("BUNNY_STATS_API_KEY", "").strip()
 BUNNY_STATS_API_BASE = os.environ.get("BUNNY_STATS_API_BASE", "https://api.bunny.net").strip().rstrip("/")
 # Santé member sign-in (apps/members), on the storefront surface below. "1" turns on its four

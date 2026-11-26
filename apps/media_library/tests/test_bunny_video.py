@@ -111,7 +111,7 @@ class AttachTests(BunnyVideoCase):
         response = self.attach({"video_id": guid})
         self.assertEqual(response.status_code, 409, response.content)
         self.assertEqual(response.json()["error"]["code"], "video_processing")
-        self.assertEqual(MediaObject.objects.count(), 0)
+        self.assertEqual(MediaObject.objects.filter(removed_at__isnull=True, bytes__gt=0).count(), 0)  # only the 0-byte pending row
         self.assertEqual(MediaAsset.objects.get(pk=self.video.pk).file_key, "")
 
     def test_a_failed_video_is_refused_and_deleted(self):
@@ -120,7 +120,7 @@ class AttachTests(BunnyVideoCase):
         response = self.attach({"video_id": guid})
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn((LIBRARY, guid), self.bunny.deleted)
-        self.assertEqual(MediaObject.objects.count(), 0)
+        self.assertEqual(MediaObject.objects.filter(removed_at__isnull=True).count(), 0)  # closed with the Bunny delete
 
     def test_bunny_not_answering_is_502(self):
         guid = self.started()
@@ -134,14 +134,14 @@ class AttachTests(BunnyVideoCase):
         self.assertEqual(self.attach({"video_id": "no way!"}).status_code, 400)
         self.assertEqual(self.attach({}).status_code, 400)
         self.assertEqual(self.attach({"video_id": guid, "url": "https://x.test/a.mp4"}).status_code, 400)
-        self.assertEqual(MediaObject.objects.count(), 0)
+        self.assertEqual(MediaObject.objects.filter(bytes__gt=0).count(), 0)
 
     def test_a_video_of_another_stores_library_is_not_found(self):
         self.bunny.put_ready(222222, "bens-guid-0001")
         self.bunny.fail.add("check")  # asked in Ana's library the real API answers 404: a failed check
         response = self.attach({"video_id": "bens-guid-0001"})
-        self.assertEqual(response.status_code, 502)
-        self.assertEqual(MediaObject.objects.count(), 0)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(MediaObject.objects.filter(bytes__gt=0).count(), 0)
 
     def test_a_video_a_lesson_or_another_asset_already_names_is_refused(self):
         course, lessons = make_course_with_lessons(self.site, (1,))
@@ -173,6 +173,92 @@ class AttachTests(BunnyVideoCase):
         body = response.json()
         self.assertEqual(body["file_url"], url)
         self.assertNotIn("embed_url", body)
+
+
+class OrphanTests(BunnyVideoCase):
+    def key(self, guid):
+        return f"bunny:{LIBRARY}:{guid}"
+
+    def test_the_token_puts_the_video_in_the_ledger_at_once_with_no_bytes(self):
+        guid = self.token().json()["upload"]["video_id"]
+        row = MediaObject.objects.get(key=self.key(guid))
+        self.assertEqual((row.site, row.asset, row.role, row.bytes, row.removed_at), (self.site, self.video, "file", 0, None))
+        self.assertEqual(MediaAsset.objects.get(pk=self.video.pk).file_key, "")  # not attached yet
+
+    def test_a_token_with_no_attach_is_removed_by_site_erasure(self):
+        guid = self.token().json()["upload"]["video_id"]
+        self.assertEqual(services.purge_site(self.site, timezone.now()), 1)
+        self.assertIn((LIBRARY, guid), self.bunny.deleted)
+        self.assertIsNotNone(MediaObject.objects.get(key=self.key(guid)).removed_at)
+
+    def test_a_new_token_deletes_the_earlier_unattached_video_but_not_the_attached_one(self):
+        first = self.token().json()["upload"]["video_id"]
+        with self.captureOnCommitCallbacks(execute=True):
+            second = self.token().json()["upload"]["video_id"]
+        self.assertIn((LIBRARY, first), self.bunny.deleted)
+        self.assertIsNotNone(MediaObject.objects.get(key=self.key(first)).removed_at)
+        self.assertIsNone(MediaObject.objects.get(key=self.key(second)).removed_at)
+        self.assertEqual(self.attach({"video_id": first}).status_code, 400)  # no longer this asset's
+        self.bunny.videos[(LIBRARY, second)]["bytes"] = b"x"
+        self.assertEqual(self.attach({"video_id": second}).status_code, 200)
+        with self.captureOnCommitCallbacks(execute=True):
+            third = self.token().json()["upload"]["video_id"]  # a replacement in progress
+        self.assertNotIn((LIBRARY, second), self.bunny.deleted)  # the attached one keeps playing
+        self.assertIsNone(MediaObject.objects.get(key=self.key(third)).removed_at)
+
+    def test_attach_only_takes_a_video_this_assets_token_made(self):
+        guid = self.started()
+        other = make_asset(self.site, "Two", asset_type="video", file_key="", published_at=None)
+        self.assertEqual(self.attach({"video_id": guid}, other).status_code, 400)
+        self.bunny.put_ready(LIBRARY, "stranger-guid-01")  # in the library, but no token made it
+        self.assertEqual(self.attach({"video_id": "stranger-guid-01"}).status_code, 400)
+
+    def test_attach_gives_the_row_its_real_bytes(self):
+        guid = self.started()
+        self.assertEqual(self.attach({"video_id": guid}).status_code, 200)
+        self.assertEqual(MediaObject.objects.get(key=self.key(guid)).bytes, 4096)
+
+    def test_deleting_the_asset_also_deletes_an_unattached_video(self):
+        guid = self.token().json()["upload"]["video_id"]
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.send("delete", self.url(f"{self.video.public_id}/")).status_code, 200)
+        self.assertIn((LIBRARY, guid), self.bunny.deleted)
+
+    def test_the_audit_retries_a_failed_delete_of_an_unattached_video_after_a_day(self):
+        guid = self.token().json()["upload"]["video_id"]
+        key = self.key(guid)
+        MediaObject.objects.filter(key=key).update(added_at=timezone.now() - timedelta(hours=2))
+        with override_settings(MEDIA_LEDGER_AUDIT_ENABLED=True), mock.patch("apps.media_library.audit.media.list_prefix", return_value=[]):
+            self.assertEqual(audit.run()["retried"], 0)  # still uploading, perhaps
+            MediaObject.objects.filter(key=key).update(added_at=timezone.now() - timedelta(days=2))
+            self.bunny.fail.add("delete")
+            counts = audit.run()
+            self.assertEqual((counts["retried"], counts["released"], counts["still_pending"]), (1, 0, 1))
+            self.bunny.fail.discard("delete")
+            counts = audit.run()
+        self.assertEqual((counts["retried"], counts["released"]), (1, 1))
+        self.assertIn((LIBRARY, guid), self.bunny.deleted)
+        self.assertIsNotNone(MediaObject.objects.get(key=key).removed_at)
+
+    def test_a_video_over_the_size_setting_is_refused_deleted_and_not_attached(self):
+        guid = self.started()
+        with override_settings(MEDIA_VIDEO_MAX_BYTES=4095):
+            response = self.attach({"video_id": guid})
+        self.assertEqual(response.status_code, 400, response.content)
+        error = response.json()["error"]
+        self.assertEqual(error["code"], "video_too_large")
+        self.assertEqual(error["message"], "This video is too large to upload.")
+        self.assertIn((LIBRARY, guid), self.bunny.deleted)
+        self.assertIsNotNone(MediaObject.objects.get(key=self.key(guid)).removed_at)
+        self.assertEqual(MediaAsset.objects.get(pk=self.video.pk).file_key, "")
+
+    def test_a_video_at_the_size_setting_is_accepted_and_the_default_is_the_placeholder(self):
+        from django.conf import settings
+
+        self.assertEqual(settings.MEDIA_VIDEO_MAX_BYTES, 2_000_000_000)
+        guid = self.started()
+        with override_settings(MEDIA_VIDEO_MAX_BYTES=4096):
+            self.assertEqual(self.attach({"video_id": guid}).status_code, 200)
 
 
 class PlaybackAndLifecycleTests(BunnyVideoCase):

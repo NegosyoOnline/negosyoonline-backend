@@ -330,7 +330,7 @@ def update_asset(site, public_id, data):
 def delete_asset(site, public_id):
     with transaction.atomic():
         asset = get_asset(site, public_id, lock=True)
-        keys = [asset.file_key, asset.thumb_key, asset.poster_key]
+        keys = [asset.file_key, asset.thumb_key, asset.poster_key, *_pending_bunny_keys(asset)]
         asset.delete()
         ledger.release_on_commit(keys)
 
@@ -478,7 +478,24 @@ def _bunny_instructions(library, asset):
         guid = stream.create_video(library, asset.title)
     except stream.StreamError:
         raise ApiError("video_failed", "The video could not be started. Try again.", status=502) from None
+    key = store.bunny_key(library.id, guid)
+    try:
+        with transaction.atomic():
+            # The video is in the ledger from this moment (0 bytes until attach confirms it), so
+            # erasure, an asset delete and the audit remove it even if attach never comes. An
+            # earlier video of this asset that was never attached is released and deleted.
+            asset = _video_asset(asset.site, asset.public_id, lock=True)
+            stale = ledger.pending_keys(asset, store.BUNNY_PREFIX, keep=asset.file_key)
+            ledger.record(asset.site, asset=asset, role="file", key=key, content_type=store.VIDEO_TYPE, size=0)
+            ledger.release_on_commit(stale)
+    except BaseException:
+        _discard_bunny(library, guid)
+        raise
     return {"host": "bunny", "upload": stream.tus_signature(library, guid)}
+
+
+def _pending_bunny_keys(asset):
+    return ledger.pending_keys(asset, store.BUNNY_PREFIX, keep=asset.file_key)
 
 
 def attach_video(site, public_id, url=None, video_id=None):
@@ -518,7 +535,8 @@ def attach_video(site, public_id, url=None, video_id=None):
     return asset
 
 
-VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9-]{8,64}$")
+BUNNY_TOO_LARGE_MSG = "This video is too large to upload."  # the size is settings.MEDIA_VIDEO_MAX_BYTES
+VIDEO_ID_RE =re.compile(r"^[A-Za-z0-9-]{8,64}$")
 
 
 def attach_bunny_video(site, public_id, video_id):
@@ -541,17 +559,22 @@ def attach_bunny_video(site, public_id, video_id):
         or training_video.is_referenced(library.id, video_id)
     ):
         raise _invalid({"video_id": "This video is already in use."})
+    if not ledger.live_key_of(site, asset, key):  # only a video this asset's token made
+        raise _invalid({"video_id": "This is not a video uploaded for this asset."})
     try:
         found = stream.get_video(library, video_id)
     except stream.StreamError:
         raise ApiError("video_not_confirmed", "The uploaded video could not be found. Try again.", status=502) from None
     status = stream.status_name(found["status"])
     if status == training_video.FAILED:
-        _discard_bunny(library, video_id)
+        ledger.release(key)  # deletes it from Bunny and closes its row
         raise _invalid({"video_id": "The video could not be processed. Upload it again."})
     if status != training_video.READY:
         raise ApiError("video_processing", "The video is still being processed. Try again in a moment.", status=409)
     size = found["storage_size"]
+    if size > settings.MEDIA_VIDEO_MAX_BYTES:
+        ledger.release(key)
+        raise ApiError("video_too_large", BUNNY_TOO_LARGE_MSG, status=400)
     with transaction.atomic():
         asset = _video_asset(site, public_id, lock=True)
         old = asset.file_key
@@ -561,7 +584,7 @@ def attach_bunny_video(site, public_id, video_id):
             asset.duration_seconds = min(found["length"], 86400)
             update.append("duration_seconds")
         asset.save(update_fields=update)
-        ledger.record(site, asset=asset, role="file", key=key, content_type=store.VIDEO_TYPE, size=size)
+        ledger.confirm_bytes(key, size)
         if old and old != key:
             ledger.release_on_commit([old])
     return asset
