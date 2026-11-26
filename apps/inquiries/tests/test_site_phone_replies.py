@@ -24,6 +24,7 @@ OTHER_STORE_NUMBER = "+639171000044"
 PLATFORM_TOKEN = "token-platform-phone"
 
 
+@override_settings(SMS_SITE_INCOMING_ENABLED=True)
 class SitePhoneCase(BulkCase):
     def setUp(self):
         super().setUp()
@@ -271,3 +272,26 @@ class PlatformPhoneUnchangedTests(SitePhoneCase):
         SmsDevice.objects.filter(pk=self.platform.pk).update(forwards_incoming=False)
         self.receive(sender="+639189990000", token=PLATFORM_TOKEN)
         self.assertEqual(self.tables(), (0, 0, 0, 0, 0))
+
+
+@override_settings(SMS_SITE_INCOMING_ENABLED=False)
+class SwitchOffTests(SitePhoneCase):
+    def test_with_the_switch_off_the_store_phone_is_told_not_to_forward_and_received_keeps_nothing(self):
+        self.assertFalse(self.incoming())
+        self.text_out(purpose="store_bulk", age=timedelta(hours=1))
+        with mock.patch.object(storing, "_clean") as clean:
+            self.receive()
+        clean.assert_not_called()
+        self.assertEqual(self.tables(), (0, 0, 0, 0, 0))
+
+    def test_with_the_switch_off_the_platform_phone_is_unaffected(self):
+        self.assertTrue(self.incoming(PLATFORM_TOKEN))
+        self.receive(sender="+639189990000", token=PLATFORM_TOKEN)
+        self.assertEqual(self.tables(), (0, 0, 1, 1, 0))
+
+    def test_the_deploy_check_wants_the_prerequisites(self):
+        from django.core.checks import run_checks
+
+        with override_settings(SMS_SITE_INCOMING_ENABLED=True, SMS_SITE_LINES_ENABLED=False):
+            self.assertIn("inquiries.E010", [e.id for e in run_checks(include_deployment_checks=True)])
+        self.assertNotIn("inquiries.E010", [e.id for e in run_checks(include_deployment_checks=True)])

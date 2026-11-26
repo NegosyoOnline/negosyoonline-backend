@@ -10,6 +10,7 @@ import logging
 import unicodedata
 from datetime import datetime
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
@@ -51,7 +52,7 @@ def _site_wanted(device):
 
     site = device.site
     return bool(
-        inbox_on() and sms_inbox.sms_ready() and sms.site_lines_on()
+        settings.SMS_SITE_INCOMING_ENABLED and inbox_on() and sms_inbox.sms_ready() and sms.site_lines_on()
         and sms.site_has_line(site) and sms_inbox.enabled(site)
         and (lined := sms._lined(site)) is not None and lined.pk == device.pk
     )
