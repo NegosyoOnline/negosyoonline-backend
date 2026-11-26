@@ -10,6 +10,7 @@ discarded on any rollback. The order is numbered SO00001 per site."""
 import hashlib
 import hmac
 import logging
+import re
 import secrets
 from dataclasses import dataclass
 
@@ -57,7 +58,14 @@ def _replay(site, key):
 
 
 def _next_number(site):
-    return C.ORDER_NUMBER % (ShopOrder.objects.filter(site=site).count() + 1)
+    """One more than the highest SOnnnnn of this site (1 when none): a gap in the numbering never collides.
+    Runs inside the site-row lock; numbers that do not match the pattern are ignored."""
+    prefix = C.ORDER_NUMBER.split("%")[0]
+    numbers = ShopOrder.objects.filter(site=site, order_number__startswith=prefix).values_list(
+        "order_number", flat=True)
+    highest = max(
+        (int(n[len(prefix):]) for n in numbers if re.fullmatch(re.escape(prefix) + r"\d+", n)), default=0)
+    return C.ORDER_NUMBER % (highest + 1)
 
 
 # -- the receiver and the address -----------------------------------------------------------------
