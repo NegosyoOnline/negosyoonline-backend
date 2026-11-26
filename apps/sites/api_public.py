@@ -36,7 +36,13 @@ class PublicSiteOut(Schema):
 
 
 def site_label(host):
-    """The subdomain a host names, or None. The host must be one label under the parent host."""
+    """The subdomain a host names, or None. The host must be one label under the parent host.
+
+    A reserved label (a platform or brand name) is returned only when an ACTIVE `Subdomain` row
+    with that name sits on a site that is not deleted (LABEL-R2, Coach Ed, 2026-11-26). Sign-up,
+    availability and rename refuse reserved names, so such a row is always an operator assignment
+    (audit action `site_label_assigned`). With no such row it is None, as before. The extra query
+    runs only for a reserved label."""
     parent = settings.SITE_PARENT_HOST
     if not parent or not isinstance(host, str) or not 0 < len(host) <= HOST_MAX_LENGTH:
         return None
@@ -48,7 +54,11 @@ def site_label(host):
     if not name.endswith(suffix):
         return None
     label = name[: -len(suffix)]
-    if not subdomains.is_valid_format(label) or subdomains.is_reserved(label):
+    if not subdomains.is_valid_format(label):
+        return None
+    if subdomains.is_reserved(label) and not Subdomain.objects.filter(
+        name=label, state=Subdomain.State.ACTIVE, site__deleted_at__isnull=True
+    ).exists():
         return None
     return label
 

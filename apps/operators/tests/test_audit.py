@@ -33,6 +33,14 @@ class AuditTests(TwoStepTestCase):
         self.assertIsNone(entry.personal_blanked_at)
         self.assertIsNotNone(entry.at)
 
+    def test_site_label_assigned_is_declared_kept_and_records(self):
+        self.assertEqual(audit.ACTIONS["site_label_assigned"], audit.KEPT)
+        entry = audit.record(
+            self.staff(), "site_label_assigned", target_type="site", target_id="site_x",
+            detail={"label": "santebarley"},
+        )
+        self.assertEqual(entry.action, "site_label_assigned")
+
     def test_a_system_row_has_no_operator(self):
         self.assertIsNone(audit.record(None, "admin_locked").operator)
 
@@ -65,7 +73,9 @@ class AuditTests(TwoStepTestCase):
                 self.assertIsInstance(action, ast.Constant, f"{path.name}:{node.lineno}")
                 self.assertIn(action.value, audit.ACTIONS, f"{path.name}:{node.lineno}")
                 seen.add(action.value)
-        self.assertEqual(seen, set(audit.ACTIONS))
+        # Declared, but recorded by an approved production job (a runbook), not by code in the repo.
+        by_runbook = {"site_label_assigned"}  # LABEL-R2, 2026-11-26, GATES job 38
+        self.assertEqual(seen, set(audit.ACTIONS) - by_runbook)
 
     def test_an_entry_cannot_be_changed_or_deleted(self):
         entry = audit.record(None, "admin_locked")

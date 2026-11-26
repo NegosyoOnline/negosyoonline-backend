@@ -147,11 +147,17 @@ class ServedParityTests(SurfaceTestCase):
         self.assert_not_served()
         self.assert_served("anas-shop.negosyotest.com")
 
-    def test_a_reserved_name_even_when_a_serving_site_holds_it(self):
-        for number, name in enumerate(("www", "api", "sante", "w-w-w")):
+    def test_a_reserved_name_with_no_active_row_is_not_served(self):
+        # LABEL-R2 (2026-11-26): an ACTIVE row on a reserved name is an operator assignment and is
+        # served (next test); with no such row the name is still not served.
+        make_subscription()
+        for name in ("www", "api", "sante", "w-w-w"):
             with self.subTest(name=name):
-                make_subscription(email=f"owner{number}@example.test", name=name)
                 self.assert_not_served(f"{name}.negosyotest.com")
+
+    def test_an_operator_assigned_reserved_name_is_served_on_every_surface(self):
+        make_subscription(name="santebarley")
+        self.assert_served("santebarley.negosyotest.com")
 
     def test_a_site_with_no_subscription_and_an_unknown_name(self):
         make_site(make_account())
