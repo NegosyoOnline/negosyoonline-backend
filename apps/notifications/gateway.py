@@ -194,7 +194,10 @@ def _feed_store_bulk(device, now):
     from apps.inquiries.switch import store_bulk_ready
 
     if store_bulk_ready():
-        store_bulk.feed(device.site, now)
+        if device.site_id is None:
+            store_bulk.feed_platform(device, now)  # ONE-PHONE: stores with no phone of their own
+        else:
+            store_bulk.feed(device.site, now)
 
 
 @phone_call
@@ -212,8 +215,7 @@ def poll(request, device):
     elif sms.may_be_handed_texts(device):
         if bulk_on():
             bulk.feed(now)
-        if device.site_id is not None:
-            _feed_store_bulk(device, now)
+        _feed_store_bulk(device, now)
         answer["messages"] = _hand_out(device, now)
         if len(answer["messages"]) == BATCH:
             answer["wait"] = 0  # more may be waiting: ask again as soon as these are sent
