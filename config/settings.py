@@ -122,6 +122,10 @@ HQ_SUBSCRIBERS_ENABLED = os.environ.get("HQ_SUBSCRIBERS_ENABLED", "").strip() ==
 # Phones that belong to a Site (a dedicated SMS line). "1" lets a Site's texts use its own phone.
 # Off, every text uses the platform phone. Only defined here for now.
 SMS_SITE_LINES_ENABLED = os.environ.get("SMS_SITE_LINES_ENABLED", "").strip() == "1"
+# A store's own phone forwards the texts it receives (SITE-PHONE-REPLIES): the server keeps only
+# replies to that store's own texts of the last 7 days. Off, a store phone is told not to forward
+# and `received` reads nothing. Needs SMS_INBOX_ENABLED and the store text switches as well.
+SMS_SITE_INCOMING_ENABLED = os.environ.get("SMS_SITE_INCOMING_ENABLED", "").strip() == "1"
 # The address a phone's app is told to call: an origin only, for example this environment's API
 # host. Empty means "not configured" and the HQ screen says so. There is no default for staging or
 # production in code; local development (DEBUG) falls back to the local server.

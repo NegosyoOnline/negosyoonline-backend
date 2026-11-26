@@ -128,3 +128,20 @@ def check_store_bulk_dependencies(app_configs, **kwargs):
         hint="A store's bulk texts go out from its own paired phone as text conversations: turn those on, or turn this off.",
         id="inquiries.E009",
     )]
+
+
+@register(deploy=True)
+def check_site_incoming_dependencies(app_configs, **kwargs):
+    if not settings.SMS_SITE_INCOMING_ENABLED:
+        return []
+    missing = [
+        name for name in ("SMS_INBOX_ENABLED", "INQUIRY_SMS_ENABLED", "SMS_GATEWAY_ENABLED", "SMS_SITE_LINES_ENABLED")
+        if not getattr(settings, name)
+    ]
+    if not missing:
+        return []
+    return [Error(
+        f"SMS_SITE_INCOMING_ENABLED is on but {' and '.join(missing)} {'is' if len(missing) == 1 else 'are'} off.",
+        hint="A store phone's replies are kept in the store Inbox through the SMS inbox and the store's own line: turn those on, or turn this off.",
+        id="inquiries.E010",
+    )]

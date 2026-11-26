@@ -107,7 +107,7 @@ class Command(BaseCommand):
             raise CommandError("SMS_INBOX_ENABLED is off. Turn it on before a phone forwards texts.")
         device = self._locked(name)
         if switch == "on" and device.site_id is not None:
-            raise CommandError("A Site's phone cannot forward incoming texts.")
+            raise CommandError("A Site's phone is not switched here: the server tells it to forward when the store's text conversations are on.")
         device.forwards_incoming = switch == "on"
         device.save(update_fields=["forwards_incoming"])
         self._record(
