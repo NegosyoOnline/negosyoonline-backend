@@ -6,11 +6,13 @@ owner's browser uploads it straight to the store with a client token (apps/media
 Every key is media-library/<site id>/<asset id>/<random>, so a file is always under its own site.
 """
 import json
+import re
 import secrets
 import urllib.parse
 
 from apps.catalog import media
 from apps.common import file_refs, private_files
+from apps.training import stream
 
 FOLDER = "media-library"
 IMAGE_MAX_BYTES = 10 * 1024 * 1024  # TWCinc ML_MAX_IMAGE_BYTES
@@ -24,8 +26,25 @@ def configured():
     return media.configured()
 
 
+BUNNY_PREFIX = "bunny:"
+BUNNY_RE = re.compile(r"^bunny:([0-9]{1,10}):([A-Za-z0-9-]{8,64})$")
+
+
+def bunny_key(library_id, guid):
+    """The file_key (and ledger key) of a video held in the store's own Bunny Stream library
+    (MEDIA_VIDEO_BUNNY_ENABLED). It is no Blob path: there is no file URL, the player plays it."""
+    return f"{BUNNY_PREFIX}{int(library_id)}:{guid}"
+
+
+def bunny_ref(key):
+    """(library id, video guid) when `key` names a Bunny Stream video, else None."""
+    found = BUNNY_RE.match(key) if isinstance(key, str) else None
+    return (int(found.group(1)), found.group(2)) if found else None
+
+
 def url_for(key):
-    return media.url_for(key)
+    """The public Blob URL of a key; a Bunny video has none (None)."""
+    return None if bunny_ref(key) else media.url_for(key)
 
 
 def check_image(upload):
@@ -64,5 +83,16 @@ def discard(key):
 
 def delete(key):
     """Remove the file, raising StoreError when the store cannot. A key already absent is gone, not
-    an error (Vercel Blob answers a delete of an absent key with success). Used by the ledger."""
-    media.delete(key)
+    an error (Vercel Blob answers a delete of an absent key with success). Used by the ledger. A
+    Bunny video is deleted from its library; one Bunny no longer has (404) is gone too."""
+    ref = bunny_ref(key)
+    if ref is None:
+        media.delete(key)
+        return
+    try:
+        stream.delete_video(stream.library_by_id(ref[0]), ref[1])
+    except stream.NotConfigured:
+        raise StoreError("The video library is not configured.") from None
+    except stream.StreamError as error:
+        if error.status != 404:
+            raise StoreError("The video could not be deleted.") from None

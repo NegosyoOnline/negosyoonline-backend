@@ -15,6 +15,7 @@ from datetime import UTC, date, datetime
 from django.http import HttpResponse
 from django.utils import timezone
 from ninja import Router, Schema
+from pydantic import model_serializer
 
 from apps.accounts.api import signed_in
 from apps.accounts.services import record_event
@@ -186,9 +187,26 @@ class MeterOrdersOut(Schema):
     overage_centavos_per_order: int
 
 
+class MeterVideoOut(Schema):
+    used_bytes: int
+    limit_bytes: int
+    read_at: datetime | None
+    period_start: datetime
+    period_end: datetime
+
+
 class MetersOut(Schema):
     storage: MeterStorageOut
     orders: MeterOrdersOut
+    video: MeterVideoOut | None = None  # only while VIDEO_METER_ENABLED is on
+
+    @model_serializer(mode="wrap")
+    def _no_video_key_when_off(self, handler):
+        """Switch off, the answer is exactly what it was before the video block: no `video` key."""
+        data = handler(self)
+        if data.get("video") is None:
+            data.pop("video", None)
+        return data
 
 
 @router.get("/sites/{site_id}/billing/meters/", response=MetersOut)

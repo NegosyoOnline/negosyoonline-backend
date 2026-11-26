@@ -120,6 +120,15 @@ class StreamLibrary(models.Model):
     cdn_host = models.CharField(max_length=120)
     key_ref = models.CharField(max_length=40)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
+    # The video delivery meter (V-1). pull_zone_id is the library's Bunny pull zone, set by hand
+    # (stream_library set --pull-zone-id); empty = the meter skips this store. The three delivered_*
+    # columns are the latest reading of the daily task (apps/training/video_meter.py): the bytes
+    # Bunny delivered from the pull zone in the allowance period that started at
+    # delivered_period_start, read at delivered_read_at. Display only.
+    pull_zone_id = models.PositiveBigIntegerField(null=True, blank=True)
+    delivered_bytes = models.PositiveBigIntegerField(default=0)
+    delivered_period_start = models.DateTimeField(null=True, blank=True)
+    delivered_read_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.site_id}:{self.library_id}"
