@@ -766,6 +766,23 @@ class HqHostTests(HqTestCase):
                 bare = host.split("/")[-1].split(":")[0] or "hq.example.test"
                 self.assertEqual(self.get("/sign-in/", host=bare).status_code, 404)
 
+    def test_the_real_platform_hosts_pass_beside_each_other(self):
+        for parent, suffix, extra in (
+            ("negosyoonline.com", "", "www"),
+            ("negosyonline.com", "-staging", "www-staging"),
+        ):
+            with self.subTest(parent), override_settings(
+                SITE_PARENT_HOST=parent,
+                HQ_HOST=f"hq-api{suffix}.{parent}",
+                HQ_STAFF_ORIGIN=f"https://hq-app{suffix}.{parent}",
+                DASHBOARD_URL=f"https://dash{suffix}.{parent}",
+                SITE_URL=f"https://{extra}.{parent}",
+                API_ALLOWED_ORIGINS=[f"https://dash{suffix}.{parent}"],
+                DEBUG=False,
+            ):
+                self.assertEqual(checks.hq_host_problem(), "")
+                self.assertEqual(checks.staff_origin_problem(), "")
+
     def test_a_good_host_passes_the_check(self):
         with override_settings(SITE_PARENT_HOST="example.test"):
             self.assertEqual(checks.hq_host_problem(), "")
