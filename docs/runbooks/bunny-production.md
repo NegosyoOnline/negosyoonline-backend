@@ -14,11 +14,17 @@ Task z8uq9mhbep. Authority: Coach Ed, 2026-11-21 (ClickUp z8uq9med6x, comment 11
      - `resolve-staging-images.sh`: looks up the digests of `ghcr.io/<owner>/<repo>-staging:<sha>-api|worker|beat`. **Nothing is built.** A missing image fails the release.
      - `list-migrations.sh`: the run summary lists the migration files the release adds on top of what production serves now (production's commit is read from its public `/healthz/`; unreadable means every migration file is listed). Modified or deleted existing migrations are flagged as a warning.
    - **deploy** (environment `bunny-production`, **Coach Ed is the only required reviewer; approving it approves the release and the migrations listed in the summary**): snapshot of the images running now (artifact `bunny-production-previous-images`, run summary), then one `PATCH` per container for **api, worker and beat only** (image tag and digest), then verification, then automatic rollback if anything after the snapshot fails.
-3. **Verify** (same scripts as staging): `/healthz/` `commit` equals the first 12 characters of the SHA (3 polls in a row), then `/readyz/` answers 200 with every check true, beat included. `BUNNY_HQ_URL` is also checked when set.
+3. **Verify** (same scripts as staging): `/healthz/` `commit` equals the first 12 characters of the SHA (3 polls in a row), then `/readyz/` answers 200 with every check true, beat included. `BUNNY_HQ_URL` is also checked when set, by `deploy/bunny/ci/verify-hq.sh`: `GET <hq>/` must answer 303 to `/sign-in/`, 3 polls in a row (see "HQ host check" below).
 4. **Migrations.** The api container migrates on start under the advisory lock; worker and beat wait for the migrated schema (`bunny-staging.md`, "Migrations and the lock"). Migrations must be backward-compatible: a rollback restores images only.
 5. **Quiet window.** Release only in the agreed quiet window, announced to SANTE first.
 
 Releases are serialised (`concurrency: bunny-production-release`, never cancelled mid-way). The workflow never touches the postgres or redis containers, volumes, env, endpoints or instance count (`deploy/bunny/ci/bunny-deploy.sh`, shared with staging).
+
+## HQ host check
+
+- The HQ host has no `/healthz/`: `apps/operators/middleware.py` sends every request on it to a separate urlconf (`apps.operators.hq_urls`). The release therefore checks it by its sign-in redirect (`verify-hq.sh`, which prints only the http code and the path), not with `verify-release.sh`. The API verify before it already proves the commit, since both hosts are the same containers behind one pull zone.
+- `BUNNY_HQ_URL` was removed from `bunny-production` on 2026-11-26 (ruling BUNNY-HQ-CHECK-A), after production run 45747324316 failed at this step and rolled back. It is re-added only after this change is live on `main` and on staging.
+- Ruling WORKFLOW-RUN-I (Coach Ed, 2026-11-26): the `workflow_run` job runs on `main`, which the `bunny-production` environment refuses. Releases are started with "Run workflow" on ref `production`. The environment's branch rule is not changed.
 
 ## Setup (Coach Ed; names only, no values in the repo)
 

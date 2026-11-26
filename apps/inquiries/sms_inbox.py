@@ -7,8 +7,9 @@ SMS gateway as the purposes `store_compose` and `store_reply` and is paced and c
 (apps/notifications/sms.py). An incoming text on the shared phone goes to the store that texted
 that number last (route_incoming), else to HQ as before. An incoming text on a store's own phone
 is kept only as a reply to that store's own text of the last 7 days (apps/inbox/storing.py
-`_store_site`, SITE-PHONE-REPLIES); `store_bulk` is left out of ROUTED_PURPOSES because a store's
-bulk never goes from the shared phone.
+`_store_site`, SITE-PHONE-REPLIES); `store_bulk` is left out of ROUTED_PURPOSES; route_incoming adds
+it only for a bulk text the platform phone sent (a store with no phone of its own, ONE-PHONE,
+Coach Ed 2026-11-26), so its replies and STOP reach that store.
 
 Nothing here logs or audits a number or a text. A number is held only in the conversation's
 `contact_mobile`, which the retention rules blank with the rest of the personal fields, and in
@@ -21,6 +22,7 @@ import logging
 from datetime import timedelta
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -401,9 +403,14 @@ def route_incoming(number, now=None):
     if not sms_ready():
         return None
     now = now or timezone.now()
+    # ONE-PHONE: a store_bulk text counts only when the platform phone (a phone with no Site) sent it.
+    bulk = Q(purpose="store_bulk", device__isnull=False)
+    if sms.site_column_exists():  # before notifications.0005 no phone has a Site
+        bulk &= Q(device__site__isnull=True)
+    kind = Q(purpose__in=ROUTED_PURPOSES) | bulk
     last = (
         SmsMessage.objects.filter(
-            recipient=number, purpose__in=ROUTED_PURPOSES, status__in=LIVE_STATUSES,
+            kind, recipient=number, status__in=LIVE_STATUSES,
             created_at__gte=now - ROUTE_WITHIN,
         )
         .annotate(at=Coalesce("sent_at", "dispatched_at", "created_at"))

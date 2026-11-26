@@ -3,6 +3,7 @@
 #   require-staging-release.sh   fake `gh`
 #   resolve-staging-images.sh    fake `docker`
 #   list-migrations.sh           a throw-away repository + the fake app /healthz/
+#   verify-hq.sh                 a fake HQ host (fake_hq.py)
 #   bunny-deploy.sh + verify-release.sh   the fake Bunny API (a happy release and a rolled-back one)
 # Run from anywhere:  deploy/bunny/ci/tests/test-production-scripts.sh
 # Needs bash, jq, curl, python3 and the version-control CLI. Exit 0 = all passed.
@@ -314,6 +315,20 @@ for f in "$CI"/*.sh; do
   [ "$(basename "$f")" = bunny-deploy.sh ] && continue
   if grep -Eq -- '--request|-X ' "$f"; then bad "$(basename "$f") sends a request method"; else ok "$(basename "$f") sends no write"; fi
 done
+
+echo "== verify-hq.sh (the HQ host has no /healthz/: 303 to /sign-in/, 3 polls in a row)"
+python3 -I "$HERE/fake_hq.py" "$T/hqport" & PIDS="$PIDS $!"
+for _ in $(seq 50); do [ -s "$T/hqport" ] && break; /bin/sleep 0.1; done
+HQ="http://127.0.0.1:$(cat "$T/hqport")"
+expect_ok   "HQ: 303 to /sign-in/ passes" "$CI/verify-hq.sh" "$HQ/ok" 30
+expect_fail "HQ: 404 fails" "$CI/verify-hq.sh" "$HQ/miss" 2
+expect_fail "HQ: 200 fails" "$CI/verify-hq.sh" "$HQ/fine" 2
+expect_fail "HQ: 303 to another path fails" "$CI/verify-hq.sh" "$HQ/other" 2
+expect_fail "HQ: an interrupted streak never reaches 3" "$CI/verify-hq.sh" "$HQ/flaky" 2
+expect_fail "HQ: a missing argument is a usage error" "$CI/verify-hq.sh"
+out="$("$CI/verify-hq.sh" "$HQ/ok" 30 2>&1)"
+lacks "HQ: output has no host" "$out" "127.0.0.1"
+lacks "HQ: output has no query string" "$out" "secret"
 
 echo
 echo "passed=$pass failed=$fail"

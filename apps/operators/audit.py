@@ -96,6 +96,9 @@ ACTIONS = {
     "sante_content_source_set": KEPT,
     # A site put on or taken off operator hold (manage.py site_hold). Ids and on/off only.
     "site_operator_hold_set": KEPT,
+    # A reserved store label (e.g. santebarley) made the ACTIVE label of a site by an operator
+    # (LABEL-R2, 2026-11-26). Ids and the label only.
+    "site_label_assigned": KEPT,
     "sante_agreement_version_created": KEPT,
     "sante_agreement_version_updated": KEPT,
     "sante_agreement_version_deleted": KEPT,

@@ -341,14 +341,16 @@ def refusal(message):
     if message.category == STORE_BULK and message.site_id:
         # A store's bulk text uses its own daily cap only: not the store's 50 a day or 20 an hour, not
         # all stores' day, and not NegosyoOnline's daily limit or the room kept for codes. It goes
-        # from the store's own paired phone or not at all (D2): the shared phone is never used.
+        # from the store's own paired phone; a store entitled to a line with no phone of its own
+        # goes from the platform phone (ONE-PHONE, Coach Ed 2026-11-26).
         mine = _counted(message).filter(site=message.site, category=STORE_BULK)
         if not claim(_store_bulk_key(message.site), rules.store_bulk_daily_limit, mine.count):
             return refuse("bulk_limit")
-        if _lined(message.site) is None:
+        if bulk_phone(message.site) is None:
             return refuse("no_line")
         if not gateway_online(message.site, message.category):
-            return refuse("site_phone_offline")
+            own = _lined(message.site) is not None
+            return refuse("site_phone_offline" if own else "gateway_offline")
         return ""
     limit, reason = rules.platform_daily_limit, "platform_limit"
     if message.category in (INBOX, STORE):
@@ -474,14 +476,29 @@ def _lined(site):
     return SmsDevice.objects.filter(is_active=True, site=site).first()
 
 
+def bulk_phone(site):
+    """The phone that carries a store's bulk text (ONE-PHONE, Coach Ed 2026-11-26): the store's
+    own active phone when it has one with a line, else the platform phone when the store is
+    entitled to a line (`site_has_line`) and SMS_SITE_LINES_ENABLED is on, else None (no line:
+    not entitled, or the switch is off)."""
+    own = _lined(site)
+    if own is not None:
+        return own
+    if site is not None and site_lines_on() and site_has_line(site):
+        return pick_device()
+    return None
+
+
 def line_for(site, category=None):
     """The phone that carries a text of this Site (None: a platform text): the Site's own active
     phone when the switch is on and the Site is entitled, otherwise the platform phone. A code
-    (`category` CODE) is never a Site's to send: it always goes from the platform phone (D1)."""
+    (`category` CODE) is never a Site's to send: it always goes from the platform phone (D1). A
+    store's bulk text (`bulk_phone`) goes from the store's own phone, or from the platform phone
+    when the store is entitled to a line but has no phone of its own (ONE-PHONE, 2026-11-26)."""
     if category == CODE:
         return pick_device()
     if category == STORE_BULK:
-        return _lined(site)  # never the shared phone
+        return bulk_phone(site)
     return _lined(site) or pick_device()
 
 
@@ -489,8 +506,10 @@ def claimable(device):
     """The condition on SmsMessage rows that this phone may take. Used by the waiting query and
     again in the claim UPDATE. It is the mirror of `line_for`.
 
-    Platform phone: texts of no Site, texts of Sites that have no line, and every code (D1: a
-    sign-in code names its Site but always goes from this phone). A Site phone: only its own
+    Platform phone: texts of no Site, texts of Sites that have no line, every code (D1: a
+    sign-in code names its Site but always goes from this phone), and the bulk texts of a Site
+    with no phone of its own (ONE-PHONE, 2026-11-26; a Site with its own phone keeps its bulk on
+    that phone only). A Site phone: only its own
     Site's texts other than codes, and nothing while its Site has no line (switch off, billing
     ended, or disabled by HQ)."""
     if device.site_id is not None:
@@ -499,14 +518,16 @@ def claimable(device):
         return Q(pk__in=[])
     if not site_column_exists():
         return Q()
-    never_shared = ~Q(category=STORE_BULK)  # a store's bulk text is only ever its own phone's
+    never_bulk = ~Q(category=STORE_BULK)
     if not site_lines_on():
-        return never_shared
+        return never_bulk  # bulk_phone is None with the switch off: the platform phone takes no bulk
     sites = SmsDevice.objects.filter(is_active=True, site__isnull=False).select_related("site")
+    own = [phone.site_id for phone in sites]  # a store with its own phone keeps its bulk off this phone
     lined = [phone.site_id for phone in sites if site_has_line(phone.site)]
-    if not lined:
-        return never_shared
-    return never_shared & (Q(site__isnull=True) | ~Q(site_id__in=lined) | Q(category=CODE))
+    if not own:
+        return Q()
+    others = Q(site__isnull=True) | ~Q(site_id__in=lined) | Q(category=CODE)
+    return others & ~(Q(category=STORE_BULK) & Q(site_id__in=own))
 
 
 def may_be_handed_texts(device):
