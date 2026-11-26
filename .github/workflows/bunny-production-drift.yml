@@ -36,7 +36,7 @@ jobs:
           fi
           running="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/bunny-production.yml/runs?per_page=20" \
             --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
-          got="$(curl --silent --max-time 15 "${URL%/}/healthz/" | jq -r '.commit // empty')"
+          got="$(curl --silent --max-time 15 "${URL%/}/healthz/" | jq -r '.commit // empty' 2>/dev/null || true)"
           echo "production_branch=${head:0:12} bunny=${got:-unreachable} release_runs_in_progress=$running"
           if [ "$got" = "${head:0:12}" ]; then exit 0; fi
           if [ "$running" -gt 0 ]; then echo "a release is in progress; not drift yet"; exit 0; fi
