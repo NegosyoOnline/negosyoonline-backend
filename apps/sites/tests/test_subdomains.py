@@ -20,7 +20,7 @@ class RulesTests(SimpleTestCase):
                 self.assertFalse(subdomains.is_valid_format(name))
 
     def test_every_infrastructure_label_is_reserved(self):
-        self.assertEqual(len(subdomains.INFRA_LABELS), 18)
+        self.assertEqual(len(subdomains.INFRA_LABELS), 28)
         for name in subdomains.INFRA_LABELS:
             with self.subTest(name=name):
                 self.assertTrue(subdomains.is_reserved(name))
@@ -46,6 +46,15 @@ class RulesTests(SimpleTestCase):
             with self.subTest(name=name):
                 self.assertFalse(subdomains.is_reserved(name))
 
+    def test_the_platform_host_labels_are_reserved_in_hyphenated_form(self):
+        for name in (
+            "hq-api", "hq-app", "storefronts", "api-staging", "hq-staging", "hq-api-staging",
+            "hq-app-staging", "dash-staging", "www-staging", "storefronts-staging",
+        ):
+            with self.subTest(name=name):
+                self.assertTrue(subdomains.is_reserved(name))
+                self.assertEqual(subdomains.check(name), (name, subdomains.RESERVED))
+
     def test_ordinary_names_are_not_reserved(self):
         for name in ("anas-store", "mysantestore", "barley-shop", "santeria", "apiary"):
             with self.subTest(name=name):
@@ -58,6 +67,9 @@ class CheckTests(TestCase):
 
     def status(self, raw):
         return subdomains.check(raw)[1]
+
+    def test_a_normal_name_is_still_available_beside_the_platform_labels(self):
+        self.assertEqual(self.status("anas-store"), "available")
 
     def test_returns_the_normalised_name(self):
         self.assertEqual(subdomains.check("  My-Store "), ("my-store", "available"))

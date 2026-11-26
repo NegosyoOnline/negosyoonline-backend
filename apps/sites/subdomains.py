@@ -10,6 +10,11 @@ FORMAT = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 INFRA_LABELS = frozenset({
     "www", "dash", "hq", "api", "admin", "app", "mail", "static", "notify", "billing",
     "login", "support", "help", "status", "ggwp", "webhook", "sms", "gateway",
+    # Platform hosts on both parents (negosyoonline.com and negosyonline.com), in the squashed
+    # form `is_reserved` compares (hyphens and digits removed): hq-api -> hqapi.
+    "hqapi", "hqapp", "storefronts",
+    "apistaging", "hqstaging", "hqapistaging", "hqappstaging", "dashstaging", "wwwstaging",
+    "storefrontsstaging",
 })
 # Reserved for the brand; a subscriber cannot choose them.
 BRAND_NAMES = frozenset({"sante", "santebarley", "santebarleyph", "official", "negosyoonline"})
