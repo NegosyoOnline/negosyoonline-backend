@@ -43,11 +43,12 @@ class SitePhoneCase(BulkCase):
         self.assertEqual(response.status_code, 200, response.content)
         return response.json()["incoming"]
 
-    def text_out(self, site=None, purpose="store_reply", to=NUMBERS[0], status="sent", age=timedelta(hours=1)):
+    def text_out(self, site=None, purpose="store_reply", to=NUMBERS[0], status="sent", age=timedelta(hours=1), device=None):
         site = site or self.site
+        device = device or (self.line if site.pk == self.site.pk else self.bens_line)
         record = SmsMessage.objects.create(
             recipient=to, category="storebulk" if purpose == "store_bulk" else "store", purpose=purpose, site=site,
-            priority=20, status=status, expires_at=timezone.now() + timedelta(hours=1),
+            priority=20, status=status, device=device, expires_at=timezone.now() + timedelta(hours=1),
         )
         SmsMessage.objects.filter(pk=record.pk).update(created_at=timezone.now() - age)
         return record
@@ -158,6 +159,22 @@ class KeepAndDropTests(SitePhoneCase):
             self.receive(sender=sender)
         self.assertEqual(self.tables(), (0, 0, 0, 0, 0))
 
+    def test_a_reply_to_a_text_the_shared_phone_sent_is_dropped_on_the_site_phone(self):
+        self.text_out(purpose="store_compose", device=self.platform)
+        self.receive()
+        self.assertEqual(self.tables(), (0, 0, 0, 0, 0))
+
+    def test_a_reply_to_a_queued_text_is_dropped(self):
+        self.text_out(purpose="store_compose", status="queued", device=None)
+        SmsMessage.objects.update(device=None)
+        self.receive()
+        self.assertEqual(self.tables(), (0, 0, 0, 0, 0))
+
+    def test_a_reply_to_a_dispatched_text_is_kept(self):
+        self.text_out(purpose="store_compose", status="dispatched")
+        self.receive()
+        self.assertEqual(self.tables(), (1, 1, 0, 0, 0))
+
     def test_a_text_that_never_went_out_does_not_count_as_a_text_to_the_number(self):
         for state in ("failed", "expired", "cancelled"):
             if state in SmsMessage.Status.values:
@@ -207,6 +224,7 @@ class StopTests(SitePhoneCase):
     def test_a_stop_to_a_bulk_text_is_that_stores_opt_out_and_the_next_bulk_leaves_it_out(self):
         self.start()
         self.pump(1)
+        SmsMessage.objects.filter(purpose="store_bulk", site=self.site).update(device=self.line)  # the helper's hand_in skips the phone
         sent = SmsMessage.objects.filter(purpose="store_bulk", site=self.site).first()
         self.assertIsNotNone(sent)
         self.receive(body="Stop", sender=sent.recipient)

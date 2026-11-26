@@ -127,8 +127,8 @@ def _slot(raw):
 def _store_site(device, texts, now, sms_inbox):
     """The texts of one `received` call from a Site's phone (SITE-PHONE-REPLIES, option A). A text
     is kept only when its sender can be replied to and this Site texted that number from this
-    phone's line in the last 7 days (a store_reply, store_compose or store_bulk text, still
-    queued, handed out or sent). It goes to the Site's own conversation, a STOP onto the Site's
+    phone in the last 7 days (a store_reply, store_compose or store_bulk text handed to this
+    phone, or sent by it; a queued text has no phone and no reply). It goes to the Site's own conversation, a STOP onto the Site's
     opt-out list. Every other text is dropped: not stored, not logged, only counted. Nothing here
     ever touches HQ's conversation tables. Always True: a dropped text is done with for good."""
     from apps.notifications import sms
@@ -146,7 +146,8 @@ def _store_site(device, texts, now, sms_inbox):
             contact, can_reply = _contact(sender)
             texted = can_reply and SmsMessage.objects.filter(
                 site=device.site, recipient=contact, purpose__in=sms.STORE_PURPOSES,
-                status__in=sms_inbox.LIVE_STATUSES, created_at__gte=since,
+                device=device, status__in=(SmsMessage.Status.DISPATCHED, SmsMessage.Status.SENT),
+                created_at__gte=since,
             ).exists()
             if not texted:
                 dropped += 1
