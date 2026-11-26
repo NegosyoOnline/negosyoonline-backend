@@ -182,7 +182,7 @@ jobs:
         run: deploy/bunny/ci/verify-release.sh "$BUNNY_STAGING_URL" "$SHA" 900
       - name: Verify the HQ API host
         if: env.BUNNY_HQ_URL != ''
-        run: deploy/bunny/ci/verify-release.sh "$BUNNY_HQ_URL" "$SHA" 300
+        run: deploy/bunny/ci/verify-hq.sh "$BUNNY_HQ_URL" 300
       - name: Roll back the three containers to the previous images
         if: ${{ failure() && steps.snap.outcome == 'success' }}
         env:
