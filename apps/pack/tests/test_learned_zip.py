@@ -161,7 +161,7 @@ class CheckoutLearnTests(ShopTestCase):
 
 class MemberLearnTests(AddressEditTestCase):
     def test_a_saved_home_address_teaches_the_zip(self):
-        response = self.save(**place())
+        response = self.save(**place(landmark="Near the barangay hall"))
         self.assertEqual(response.status_code, 200, response.content)
         row = LearnedZipCode.objects.get()
         self.assertEqual((row.zip_code, row.source), ("4999", "member"))
@@ -172,5 +172,5 @@ class MemberLearnTests(AddressEditTestCase):
 
     def test_the_save_stands_when_learning_fails(self):
         with mock.patch.object(address_zip, "record_learned_zip", side_effect=RuntimeError("boom")):
-            self.assertEqual(self.save(**place()).status_code, 200)
+            self.assertEqual(self.save(**place(landmark="Near the barangay hall")).status_code, 200)
         self.assertEqual(LearnedZipCode.objects.count(), 0)
