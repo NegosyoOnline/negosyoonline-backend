@@ -274,4 +274,7 @@ def save_own_address(site, member, data, *, ip=None):
         row.save(update_fields=["delivery_address", "updated_at"])
         MemberAddressEvent.objects.create(site=site, member=row, old=old, new=cleaned,
                                           ip_advisory=(ip or "")[:45])
+    from apps.pack import address_zip  # lazy: pack imports members
+
+    address_zip.learn_saved_address(cleaned, "member")  # after the commit; never fails the save
     return cleaned

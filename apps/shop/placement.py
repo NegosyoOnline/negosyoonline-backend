@@ -235,6 +235,10 @@ def place(site, *, lines, member_token="", ship_mode="", address=None, receiver=
     except BaseException:
         private_files.discard(file_key)
         raise
+    if mode != C.HOME:  # the member's own saved address teaches nothing new
+        from apps.pack import address_zip
+
+        address_zip.learn_saved_address(delivery, "checkout")  # after the commit; never fails the order
     return Placed(order, raw, False)
 
 
