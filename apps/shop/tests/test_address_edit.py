@@ -87,8 +87,17 @@ class SaveTests(AddressEditTestCase):
         response = self.save(landmark="x" * 201)
         self.assertEqual(set(response.json()["error"]["fields"]), {"landmark"})
         self.assertEqual(self.save(landmark="x" * 200).status_code, 200)  # the limit itself is fine
-        self.assertEqual(self.save(barangay=None, zip=None, landmark=None).status_code, 200)  # optional keys
+        self.assertEqual(self.save(barangay=None, zip=None).status_code, 200)  # optional keys
         self.assertEqual(Member.objects.get(pk=self.me.pk).delivery_address["barangay"], "")
+
+    def test_a_blank_or_space_only_landmark_is_refused_and_nothing_is_saved(self):
+        for landmark in ("   ", "\t \n", "", None):
+            response = self.save(landmark=landmark)
+            self.assertEqual((response.status_code, response.json()["error"]["code"]), (422, "invalid_address"))
+            self.assertEqual(response.json()["error"]["fields"],
+                             {"landmark": ["Enter a landmark, like the barangay hall."]})
+        self.assertEqual(Member.objects.get(pk=self.me.pk).delivery_address, OLD)
+        self.assertEqual(MemberAddressEvent.objects.filter(member=self.me).count(), 0)
 
     def test_values_are_trimmed(self):
         self.save(line="  1 Mabini St  ")
