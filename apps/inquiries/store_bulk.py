@@ -732,7 +732,7 @@ def _current_numbers(site, recipients):
     found = {}
     for r in recipients:
         mobile = contacts.get(r.contact_ref) if r.contact_ref else members.get(r.member_ref)
-        if mobile and not mobile.startswith("+63900") and mask_mobile(mobile) == r.mobile:
+        if mobile and not mobile.startswith("+63900") and r.mobile in (mobile, mask_mobile(mobile)):  # unmasked while a text of the batch is still unreported
             found[r.pk] = mobile
     return found
 

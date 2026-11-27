@@ -204,3 +204,22 @@ class ContinueSendTests(ContinueCase):
         self.assertEqual((batch.state, batch.sent), ("waiting", 1))
         with mock.patch.object(store_bulk, "in_window", return_value=True):
             self.assertEqual(self.get(f"{self.root}batches/{batch.public_id}/").json()["paused_reason"], "daily_cap")
+
+
+class ContinueUnmaskedTests(ContinueCase):
+    def test_an_ended_batch_with_a_text_still_queued_keeps_full_numbers_and_continues(self):
+        batch = self.start()
+        self.feed()  # the first text is queued, the phone has not reported it
+        self.hold()
+        with mock.patch("apps.inquiries.store_bulk.services.cancel_sms", return_value=False):
+            self.feed()
+        self.hold(False)
+        batch.refresh_from_db()
+        self.assertEqual((batch.state, batch.end_reason), ("ended", "site_held"))
+        self.assertEqual(batch.recipients.filter(state="queued").count(), 1)
+        left = list(batch.recipients.filter(state="not_sent"))
+        self.assertEqual(len(left), 2)
+        self.assertTrue(all("*" not in r.mobile for r in left), "not over yet, so not masked")
+        body = self.go(batch).json()
+        self.assertEqual((body["state"], body["waiting"]), ("waiting", 3))  # 2 waiting + the 1 still queued
+        self.assertEqual(batch.recipients.filter(state="waiting").count(), 2)
