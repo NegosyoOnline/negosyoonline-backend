@@ -66,6 +66,8 @@ git rev-parse --short=12 origin/production      # must equal the commit above
 
 **Drift:** `bunny-production-drift.yml` runs hourly and goes red when Bunny's commit is not the `production` branch's HEAD and no production release run is in progress. It skips (green) while `BUNNY_PRODUCTION_URL` or the `production` branch does not exist. An unreachable or non-JSON `/healthz/` logs `bunny=unreachable` and fails with the same DRIFT message (it does not abort on a parse error).
 
+The public monitor list for production and staging is in `docs/runbooks/monitoring.md`.
+
 ## Rollback
 
 - **Automatic**: any failure after the snapshot restores the previous tags and digests of the three containers and verifies them. The summary says `ROLLED BACK`.
