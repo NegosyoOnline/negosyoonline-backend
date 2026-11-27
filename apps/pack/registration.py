@@ -167,6 +167,7 @@ def save_delivery(site, member, order, data):
         locked.state_version += 1  # the owner's open order view goes stale, as for every other write
         locked.save(update_fields=["delivery_address", "state_version", "updated_at"])
     order.delivery_address, order.state_version = locked.delivery_address, locked.state_version
+    address_zip.learn_saved_address(cleaned, "onboarding")  # after the save; never fails it
     return cleaned
 
 
@@ -322,6 +323,8 @@ def submit_details(site, member, *, date_of_birth, desired_username, alternate_u
         )
         if address is not None:
             _store_address(member, address)
+    if address is not None:
+        address_zip.learn_saved_address(address, "onboarding")  # after the commit; never fails the save
     return reg
 
 
