@@ -125,6 +125,35 @@ def _member_of(site, mobile):
     return Member.objects.filter(site=site, mobile=mobile).first()
 
 
+def _contact_of(site, mobile):
+    """The store's OWN saved contact for this exact number (never an HQ or another store's)."""
+    from apps.inbox.models import Contact
+    return Contact.objects.filter(owner_kind="site", site=site, mobile=mobile).first()
+
+
+def _contact_full_name(contact):
+    return f"{contact.first_name} {contact.last_name}".strip()
+
+
+def names_for(site, mobiles):
+    """{mobile: name} for these numbers of one store, in two queries: the member's name first, else
+    the store's own saved contact (first + last, trimmed). Read-only; a number with neither is
+    absent. Used at read time for text conversations that have no stored name."""
+    from apps.inbox.models import Contact
+    mobiles = {m for m in mobiles if m}
+    if not mobiles:
+        return {}
+    out = {}
+    for contact in Contact.objects.filter(owner_kind="site", site=site, mobile__in=mobiles).order_by("-pk"):
+        name = _contact_full_name(contact)
+        if name:
+            out[contact.mobile] = name
+    for member in Member.objects.filter(site=site, mobile__in=mobiles).order_by("-pk"):
+        if member.full_name:
+            out[member.mobile] = member.full_name  # a member's name wins over a contact's
+    return out
+
+
 def _conversation(site, mobile, member=None, now=None):
     """(conversation, created): the store's text conversation with this number. A race for the
     one row the unique constraint allows is settled by reading the winner's."""
@@ -133,6 +162,9 @@ def _conversation(site, mobile, member=None, now=None):
         return found, False
     member = member or _member_of(site, mobile)
     name = member.full_name if member else ""
+    if not name:
+        contact = _contact_of(site, mobile)
+        name = _contact_full_name(contact) if contact else ""
     try:
         with transaction.atomic():
             return InquiryConversation.objects.create(
