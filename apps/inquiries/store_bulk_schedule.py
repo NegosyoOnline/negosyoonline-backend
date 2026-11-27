@@ -53,7 +53,7 @@ def _check_time(when, now):
     if when < now + MIN_AHEAD:
         raise ApiError("too_soon", "Choose a time at least 10 minutes from now.", status=422, fields={"scheduled_at": ["Too soon."]})
     if not store_bulk.in_window(when):
-        raise ApiError("outside_window", "Texts go out only from 08:00 to 22:00 Manila time.", status=422, fields={"scheduled_at": ["Outside 08:00 to 22:00."]})
+        raise ApiError("outside_window", "Texts go out only from 06:00 to 22:00 Manila time.", status=422, fields={"scheduled_at": ["Outside 06:00 to 22:00."]})
     if when > now + MAX_AHEAD:
         raise ApiError("too_far", "Choose a time within the next 30 days.", status=422, fields={"scheduled_at": ["Too far ahead."]})
 
