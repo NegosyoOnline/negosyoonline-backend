@@ -4,9 +4,9 @@ Account-side retention (NPC Build 7, ClickUp z8uq9mdwdy, and NPC Build 10, Click
 
 ## The schedule
 
-Where the `worker` and `beat` services run (staging; production has none yet), the Celery task `retention.run` (`apps/common/tasks.py`) runs **every** registered rule once a day at 03:00 Asia/Manila (beat entry `retention-daily`, `CELERY_BEAT_SCHEDULE`). A per-Manila-day lock (`retention:all:<YYYYMMDD>`) means a duplicated or re-queued tick never runs it twice in a day, and a tick not picked up within an hour is dropped: the next day's run removes everything that is due. Each run writes the run log, one `retention_run` audit entry.
+Where the `worker` and `beat` containers run (staging and production, `docs/runbooks/bunny-staging.md`, `docs/runbooks/bunny-production.md`), the Celery task `retention.run` (`apps/common/tasks.py`) runs **every** registered rule once a day at 03:00 Asia/Manila (beat entry `retention-daily`, `CELERY_BEAT_SCHEDULE`). A per-Manila-day lock (`retention:all:<YYYYMMDD>`) means a duplicated or re-queued tick never runs it twice in a day, and a tick not picked up within an hour is dropped: the next day's run removes everything that is due. Each run writes the run log, one `retention_run` audit entry.
 
-`RETENTION_ENABLED` decides what the run deletes. It is off unless set to `1`. With it off, the 12 rules behind it touch nothing and are named under `switched_off` in the entry; the four SMS rules (`sms_messages`, `mobile_challenges`, `inbox_messages`, `bulk_batches`) are not behind it and run as before. `pack_registration_details` has its own switch, below. The switch is read by the process that runs the task, so it must be set on `worker` as well as `api` before a scheduled run deletes anything (the variable is only read by name; see `docs/runbooks/billing.md`, "Worker and beat").
+`RETENTION_ENABLED` decides what the run deletes. It is off unless set to `1`. With it off, the 12 rules behind it touch nothing and are named under `switched_off` in the entry; the four SMS rules (`sms_messages`, `mobile_challenges`, `inbox_messages`, `bulk_batches`) are not behind it and run as before. `pack_registration_details` has its own switch, below. The switch is read by the process that runs the task, so it must be set on the `worker` container as well as `api` before a scheduled run deletes anything (the variable is only read by name; see `docs/runbooks/billing.md`, "Worker and beat").
 
 Where there is no beat, the phone's `poll` still starts the four SMS rules once a Manila day (`start_daily`); the other rules then run only by hand. Where both exist, the second run of the day finds nothing due.
 
@@ -65,26 +65,30 @@ The IP address on a policy acceptance is proof of consent, not a security record
 
 ## Procedure
 
-Replace `<env>` with `staging` or `production`. The identifiers are in `docs/runbooks/migrations.md`.
+### Where the commands run
+
+Every `manage.py` command in this runbook runs in the `api` image, from `/app`, where `python` is the project's own environment. Bunny has no shell, exec, ssh or one-off job API (`docs/runbooks/bunny-staging.md`; `docs/runbooks/migrations.md`, "Reading the migration state on staging"). The documented route is a temporary extra container from the `api` image, with the tag and env copied from the running `api` container (never printed) and its startup command overridden so it does not use `init-api.sh`. The command is a short script that runs the `manage.py` command, writes its output to the private Blob store, then sleeps until the container is removed (it must never exit: Bunny marks the whole app failed if a container exits). Read the output from the store, then delete the container.
+
+Adding or removing that container rolls the whole app out. While Postgres and Redis share the pod that is 1 to 3 minutes of 503, so do it only at 02:00-05:00 HKT, announced to the SANTE Supervisor first (`docs/runbooks/billing.md`, "Where the commands run"). Each run needs Coach Ed's approval for the step, and no ready-made script is kept in the repository: write it for each run. The commands below are shown as the line the script runs. Staging and production are separate apps; run the container in the app of the environment you mean.
 
 1. Count first. This changes nothing and writes no log row; it works with the switch off:
 
    ```bash
-   railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e <env> -s api -- uv run python manage.py run_retention --dry-run
+   python manage.py run_retention --dry-run
    ```
 
 2. Read the counts. Stop if a count is not what the age of the environment explains.
-3. With Coach Ed's approval, set `RETENTION_ENABLED=1` on the `api` service of that environment and wait for the redeploy.
+3. With Coach Ed's approval, set `RETENTION_ENABLED=1` on the `api` and `worker` containers of that environment's app and wait for the rollout.
 4. Run:
 
    ```bash
-   railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e <env> -s api -- uv run python manage.py run_retention
+   python manage.py run_retention
    ```
 
-   `--only NAME` runs one rule; repeat it for more. A rule printed as `switched off` did nothing: the switch is not on.
-5. Read the run log: on hq there is no list for it yet, so read the newest `retention_run` audit entry from the shell, or run step 1 again and see the counts at zero.
+   `--only NAME` runs one rule; repeat it for more. The temporary container must carry the same `RETENTION_ENABLED` value (it copies the `api` container's env). A rule printed as `switched off` did nothing: the switch is not on.
+5. Read the run log: on hq there is no list for it yet, so read the newest `retention_run` audit entry with a `manage.py shell` line in the same kind of temporary container, or run step 1 again and see the counts at zero.
 
-The daily run's own log lines, on the service logs: `beat` shows `Scheduler: Sending due task retention-daily (retention.run)` at 03:00; `worker` shows `Task retention.run[...] received` and `succeeded ...` with the counts per rule, the `switched_off` names and any failed rule's name (never a personal value). `already ran today` means the day's lock was taken.
+The daily run's own log lines, in the container logs (Bunny dashboard): the `beat` container shows `Scheduler: Sending due task retention-daily (retention.run)` at 03:00; the `worker` container shows `Task retention.run[...] received` and `succeeded ...` with the counts per rule, the `switched_off` names and any failed rule's name (never a personal value). `already ran today` means the day's lock was taken.
 
 ## What the output and the log hold
 
@@ -130,14 +134,14 @@ The request reaches the DPO mailbox. Confirm who is asking before anything else.
 2. Count first. This changes nothing, writes no audit entry and works with the switch off:
 
    ```bash
-   railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e <env> -s api -- uv run python manage.py dispose_account ACCOUNT --actor USERNAME --request-ref REF --dry-run
+   python manage.py dispose_account ACCOUNT --actor USERNAME --request-ref REF --dry-run
    ```
 
 3. Read the counts. The output is the public id and counts only.
 4. Dispose. This needs `RETENTION_ENABLED=1` in that environment; without it the command stops and changes nothing:
 
    ```bash
-   railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e <env> -s api -- uv run python manage.py dispose_account ACCOUNT --actor USERNAME --request-ref REF
+   python manage.py dispose_account ACCOUNT --actor USERNAME --request-ref REF
    ```
 
 5. Running it again answers "already disposed of" and changes nothing.
@@ -208,10 +212,10 @@ SMS send records are not touched by a disposal: they hold the number a text went
 
 The export holds the account (email, name, dates, referral code), its policy acceptances, linked sign-in providers, sessions (device, masked IP, dates), its verified mobile number and mobile verification challenges (never the code), account audit events, the send records for its address, and each site with its web addresses, business profile and onboarding dates. It never holds a session token, a provider's user id, or anything of another account. It writes one audit entry, action `account_exported`, with counts only.
 
-The service's disk is lost on every restart, so print the JSON and save it on your own computer through the ssh call:
+The container's disk is lost when it is removed, so print the JSON with `--stdout` and have the script write it to the private Blob store. Download it from there to your own computer, then delete the object and the container:
 
 ```bash
-railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e <env> -s api -- uv run python manage.py export_account ACCOUNT --actor USERNAME --request-ref REF --stdout > account-export.json
+python manage.py export_account ACCOUNT --actor USERNAME --request-ref REF --stdout 
 ```
 
 `--out-dir DIR` writes `account-export-<public id>-<time>.json` in an existing folder instead, readable by its owner only; it never replaces an existing file.
@@ -226,10 +230,10 @@ For a Subscriber who sold Membership Packs, the store data includes the buyers' 
 
 It runs only inside the 30 days after the service ended, and never at or after the deletion point (a site that never paid has its deletion point exactly at the end of the 30 days). Outside that it refuses and writes nothing; so does a served, trial, exempt or reactivated site. It also needs `PACK_ENABLED`, an active staff `--actor`, a request reference number (never an address), and a site that belongs to the account. It reads the private store once per image; if any image cannot be read it fails with no output and no audit entry, so run it again. An archive over 200 MiB is refused (no parts option is built; tell the Supervisor).
 
-Run it after `export_account`, for each site that sold Packs. The disk is lost on restart, so print it as base64 and decode on your own computer:
+Run it after `export_account`, for each site that sold Packs. The container's disk is lost when it is removed, so print it as base64, have the script write that text to the private Blob store as `pack-export.txt`, download it, delete the object and the container, then decode on your own computer:
 
 ```bash
-railway ssh -p f94bedb8-86c5-4c66-8ee5-5d9ce9dad172 -e <env> -s api -- uv run python manage.py export_pack_files ACCOUNT --site SITE --actor USERNAME --request-ref REF --stdout-base64 > pack-export.txt
+python manage.py export_pack_files ACCOUNT --site SITE --actor USERNAME --request-ref REF --stdout-base64
 tr -d '\r' < pack-export.txt | base64 -d > pack-export.zip
 shasum -a 256 pack-export.zip
 ```
@@ -302,7 +306,7 @@ Plan: `docs/superpowers/plans/2026-11-13-site-deletion-executor-z8uq9mb22v.md` (
 
 **Holds.** `manage.py erasure_hold SITE --actor USER --reason-code CODE --reference REF`, `--release` to lift it. A held site is skipped by the executor and by the Pack purge.
 
-**Restore.** Erasure cannot be undone from the application. Backups keep erased data for up to about 8 weeks: the nightly encrypted database copies (`docs/runbooks/backups-and-restore.md`, section 8) keep the newest copy of each of the 14 newest days and of the 8 newest weeks (`apps/db_backup/constants.py`: `KEEP_DAILY = 14`, `KEEP_WEEKLY = 8`), so the oldest weekly copy can hold erased data for about 8 weeks. The old Railway volume backup (6 days) no longer applies. The private file backup is not in use (declined for now on cost, 2026-11-14). When it is turned on (`docs/runbooks/backups-and-restore.md`, section 7), the copy of a deleted private file is kept 35 days after the file is seen deleted, then removed; an urgent erasure can remove it sooner with `backup_private_files --purge-prefix`. After a restore, erase again the sites listed in the `site_data_erased` and `account_disposed` records kept outside the database (support mailbox, PR and ClickUp record of each batch).
+**Restore.** Erasure cannot be undone from the application. Backups keep erased data for up to about 8 weeks: the nightly encrypted database copies (`docs/runbooks/backups-and-restore.md`, section 8) keep the newest copy of each of the 14 newest days and of the 8 newest weeks (`apps/db_backup/constants.py`: `KEEP_DAILY = 14`, `KEEP_WEEKLY = 8`), so the oldest weekly copy can hold erased data for about 8 weeks. (History: the old Railway volume backup, 6 days, no longer applies.) The private file backup is not in use (declined for now on cost, 2026-11-14). When it is turned on (`docs/runbooks/backups-and-restore.md`, section 7), the copy of a deleted private file is kept 35 days after the file is seen deleted, then removed; an urgent erasure can remove it sooner with `backup_private_files --purge-prefix`. After a restore, erase again the sites listed in the `site_data_erased` and `account_disposed` records kept outside the database (support mailbox, PR and ClickUp record of each batch).
 
 ## Emptying one TEST order (staging only)
 
@@ -310,7 +314,7 @@ Plan: `docs/superpowers/plans/2026-11-13-site-deletion-executor-z8uq9mb22v.md` (
 
 ## Deleting named TEST Pack orders (staging only)
 
-`manage.py pack_delete_test_order --site SITE --order SMP00001 [--order SMP00002 ...] [--actor USER]` is a dry run first: it runs the whole deletion, prints the counts per table and rolls back; read it, then add `--apply`. SITE is the site's public id; each ORDER is an order number or public id on that site. Unlike `pack_remove_test_member` it removes the rows (orders, proofs, decisions, events, registrations, tokens, visits, Meta contexts), and the member too unless another order, registration or shop order still uses it (then the output says the member is kept). Proof files go from the private store after the commit. Meta delivery rows stay and are only counted. One audit entry `pack_test_order_deleted` (ids and counts). If any named order is missing or on another site, it refuses all and writes nothing; run again, it says "No such order". It refuses outside local and the Railway environment named "staging", and always on "production". Never on production. (ClickUp z8uq9mfztm.)
+`manage.py pack_delete_test_order --site SITE --order SMP00001 [--order SMP00002 ...] [--actor USER]` is a dry run first: it runs the whole deletion, prints the counts per table and rolls back; read it, then add `--apply`. SITE is the site's public id; each ORDER is an order number or public id on that site. Unlike `pack_remove_test_member` it removes the rows (orders, proofs, decisions, events, registrations, tokens, visits, Meta contexts), and the member too unless another order, registration or shop order still uses it (then the output says the member is kept). Proof files go from the private store after the commit. Meta delivery rows stay and are only counted. One audit entry `pack_test_order_deleted` (ids and counts). If any named order is missing or on another site, it refuses all and writes nothing; run again, it says "No such order". It refuses unless `DEBUG` is on or `APP_ENVIRONMENT` is `staging`, and always on `production`. Never on production. (ClickUp z8uq9mfztm.)
 
 `manage.py shop_delete_test_order --site SITE --order SO00001 [--order SO00002 ...] [--actor USER]` is the shop twin of `pack_delete_test_order`: a dry run first (whole deletion, counts per table, rollback), then `--apply`. It removes the named shop orders with their lines, events, proof, proof file (after the commit) and reviews, and a member or credited member only when nothing else uses it. Same refusals (not staging or local, missing order, order on another site, "No such order" on a rerun); one audit entry `shop_test_order_deleted`. Never on production. (ClickUp z8uq9mfzzn.)
 
