@@ -510,6 +510,24 @@ def _mask_numbers(batch):
         recipient.save(update_fields=["mobile"])
 
 
+def _totals(batch):
+    return {row["state"]: row["n"] for row in batch.recipients.values("state").annotate(n=Count("pk"))}
+
+
+def needs_settle(batch):
+    """A cheap read: does settling this batch have anything to do? True when a text is still unreported
+    (the phone may have reported it), the stored counts differ from the recipients', or the batch is
+    active but nothing is left to send. A read of an unchanged batch needs no lock and no write."""
+    totals = _totals(batch)
+    if totals.get("queued"):
+        return True
+    if (batch.sent, batch.failed, batch.not_sent) != (totals.get("sent", 0), totals.get("failed", 0), totals.get("not_sent", 0)):
+        return True
+    if batch.state in StoreBulkBatch.ACTIVE and not totals.get("waiting"):
+        return True
+    return False
+
+
 def settle(batch):
     """Bring the batch up to date with what the phone reported, write its counts and finish it when
     nothing is waiting. Idempotent; the caller holds the batch's row lock."""
@@ -523,17 +541,18 @@ def settle(batch):
                 recipients.filter(pk=pk).update(state=StoreBulkRecipient.SENT)
             elif status in ("failed", "expired", "refused", "gone"):
                 recipients.filter(pk=pk).update(state=StoreBulkRecipient.FAILED, reason=(reason or status)[:40])
-    totals = {row["state"]: row["n"] for row in recipients.values("state").annotate(n=Count("pk"))}
-    batch.sent = totals.get("sent", 0)
-    batch.failed = totals.get("failed", 0)
-    batch.not_sent = totals.get("not_sent", 0)
-    fields = ["sent", "failed", "not_sent"]
+    totals = _totals(batch)
+    counts = {"sent": totals.get("sent", 0), "failed": totals.get("failed", 0), "not_sent": totals.get("not_sent", 0)}
+    fields = [name for name, value in counts.items() if getattr(batch, name) != value]  # write only what changed
+    for name in fields:
+        setattr(batch, name, counts[name])
     over = not totals.get("waiting") and not totals.get("queued")
     finished = over and batch.state in StoreBulkBatch.ACTIVE
     if finished:
         batch.state, batch.finished_at = StoreBulkBatch.FINISHED, timezone.now()
         fields += ["state", "finished_at"]
-    batch.save(update_fields=fields)
+    if fields:
+        batch.save(update_fields=fields)
     if over:
         _mask_numbers(batch)
     if finished:
@@ -645,7 +664,8 @@ def _settle_over(site):
     yet, so their numbers are masked once those are in."""
     holding = StoreBulkRecipient.objects.filter(
         batch__site=site, state=StoreBulkRecipient.QUEUED).exclude(batch__state__in=StoreBulkBatch.ACTIVE)
-    for batch in StoreBulkBatch.objects.select_for_update().select_related("site", "created_by").filter(
+    # skip_locked: a batch another request holds is being settled by it
+    for batch in StoreBulkBatch.objects.select_for_update(skip_locked=True).select_related("site", "created_by").filter(
             pk__in=holding.values("batch_id")):
         settle(batch)
 
@@ -769,13 +789,16 @@ def refresh(site):
     from apps.inquiries import store_bulk_schedule  # not at import: that module imports this one
 
     store_bulk_schedule.start_due(site=site)
-    with transaction.atomic():
-        batch = StoreBulkBatch.objects.select_for_update().select_related("site", "created_by").filter(
-            site=site, state__in=StoreBulkBatch.ACTIVE).first()
-        if batch is not None:
-            settle(batch)
-        else:
+    rows = StoreBulkBatch.objects.select_related("site", "created_by").filter(site=site, state__in=StoreBulkBatch.ACTIVE)
+    batch = rows.first()
+    if batch is None:
+        with transaction.atomic():
             _settle_over(site)
+    elif needs_settle(batch):  # an unchanged batch is read with no lock and no write
+        with transaction.atomic():
+            batch = rows.select_for_update().first()
+            if batch is not None:
+                settle(batch)
 
 
 def _limit_of(value):
@@ -828,11 +851,13 @@ def list_batches(site, *, cursor="", limit=None):
 
 def open_batch(site, public_id, *, cursor="", limit=None):
     refresh(site)
-    with transaction.atomic():
-        batch = _find(site, public_id, lock=True)
-        if batch.state in (StoreBulkBatch.SCHEDULED, StoreBulkBatch.CANCELLED):  # see store_bulk_schedule
-            raise ApiError("not_found", "Not found.", status=404)
-        settle(batch)
+    batch = _find(site, public_id)
+    if batch.state in (StoreBulkBatch.SCHEDULED, StoreBulkBatch.CANCELLED):  # see store_bulk_schedule
+        raise ApiError("not_found", "Not found.", status=404)
+    if needs_settle(batch):
+        with transaction.atomic():
+            batch = _find(site, public_id, lock=True)
+            settle(batch)
     answer = batch_out(batch)
     if cursor and (not isinstance(cursor, str) or not cursor.isdigit() or len(cursor) > 9):
         raise ApiError("invalid_cursor", "That page marker is not valid.", status=422)
