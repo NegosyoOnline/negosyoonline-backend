@@ -157,6 +157,23 @@ class ContinueTests(ContinueCase):
         batch.refresh_from_db()
         self.assertEqual(batch.state, "ended")
 
+    def test_a_signed_out_caller_is_refused_and_nothing_changes(self):
+        batch = self.ended()
+        response = self.client_class().post(self.url(batch), content_type="application/json")
+        self.assertIn(response.status_code, (401, 403))
+        batch.refresh_from_db()
+        self.assertEqual((batch.state, batch.not_sent), ("ended", 2))
+
+    def test_a_billing_only_store_is_refused_and_sends_nothing(self):
+        from types import SimpleNamespace
+        batch = self.ended()
+        with mock.patch("apps.billing.services.position", return_value=SimpleNamespace(billing_only=True, storefront_served=False)):
+            response = self.go(batch)
+        self.assertEqual((response.status_code, response.json()["error"]["code"]), (403, "billing_only"))
+        batch.refresh_from_db()
+        self.assertEqual((batch.state, batch.not_sent), ("ended", 2))
+        self.assertFalse(batch.recipients.filter(state="waiting").exists())
+
     def test_a_contact_of_another_store_with_the_same_pk_is_not_read(self):
         batch = self.ended()
         row = batch.recipients.filter(state="not_sent").first()
