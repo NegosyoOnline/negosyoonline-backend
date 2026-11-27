@@ -65,7 +65,7 @@ jobs:
           RUN_SHA: ${{ github.sha }}
           INPUT_SHA: ${{ inputs.sha }}
           RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-          PRODUCTION_URL: ${{ vars.BUNNY_PRODUCTION_URL || 'https://api.negosyonline.com' }}
+          PRODUCTION_URL: ${{ vars.BUNNY_PRODUCTION_URL || 'https://api.negosyoonline.com' }}
         run: deploy/bunny/ci/plan-production.sh
 
   staged:
@@ -86,7 +86,7 @@ jobs:
       REPO: ${{ needs.plan.outputs.image_repo }}
       # Read before the gate, so it comes from the repository variable (an environment variable is
       # not available until the approval). Default is the planned production API host.
-      PRODUCTION_URL: ${{ vars.BUNNY_PRODUCTION_URL || 'https://api.negosyonline.com' }}
+      PRODUCTION_URL: ${{ vars.BUNNY_PRODUCTION_URL || 'https://api.negosyoonline.com' }}
     steps:
       - name: Check out source (scripts, history)
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -129,7 +129,7 @@ jobs:
       BUNNY_CONTAINER_API: ${{ vars.BUNNY_CONTAINER_API }}
       BUNNY_CONTAINER_WORKER: ${{ vars.BUNNY_CONTAINER_WORKER }}
       BUNNY_CONTAINER_BEAT: ${{ vars.BUNNY_CONTAINER_BEAT }}
-      BUNNY_PRODUCTION_URL: ${{ vars.BUNNY_PRODUCTION_URL || 'https://api.negosyonline.com' }}
+      BUNNY_PRODUCTION_URL: ${{ vars.BUNNY_PRODUCTION_URL || 'https://api.negosyoonline.com' }}
       BUNNY_HQ_URL: ${{ vars.BUNNY_HQ_URL }}
     steps:
       - name: Check out source (scripts)

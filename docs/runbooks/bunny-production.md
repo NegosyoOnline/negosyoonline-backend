@@ -37,10 +37,10 @@ GitHub environment **`bunny-production`** (Settings > Environments):
 | secret | `BUNNY_API_KEY` | Bunny account API key (`AccessKey` header). Account key; Bunny has no narrower scope. Never printed. A production-only value, not copied from staging |
 | variable | `BUNNY_APP_ID` | production Magic Containers app id |
 | variable | `BUNNY_CONTAINER_API`, `BUNNY_CONTAINER_WORKER`, `BUNNY_CONTAINER_BEAT` | container id or name of the three app containers |
-| variable | `BUNNY_PRODUCTION_URL` | optional here; API base URL verified. Default `https://api.negosyonline.com` |
-| variable | `BUNNY_HQ_URL` | optional; HQ API base URL, also verified (`https://hq-api.negosyonline.com`) |
+| variable | `BUNNY_PRODUCTION_URL` | optional here; API base URL verified. Default `https://api.negosyoonline.com` |
+| variable | `BUNNY_HQ_URL` | optional; HQ API base URL, also verified (`https://hq-api.negosyoonline.com`) |
 
-**Repository variable `BUNNY_PRODUCTION_URL`** (Settings > Secrets and variables > Actions > Variables) is also needed for two reads that happen **before** the approval, when environment variables are not available: the migration list in the `staged` job (it defaults to `https://api.negosyonline.com` if unset) and the drift check (it does **not** default: unset means "production not configured", so it skips and stays green). Set it to the same value once production exists.
+**Repository variable `BUNNY_PRODUCTION_URL`** (Settings > Secrets and variables > Actions > Variables) is also needed for two reads that happen **before** the approval, when environment variables are not available: the migration list in the `staged` job (it defaults to `https://api.negosyoonline.com` if unset) and the drift check (it does **not** default: unset means "production not configured", so it skips and stays green). Set it to the same value once production exists.
 
 Other prerequisites: the production Bunny app holds a registry credential that can pull the private `<repo>-staging` package (production runs the images staging built); the `production` branch exists (created by the first tag promotion); the `bunny-staging` environment is untouched. The `workflow_run` trigger reads the workflow file from the default branch, so `bunny-production.yml` must be on `main` before the first tag.
 
@@ -59,8 +59,8 @@ The workflow reads `GITHUB_TOKEN` only (`packages: read`, `actions: read` on the
 ## Verify by hand
 
 ```
-curl -s https://api.negosyonline.com/healthz/   # {"status":"ok","commit":"<first 12 of sha>"}
-curl -s https://api.negosyonline.com/readyz/    # 200, every value true, "beat" included
+curl -s https://api.negosyoonline.com/healthz/   # {"status":"ok","commit":"<first 12 of sha>"}
+curl -s https://api.negosyoonline.com/readyz/    # 200, every value true, "beat" included
 git rev-parse --short=12 origin/production      # must equal the commit above
 ```
 
