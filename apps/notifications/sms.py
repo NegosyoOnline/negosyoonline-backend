@@ -41,9 +41,6 @@ STAFF_TEXT_LIFETIME = 3600  # seconds a staff text waits for the phone
 # Of the day's texts, this many are for codes only (Coach Ed, "Hold back 300"). A staff text
 # is refused once the day's count reaches the limit less this. Changing it is his ruling.
 RESERVED_FOR_CODES = 300
-# Texts one store may send in a clock hour (Manila time). The same pattern as the 20 emails an
-# hour a store may send from its Inbox (apps/inquiries/stored.py, EMAIL_HOUR).
-STORE_HOURLY_LIMIT = 20
 
 
 @dataclass(frozen=True)
@@ -227,6 +224,17 @@ def _counted(message=None):
     return rows.exclude(pk=message.pk) if message else rows
 
 
+def _platform_counted(message=None):
+    """Today's texts that used a platform slot: `_counted` less the store texts that went from a
+    store's own phone (STORE-TEXT-NO-CAP), which take no platform slot."""
+    rows = _counted(message)
+    if not site_lines_on() or not site_column_exists():
+        return rows
+    own = [d.site_id for d in SmsDevice.objects.filter(is_active=True, site__isnull=False).select_related("site")
+           if site_has_line(d.site)]
+    return rows.exclude(category=STORE, site_id__in=own) if own else rows
+
+
 def _platform_key():
     return f"sms:count:platform:{_today():%Y%m%d}"
 
@@ -235,25 +243,8 @@ def _site_key(site):
     return f"sms:count:site:{site.pk}:{_today():%Y%m%d}"
 
 
-def _store_key(site):
-    return f"sms:count:store:{site.pk}:{_today():%Y%m%d}"
-
-
-def _store_hour_key(site, hour_start):
-    return f"sms:count:storehour:{site.pk}:{hour_start:%Y%m%d%H}"
-
-
 def _store_bulk_key(site):
     return f"sms:count:storebulk:{site.pk}:{_today():%Y%m%d}"
-
-
-def _all_stores_key():
-    return f"sms:count:stores:{_today():%Y%m%d}"
-
-
-def hour_start():
-    """The start of the current clock hour (Manila time), which the hourly store cap counts from."""
-    return timezone.localtime().replace(minute=0, second=0, microsecond=0)
 
 
 def _claim(key, limit, recount):
@@ -282,7 +273,7 @@ def _release(key):
 def platform_count():
     """Today's count for the platform, as the limit sees it."""
     held = cache.get(_platform_key())
-    return _counted().count() if held is None else held
+    return _platform_counted().count() if held is None else held
 
 
 def store_used_today(site):
@@ -295,18 +286,16 @@ def store_bulk_used_today(site):
     return _counted().filter(site=site, category=STORE_BULK).count()
 
 
-def store_used_this_hour(site):
-    return _counted().filter(site=site, category=STORE, created_at__gte=hour_start()).count()
-
-
 def refusal(message):
     """Why this text is not sent now, or "" when it may be queued. Takes its daily slots.
 
-    A store text (4.2 of the SMS-OWNER plan) is refused in this order: sending stopped; the
-    store's day (`site_limit`); the store's hour (`site_hour_limit`); all stores' day
-    (`stores_limit`); the platform day less the texts kept for codes (`staff_limit`); the phone
-    offline (`gateway_offline`, or `site_phone_offline` when the store's own paired phone is the
-    one that is offline)."""
+    A store's one-to-one text (STORE) has no daily or hourly cap of its own (STORE-TEXT-NO-CAP,
+    Coach Ed 2026-11-27): the store sends from its own phone, so only the sending stop, the
+    interval between texts and the phone being online apply. It is refused in this order: sending
+    stopped (`paused`); when it goes from the platform phone (the store has no own active line),
+    the platform day less the texts kept for codes (`staff_limit`); the phone offline
+    (`gateway_offline`, or `site_phone_offline` when the store's own paired phone is the one that
+    is offline). A text from the store's own phone takes no platform slot."""
     rules = policy()
     if rules.sending_stopped:
         return "paused"
@@ -327,21 +316,9 @@ def refusal(message):
         of_site = _counted(message).filter(site=message.site, category=STATUS)
         if not claim(_site_key(message.site), rules.site_daily_limit, of_site.count):
             return refuse("site_limit")
-    if message.category == STORE and message.site_id:
-        mine = _counted(message).filter(site=message.site, category=STORE)
-        if not claim(_store_key(message.site), rules.store_daily_limit, mine.count):
-            return refuse("site_limit")
-        start = hour_start()
-        this_hour = mine.filter(created_at__gte=start)
-        if not claim(_store_hour_key(message.site, start), STORE_HOURLY_LIMIT, this_hour.count):
-            return refuse("site_hour_limit")
-        stores = _counted(message).filter(category=STORE)
-        if not claim(_all_stores_key(), rules.all_stores_daily_limit, stores.count):
-            return refuse("stores_limit")
     if message.category == STORE_BULK and message.site_id:
-        # A store's bulk text uses its own daily cap only: not the store's 50 a day or 20 an hour, not
-        # all stores' day, and not NegosyoOnline's daily limit or the room kept for codes. It goes
-        # from the store's own paired phone; a store entitled to a line with no phone of its own
+        # A store's bulk text uses its own daily cap only: not NegosyoOnline's daily limit or the room kept
+        # for codes. It goes from the store's own paired phone; a store entitled to a line with no phone of its own
         # goes from the platform phone (ONE-PHONE, Coach Ed 2026-11-26).
         mine = _counted(message).filter(site=message.site, category=STORE_BULK)
         if not claim(_store_bulk_key(message.site), rules.store_bulk_daily_limit, mine.count):
@@ -355,12 +332,13 @@ def refusal(message):
     limit, reason = rules.platform_daily_limit, "platform_limit"
     if message.category in (INBOX, STORE):
         limit, reason = max(limit - RESERVED_FOR_CODES, 0), "staff_limit"
-    if not claim(_platform_key(), limit, _counted(message).count):
+    own_phone = message.category == STORE and _lined(message.site) is not None
+    # A store text from the store's own phone takes no platform slot (STORE-TEXT-NO-CAP).
+    if not own_phone and not claim(_platform_key(), limit, _platform_counted(message).count):
         return refuse(reason)
     if not gateway_online(message.site, message.category):
         # A store whose own paired phone is offline is told so; its text is not handed to the
         # shared phone (D2). A store with no phone of its own meets the shared phone's offline.
-        own_phone = message.category == STORE and _lined(message.site) is not None
         return refuse("site_phone_offline" if own_phone else "gateway_offline")
     return ""
 

@@ -6,6 +6,7 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -75,11 +76,24 @@ class StoreTextPurposeTests(SmsTestCase):
 
 
 class StoreCapTests(SmsTestCase):
+    """STORE-TEXT-NO-CAP (Coach Ed 2026-11-27): a store's one-to-one text has no daily or hourly
+    cap. A text from the store's own phone takes no platform slot; one from the platform phone
+    still keeps the room for codes."""
+
     def setUp(self):
         super().setUp()
-        online_phone()
+        self.platform = online_phone()
         self.site = make_site(make_account())
         self.other = make_site(make_account("bo@example.test"), name="bos-store", display_name="Bo's Store")
+
+    def give_own_phone(self, site, name="own"):
+        line = mock.patch.object(sms, "site_has_line", return_value=True)
+        line.start()
+        self.addCleanup(line.stop)
+        enabled = override_settings(SMS_SITE_LINES_ENABLED=True)
+        enabled.enable()
+        self.addCleanup(enabled.disable)
+        return online_phone(name, site=site)
 
     def assert_refused(self, site, reason):
         with self.assertLogs("apps.notifications", level="ERROR"):
@@ -87,76 +101,89 @@ class StoreCapTests(SmsTestCase):
         self.assertEqual((result.outcome, result.reason), (sms.REFUSED, reason))
         self.assertEqual(result.message.status, SmsMessage.Status.REFUSED)
 
-    def test_the_defaults_are_50_a_store_1000_all_stores_and_20_an_hour(self):
+    def test_the_old_caps_are_gone_from_the_code_and_kept_in_the_policy(self):
+        self.assertFalse(hasattr(sms, "STORE_HOURLY_LIMIT"))
         row = sms.policy()
         self.assertEqual((row.store_daily_limit, row.all_stores_daily_limit), (50, 1000))
-        self.assertEqual(sms.STORE_HOURLY_LIMIT, 20)
 
-    def test_a_store_over_its_day_is_refused_and_another_store_is_not(self):
-        set_policy(store_daily_limit=3)
-        for _ in range(3):
+    def test_a_store_with_its_own_phone_sends_past_50_a_day_and_20_an_hour(self):
+        self.give_own_phone(self.site)
+        for _ in range(55):
             self.assertEqual(store_text(self.site).outcome, sms.QUEUED)
-        self.assert_refused(self.site, "site_limit")
-        self.assertEqual(store_text(self.other).outcome, sms.QUEUED)
-        self.assertEqual(sms.store_used_today(self.site), 3)
+        self.assertEqual(sms.store_used_today(self.site), 55)
 
-    def test_a_store_over_its_hour_is_refused_after_20(self):
-        for _ in range(20):
-            self.assertEqual(store_text(self.site).outcome, sms.QUEUED)
-        self.assert_refused(self.site, "site_hour_limit")
-        self.assertEqual(store_text(self.other).outcome, sms.QUEUED)
+    def test_the_stored_caps_enforce_nothing_even_when_low(self):
+        set_policy(store_daily_limit=1, all_stores_daily_limit=1)
+        for site in (self.site, self.site, self.other):
+            self.assertEqual(store_text(site).outcome, sms.QUEUED)
 
-    def test_the_counts_come_back_from_the_records_when_the_cache_is_empty(self):
-        for _ in range(20):
+    def test_the_counts_do_not_come_back_as_a_cap_when_the_cache_is_empty(self):
+        for _ in range(25):
             store_text(self.site)
         cache.clear()
-        self.assert_refused(self.site, "site_hour_limit")
-
-    def test_all_stores_together_are_held_to_their_own_day(self):
-        set_policy(all_stores_daily_limit=2)
         self.assertEqual(store_text(self.site).outcome, sms.QUEUED)
-        self.assertEqual(store_text(self.other).outcome, sms.QUEUED)
-        self.assert_refused(self.site, "stores_limit")
-        self.assert_refused(self.other, "stores_limit")
-        self.assertEqual(sms.store_used_today(self.site), 1)  # a refusal gives back the slots
-        self.assertEqual(code().outcome, sms.QUEUED)
 
-    def test_the_300_kept_for_codes_refuse_a_store_text_and_not_a_code(self):
+    def test_an_own_phone_store_text_does_not_take_the_platform_slot(self):
+        self.give_own_phone(self.site)
+        set_policy(platform_daily_limit=302)  # room for two staff texts after the 300 kept for codes
+        for _ in range(5):
+            self.assertEqual(store_text(self.site).outcome, sms.QUEUED)
+        self.assertIsNone(cache.get(sms._platform_key()))
+        # the platform room is untouched: a store on the platform phone still gets both its slots
+        self.assertEqual(store_text(self.other).outcome, sms.QUEUED)
+        self.assertEqual(store_text(self.other).outcome, sms.QUEUED)
+
+    def test_own_phone_store_texts_are_not_counted_against_the_platform_when_the_cache_is_empty(self):
+        self.give_own_phone(self.site)
+        set_policy(platform_daily_limit=302)
+        for _ in range(5):
+            store_text(self.site)
+        cache.clear()
+        self.assertEqual(sms.platform_count(), 0)
+        self.assertEqual(store_text(self.other).outcome, sms.QUEUED)
+        self.assertEqual(store_text(self.other).outcome, sms.QUEUED)
+        self.assert_refused(self.other, "staff_limit")
+
+    def test_a_platform_phone_store_text_is_still_refused_once_the_platform_room_is_used(self):
         set_policy(platform_daily_limit=302)
         self.assertEqual(store_text(self.site).outcome, sms.QUEUED)
-        self.assertEqual(store_text(self.site).outcome, sms.QUEUED)
+        self.assertEqual(store_text(self.other).outcome, sms.QUEUED)
         self.assert_refused(self.site, "staff_limit")
         self.assertEqual(sms.platform_count(), 2)
         for _ in range(3):
             self.assertEqual(code().outcome, sms.QUEUED)
-        self.assertEqual(sms.store_used_today(self.site), 2)
+
+    def test_an_own_phone_store_is_not_refused_when_the_platform_room_is_used(self):
+        self.give_own_phone(self.site)
+        set_policy(platform_daily_limit=300)  # nothing left for staff texts on the platform phone
+        self.assert_refused(self.other, "staff_limit")
+        self.assertEqual(store_text(self.site).outcome, sms.QUEUED)
 
     def test_the_refusal_order(self):
-        set_policy(sending_stopped=True, store_daily_limit=0, all_stores_daily_limit=0)
+        set_policy(sending_stopped=True, platform_daily_limit=300)
         self.assert_refused(self.site, "paused")
         set_policy(sending_stopped=False)
-        self.assert_refused(self.site, "site_limit")
-        set_policy(store_daily_limit=50)
-        self.assert_refused(self.site, "stores_limit")
-        set_policy(all_stores_daily_limit=1000, platform_daily_limit=300)
-        SmsDevice.objects.update(last_contact_at=timezone.now() - timedelta(minutes=5))
         self.assert_refused(self.site, "staff_limit")
         set_policy(platform_daily_limit=2000)
+        SmsDevice.objects.update(last_contact_at=timezone.now() - timedelta(minutes=5))
         self.assert_refused(self.site, "gateway_offline")
         self.assertEqual(sms.store_used_today(self.site), 0)
+
+    def test_an_own_phone_that_is_offline_is_refused_as_that_phone(self):
+        phone = self.give_own_phone(self.site)
+        SmsDevice.objects.filter(pk=phone.pk).update(last_contact_at=timezone.now() - timedelta(minutes=5))
+        self.assert_refused(self.site, "site_phone_offline")
 
     def test_the_order_status_cap_is_not_the_store_cap(self):
         set_policy(site_daily_limit=0)
         self.assertEqual(store_text(self.site).outcome, sms.QUEUED)
 
-    def test_status_for_the_composer(self):
-        store_text(self.site)
+    def test_status_for_the_composer_reports_the_phone_and_no_limits(self):
         store_text(self.site)
         self.assertEqual(
             services.sms_store_status(self.site),
-            {"phone_online": True, "daily_limit": 50, "left_today": 48, "hourly_limit": 20, "left_this_hour": 18},
+            {"phone_online": True, "daily_limit": None, "left_today": None, "hourly_limit": None, "left_this_hour": None},
         )
-        self.assertEqual(services.sms_store_status(self.other)["left_today"], 50)
 
     def test_status_with_the_gateway_off_reads_no_table(self):
         with self.settings(SMS_GATEWAY_ENABLED=False):
@@ -195,6 +222,17 @@ class PolicyColumnsTests(SmsTestCase):
                     "sending_stopped": False, "platform_daily_limit": 2000, "site_daily_limit": 2000,
                     "store_daily_limit": bad,
                 })
+
+    def test_an_older_body_with_the_store_fields_still_saves_and_enforces_nothing(self):
+        row = services.change_policy(self.operator(), {
+            "sending_stopped": False, "platform_daily_limit": 2000, "site_daily_limit": 2000,
+            "store_daily_limit": 1, "all_stores_daily_limit": 1,
+        })
+        self.assertEqual((row.store_daily_limit, row.all_stores_daily_limit), (1, 1))
+        online_phone()
+        site = make_site(make_account())
+        for _ in range(3):
+            self.assertEqual(store_text(site).outcome, sms.QUEUED)
 
     def test_a_body_without_the_store_caps_keeps_them(self):
         set_policy(store_daily_limit=33)

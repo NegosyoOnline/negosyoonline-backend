@@ -167,18 +167,11 @@ def sms_room_for_staff():
 
 def sms_store_status(site):
     """What a store's composer may show: whether the phone that carries the store's texts is
-    online, and the room left today and this hour. Reads no SMS table while the gateway is off."""
-    if not sms.gateway_on():
-        return {"phone_online": False, "daily_limit": 0, "left_today": 0, "hourly_limit": 0, "left_this_hour": 0}
-    rules = sms.policy()
-    used_today, used_hour = sms.store_used_today(site), sms.store_used_this_hour(site)
-    return {
-        "phone_online": sms.gateway_online(site),
-        "daily_limit": rules.store_daily_limit,
-        "left_today": max(rules.store_daily_limit - used_today, 0),
-        "hourly_limit": sms.STORE_HOURLY_LIMIT,
-        "left_this_hour": max(sms.STORE_HOURLY_LIMIT - used_hour, 0),
-    }
+    online. A store's one-to-one texts have no daily or hourly cap (STORE-TEXT-NO-CAP, Coach Ed
+    2026-11-27), so the four limit fields older dash code may parse are kept as None. Reads no SMS
+    table while the gateway is off."""
+    online = sms.gateway_online(site) if sms.gateway_on() else False
+    return {"phone_online": online, "daily_limit": None, "left_today": None, "hourly_limit": None, "left_this_hour": None}
 
 
 def sms_store_bulk_status(site):

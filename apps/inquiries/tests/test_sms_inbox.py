@@ -185,32 +185,17 @@ class RefusalTests(SmsOwnerCase):
         self.assertEqual(thread["messages"][-1]["error_code"], "gateway_offline")
         self.assertIn("offline", thread["messages"][-1]["error_message"])
 
-    def test_the_stores_daily_limit_refuses_the_next_text(self):
-        set_policy(store_daily_limit=1)
-        self.assertEqual(self.compose().json()["state"], "sending")
-        body = self.compose(key="key-compose-2").json()
-        self.assertEqual((body["state"], body["error_code"]), ("failed", "site_limit"))
-        self.assertEqual(InquiryReply.objects.get(idempotency_key="key-compose-2").error_code, "rate_limited")
-        self.assertEqual(self.get(self.base + "sms/status/").json()["left_today"], 0)
-
-    def test_the_stores_hourly_limit_refuses_the_next_text(self):
-        with mock.patch("apps.notifications.sms.STORE_HOURLY_LIMIT", 1):
-            self.compose()
-            body = self.compose(key="key-compose-2").json()
-        self.assertEqual((body["state"], body["error_code"]), ("failed", "site_hour_limit"))
+    def test_the_stores_old_caps_no_longer_refuse_a_text(self):
+        set_policy(store_daily_limit=1, all_stores_daily_limit=1)
+        for index in range(3):
+            self.assertEqual(self.compose(key=f"key-compose-{index}").json()["state"], "sending")
+        self.assertEqual(self.get(self.base + "sms/status/").json()["phone_online"], True)
 
     def test_sending_stopped_by_staff_refuses_the_text(self):
         set_policy(sending_stopped=True)
         body = self.compose().json()
         self.assertEqual((body["state"], body["error_code"]), ("failed", "paused"))
         self.assertEqual(InquiryReply.objects.get().error_code, "provider_down")
-
-    def test_one_stores_limit_leaves_another_store_able_to_send(self):
-        set_policy(store_daily_limit=1)
-        self.compose()
-        bens = make_member(self.ben_site, OTHER_MOBILE, name="Ben's")
-        self.assertEqual(
-            self.compose(member=bens, base=self.ben_base, client=self.ben, key="key-ben-0001").json()["state"], "sending")
 
 
 class ThreadAndReplyTests(SmsOwnerCase):
@@ -344,11 +329,8 @@ class ChannelsAndSwitchTests(SmsOwnerCase):
     def test_the_status_route_has_the_gateways_numbers_and_the_prefix(self):
         body = self.get(self.base + "sms/status/").json()
         self.assertEqual((body["phone_online"], body["enabled"], body["incoming_ready"]), (True, True, True))
-        self.assertEqual((body["daily_limit"], body["left_today"], body["hourly_limit"], body["left_this_hour"]), (50, 50, 20, 20))
+        self.assertEqual((body["daily_limit"], body["left_today"], body["hourly_limit"], body["left_this_hour"]), (None, None, None, None))
         self.assertEqual((body["prefix"], body["max_length"]), ("", 160))
-        self.compose()
-        after = self.get(self.base + "sms/status/").json()
-        self.assertEqual((after["left_today"], after["left_this_hour"]), (49, 19))
 
     def routes(self):
         return [
