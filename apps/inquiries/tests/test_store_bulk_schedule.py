@@ -74,19 +74,19 @@ class CreateTests(ScheduleCase):
         active = self.get(self.root + "status/").json()["active_batch"]
         self.assertIsNone(active["scheduled_at"])
 
-    def test_the_window_is_08_to_22_and_the_end_is_not_included(self):
-        for key, at in (("key-edge-0001", "2026-11-25T08:00:00+08:00"), ("key-edge-0002", "2026-11-25T20:00:00+08:00"),
+    def test_the_window_is_06_to_22_and_the_end_is_not_included(self):
+        for key, at in (("key-edge-0001", "2026-11-25T06:00:00+08:00"), ("key-edge-0002", "2026-11-25T20:00:00+08:00"),
                         ("key-edge-0003", "2026-11-25T21:45:00+08:00"), ("key-edge-0004", "2026-11-25T21:59:00+08:00")):
             with self.subTest(at=at):
                 self.assertEqual(self.schedule(key=key, at=at).status_code, 201)
-        for at in ("2026-11-25T22:00:00+08:00", "2026-11-25T07:59:00+08:00"):
+        for at in ("2026-11-25T22:00:00+08:00", "2026-11-25T05:59:00+08:00"):
             with self.subTest(at=at):
                 self.assertEqual(self.code(self.schedule(at=at)), (422, "outside_window"))
 
     def test_time_rules(self):
         self.assertEqual(self.code(self.schedule(at="2026-11-24T09:09:00+08:00")), (422, "too_soon"))
         self.assertEqual(self.code(self.schedule(at="2026-11-25T22:00:00+08:00")), (422, "outside_window"))
-        self.assertEqual(self.code(self.schedule(at="2026-11-25T07:59:00+08:00")), (422, "outside_window"))
+        self.assertEqual(self.code(self.schedule(at="2026-11-25T05:59:00+08:00")), (422, "outside_window"))
         self.assertEqual(self.code(self.schedule(at="2026-12-25T10:00:00+08:00")), (422, "too_far"))
         self.assertEqual(self.code(self.schedule(at="soon")), (422, "invalid"))
         self.assertEqual(self.schedule(at="2026-11-24T09:10:00+08:00").status_code, 201)
