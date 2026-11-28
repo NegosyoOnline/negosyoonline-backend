@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
 from django.db import IntegrityError, transaction
+from django.db.models.functions import Concat
 from django.db.models import BooleanField, Case, Exists, F, OuterRef, Q, Subquery, Value, When
 from django.utils import timezone
 
@@ -66,10 +67,21 @@ def find(site, ref):
     ).first()
 
 
-def _name(conversation):
+def _name(conversation, resolved=None):
+    """The stored name, else (a text conversation with none) `resolved`, the member's or the
+    store's saved contact's name found at read time, else the fixed fallback."""
     fallback = {InquiryConversation.MESSENGER: MESSENGER_CUSTOMER, InquiryConversation.SMS: SMS_CUSTOMER}.get(
         conversation.provider, ANONYMOUS)
-    return conversation.contact_name or conversation.display_name or fallback
+    return conversation.contact_name or conversation.display_name or resolved or fallback
+
+
+def _unnamed_sms_names(site, conversations):
+    """{mobile: name} for the unnamed text conversations among `conversations`: one batch lookup."""
+    from apps.inquiries import sms_inbox
+    return sms_inbox.names_for(site, [
+        c.contact_mobile for c in conversations
+        if c.provider == InquiryConversation.SMS and not (c.contact_name or c.display_name)
+    ])
 
 
 def _snippet(text):
@@ -114,14 +126,26 @@ def valid_query(text):
     return text if SEARCH_MIN <= len(text) <= SEARCH_MAX else None
 
 
-def _matching(rows, text):
+def _matching(rows, text, site=None):
     """The rows whose name, contact name, contact email, contact mobile (not a text conversation's: it is searched by name only) or any message text contains `text`, ignoring
     case. `rows` is already this site's; the message test is tied to the same conversation and site."""
     in_message = InquiryMessage.objects.filter(
         conversation=OuterRef("pk"), site=OuterRef("site"), body__icontains=text,
     )
+    named = Q(display_name__icontains=text) | Q(contact_name__icontains=text) | Q(contact_email__icontains=text)
+    if site is not None:  # a text conversation with no stored name is named at read time: search that name too
+        from apps.inbox.models import Contact
+        from apps.members.models import Member
+        full = Concat("first_name", Value(" "), "last_name")
+        contact_numbers = (
+            Contact.objects.filter(owner_kind="site", site=site).annotate(full=full)
+            .filter(Q(full__icontains=text)).values("mobile")
+        )
+        member_numbers = Member.objects.filter(site=site, full_name__icontains=text).values("mobile")
+        named |= Q(provider=InquiryConversation.SMS, contact_name="", display_name="") & (
+            Q(contact_mobile__in=contact_numbers) | Q(contact_mobile__in=member_numbers))
     return rows.filter(
-        Q(display_name__icontains=text) | Q(contact_name__icontains=text) | Q(contact_email__icontains=text)
+        named
         | (Q(contact_mobile__icontains=text) & ~Q(provider=InquiryConversation.SMS))
         | Exists(in_message)
     )
@@ -180,18 +204,19 @@ def list_items(site, limit=LIST_LIMIT, after=None, query=None, status=None, unre
     if answered is not None:
         rows = rows.filter(answered=answered)
     if query:
-        rows = _matching(rows, query)
+        rows = _matching(rows, query, site)
     if after:
         rows = _after(rows, after)
     rows = list(rows[: limit + 1])
     more, rows = len(rows) > limit, rows[:limit]
     photos = profile.avatar_urls(c.pk for c in rows if c.provider == InquiryConversation.MESSENGER)
+    resolved = _unnamed_sms_names(site, rows)
     items = []
     for conversation in rows:
         last = InquiryMessage.objects.filter(conversation=conversation).order_by("-created_at", "-pk").first()
         items.append({
             "ref": conversation.external_id,
-            "display_name": _name(conversation),
+            "display_name": _name(conversation, resolved.get(conversation.contact_mobile)),
             "snippet": (_snippet(last.body) or _attachment_line(last.attachment_types)) if last else "",
             "updated_at": conversation.last_message_at.isoformat() if conversation.last_message_at else None,
             "channel": conversation.provider,
@@ -236,7 +261,7 @@ def thread(site, ref):
         window = messenger_inbox.window_of(conversation)
     out = {
         "ref": conversation.external_id,
-        "display_name": _name(conversation),
+        "display_name": _name(conversation, _unnamed_sms_names(site, [conversation]).get(conversation.contact_mobile)),
         "avatar_url": (
             profile.avatar_urls([conversation.pk])[conversation.pk]
             if conversation.provider == InquiryConversation.MESSENGER else None

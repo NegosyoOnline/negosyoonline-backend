@@ -244,6 +244,7 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/inquiries/sms/bulk/batches/"): 404,
     ("GET", "/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/"): 404,
     ("POST", "/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/stop/"): 404,
+    ("POST", "/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/continue/"): 404,
     ("POST", "/sites/{site_id}/inquiries/sms/bulk/scheduled/"): 404,
     ("GET", "/sites/{site_id}/inquiries/sms/bulk/scheduled/"): 404,
     ("GET", "/sites/{site_id}/inquiries/sms/bulk/scheduled/{batch_id}/"): 404,

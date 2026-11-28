@@ -232,7 +232,8 @@ def claim_onboarding_proof(site, member, *, mobile, proof):
 ADDRESS_THROTTLE = ("member-address", 10, 3600)  # saves per member per hour, as TWCinc LIMIT_ADDRESS
 ADDRESS_LOCKED = "Your home address cannot be changed right now."
 ADDRESS_REQUIRED = {"line": "Enter the street address.", "city": "Enter the city or municipality.",
-                    "province": "Enter the province."}
+                    "province": "Enter the province.",
+                    "landmark": "Enter a landmark, like the barangay hall."}
 ADDRESS_TOO_LONG = f"Keep this part under {ADDRESS_MAX} characters."
 
 
@@ -274,4 +275,7 @@ def save_own_address(site, member, data, *, ip=None):
         row.save(update_fields=["delivery_address", "updated_at"])
         MemberAddressEvent.objects.create(site=site, member=row, old=old, new=cleaned,
                                           ip_advisory=(ip or "")[:45])
+    from apps.pack import address_zip  # lazy: pack imports members
+
+    address_zip.learn_saved_address(cleaned, "member")  # after the commit; never fails the save
     return cleaned

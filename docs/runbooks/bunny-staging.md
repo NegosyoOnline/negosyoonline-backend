@@ -55,7 +55,7 @@ curl -s https://api-staging.negosyonline.com/readyz/         # 200, every value 
 git rev-parse --short=12 origin/main                               # must equal the commit above
 ```
 
-Evidence of a release: the green `Bunny staging release` run for the SHA (summary lists digests and the previous images). **Drift:** `bunny-staging-drift.yml` runs hourly and goes red when Bunny's commit is not main's HEAD and no release run is in progress; Actions > "Bunny staging release" shows every main commit's result.
+Evidence of a release: the green `Bunny staging release` run for the SHA (summary lists digests and the previous images). **Drift:** `bunny-staging-drift.yml` runs hourly and goes red when Bunny's commit is not main's HEAD and no release run is in progress (an unreachable or non-JSON `/healthz/` logs `bunny=unreachable` and fails the same way); Actions > "Bunny staging release" shows every main commit's result.
 
 ## Rollback
 

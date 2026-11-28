@@ -7,7 +7,7 @@ entitled to a line with no phone of its own sends from the platform phone (ONE-P
 audience; since 2026-11-25 (ALL-GROUPS-OPTION) "all" means All groups: every contact in any of the
 store's groups, each phone once (verified Members are not read). No promo filter, no promo label; no consent nudge; always left out:
 the store's STOP list, unverified numbers and repeats; no web links; no forced STOP footer; a daily
-cap of 2,000 a store (SmsPolicy.store_bulk_daily_limit); one text every 18 to 25 s, only from 08:00
+cap of 2,000 a store (SmsPolicy.store_bulk_daily_limit); one text every 18 to 25 s, only from 06:00
 to 22:00 Manila time.
 
 Nothing here logs or audits a number or a text. The audit entries carry the batch id and counts
@@ -42,7 +42,7 @@ from apps.notifications.models import StoreBulkBatch, StoreBulkRecipient
 logger = logging.getLogger(__name__)
 
 MANILA = ZoneInfo("Asia/Manila")
-WINDOW = (time(8, 0), time(22, 0))  # texts go only from 08:00 up to, not including, 22:00 Manila time
+WINDOW = (time(6, 0), time(22, 0))  # texts go only from 06:00 up to, not including, 22:00 Manila time
 SECONDS = (18, 25)  # the phone keeps this gap between two texts (apps/notifications/gateway.py)
 TEST_KEPT = 24 * 3600
 MAX_SKIPS = 100  # members passed over (gone, opted out ...) in one poll before the next poll goes on
@@ -87,7 +87,7 @@ REASON_TEXTS = {
     "cancelled": "Cancelled by you.",
     "batch_running": "Another batch was still sending at the start time.",
     "empty_audience": "There was nobody to send to at the start time.",
-    "outside_window": "The start time came after texts may go out (08:00 to 22:00 Manila time).",
+    "outside_window": "The start time came after texts may go out (06:00 to 22:00 Manila time).",
     "daily_cap": "The store's daily bulk text limit was reached at the start time.",
     "phone_offline": "Your phone was offline at the start time.",
     NO_LINE: BLOCKED_TEXTS[NO_LINE],
@@ -100,7 +100,7 @@ PAUSED_REASONS = ("outside_window", "daily_cap", "phone_offline")
 # -- time and availability ------------------------------------------------------------------
 
 def in_window(now=None):
-    """True from 08:00 up to, not including, 22:00 Manila time."""
+    """True from 06:00 up to, not including, 22:00 Manila time."""
     local = (now or timezone.now()).astimezone(MANILA).time()
     return WINDOW[0] <= local < WINDOW[1]
 
@@ -394,9 +394,30 @@ def paused_reason(batch):
     return ""
 
 
+def _resendable(batch):
+    """The recipients a Continue would send again: not sent only because the batch ended (their reason is
+    the batch's own end reason). Never one left out for STOP, a bad or changed number, or a removed person."""
+    if batch.state != StoreBulkBatch.ENDED or not batch.end_reason:
+        return StoreBulkRecipient.objects.none()
+    return batch.recipients.filter(state=StoreBulkRecipient.NOT_SENT, reason=batch.end_reason)
+
+
+def _cannot_continue(batch):
+    """Why an ended batch cannot be continued now: (code, message), or None when it can."""
+    if batch.state != StoreBulkBatch.ENDED:
+        return "not_ended", "Only an ended batch can continue."
+    code = blocked(batch.site) or _end_reason(batch.site)
+    if code:
+        return code, BLOCKED_TEXTS.get(code) or REASON_TEXTS[code]
+    if StoreBulkBatch.objects.filter(site=batch.site, state__in=StoreBulkBatch.ACTIVE).exists():
+        return "batch_running", "A batch is already sending. Wait for it to finish or stop it."
+    return None
+
+
 def batch_out(batch):
     waiting = _waiting(batch)
     active = batch.state in StoreBulkBatch.ACTIVE
+    continue_count = _resendable(batch).count() if batch.state == StoreBulkBatch.ENDED else 0
     return {
         "id": batch.public_id,
         "state": batch.state,
@@ -416,6 +437,9 @@ def batch_out(batch):
         "seconds_left": waiting * (SECONDS[0] + SECONDS[1]) // 2 if active else 0,
         "stopped_at": batch.stopped_at.isoformat() if batch.stopped_at else None,
         "finished_at": batch.finished_at.isoformat() if batch.finished_at else None,
+        # CONTINUE (2026-11-27): how many of an ended batch's texts can still go, and whether Continue is allowed now.
+        "continue_count": continue_count,
+        "can_continue": bool(continue_count) and _cannot_continue(batch) is None,
     }
 
 
@@ -486,6 +510,24 @@ def _mask_numbers(batch):
         recipient.save(update_fields=["mobile"])
 
 
+def _totals(batch):
+    return {row["state"]: row["n"] for row in batch.recipients.values("state").annotate(n=Count("pk"))}
+
+
+def needs_settle(batch):
+    """A cheap read: does settling this batch have anything to do? True when a text is still unreported
+    (the phone may have reported it), the stored counts differ from the recipients', or the batch is
+    active but nothing is left to send. A read of an unchanged batch needs no lock and no write."""
+    totals = _totals(batch)
+    if totals.get("queued"):
+        return True
+    if (batch.sent, batch.failed, batch.not_sent) != (totals.get("sent", 0), totals.get("failed", 0), totals.get("not_sent", 0)):
+        return True
+    if batch.state in StoreBulkBatch.ACTIVE and not totals.get("waiting"):
+        return True
+    return False
+
+
 def settle(batch):
     """Bring the batch up to date with what the phone reported, write its counts and finish it when
     nothing is waiting. Idempotent; the caller holds the batch's row lock."""
@@ -499,17 +541,18 @@ def settle(batch):
                 recipients.filter(pk=pk).update(state=StoreBulkRecipient.SENT)
             elif status in ("failed", "expired", "refused", "gone"):
                 recipients.filter(pk=pk).update(state=StoreBulkRecipient.FAILED, reason=(reason or status)[:40])
-    totals = {row["state"]: row["n"] for row in recipients.values("state").annotate(n=Count("pk"))}
-    batch.sent = totals.get("sent", 0)
-    batch.failed = totals.get("failed", 0)
-    batch.not_sent = totals.get("not_sent", 0)
-    fields = ["sent", "failed", "not_sent"]
+    totals = _totals(batch)
+    counts = {"sent": totals.get("sent", 0), "failed": totals.get("failed", 0), "not_sent": totals.get("not_sent", 0)}
+    fields = [name for name, value in counts.items() if getattr(batch, name) != value]  # write only what changed
+    for name in fields:
+        setattr(batch, name, counts[name])
     over = not totals.get("waiting") and not totals.get("queued")
     finished = over and batch.state in StoreBulkBatch.ACTIVE
     if finished:
         batch.state, batch.finished_at = StoreBulkBatch.FINISHED, timezone.now()
         fields += ["state", "finished_at"]
-    batch.save(update_fields=fields)
+    if fields:
+        batch.save(update_fields=fields)
     if over:
         _mask_numbers(batch)
     if finished:
@@ -621,7 +664,8 @@ def _settle_over(site):
     yet, so their numbers are masked once those are in."""
     holding = StoreBulkRecipient.objects.filter(
         batch__site=site, state=StoreBulkRecipient.QUEUED).exclude(batch__state__in=StoreBulkBatch.ACTIVE)
-    for batch in StoreBulkBatch.objects.select_for_update().select_related("site", "created_by").filter(
+    # skip_locked: a batch another request holds is being settled by it
+    for batch in StoreBulkBatch.objects.select_for_update(skip_locked=True).select_related("site", "created_by").filter(
             pk__in=holding.values("batch_id")):
         settle(batch)
 
@@ -691,19 +735,70 @@ def stop(site, account, public_id):
     return batch_out(batch)
 
 
+def _current_numbers(site, recipients):
+    """{recipient pk: the person's current full mobile} for the recipients whose contact (or member) is still
+    the store's and whose current number still matches the masked one kept in the batch; the others are left out."""
+    from apps.inbox.models import Contact
+
+    contact_refs = {r.contact_ref for r in recipients if r.contact_ref}
+    member_refs = {r.member_ref for r in recipients if r.member_ref and not r.contact_ref}
+    contacts, members = {}, {}
+    refs = sorted(contact_refs)
+    for i in range(0, len(refs), CHUNK):
+        contacts.update(Contact.objects.filter(pk__in=refs[i:i + CHUNK], owner_kind="site", site=site).values_list("pk", "mobile"))
+    refs = sorted(member_refs)
+    for i in range(0, len(refs), CHUNK):
+        members.update(Member.objects.filter(pk__in=refs[i:i + CHUNK], site=site).values_list("pk", "mobile"))
+    found = {}
+    for r in recipients:
+        mobile = contacts.get(r.contact_ref) if r.contact_ref else members.get(r.member_ref)
+        if mobile and not mobile.startswith("+63900") and r.mobile in (mobile, mask_mobile(mobile)):  # unmasked while a text of the batch is still unreported
+            found[r.pk] = mobile
+    return found
+
+
+def continue_batch(site, account, public_id):
+    """Send the rest of an ENDED batch (STORE-BULK-CONTINUE, Coach Ed 2026-11-27). Only the recipients not
+    sent because the batch ended go back to waiting, with their number read again from the contact (or
+    member) behind them; the same row becomes active again. The usual per-text checks apply at send time."""
+    with transaction.atomic():
+        batch = _find(site, public_id, lock=True)
+        settle(batch)
+        refusal = _cannot_continue(batch)
+        if refusal:
+            raise ApiError(refusal[0], refusal[1], status=409)
+        rows = list(_resendable(batch).order_by("position"))
+        numbers = _current_numbers(site, rows)
+        back = [r for r in rows if r.pk in numbers]
+        if not back:
+            raise ApiError("nothing_to_continue", "There is nothing left to send.", status=409)
+        for i in range(0, len(back), CHUNK):
+            for r in back[i:i + CHUNK]:
+                r.mobile, r.state, r.reason = numbers[r.pk], StoreBulkRecipient.WAITING, ""
+            StoreBulkRecipient.objects.bulk_update(back[i:i + CHUNK], ["mobile", "state", "reason"])
+        batch.state, batch.end_reason, batch.finished_at = StoreBulkBatch.WAITING, "", None
+        batch.save(update_fields=["state", "end_reason", "finished_at"])
+        settle(batch)  # the counts, in place
+        _audit(batch, "store_bulk_continued", actor=account, count=len(back), size=batch.size, sent=batch.sent, failed=batch.failed, not_sent=batch.not_sent)
+    return batch_out(batch)
+
+
 def refresh(site):
     """Settle the store's active batch without queuing anything, so a read is true with the phone away.
     A scheduled batch of the store that is due starts first (so it works with no beat running)."""
     from apps.inquiries import store_bulk_schedule  # not at import: that module imports this one
 
     store_bulk_schedule.start_due(site=site)
-    with transaction.atomic():
-        batch = StoreBulkBatch.objects.select_for_update().select_related("site", "created_by").filter(
-            site=site, state__in=StoreBulkBatch.ACTIVE).first()
-        if batch is not None:
-            settle(batch)
-        else:
+    rows = StoreBulkBatch.objects.select_related("site", "created_by").filter(site=site, state__in=StoreBulkBatch.ACTIVE)
+    batch = rows.first()
+    if batch is None:
+        with transaction.atomic():
             _settle_over(site)
+    elif needs_settle(batch):  # an unchanged batch is read with no lock and no write
+        with transaction.atomic():
+            batch = rows.select_for_update().first()
+            if batch is not None:
+                settle(batch)
 
 
 def _limit_of(value):
@@ -756,11 +851,13 @@ def list_batches(site, *, cursor="", limit=None):
 
 def open_batch(site, public_id, *, cursor="", limit=None):
     refresh(site)
-    with transaction.atomic():
-        batch = _find(site, public_id, lock=True)
-        if batch.state in (StoreBulkBatch.SCHEDULED, StoreBulkBatch.CANCELLED):  # see store_bulk_schedule
-            raise ApiError("not_found", "Not found.", status=404)
-        settle(batch)
+    batch = _find(site, public_id)
+    if batch.state in (StoreBulkBatch.SCHEDULED, StoreBulkBatch.CANCELLED):  # see store_bulk_schedule
+        raise ApiError("not_found", "Not found.", status=404)
+    if needs_settle(batch):
+        with transaction.atomic():
+            batch = _find(site, public_id, lock=True)
+            settle(batch)
     answer = batch_out(batch)
     if cursor and (not isinstance(cursor, str) or not cursor.isdigit() or len(cursor) > 9):
         raise ApiError("invalid_cursor", "That page marker is not valid.", status=422)

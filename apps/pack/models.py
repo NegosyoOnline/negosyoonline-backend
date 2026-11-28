@@ -439,3 +439,32 @@ class PackRegisteredNotice(models.Model):
                 condition=Q(status__in=C.NOTICE_STATUSES), name="pack_registered_notice_status_valid"
             ),
         ]
+
+
+class LearnedZipCode(models.Model):
+    """A ZIP a buyer or member typed for a Province / City / Barangay the dataset could not answer
+    (ClickUp z8uq9mkwcj, ruling ADDRESS-ZIP-POPUP-LEARN). Adapted from TWCinc app/customers/models.py
+    LearnedZipCode. It is shared reference data, not per-site, and holds the place key and the ZIP only: no
+    name, mobile, street line, landmark, order or user. The first saved value wins and is served from then on;
+    a later different value never replaces it, it is only counted (`conflict_zip`, `conflict_count`) for a
+    later HQ correction screen."""
+
+    SOURCE_CHOICES = [("onboarding", "Onboarding"), ("member", "Member"), ("checkout", "Checkout")]
+
+    lookup_key = models.CharField(max_length=400, unique=True)
+    province = models.CharField(max_length=120)
+    city = models.CharField(max_length=120)
+    barangay = models.CharField(max_length=255, blank=True)
+    zip_code = models.CharField(max_length=4)
+    times_seen = models.PositiveIntegerField(default=1)
+    conflict_zip = models.CharField(max_length=4, blank=True, default="")
+    conflict_count = models.PositiveIntegerField(default=0)
+    source = models.CharField(max_length=12, choices=SOURCE_CHOICES)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["province", "city", "barangay"]
+
+    def __str__(self):
+        return f"{self.lookup_key} -> {self.zip_code}"

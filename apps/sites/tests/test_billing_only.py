@@ -161,6 +161,7 @@ TURNED_OFF = [
     ("GET", "/sites/{site_id}/inquiries/sms/bulk/batches/"),
     ("GET", "/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/"),
     ("POST", "/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/stop/"),
+    ("POST", "/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/continue/"),
     ("POST", "/sites/{site_id}/inquiries/sms/bulk/scheduled/"),
     ("GET", "/sites/{site_id}/inquiries/sms/bulk/scheduled/"),
     ("GET", "/sites/{site_id}/inquiries/sms/bulk/scheduled/{batch_id}/"),

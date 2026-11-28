@@ -74,13 +74,13 @@ class ContactComposeTests(SmsOwnerCase):
         self.error(self.to(cid), 409, "opted_out")
         self.assertFalse(SmsMessage.objects.exists())
 
-    def test_the_stores_daily_cap_refuses_the_next_text(self):
+    def test_the_stores_old_daily_cap_no_longer_refuses_the_next_text(self):
         set_policy(store_daily_limit=1)
         first, second = self.popup(), self.post(
             self.contacts, {"first_name": "Mia", "mobile": OTHER_MOBILE, "groups": []}).json()["id"]
         self.assertEqual(self.to(first).json()["state"], "sending")
         body = self.to(second, key="key-contact-03").json()
-        self.assertEqual((body["state"], body["error_code"]), ("failed", "site_limit"))
+        self.assertEqual(body["state"], "sending")
 
     def test_a_held_store_is_refused(self):
         cid = self.popup()
