@@ -8,7 +8,7 @@ from unittest import mock
 from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 
 from apps.accounts.models import AccountAuditEvent, AccountMobile
@@ -223,7 +223,7 @@ class TextTests(BulkCase):
         body = self.status().json()
         self.assertEqual((body["prefix"], body["max_length"], body["daily_limit"], body["left_today"]), ("", 160, 2000, 2000))
         self.assertEqual((body["blocked"], body["phone_online"], body["active_batch"]), ("", True, None))
-        self.assertEqual(body["window"], {"start": "08:00", "end": "22:00", "timezone": "Asia/Manila"})
+        self.assertEqual(body["window"], {"start": "06:00", "end": "22:00", "timezone": "Asia/Manila"})
         self.assertEqual(body["seconds_between"], {"min": 18, "max": 25})
         self.assertIn("carrier", body["cost_note"])
 
@@ -381,14 +381,14 @@ class FeedTests(BulkCase):
         batch.refresh_from_db()
         self.assertEqual((batch.state, batch.sent, batch.failed), ("finished", 2, 1))
 
-    def test_nothing_goes_outside_08_to_22_manila_and_the_batch_waits(self):
+    def test_nothing_goes_outside_06_to_22_manila_and_the_batch_waits(self):
         batch = self.start()
-        for hour in (0, 7, 22, 23):
-            self.feed(at(hour, 59 if hour == 7 else 0))
+        for hour in (0, 5, 22, 23):
+            self.feed(at(hour, 59 if hour == 5 else 0))
         self.assertFalse(self.records().exists())
         batch.refresh_from_db()
         self.assertEqual(batch.state, "waiting")
-        self.feed(at(8))
+        self.feed(at(6))
         self.assertEqual(self.records().count(), 1)
         self.hand_in()
         self.feed(at(21, 59))
@@ -396,14 +396,16 @@ class FeedTests(BulkCase):
         self.hand_in()
         self.feed(at(22))
         self.assertEqual(self.records().count(), 2)
-        self.assertTrue(store_bulk.in_window(at(8)) and store_bulk.in_window(at(21, 59)))
-        self.assertFalse(store_bulk.in_window(at(7, 59)) or store_bulk.in_window(at(22)))
+        self.assertTrue(store_bulk.in_window(at(6)) and store_bulk.in_window(at(21, 59)))
+        self.assertFalse(store_bulk.in_window(at(5, 59)) or store_bulk.in_window(at(22)))
 
     def test_window_edges(self):
+        self.assertFalse(store_bulk.in_window(at(5, 59)))
+        self.assertTrue(store_bulk.in_window(at(6)))
+        self.assertTrue(store_bulk.in_window(at(7, 59)))  # was outside before the 06:00 ruling
         self.assertTrue(store_bulk.in_window(at(8)))
         self.assertTrue(store_bulk.in_window(at(21, 59)))
         self.assertFalse(store_bulk.in_window(at(22)))
-        self.assertFalse(store_bulk.in_window(at(7, 59)))
         self.assertTrue(store_bulk.in_window(at(20, 30)))  # was outside before the 22:00 ruling
         self.assertFalse(store_bulk.in_window(NIGHT))
 
@@ -667,3 +669,130 @@ class BeforeTheMigrationTests(BulkCase):
         from apps.notifications.models import SmsDevice
         claim = sms.claimable(SmsDevice.objects.get(pk=self.platform.pk))
         self.assertIn("site_id__in", str(claim))
+
+
+class SettleNoWriteTests(BulkCase):
+    """z8uq9mkwjq: a read settles a batch only when something changed; an unchanged batch is read with no write."""
+
+    def writes(self, call):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = call()
+        self.assertEqual(response.status_code, 200, response.content)
+        return [q["sql"] for q in ctx.captured_queries if q["sql"].lstrip().upper().startswith(("UPDATE", "INSERT", "DELETE"))]
+
+    def reads(self, batch):
+        return (
+            lambda: self.status(),
+            lambda: self.get(self.root + "batches/"),
+            lambda: self.get(f"{self.root}batches/{batch.public_id}/"),
+        )
+
+    def test_reads_of_an_unchanged_active_batch_write_nothing(self):
+        batch = self.start()
+        self.feed()
+        self.hand_in()
+        self.status()  # this read picks the phone's report up (one write, once)
+        self.feed()
+        self.hand_in()
+        self.status()
+        # a text is waiting and none is queued: the stored counts match
+        for call in self.reads(batch):
+            self.assertEqual(self.writes(call), [])
+
+    def test_reads_of_a_finished_batch_write_nothing(self):
+        batch = self.start()
+        self.pump(3)
+        batch.refresh_from_db()
+        self.assertEqual(batch.state, "finished")
+        for call in self.reads(batch):
+            self.assertEqual(self.writes(call), [])
+
+    def test_a_phone_report_updates_the_counts_and_finishes_and_masks_once(self):
+        batch = self.start()
+        self.feed()
+        self.assertEqual(self.get(f"{self.root}batches/{batch.public_id}/").json()["sent"], 0)
+        self.hand_in()
+        self.assertEqual(self.status().json()["active_batch"]["sent"], 1)  # the read picked the report up
+        batch.refresh_from_db()
+        self.assertEqual(batch.sent, 1)
+        self.feed()
+        self.hand_in()
+        self.feed()
+        self.hand_in()
+        for _ in range(3):  # reads, repeated: nothing more happens
+            body = self.get(f"{self.root}batches/{batch.public_id}/").json()
+        self.assertEqual((body["state"], body["sent"], body["failed"], body["not_sent"]), ("finished", 3, 0, 0))
+        self.assertEqual(AccountAuditEvent.objects.filter(event="store_bulk_ended").count(), 1)
+        self.assertTrue(all("*" in m for m in batch.recipients.values_list("mobile", flat=True)))
+        self.feed()
+        self.status()
+        self.assertEqual(AccountAuditEvent.objects.filter(event="store_bulk_ended").count(), 1)
+
+
+class SettleParallelReadTests(TransactionTestCase):
+    """Several threads read the same batch at once: no "database is locked", the same counts everywhere."""
+
+    def setUp(self):
+        from apps.sites.tests.base import make_account, make_site
+
+        cache.clear()
+        self.account = make_account()
+        self.site = make_site(self.account)
+
+    def make_batch(self, *, stale):
+        batch = StoreBulkBatch.objects.create(
+            site=self.site, created_by=self.account, request_id="key-parallel-1", text=TEXT, size=3,
+            state=StoreBulkBatch.SENDING, sent=0 if stale else 3)
+        for i in range(3):
+            StoreBulkRecipient.objects.create(
+                batch=batch, position=i, name=f"M{i}", mobile=NUMBERS[i], state=StoreBulkRecipient.SENT)
+        return batch
+
+    def read_together(self, batch, threads=6):
+        import threading
+
+        from django.db import connection
+
+        barrier = threading.Barrier(threads)
+        results = [None] * threads
+
+        def work(index):
+            try:
+                barrier.wait(timeout=10)
+                site = Site.objects.get(pk=self.site.pk)
+                if index % 2:
+                    answer = store_bulk.open_batch(site, batch.public_id)
+                else:
+                    store_bulk.refresh(site)
+                    answer = store_bulk.batch_out(StoreBulkBatch.objects.select_related("site").get(pk=batch.pk))
+                results[index] = (answer["state"], answer["sent"], answer["failed"], answer["not_sent"])
+            except Exception as exc:  # the test inspects what each thread raised
+                results[index] = exc
+            finally:
+                connection.close()
+
+        pool = [threading.Thread(target=work, args=(i,)) for i in range(threads)]
+        for thread in pool:
+            thread.start()
+        for thread in pool:
+            thread.join(timeout=30)
+        return results
+
+    def test_parallel_reads_of_an_unchanged_batch(self):
+        batch = self.make_batch(stale=False)
+        StoreBulkBatch.objects.filter(pk=batch.pk).update(state=StoreBulkBatch.FINISHED)
+        results = self.read_together(batch)
+        self.assertEqual(set(results), {("finished", 3, 0, 0)}, results)
+
+    def test_parallel_reads_after_the_batch_settled_once(self):
+        # The first read settles it (the one write: counts, finished, masked, one audit); the parallel reads after
+        # it only read. Two threads writing the same row at once hit the shared in-memory SQLite's table lock, a
+        # test-database artefact; on PostgreSQL the row lock queues them.
+        batch = self.make_batch(stale=True)
+        store_bulk.open_batch(Site.objects.get(pk=self.site.pk), batch.public_id)
+        results = self.read_together(batch)
+        self.assertEqual(set(results), {("finished", 3, 0, 0)}, results)
+        self.assertEqual(AccountAuditEvent.objects.filter(event="store_bulk_ended").count(), 1)

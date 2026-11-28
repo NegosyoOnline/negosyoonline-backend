@@ -367,6 +367,13 @@ def bulk_stop(request, site_id: str, batch_id: str):
     return store_bulk.stop(request.inquiry_site, request.account, batch_id)
 
 
+@router.post("/sites/{site_id}/inquiries/sms/bulk/batches/{batch_id}/continue/")
+def bulk_continue(request, site_id: str, batch_id: str):
+    hit("inq-reply", request.account.pk, limit=REPLY_LIMIT, window=WINDOW)
+    _need_bulk()
+    return store_bulk.continue_batch(request.inquiry_site, request.account, batch_id)
+
+
 # -- scheduled bulk text (Schedule SMS; apps/inquiries/store_bulk_schedule.py) ----------------
 
 @router.post("/sites/{site_id}/inquiries/sms/bulk/scheduled/", response={200: dict, 201: dict})
