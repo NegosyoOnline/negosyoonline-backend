@@ -16,8 +16,15 @@
     DELETE .../media/{asset_id}/image/      removes the thumbnail -> asset
     POST   .../media/{asset_id}/video/token/   -> what the browser needs to PUT one MP4 straight to the
                                              store: {pathname, client_token, upload_url, method, headers,
-                                             max_bytes, content_type, expires_at, public_url}
-    POST   .../media/{asset_id}/video/attach/  {url} -> asset (the stored video is checked by a HEAD)
+                                             max_bytes, content_type, expires_at, public_url}; or, while
+                                             MEDIA_VIDEO_BUNNY_ENABLED is on and the store has its own video
+                                             library, {host: "bunny", upload: {endpoint, library_id,
+                                             video_id, signature, expires}} for a TUS upload (as the lesson
+                                             video upload)
+    POST   .../media/{asset_id}/video/attach/  {url} -> asset (the stored video is checked by a HEAD); or
+                                             {video_id} for a Bunny upload -> asset (its `embed_url` is the
+                                             player, `file_url` is null); 409 video_processing while Bunny is
+                                             still encoding: ask again
 
 A video file never passes through this server (50 MB, MP4, a client token of 10 minutes for one
 random path under media-library/<site id>/<asset id>/). An asset is published only when it has its
@@ -89,7 +96,11 @@ class ReorderIn(StrictSchema):
 
 
 class AttachIn(StrictSchema):
-    url: str
+    """Send `url` (a video stored in the public store) or `video_id` (one uploaded to the store's own
+    video library)."""
+
+    url: str | None = None
+    video_id: str | None = None
 
 
 UPLOAD_LIMIT, UPLOAD_WINDOW = 30, 600  # per account: 30 image uploads and video tokens in 10 minutes
@@ -116,7 +127,10 @@ DELETED = {"status": "deleted"}
 
 @router.get("/sites/{site_id}/media/")
 def asset_list(request, site_id: str):
-    return _json({"assets": [svc.owner_out(a) for a in svc.list_for_owner(request.member_site)]})
+    body = {"assets": [svc.owner_out(a) for a in svc.list_for_owner(request.member_site)]}
+    if svc.uses_bunny(request.member_site):
+        body["video_host"] = "bunny"  # a new video goes to the store's own library (as the token route)
+    return _json(body)
 
 
 @router.post("/sites/{site_id}/media/")
@@ -175,4 +189,7 @@ def video_token(request, site_id: str, asset_id: str):
 
 @router.post("/sites/{site_id}/media/{asset_id}/video/attach/")
 def video_attach(request, site_id: str, asset_id: str, payload: AttachIn):
-    return _json(svc.owner_out(svc.attach_video(request.member_site, asset_id, payload.url)))
+    if (payload.url is None) == (payload.video_id is None):
+        raise svc._invalid({"url": "Send the url or the video_id of the uploaded video."})
+    row = svc.attach_video(request.member_site, asset_id, url=payload.url, video_id=payload.video_id)
+    return _json(svc.owner_out(row))

@@ -183,6 +183,18 @@ class CommandTests(StreamCase):
         self.assertIn("key_variable_present=yes", shown)
         self.assertNotIn("super-secret-local", out + shown)
 
+    def test_the_pull_zone_id_is_set_shown_kept_and_checked(self):
+        base = ["set", "--site", self.site_id, "--library-id", "5", "--cdn-host", "h.b-cdn.net", "--key-ref", "ANA"]
+        self.run_cmd(*base)
+        self.assertIsNone(StreamLibrary.objects.get().pull_zone_id)
+        self.assertIn("pull_zone_id=none", self.run_cmd("show"))
+        self.run_cmd(*base, "--pull-zone-id", "321")
+        self.assertIn("pull_zone_id=321", self.run_cmd("show"))
+        self.run_cmd(*base)  # set again without it: the value stays
+        self.assertEqual(StreamLibrary.objects.get().pull_zone_id, 321)
+        with self.assertRaises(CommandError):
+            self.run_cmd(*base, "--pull-zone-id", "0")
+
     def test_show_says_when_the_variable_is_missing(self):
         os.environ.pop("BUNNY_STREAM_KEY_NOPE", None)
         self.run_cmd("set", "--site", self.site_id, "--library-id", "5", "--cdn-host", "h.b-cdn.net", "--key-ref", "NOPE")

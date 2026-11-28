@@ -3,6 +3,9 @@
     manage.py stream_library set --site site_... --library-id 816560 --cdn-host vz-xxxx.b-cdn.net --key-ref LIVE4MORE
     manage.py stream_library show [--site site_...]
 
+--pull-zone-id (optional, the library's Bunny pull zone id) lets the video delivery meter read the store
+(VIDEO_METER_ENABLED); left out, an existing value is kept.
+
 --key-ref names the environment variable BUNNY_STREAM_KEY_<KEY_REF> (uppercase letters, digits and
 underscore) that holds the library's API key. The command never takes the key, and `show` prints
 everything except the key, and only whether that variable is present.
@@ -28,6 +31,7 @@ class Command(BaseCommand):
         setter.add_argument("--library-id", required=True, type=int)
         setter.add_argument("--cdn-host", required=True, help="the library's CDN host name, no scheme")
         setter.add_argument("--key-ref", required=True, help="NAME of the key variable suffix, e.g. LIVE4MORE")
+        setter.add_argument("--pull-zone-id", type=int, default=None, help="the library's pull zone id (video meter)")
         shower = sub.add_parser("show")
         shower.add_argument("--site", help="one store; all libraries when omitted")
 
@@ -51,9 +55,12 @@ class Command(BaseCommand):
         other = StreamLibrary.objects.filter(library_id=library_id).exclude(site=site).first()
         if other is not None:
             raise CommandError("That library already belongs to another store.")
-        row, _ = StreamLibrary.objects.update_or_create(
-            site=site, defaults={"library_id": library_id, "cdn_host": host, "key_ref": key_ref}
-        )
+        values = {"library_id": library_id, "cdn_host": host, "key_ref": key_ref}
+        if options.get("pull_zone_id") is not None:
+            if options["pull_zone_id"] < 1:
+                raise CommandError("--pull-zone-id must be a positive number.")
+            values["pull_zone_id"] = options["pull_zone_id"]
+        row, _ = StreamLibrary.objects.update_or_create(site=site, defaults=values)
         self._print(row)
 
     def _show(self, site_id):
@@ -69,5 +76,6 @@ class Command(BaseCommand):
         info = video.library_summary(row)
         self.stdout.write(
             f"site={info['site']} library_id={info['library_id']} cdn_host={info['cdn_host']} "
-            f"key_ref={info['key_ref']} key_variable_present={'yes' if info['key_variable_present'] else 'no'}"
+            f"key_ref={info['key_ref']} key_variable_present={'yes' if info['key_variable_present'] else 'no'} "
+            f"pull_zone_id={row.pull_zone_id or 'none'}"
         )

@@ -9,8 +9,11 @@ size limits, the 7-day "new" badge) and the library page's filters (type, catego
 newest/oldest). The Source filter is not ported (Santé only); the product filter uses the
 catalog's own categories (apps/catalog/services.py CATEGORIES). Write the table through here.
 """
+import logging
+import re
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Max, Q
 from django.utils import timezone
@@ -20,9 +23,13 @@ from apps.common import private_files
 from apps.common.errors import ApiError
 
 from apps.sites.models import Site
+from apps.training import stream
+from apps.training import video as training_video
 
 from . import client_upload, ledger, store
 from .models import MediaAsset
+
+logger = logging.getLogger(__name__)
 
 INVALID_MSG = "Some values are missing or invalid."
 STORE_NOT_CONFIGURED_MSG = "Media cannot be stored yet: the media store is not configured."
@@ -81,8 +88,22 @@ def _thumb_key(asset):
     return asset.thumb_key or asset.poster_key or (asset.file_key if asset.asset_type == "image" else "")
 
 
+def _embed_url(asset):
+    """The Bunny player URL of a video held in the store's own library, else None (a Blob video
+    plays from file_url)."""
+    ref = store.bunny_ref(asset.file_key)
+    return stream.embed_url(*ref) if ref else None
+
+
 def asset_out(asset, now=None):
-    now = now or timezone.now()
+    out = _asset_fields(asset, now or timezone.now())
+    embed = _embed_url(asset)
+    if embed:  # only a video in the store's own Bunny library has one; the shape is unchanged otherwise
+        out["embed_url"] = embed
+    return out
+
+
+def _asset_fields(asset, now):
     published = asset.published_at
     return {
         "id": asset.public_id, "title": asset.title, "asset_type": asset.asset_type,
@@ -159,6 +180,7 @@ def list_assets(member, params, now=None):
 
 # -- owner writes -------------------------------------------------------------------------------
 
+BUNNY_NOT_SHARED_MSG = "A video held in the store's video library cannot be shared with other stores yet."
 VIDEO_FILE_MSG = (
     "A video file is not sent here. Upload it straight to the media store "
     "(video/token/), then attach it (video/attach/)."
@@ -295,6 +317,8 @@ def update_asset(site, public_id, data):
     asset = get_asset(site, public_id, lock=True)
     errors = {}
     values = _values(data, errors, creating=False, site=site)
+    if values.get("shared") and store.bunny_ref(asset.file_key):
+        errors["shared"] = BUNNY_NOT_SHARED_MSG
     if errors:
         raise _invalid(errors)
     for name, value in values.items():
@@ -306,7 +330,7 @@ def update_asset(site, public_id, data):
 def delete_asset(site, public_id):
     with transaction.atomic():
         asset = get_asset(site, public_id, lock=True)
-        keys = [asset.file_key, asset.thumb_key, asset.poster_key]
+        keys = [asset.file_key, asset.thumb_key, asset.poster_key, *_pending_bunny_keys(asset)]
         asset.delete()
         ledger.release_on_commit(keys)
 
@@ -427,15 +451,67 @@ def _video_asset(site, public_id, lock=False):
 def video_token(site, public_id):
     """What the owner's browser needs to PUT one MP4 straight to the store (client_upload)."""
     asset = _video_asset(site, public_id)
+    library = _bunny_library(site)
+    if library is not None:
+        return _bunny_instructions(library, asset)
     if not client_upload.usable():
         raise ApiError("image_store_not_configured", STORE_NOT_CONFIGURED_MSG, status=503)
     return client_upload.upload_instructions(asset)
 
 
-def attach_video(site, public_id, url):
+def _bunny_library(site):
+    """The store's own Stream library when Media Library video goes there: the switch is on and the
+    store has a library with its key set. None otherwise (the video then goes to the public store,
+    exactly as before the switch)."""
+    if not settings.MEDIA_VIDEO_BUNNY_ENABLED:
+        return None
+    try:
+        return stream.library_for_site(site)
+    except stream.NotConfigured:
+        return None
+
+
+def uses_bunny(site):
+    """True when the video token route answers the Bunny shape for this store (the same predicate)."""
+    return _bunny_library(site) is not None
+
+
+def _bunny_instructions(library, asset):
+    """Create the empty video in the store's library and sign the browser's direct TUS upload. The
+    key is only hashed into the signature, never sent."""
+    try:
+        guid = stream.create_video(library, asset.title)
+    except stream.StreamError:
+        raise ApiError("video_failed", "The video could not be started. Try again.", status=502) from None
+    key = store.bunny_key(library.id, guid)
+    try:
+        with transaction.atomic():
+            # The video is in the ledger from this moment (0 bytes until attach confirms it), so
+            # erasure, an asset delete and the audit remove it even if attach never comes. An
+            # earlier video of this asset that was never attached is released and deleted.
+            asset = _video_asset(asset.site, asset.public_id, lock=True)
+            stale = ledger.pending_keys(asset, store.BUNNY_PREFIX, keep=asset.file_key)
+            ledger.record(asset.site, asset=asset, role="file", key=key, content_type=store.VIDEO_TYPE, size=0)
+            ledger.release_on_commit(stale)
+    except BaseException:
+        _discard_bunny(library, guid)
+        raise
+    return {"host": "bunny", "upload": stream.tus_signature(library, guid)}
+
+
+def _pending_bunny_keys(asset):
+    return ledger.pending_keys(asset, store.BUNNY_PREFIX, keep=asset.file_key)
+
+
+def attach_video(site, public_id, url=None, video_id=None):
     """Record the video the browser stored. The URL must be on our store, under this site's and
     this asset's prefix; a HEAD of it must show video/mp4 of at most VIDEO_MAX_BYTES, else the
-    stored object is removed."""
+    stored object is removed. With `video_id` instead (a video uploaded to the store's own Bunny
+    library, MEDIA_VIDEO_BUNNY_ENABLED) see attach_bunny_video."""
+    if video_id is not None:
+        return attach_bunny_video(site, public_id, video_id)
+    if url is None:
+        raise _invalid({"url": "This is required."})
     asset = _video_asset(site, public_id)
     key = client_upload.key_from_url(asset, url)
     if key is None:
@@ -462,6 +538,68 @@ def attach_video(site, public_id, url):
         if old and old != key:
             ledger.release_on_commit([old])
     return asset
+
+
+BUNNY_TOO_LARGE_MSG = "This video is too large to upload."  # the size is settings.MEDIA_VIDEO_MAX_BYTES
+VIDEO_ID_RE =re.compile(r"^[A-Za-z0-9-]{8,64}$")
+
+
+def attach_bunny_video(site, public_id, video_id):
+    """Record a video the browser uploaded to the store's own Bunny library. Bunny is asked about
+    it with the store's own key: it must be there and finished (409 video_processing while it is
+    still on its way, so the dash asks again; a failed one is deleted and refused). The asset then
+    names it as `bunny:<library id>:<video id>` and the ledger records it, so site erasure removes
+    it. A video another asset or a training lesson already names is refused."""
+    asset = _video_asset(site, public_id)
+    library = _bunny_library(site)
+    if library is None:
+        raise _invalid({"video_id": "Video upload to the video library is not available."})
+    if not isinstance(video_id, str) or not VIDEO_ID_RE.match(video_id):
+        raise _invalid({"video_id": "This is not a video id."})
+    if asset.shared:
+        raise _invalid({"video_id": BUNNY_NOT_SHARED_MSG})
+    key = store.bunny_key(library.id, video_id)
+    if (
+        MediaAsset.objects.filter(file_key=key).exclude(pk=asset.pk).exists()
+        or training_video.is_referenced(library.id, video_id)
+    ):
+        raise _invalid({"video_id": "This video is already in use."})
+    if not ledger.live_key_of(site, asset, key):  # only a video this asset's token made
+        raise _invalid({"video_id": "This is not a video uploaded for this asset."})
+    try:
+        found = stream.get_video(library, video_id)
+    except stream.StreamError:
+        raise ApiError("video_not_confirmed", "The uploaded video could not be found. Try again.", status=502) from None
+    status = stream.status_name(found["status"])
+    if status == training_video.FAILED:
+        ledger.release(key)  # deletes it from Bunny and closes its row
+        raise _invalid({"video_id": "The video could not be processed. Upload it again."})
+    if status != training_video.READY:
+        raise ApiError("video_processing", "The video is still being processed. Try again in a moment.", status=409)
+    size = found["storage_size"]
+    if size > settings.MEDIA_VIDEO_MAX_BYTES:
+        ledger.release(key)
+        raise ApiError("video_too_large", BUNNY_TOO_LARGE_MSG, status=400)
+    with transaction.atomic():
+        asset = _video_asset(site, public_id, lock=True)
+        old = asset.file_key
+        asset.file_key, asset.file_size = key, size
+        update = ["file_key", "file_size", "updated_at"]
+        if not asset.duration_seconds and found["length"] > 0:
+            asset.duration_seconds = min(found["length"], 86400)
+            update.append("duration_seconds")
+        asset.save(update_fields=update)
+        ledger.confirm_bytes(key, size)
+        if old and old != key:
+            ledger.release_on_commit([old])
+    return asset
+
+
+def _discard_bunny(library, video_id):
+    try:
+        stream.delete_video(library, video_id)
+    except stream.StreamError:
+        logger.warning("A Stream video clean-up did not complete.")
 
 
 # -- erasure ---------------------------------------------------------------------------------------

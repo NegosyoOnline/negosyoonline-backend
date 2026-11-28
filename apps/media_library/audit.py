@@ -30,6 +30,7 @@ security = logging.getLogger("security")
 
 PREFIX = f"{store.FOLDER}/"
 GRACE = timedelta(hours=1)
+BUNNY_GRACE = timedelta(hours=24)  # a video may still be uploading to Bunny: an unattached one is retried after a day
 
 
 def _uploaded_at(value):
@@ -70,6 +71,15 @@ def run(now=None):
                 ghosts += 1
             continue
         retried += 1  # no row names it any more: a delete that did not finish
+        released += bool(ledger.release(key, now))
+    # A video in the store's Bunny library is no Blob object, so it is never listed or counted as an
+    # orphan or ghost; only a delete that did not finish (no row names it any more) is retried.
+    for key, added in MediaObject.objects.filter(
+        removed_at__isnull=True, key__startswith=store.BUNNY_PREFIX
+    ).values_list("key", "added_at"):
+        if now - added < BUNNY_GRACE or file_refs.is_referenced(key):
+            continue
+        retried += 1
         released += bool(ledger.release(key, now))
     counts = {
         "listed": len(stored), "live_rows": len(live), "orphans": orphans, "ghosts": ghosts,

@@ -20,6 +20,7 @@ import re
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
@@ -42,7 +43,10 @@ CREATED, UPLOADED, PROCESSING, TRANSCODING, FINISHED, ERROR, UPLOAD_FAILED = ran
 
 
 class StreamError(Exception):
-    """A Stream call failed. The message never holds the key."""
+    """A Stream call failed. The message never holds the key. `status` is the HTTP status when
+    Bunny answered with one (404 for an absent video), else None."""
+
+    status = None
 
 
 class NotConfigured(Exception):
@@ -114,7 +118,9 @@ def _call(action, library, path, *, method, body=None, content_type=None, length
         status = "no answer"
     # Raised outside the except block so the request (and its key header) is not chained.
     logger.warning("Bunny Stream %s failed: %s", action, status)
-    raise StreamError(f"Video {action} failed ({status}).")
+    error = StreamError(f"Video {action} failed ({status}).")
+    error.status = status if isinstance(status, int) else None
+    raise error
 
 
 def _json(action, raw):
@@ -185,6 +191,45 @@ def tus_signature(library, guid, now=None):
     }
 
 
+def stats_key_set():
+    return bool(settings.BUNNY_STATS_API_KEY)
+
+
+def pull_zone_bandwidth(pull_zone_id, date_from, date_to):
+    """TotalBandwidthUsed (bytes; the unit is assumed, see docs) of one pull zone between two dates
+    (date objects), from GET <BUNNY_STATS_API_BASE>/statistics?pullZone=&dateFrom=&dateTo=. Uses
+    BUNNY_STATS_API_KEY only for the AccessKey header: never logged, returned or put in an error.
+    Raises StreamError (message and status only) on any failure."""
+    key = settings.BUNNY_STATS_API_KEY
+    if not key:
+        raise StreamError("Video statistics are not configured.")
+    query = urllib.parse.urlencode(
+        {"pullZone": int(pull_zone_id), "dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat()}
+    )
+    request = urllib.request.Request(f"{settings.BUNNY_STATS_API_BASE}/statistics?{query}", method="GET")
+    request.add_header("AccessKey", key)
+    request.add_header("accept", "application/json")
+    request.add_header("user-agent", USER_AGENT)
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as error:
+        status = error.code
+    except (urllib.error.URLError, TimeoutError, OSError):
+        status = "no answer"
+    else:
+        status = None
+    if status is not None:
+        logger.warning("Bunny statistics read failed: %s", status)
+        failure = StreamError(f"Video statistics read failed ({status}).")
+        failure.status = status if isinstance(status, int) else None
+        raise failure
+    total = _json("statistics", raw).get("TotalBandwidthUsed")
+    if isinstance(total, bool) or not isinstance(total, (int, float)) or total < 0:
+        raise StreamError("Video statistics answered unexpectedly.")
+    return int(total)
+
+
 def embed_url(library_id, guid):
     return f"{settings.BUNNY_STREAM_EMBED_BASE}/{int(library_id)}/{guid}"
 
@@ -201,6 +246,12 @@ def download_source(library, guid):
         except StreamError as error:
             last = error
     raise last or StreamError("Video download failed.")
+
+
+def download_url(url):
+    """Download a public URL (a file in the public media store) into a temporary file, rewound and
+    ready to read, and return (file, length). No key is sent. The caller closes the file."""
+    return _download(url)
 
 
 def _download(url):
