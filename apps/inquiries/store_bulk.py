@@ -418,6 +418,7 @@ def batch_out(batch):
     waiting = _waiting(batch)
     active = batch.state in StoreBulkBatch.ACTIVE
     continue_count = _resendable(batch).count() if batch.state == StoreBulkBatch.ENDED else 0
+    refusal = _cannot_continue(batch) if continue_count else None
     return {
         "id": batch.public_id,
         "state": batch.state,
@@ -439,7 +440,10 @@ def batch_out(batch):
         "finished_at": batch.finished_at.isoformat() if batch.finished_at else None,
         # CONTINUE (2026-11-27): how many of an ended batch's texts can still go, and whether Continue is allowed now.
         "continue_count": continue_count,
-        "can_continue": bool(continue_count) and _cannot_continue(batch) is None,
+        "can_continue": bool(continue_count) and refusal is None,
+        # CONTINUE-246 (2026-11-28): why Continue is not possible now (code and house wording), "" when it is or nothing is left.
+        "continue_blocked": refusal[0] if refusal else "",
+        "continue_blocked_message": refusal[1] if refusal else "",
     }
 
 
