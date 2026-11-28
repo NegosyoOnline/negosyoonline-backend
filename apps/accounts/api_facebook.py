@@ -4,7 +4,7 @@ import secrets
 from django.conf import settings
 from django.core import signing
 from django.http import HttpResponse, HttpResponseRedirect
-from ninja import Router, Schema
+from ninja import Query, Router, Schema
 
 from apps.accounts import facebook, services
 from apps.accounts.api import VerifyOut, account_out, finish_connect
@@ -63,7 +63,9 @@ def _usable_email(value):
 
 
 @router.get("/auth/facebook/start/", response={302: None})
-def facebook_start(request, accept_policies: bool = False):
+def facebook_start(
+    request, accept_policies: bool = False, referral_code: str = Query("", max_length=64)
+):
     _require_facebook()
     state = secrets.token_urlsafe(32)
     response = HttpResponseRedirect(facebook.authorization_url(_callback_url(request), state))
@@ -71,7 +73,7 @@ def facebook_start(request, accept_policies: bool = False):
         response,
         STATE_COOKIE,
         COOKIE_PATH,
-        {"state": state, "accept_policies": accept_policies},
+        {"state": state, "accept_policies": accept_policies, "referral_code": referral_code},
         STATE_SECONDS,
     )
     return response
@@ -124,6 +126,7 @@ def facebook_callback(request, code: str = "", state: str = "", error: str = "")
             "email": email,
             "email_from_facebook": bool(email),
             "accept_policies": started["accept_policies"],
+            "referral_code": started.get("referral_code", ""),
         },
         PENDING_SECONDS,
     )
@@ -152,6 +155,7 @@ def facebook_confirm_email(request, response: HttpResponse, payload: FacebookCon
         payload.code,
         pending["accept_policies"] or payload.accept_policies,
         request,
+        pending.get("referral_code", ""),
     )
     set_session_cookie(response, token)
     clear_flow_cookie(response, PENDING_COOKIE, COOKIE_PATH)

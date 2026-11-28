@@ -5,7 +5,7 @@ from datetime import datetime
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseRedirect
 from django.utils import timezone
-from ninja import Field, Router, Schema
+from ninja import Field, Query, Router, Schema
 
 from apps.accounts import google, mobile, services
 from apps.accounts.auth import SessionCookieAuth
@@ -28,6 +28,7 @@ from apps.accounts.sessions import (
     set_session_cookie,
 )
 from apps.common.errors import ApiError
+from apps.common.throttle import hit
 from apps.common.middleware import require_allowed_origin
 
 router = Router(tags=["accounts"])
@@ -50,6 +51,12 @@ class VerifyIn(Schema):
     email: str = Field(max_length=EMAIL_MAX)
     code: str
     accept_policies: bool = False
+    referral_code: str = Field("", max_length=64)
+
+
+class ReferralLookupOut(Schema):
+    valid: bool
+    referrer_first_name: str = ""
 
 
 class AccountOut(Schema):
@@ -213,11 +220,26 @@ def email_code_request(request, payload: EmailIn):
 def email_code_verify(request, response: HttpResponse, payload: VerifyIn):
     require_allowed_origin(request)
     account, _session, token, created = services.verify_signin_code(
-        payload.email, payload.code, payload.accept_policies, request
+        payload.email, payload.code, payload.accept_policies, request, payload.referral_code
     )
     expire_root_session_cookie(response)
     set_session_cookie(response, token)
     return {"account": account_out(account), "created": created}
+
+
+REFERRAL_LOOKUP_LIMIT = 30
+REFERRAL_LOOKUP_WINDOW = 600
+
+
+@router.get("/referrals/{code}/", response=ReferralLookupOut)
+def referral_lookup(request, code: str):
+    """Is this a live referral code? One shape for every miss, so codes cannot be probed."""
+    hit("referral-lookup", client_ip(request) or "unknown",
+        limit=REFERRAL_LOOKUP_LIMIT, window=REFERRAL_LOOKUP_WINDOW)
+    referrer = services.find_referrer(code)
+    if referrer is None:
+        return {"valid": False, "referrer_first_name": ""}
+    return {"valid": True, "referrer_first_name": (referrer.name.split() or [""])[0]}
 
 
 @router.post("/auth/logout/", response={204: None}, auth=signed_in)
@@ -363,7 +385,9 @@ def _end_google_flow(error=None):
 
 
 @router.get("/auth/google/start/", response={302: None})
-def google_start(request, accept_policies: bool = False):
+def google_start(
+    request, accept_policies: bool = False, referral_code: str = Query("", max_length=64)
+):
     _require_google()
     state = secrets.token_urlsafe(32)
     response = HttpResponseRedirect(google.authorization_url(_google_callback_url(request), state))
@@ -371,7 +395,7 @@ def google_start(request, accept_policies: bool = False):
         response,
         GOOGLE_STATE_COOKIE,
         GOOGLE_STATE_PATH,
-        {"state": state, "accept_policies": accept_policies},
+        {"state": state, "accept_policies": accept_policies, "referral_code": referral_code},
         GOOGLE_STATE_SECONDS,
     )
     return response
@@ -399,7 +423,7 @@ def google_callback(request, code: str = "", state: str = "", error: str = ""):
     try:
         profile = google.fetch_profile(code, _google_callback_url(request))
         _account, _session, token, _created = services.sign_in_with_google(
-            profile, started["accept_policies"], request
+            profile, started["accept_policies"], request, started.get("referral_code", "")
         )
     except google.GoogleSignInFailed:
         return _end_google_flow("google_failed")
