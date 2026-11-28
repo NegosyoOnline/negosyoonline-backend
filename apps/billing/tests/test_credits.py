@@ -448,7 +448,7 @@ class StatementTests(CreditCase):
             statement = issue.issue_for_payment(payment, now=AT)
         lines = [(l.kind, l.description, l.amount_centavos) for l in statement.lines.order_by("position")]
         self.assertEqual(lines[0][0:3:2], ("base", MONTHLY))
-        self.assertEqual(lines[1], ("credit", "Subscription Credit applied −₱1,000", -100_000))
+        self.assertEqual(lines[1], ("credit", "Subscription Credit applied −PHP 1,000.00", -100_000))
         self.assertEqual(statement.total_centavos, MONTHLY - 100_000)
 
     def test_a_credit_note_for_a_billing_error_takes_back_the_earned_share(self):
@@ -626,7 +626,11 @@ class ApprovedEmailTests(CreditCase):
         self.grant(subscription.site.account, 100_000)
         payment = self.confirm(submit(subscription, AT))
         _, body = notices._payment_approved(payment, "Hi,")
-        self.assertIn("Subscription Credit applied: \u2212\u20b11,000.", body)
+        self.assertIn(" Subscription Credit applied: \u2212PHP 1,000.00.", body)
         self.assertIn("PHP 1,499.00", body)
+        cents = make_subscription("c@example.test", "c-store")
+        self.grant(cents.site.account, 100_050)
+        centavo_payment = self.confirm(submit(cents, AT))
+        self.assertIn(" Subscription Credit applied: \u2212PHP 1,000.50.", notices._payment_approved(centavo_payment, "Hi,")[1])
         plain = self.confirm(submit(make_subscription("p@example.test", "p-store"), AT))
         self.assertNotIn("Subscription Credit", notices._payment_approved(plain, "Hi,")[1])

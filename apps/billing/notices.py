@@ -105,12 +105,10 @@ def _transferred(payment):
 
 
 def _credit_line(payment):
-    """One line when Subscription Credit paid part of the bill (draft wording, Billing B6)."""
+    """One line when Subscription Credit paid part of the bill (Billing B6)."""
     if not payment.credit_centavos:
         return ""
-    from apps.billing import credits  # noqa: PLC0415
-
-    return f" Subscription Credit applied: \u2212{credits.money(payment.credit_centavos)}."
+    return f" Subscription Credit applied: \u2212{_money(payment.credit_centavos)}."
 
 
 def _proof_received(payment, hi):

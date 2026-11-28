@@ -10,7 +10,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from apps.billing import clock, credits, usage
+from apps.billing import clock, plan, usage
 from apps.billing.models import BankTransferPayment, ChargeLine
 from apps.statements import delivery, documents, services as issuer_services, switch
 from apps.statements.models import (
@@ -82,7 +82,7 @@ def _lines(payment, cycle):
     if payment.credit_centavos:  # Billing B6: what Subscription Credit took off the amount due
         taken = payment.credit_centavos
         lines.append((
-            "credit", f"Subscription Credit applied \u2212{credits.money(taken)}", 1, -taken, -taken,
+            "credit", f"Subscription Credit applied \u2212{plan.CURRENCY} {taken / 100:,.2f}", 1, -taken, -taken,
             payment.public_id,
         ))
     return lines, [c.cycle for c in charges]
