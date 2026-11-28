@@ -15,10 +15,11 @@ from datetime import UTC, date, datetime
 from django.http import HttpResponse
 from django.utils import timezone
 from ninja import Router, Schema
+from pydantic import model_serializer
 
 from apps.accounts.api import signed_in
 from apps.accounts.services import record_event
-from apps.billing import clock, meters, plan, proofs, services, usage
+from apps.billing import clock, credits, meters, plan, proofs, services, usage
 from apps.billing.models import BankTransferPayment
 from apps.common.errors import ApiError
 from apps.common.ids import is_public_id
@@ -186,9 +187,26 @@ class MeterOrdersOut(Schema):
     overage_centavos_per_order: int
 
 
+class MeterVideoOut(Schema):
+    used_bytes: int
+    limit_bytes: int
+    read_at: datetime | None
+    period_start: datetime
+    period_end: datetime
+
+
 class MetersOut(Schema):
     storage: MeterStorageOut
     orders: MeterOrdersOut
+    video: MeterVideoOut | None = None  # only while VIDEO_METER_ENABLED is on
+
+    @model_serializer(mode="wrap")
+    def _no_video_key_when_off(self, handler):
+        """Switch off, the answer is exactly what it was before the video block: no `video` key."""
+        data = handler(self)
+        if data.get("video") is None:
+            data.pop("video", None)
+        return data
 
 
 @router.get("/sites/{site_id}/billing/meters/", response=MetersOut)
@@ -276,6 +294,8 @@ class PaymentOut(Schema):
     plan: str
     amount_centavos: int
     usage_centavos: int
+    credit_centavos: int  # Subscription Credit taken off; the Subscriber transfers the rest
+    transfer_centavos: int
     currency: str
     transferred_on: date
     transfer_reference: str
@@ -326,6 +346,9 @@ class OfferOut(Schema):
     starts_at_confirmation: bool
     then: NextPlanOut | None
     consent: ConsentOut | None
+    credit_centavos: int  # Subscription Credit a payment now would take (zero while off)
+    transfer_centavos: int  # what is left to transfer
+    covered_by_credit: bool  # true: no proof; use "pay with credit"
 
 
 class TransferAccountOut(Schema):
@@ -347,7 +370,21 @@ class UsageDueOut(Schema):
     items: list[UsageLineOut]
 
 
+class CreditUsageOnlyOut(Schema):
+    credit_centavos: int
+    transfer_centavos: int
+    covered_by_credit: bool
+
+
+class CreditViewOut(Schema):
+    enabled: bool
+    balance_centavos: int
+    reserved_centavos: int
+    usage_only: CreditUsageOnlyOut
+
+
 class PaymentOptionsOut(Schema):
+    credit: CreditViewOut
     payable: bool
     not_payable_reason: str | None
     payable_from: datetime | None
@@ -372,6 +409,8 @@ def _payment(payment):
         "plan": payment.plan_code,
         "amount_centavos": payment.amount_centavos,
         "usage_centavos": payment.usage_centavos,
+        "credit_centavos": payment.credit_centavos,
+        "transfer_centavos": payment.amount_centavos - payment.credit_centavos,
         "currency": payment.currency,
         "transferred_on": payment.transferred_on,
         "transfer_reference": payment.transfer_reference,
@@ -580,3 +619,53 @@ def billing_invoice_copy(request, site_id: str, invoice_id: str):
     response["X-Content-Type-Options"] = "nosniff"
     response["Content-Disposition"] = f'inline; filename="{invoice_scans.FILE_NAMES[content_type]}"'
     return response
+
+
+# Subscription Credit (Billing B6, BE-2). Its own block: nothing above depends on it.
+
+class ReferralsOut(Schema):
+    started: bool  # false while the programme is off: the figures are then zero
+    code: str
+    link: str
+    balance: int  # spendable Subscription Credit, centavos
+    reserved: int  # held by a payment waiting for review, centavos
+    earned_count: int
+
+
+@router.get("/account/referrals/", response=ReferralsOut)
+def account_referrals(request):
+    """The signed-in account's own referral code and link and its Subscription Credit. Reads
+    only this account's rows. With BILLING_REFERRALS_ENABLED off it reports `started: false`
+    and reads no credit row."""
+    return credits.account_overview(request.account)
+
+
+PAY_WITH_CREDIT_FIELDS = ("plan", "renewal_consent", "consent_version")
+
+
+@router.post("/sites/{site_id}/billing/pay-with-credit/", response={201: PaymentOut})
+def billing_pay_with_credit(request, site_id: str):
+    """Pay a bill the Subscription Credit covers in full: no proof, and it settles at once.
+    A small JSON body: `plan`, and for the Launch Promo `renewal_consent` and `consent_version`.
+    201 with the confirmed payment. 404 while the referral switch is off; 409
+    `credit_insufficient` when the credit does not cover the bill."""
+    site, subscription = _subscription_for(request, site_id)  # the site's 404 comes first
+    try:
+        sent = json.loads(request.body or b"{}")
+    except ValueError:
+        sent = None
+    if not isinstance(sent, dict):
+        raise _invalid("request", "Send a JSON object.")
+    for name in sent:
+        if name not in PAY_WITH_CREDIT_FIELDS:
+            raise _invalid(name, "This value is not accepted.")
+    hit("billing-write", request.account.pk, limit=WRITE_LIMIT, window=WRITE_WINDOW)
+    payment = services.pay_with_credit(
+        subscription, request.account, plan_code=sent.get("plan"),
+        renewal_consent=sent.get("renewal_consent"), consent_version=sent.get("consent_version"),
+    )
+    record_event(
+        request.account, "billing_paid_with_credit", site=site.public_id,
+        payment=payment.public_id,
+    )
+    return 201, _payment(payment)

@@ -116,6 +116,9 @@ SMS_GATEWAY_ENABLED = os.environ.get("SMS_GATEWAY_ENABLED", "").strip() == "1"
 # HQ -> Settings -> SMS Gateway: register, rotate and stop the platform phone. "1" turns on its
 # routes; off, they answer 404. Needs SMS_GATEWAY_ENABLED as well.
 SMS_GATEWAY_MGMT_ENABLED = os.environ.get("SMS_GATEWAY_MGMT_ENABLED", "").strip() == "1"
+# Referral codes (B6): "1" turns on GET /v1/referrals/{code}/ and lets signup record who referred
+# the new account. Off, the lookup answers {"valid": false} for every code and signup ignores one.
+BILLING_REFERRALS_ENABLED = os.environ.get("BILLING_REFERRALS_ENABLED", "").strip() == "1"
 # HQ -> Subscribers: the read-only list of subscriber sites. "1" turns on its routes; off, they
 # answer 404 and read nothing.
 HQ_SUBSCRIBERS_ENABLED = os.environ.get("HQ_SUBSCRIBERS_ENABLED", "").strip() == "1"
@@ -295,6 +298,20 @@ BUNNY_STREAM_EMBED_BASE = os.environ.get(
 # Scheme of a library's CDN host for the source download of a copy. Always https; "http" only for
 # the local preview stand-in (docs/session-state/packets/cp1-copy-preview/stream-standin.py).
 BUNNY_STREAM_CDN_SCHEME = os.environ.get("BUNNY_STREAM_CDN_SCHEME", "https").strip()
+# Video delivery meter and Media Library video on the store's own Bunny Stream library (V-1).
+# Both switches are off by default; off, the beat task returns at once, the meters route has no
+# `video` block and Media Library video goes to the public store as before. BUNNY_STATS_API_KEY is
+# the one key the meter task reads statistics with (a scoped read-only key if Bunny issues one,
+# else the account key): a server secret read here only, never logged or returned. Unset, the
+# task skips with a log line. BUNNY_STATS_API_BASE is the public statistics host.
+VIDEO_METER_ENABLED = os.environ.get("VIDEO_METER_ENABLED", "").strip() == "1"
+MEDIA_VIDEO_BUNNY_ENABLED = os.environ.get("MEDIA_VIDEO_BUNNY_ENABLED", "").strip() == "1"
+# Largest Media Library video (bytes, as Bunny stores it) that attach accepts; a larger one is deleted
+# from Bunny and refused (400 video_too_large). A PLACEHOLDER awaiting Coach Ed's decision at the V-1
+# local preview: not a plan limit and not a customer promise.
+MEDIA_VIDEO_MAX_BYTES = int(os.environ.get("MEDIA_VIDEO_MAX_BYTES", "2000000000"))
+BUNNY_STATS_API_KEY = os.environ.get("BUNNY_STATS_API_KEY", "").strip()
+BUNNY_STATS_API_BASE = os.environ.get("BUNNY_STATS_API_BASE", "https://api.bunny.net").strip().rstrip("/")
 # Santé member sign-in (apps/members), on the storefront surface below. "1" turns on its four
 # routes. Off, they answer the 404 of an unknown site and no member table is read or written.
 # Sign-in codes and limits live in the cache, so it needs REDIS_URL outside local work.
@@ -605,6 +622,14 @@ CELERY_BEAT_SCHEDULE = {
     "media-ledger-audit-daily": {
         "task": "media_library.ledger_audit",
         "schedule": crontab(hour=5, minute=0),
+        "options": {"expires": 3600},
+    },
+    # The video delivery meter (V-1): reads each store's Bunny bandwidth for its current allowance
+    # period, 05:30 Manila time. Does nothing, and calls no Bunny, while VIDEO_METER_ENABLED is
+    # off. A tick not picked up within the hour is dropped: the next day's run reads again.
+    "video-meter-daily": {
+        "task": "training.video_meter",
+        "schedule": crontab(hour=5, minute=30),
         "options": {"expires": 3600},
     },
     # The nightly encrypted database backup, 04:30 Manila time. Does nothing, and builds no client,

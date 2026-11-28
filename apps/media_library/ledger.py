@@ -53,6 +53,24 @@ def record(site, *, asset, role, key, content_type, size, added_at=None):
     return row
 
 
+def live_key_of(site, asset, key):
+    """True when `key` has a live row of `asset` of `site` (a Bunny video made for this asset)."""
+    return MediaObject.objects.filter(site=site, asset=asset, key=key, removed_at__isnull=True).exists()
+
+
+def pending_keys(asset, prefix, keep=""):
+    """The live keys of `asset` that start with `prefix` and are not `keep`: videos made for it
+    (recorded with 0 bytes when the upload was started) that no row names yet."""
+    rows = MediaObject.objects.filter(asset=asset, removed_at__isnull=True, key__startswith=prefix)
+    return list(rows.exclude(key=keep).order_by("pk").values_list("key", flat=True))
+
+
+def confirm_bytes(key, size):
+    """Give a live row recorded with 0 bytes its real size (a Bunny video once it is finished).
+    The one change to a row besides `removed_at`: a row that already has bytes is never changed."""
+    return MediaObject.objects.filter(key=key, removed_at__isnull=True, bytes=0).update(bytes=size)
+
+
 def _mark_removed(rows, when):
     """Write `removed_at` on the live rows of `rows` (a queryset). Never earlier than a row's own
     `added_at` (the table refuses it). Returns how many rows were closed."""

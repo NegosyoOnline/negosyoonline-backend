@@ -24,6 +24,17 @@ class MediaTestCase(MembersTestCase):
         return [x["title"] for x in response.json()["items"]]
 
 
+class BunnyVideoShapeTests(MediaTestCase):
+    def test_a_bunny_video_answers_the_player_url_and_no_file_while_other_assets_keep_their_shape(self):
+        make_asset(self.site, "Plain")
+        make_asset(self.site, "Vid", asset_type="video", file_key="bunny:816560:abcd1234-guid", poster_key="media-library/p.png")
+        items = {i["title"]: i for i in self.list().json()["items"]}
+        self.assertEqual(items["Vid"]["embed_url"], "https://iframe.mediadelivery.net/embed/816560/abcd1234-guid")
+        self.assertIsNone(items["Vid"]["file_url"])
+        self.assertNotIn("embed_url", items["Plain"])
+        self.assertNotIn("bunny", str(items["Vid"]["file_url"]))
+
+
 class AccessTests(MediaTestCase):
     def test_a_member_reads_the_library_and_gets_urls_and_labels(self):
         make_asset(self.site, "Barley promo", product_category="barley", caption="Buy now", width=1080, height=1350,

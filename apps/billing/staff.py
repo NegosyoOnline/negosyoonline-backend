@@ -15,9 +15,11 @@ from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
-from apps.billing import accounts, plan, services, usage
+from apps.billing import accounts, credits, plan, services, usage
 from apps.billing.models import BankTransferPayment
+from apps.accounts.models import Account
 from apps.common.errors import ApiError, error_body
+from apps.common.ids import is_public_id
 from apps.common.pagination import page
 
 MAX_BODY = 2048
@@ -128,6 +130,10 @@ def _payment(payment):
             }
         ),
         "amount_centavos": payment.amount_centavos,
+        # Subscription Credit taken off, and what the Subscriber is to transfer (Billing B6).
+        # Confirm with `amount_received_centavos` = `transfer_centavos`.
+        "credit_centavos": payment.credit_centavos,
+        "transfer_centavos": payment.amount_centavos - payment.credit_centavos,
         "currency": payment.currency,
         "transferred_on": payment.transferred_on.isoformat(),
         "transfer_reference": payment.transfer_reference,
@@ -140,7 +146,7 @@ def _payment(payment):
         # What the Subscriber typed is not the amount due: staff see it before deciding.
         "amount_sent_differs": (
             payment.amount_sent_centavos is not None
-            and payment.amount_sent_centavos != payment.amount_centavos
+            and payment.amount_sent_centavos != payment.amount_centavos - payment.credit_centavos
         ),
         "submitted_at": _iso(payment.submitted_at),
         "decided_at": _iso(payment.decided_at),
@@ -326,6 +332,52 @@ def accounts_active(body, operator):
     return JsonResponse(accounts.as_dict(accounts.set_active(operator, body)))
 
 
+def _referrals_route(view):
+    """The Referrals routes (Billing B6): closed (404) while BILLING_REFERRALS_ENABLED is off,
+    and they read no credit row then."""
+    def handler(request, operator):
+        try:
+            if not credits.enabled():
+                raise ApiError("not_found", "Not found.", status=404)
+            return view(_body(request), operator)
+        except ApiError as refusal:
+            return JsonResponse(
+                error_body(refusal.code, refusal.message, refusal.fields), status=refusal.status
+            )
+    return handler
+
+
+def _account_of(body):
+    account_id = body.get("account")
+    account = (
+        Account.objects.filter(public_id=account_id).first()
+        if isinstance(account_id, str) and is_public_id(account_id, "acc") else None
+    )
+    if account is None:
+        raise ApiError("not_found", "Not found.", status=404)
+    return account
+
+
+@_referrals_route
+def referrals_view(body, operator):
+    """Read-only: the referrer, the referred businesses and the ledger rows of one account."""
+    return JsonResponse(credits.hq_view(_account_of(body), operator))
+
+
+@_referrals_route
+def referrals_correct(body, operator):
+    """One audited manual correction of an account's credit, signed centavos, a reason needed.
+    Used only on Coach Ed's word for each case."""
+    account = _account_of(body)
+    entry = credits.correct(
+        operator, account, body.get("amount_centavos"), body.get("reason"),
+        request_id=body.get("request_id"),
+    )
+    return JsonResponse({
+        "entry": entry.pk, "balance_centavos": credits.balance(account),
+    })
+
+
 ROUTES = {
     "finance/payments/list/": queue,
     "finance/payments/detail/": detail,
@@ -340,4 +392,6 @@ ROUTES = {
     "finance/accounts/add/": accounts_add,
     "finance/accounts/edit/": accounts_edit,
     "finance/accounts/active/": accounts_active,
+    "finance/referrals/view/": referrals_view,
+    "finance/referrals/correct/": referrals_correct,
 }

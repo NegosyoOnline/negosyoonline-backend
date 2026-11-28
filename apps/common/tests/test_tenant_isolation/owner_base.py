@@ -159,6 +159,8 @@ OWNER_ROUTES = {
     ("GET", "/sites/{site_id}/billing/invoices/"): 200,
     ("GET", "/sites/{site_id}/billing/invoices/{invoice_id}/copy/"): 200,
     ("POST", "/sites/{site_id}/billing/payments/"): 201,
+    # Billing B6: BILLING_REFERRALS_ENABLED is off in this world, so the owner's own site answers 404.
+    ("POST", "/sites/{site_id}/billing/pay-with-credit/"): 404,
     ("GET", "/sites/{site_id}/billing/payments/"): 200,
     ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"): 200,
     ("GET", "/sites/{site_id}/billing/payments/{payment_id}/proof/"): 200,

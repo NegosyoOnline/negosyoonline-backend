@@ -23,6 +23,7 @@ RW = "vercel_blob_rw_store123_secretpart"
 BASE_URL = "https://store123.public.blob.vercel-storage.com"
 RW_SETTINGS = {"PUBLIC_BLOB_READ_WRITE_TOKEN": RW, "PUBLIC_MEDIA_BASE_URL": BASE_URL}
 HEAD = "apps.media_library.client_upload.confirm_object"
+REAL_DELETE = store.delete  # the real store.delete, kept for a Bunny key (FakeStore replaces the rest)
 
 
 def rw_blob_url(site_public_id, asset_public_id, name="abc.mp4"):
@@ -68,6 +69,8 @@ class FakeStore:
 
     def _delete(self, key):
         """store.delete (the ledger's raising delete): an absent key is gone, not an error."""
+        if store.bunny_ref(key):
+            return REAL_DELETE(key)  # a Bunny video: the (faked) Stream calls decide
         if self.fail_delete:
             raise store.StoreError("The media store delete failed (500).")
         self._discard(key)

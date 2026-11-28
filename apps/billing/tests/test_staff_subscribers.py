@@ -271,7 +271,7 @@ class DetailTests(SubscribersTestCase):
         self.assertEqual(
             sorted(shown),
             sorted(["id", "status", "plan", "amount_centavos", "amount_received_centavos",
-                    "currency", "transferred_on", "submitted_at", "decided_at"]),
+                    "credit_centavos", "currency", "transferred_on", "submitted_at", "decided_at"]),
         )
         text = json.dumps(body)
         for hidden in (payment.proof_key, "proof", "sender", "BANK-REF-1", "Juanito", "1234 5678"):

@@ -41,7 +41,8 @@ PATHS = ("list/", "detail/", "proof/", "confirm/", "reject/")
 SENT = T0 + days(1)
 AT = T0 + days(2)  # when the operator acts
 PAYMENT_KEYS = sorted([
-    "amount_centavos", "amount_received_centavos", "currency", "cycle", "decided_at",
+    "amount_centavos", "amount_received_centavos", "credit_centavos", "transfer_centavos",
+    "currency", "cycle", "decided_at",
     "decided_by", "id", "plan", "proof", "reject_note", "reject_reason", "site", "status",
     "submitted_at", "transfer_reference", "transferred_on", "transferred_at", "sender_bank",
     "sender_first_name", "sender_last_name", "sender_account_number", "amount_sent_centavos",
@@ -77,7 +78,8 @@ class FinanceGateTests(FinanceTestCase):
             sorted(staff.ROUTES),
             sorted([f"finance/payments/{p}" for p in PATHS]
                    + [f"finance/usage/review/{p}" for p in ("list/", "detail/", "admit/", "dismiss/")]
-                   + [f"finance/accounts/{p}" for p in ("list/", "add/", "edit/", "active/")]),
+                   + [f"finance/accounts/{p}" for p in ("list/", "add/", "edit/", "active/")]
+                   + [f"finance/referrals/{p}" for p in ("view/", "correct/")]),
         )
         for path in staff.ROUTES:
             self.assertEqual(staff_views.ROUTES[path][0], "POST")
@@ -309,6 +311,8 @@ class FinanceDetailTests(FinanceTestCase):
             "site": {"id": subscription.site.public_id, "name": subscription.site.display_name},
             "plan": {"code": "launch_promo", "name": "NegosyoOnline Launch Promo (6 Months)", "months": 6},
             "amount_centavos": 499900,
+            "credit_centavos": 0,
+            "transfer_centavos": 499900,
             "currency": "PHP",
             "transferred_on": SENT.astimezone(MANILA).date().isoformat(),
             "transfer_reference": "REF-1",

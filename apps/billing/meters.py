@@ -7,6 +7,7 @@ counts a finished month with `orders_in` (the same rule) when it decides the ord
 """
 from datetime import datetime
 
+from django.conf import settings
 from django.db.models import Sum
 
 from apps.billing import clock, plan, services
@@ -19,6 +20,9 @@ from apps.shop.models import ShopOrder
 BILLING_MONTH, TRIAL, CALENDAR_MONTH = "billing_month", "trial", "calendar_month"
 PACK_NOT_PAID = (pack_constants.REJECTED, pack_constants.XENDIT_EXPIRED)  # the pack's cancelled
 ORDERS_INCLUDED_PER_MONTH = plan.ORDERS_INCLUDED_PER_MONTH  # the one figure lives in plan.py
+# Video delivered per allowance period (V-1a): 50 decimal GB. A display line only, nothing is charged,
+# so it stays out of plan.py (the allowance and price live there and in usage.py).
+VIDEO_LIMIT_BYTES = 50_000_000_000
 
 
 def storage_used_bytes(site):
@@ -65,6 +69,20 @@ def orders_in(site, start, end):
     return shop + pack
 
 
+def video_block(site, start, end):
+    """The video delivery meter (V-1, display only): the bytes Bunny delivered from the store's own
+    Stream library in the period, against the 50 GB allowance, as the daily task last read them
+    (apps/training/video_meter.py). `read_at` is empty when no reading of this period exists yet
+    (no library, no pull zone, the task has not run): the used bytes are then 0."""
+    from apps.training import video_meter
+
+    used, read_at = video_meter.reading_for(site, start)
+    return {
+        "used_bytes": used, "limit_bytes": VIDEO_LIMIT_BYTES, "read_at": read_at,
+        "period_start": start, "period_end": end,
+    }
+
+
 def read(subscription, now):
     site = subscription.site
     start, end, kind = period_at(subscription, now)
@@ -74,7 +92,7 @@ def read(subscription, now):
         plan.orders_enabled() and kind == BILLING_MONTH and not subscription.billing_exempt
         and plan.orders_chargeable(start)
     )
-    return {
+    out = {
         "storage": {"used_bytes": storage_used_bytes(site), "limit_bytes": plan.STORAGE_LIMIT_BYTES},
         "orders": {
             "count": orders_in(site, start, end),
@@ -86,3 +104,6 @@ def read(subscription, now):
             "overage_centavos_per_order": plan.ORDER_OVERAGE_CENTAVOS_PER_ORDER,
         },
     }
+    if settings.VIDEO_METER_ENABLED:
+        out["video"] = video_block(site, start, end)
+    return out

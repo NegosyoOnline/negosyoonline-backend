@@ -121,6 +121,7 @@ class QueueSetupTests(SimpleTestCase):
                 "inquiries.send_comment_auto_reply", "inquiries.store_bulk_start_due", "invoices.daily_alert",
                 "invoices.ensure_items", "lifecycle.run_approved", "media_library.ledger_audit", "meta_ads.send_order_event", "meta_ads.send_page_event", "meta_ads.sweep",
                 "pack.buyer_notice", "pack.purge", "pack.registered_notice", "payments.xendit_reconcile", "retention.run", "sante.copy_content", "sante.poll_video_copy", "statements.deliver", "statements.ensure",
+                "training.video_meter",
             ],
         )
         self.assertTrue(tasks.sweep.ignore_result)
@@ -134,7 +135,7 @@ class QueueSetupTests(SimpleTestCase):
             [
                 "billing-sweep", "invoices-ensure-items", "invoices-daily-alert",
                 "statements-ensure", "statements-deliver", "meta-ads-sweep",
-                "billing-notices", "retention-daily", "file-backup-daily", "media-ledger-audit-daily", "db-backup-daily", "inquiries-store-bulk-start-due",
+                "billing-notices", "retention-daily", "file-backup-daily", "media-ledger-audit-daily", "video-meter-daily", "db-backup-daily", "inquiries-store-bulk-start-due",
                 "domains-sweep", "domains-hourly-check", "domains-daily-sweep", "pack-purge", "pack-buyer-notice",
                 "pack-registered-notice", "payments-xendit-reconcile",
                 "lifecycle-run-approved", "health-heartbeat",

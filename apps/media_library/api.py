@@ -20,6 +20,7 @@ filter value outside the lists above is 400 invalid_request with `fields`.
 from datetime import datetime
 
 from ninja import Router, Schema
+from pydantic import model_serializer
 
 from apps.members.api import _session, _site
 
@@ -50,6 +51,7 @@ class AssetOut(Schema):
     crop_ratio: str
     caption: str
     file_url: str | None
+    embed_url: str | None = None  # a video in the store's own Bunny library: the player URL (no file_url)
     thumb_url: str | None
     poster_url: str | None
     width: int
@@ -58,6 +60,14 @@ class AssetOut(Schema):
     duration_seconds: int
     published_at: datetime
     is_new: bool
+
+    @model_serializer(mode="wrap")
+    def _no_embed_url_unless_bunny(self, handler):
+        """A Blob-hosted asset keeps the shape it always had: no `embed_url` key."""
+        data = handler(self)
+        if data.get("embed_url") is None:
+            data.pop("embed_url", None)
+        return data
 
 
 class OptionOut(Schema):
