@@ -135,7 +135,7 @@ class CopyCase(SitesApiTestCase):
 
 class SourceTests(CopyCase):
     def entries(self):
-        return list(OperatorAuditEntry.objects.filter(action="sante_content_source_set"))
+        return list(OperatorAuditEntry.objects.filter(action="sante_content_source_set").order_by("at", "pk"))
 
     def test_set_and_clear_write_one_audit_entry_each(self):
         self.set_source()
