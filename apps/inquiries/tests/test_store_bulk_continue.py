@@ -159,7 +159,7 @@ class ContinueTests(ContinueCase):
 
     def test_a_signed_out_caller_is_refused_and_nothing_changes(self):
         batch = self.ended()
-        response = self.client_class().post(self.url(batch), content_type="application/json")
+        response = self.client_class().post(self.url(batch), content_type="application/json", secure=True)
         self.assertIn(response.status_code, (401, 403))
         batch.refresh_from_db()
         self.assertEqual((batch.state, batch.not_sent), ("ended", 2))
