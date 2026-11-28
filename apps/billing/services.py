@@ -16,7 +16,7 @@ from django.db import transaction
 from django.db.models import Exists, Max, OuterRef, Q
 from django.utils import timezone
 
-from apps.billing import clock, methods, plan, proofs, usage
+from apps.billing import clock, credits, methods, plan, proofs, usage
 from apps.billing.models import (
     BankTransferEvent, BankTransferPayment, BillingCycle, RenewalConsent, Subscription,
     SubscriptionTransition,
@@ -889,6 +889,18 @@ def _centavos_of(text):
     return centavos if 0 < centavos <= MAX_CENTAVOS else None
 
 
+def _terms(subscription, only_usage, chosen, now):
+    """What a payment now would buy and cost: (plan code, version, months, amount, overage)."""
+    if only_usage:
+        owed = _usage_only_due(subscription, now)
+        return plan.USAGE_ONLY, None, None, owed.centavos, owed
+    _refuse_unpayable(subscription, now)
+    if chosen not in plan.offers(subscription, now):
+        raise _invalid({"plan": "This plan is not offered."})
+    owed = usage.due(subscription, now)  # overage of ended periods rides on the term
+    return chosen.code, chosen.version, chosen.months, chosen.price_centavos + owed.centavos, owed
+
+
 def submit_transfer(
     subscription, account, *, plan_code, content, transferred_at=None, transferred_on=None,
     transfer_reference="", sender_bank=None, sender_first_name=None, sender_last_name=None,
@@ -977,17 +989,7 @@ def submit_transfer(
     sha256 = hashlib.sha256(content).hexdigest()
 
     def change(subscription):
-        if only_usage:
-            owed = _usage_only_due(subscription, now)
-            code, version, months = plan.USAGE_ONLY, None, None
-            amount = owed.centavos
-        else:
-            _refuse_unpayable(subscription, now)
-            if chosen not in plan.offers(subscription, now):
-                raise _invalid({"plan": "This plan is not offered."})
-            owed = usage.due(subscription, now)  # overage of ended periods rides on the term
-            code, version, months = chosen.code, chosen.version, chosen.months
-            amount = chosen.price_centavos + owed.centavos
+        code, version, months, amount, owed = _terms(subscription, only_usage, chosen, now)
         waiting = (
             subscription.transfers.select_for_update()
             .filter(status=TransferStatus.SUBMITTED)
@@ -1001,7 +1003,16 @@ def submit_transfer(
                 return waiting, False
             waiting.status, waiting.decided_at = TransferStatus.REPLACED, now
             waiting.save()
+            credits.release(waiting)
             _transfer_event(waiting, "replaced", BankTransferEvent.Actor.OWNER)
+        # Subscription Credit (B6): taken off what is transferred, for the earliest-due bill.
+        payer = subscription.site.account
+        credit = credits.credit_for(subscription, payer, amount, now)
+        if credit >= amount:
+            raise _conflict(
+                "covered_by_credit",
+                "Your Subscription Credit covers this bill. Pay with credit instead.",
+            )
         # The file is stored before its row, inside the transaction: a row never points at a
         # missing file. If the row then fails, the file is removed again.
         try:
@@ -1018,6 +1029,7 @@ def submit_transfer(
                 amount_centavos=amount,
                 usage_centavos=owed.centavos,
                 usage_line_max_id=owed.max_id,
+                credit_centavos=credit,
                 currency=plan.CURRENCY,
                 transferred_on=sent_at.date(),
                 transferred_at=sent_at,
@@ -1036,6 +1048,7 @@ def submit_transfer(
             )
             if chosen is not None and chosen.needs_consent:
                 _record_consent(subscription, payment, chosen, account, now)
+            credits.reserve(payment, payer)
             _transfer_event(payment, "submitted", BankTransferEvent.Actor.OWNER)
         except BaseException:
             proofs.discard(key)
@@ -1150,12 +1163,72 @@ def _settle_transfer(subscription, payment, at):
     return reactivated(subscription, **paid)
 
 
+def _confirm_locked(subscription, row, operator, received, now, actor, *, by_credit=False):
+    """Settle and confirm `row`, a payment under review. The caller holds the subscription's
+    row lock and the payment's, and `catch_up` has run. An operator confirms a proof; a bill
+    that Subscription Credit covers in full has none (`operator` is None, `by_credit`)."""
+    if row.usage_centavos and usage.frozen_total(row) != row.usage_centavos:
+        raise _conflict(
+            "usage_changed", "The overage in this payment has changed. Reject it and ask "
+            "for a new proof."
+        )
+    cycle = None
+    if row.plan_code != plan.USAGE_ONLY:
+        transition = _settle_transfer(subscription, row, now)
+        cycle = BillingCycle.objects.get(
+            subscription=subscription, sequence=transition.detail["cycle"]
+        )
+    row.status = TransferStatus.CONFIRMED
+    row.decided_at, row.decided_by = now, operator
+    row.amount_received_centavos = received
+    row.cycle = cycle
+    row.save()
+    settled_lines = usage.settle(row, now) if row.usage_centavos else 0
+    credits.apply(row)
+    sequence = cycle.sequence if cycle else None
+    event = {"cycle": sequence}
+    if row.usage_centavos:
+        event["usage_lines"] = settled_lines
+    if row.credit_centavos:
+        event["credit_centavos"] = row.credit_centavos
+    _transfer_event(row, "confirmed", actor, event)
+    # The register's pending invoice item, in its own savepoint: an error there never
+    # fails the confirmation, and the safety net opens the item later. Off, this does nothing.
+    from apps.invoices import services as invoice_services  # noqa: PLC0415
+
+    invoice_services.open_item_safely(row, now=now)
+    detail = {
+        "payment": row.public_id, "plan": row.plan_code,
+        "amount_centavos": row.amount_centavos, "cycle": sequence,
+        **({"usage_centavos": row.usage_centavos} if row.usage_centavos else {}),
+        **({"credit_centavos": row.credit_centavos} if row.credit_centavos else {}),
+    }
+    if by_credit:
+        audit.record(
+            operator, "billing_payment_confirmed_by_credit", target_type="site",
+            target_id=subscription.site.public_id, detail=detail,
+        )
+    else:
+        audit.record(
+            operator, "billing_payment_confirmed", target_type="site",
+            target_id=subscription.site.public_id, detail=detail,
+        )
+    credits.earn_safely(row, now)  # B6: its own savepoint; never blocks a confirmation
+    try:  # custom domains: a callback after the commit; whatever goes wrong here never fails this
+        from apps.domains import services as domains  # noqa: PLC0415
+
+        domains.after_confirm(subscription.site_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("domains hook could not be registered")
+    return row
+
+
 def confirm_transfer(payment, operator, *, amount_received_centavos, now=None):
     """The operator confirms that the money arrived. This, and nothing else, settles a cycle.
 
-    The amount the operator saw must equal the amount due. A payment already confirmed is
-    returned as it is; the confirmation, the cycle, the transition, the event and the audit
-    entry are written together or not at all.
+    The amount the operator saw must equal the amount due after any Subscription Credit. A
+    payment already confirmed is returned as it is; the confirmation, the cycle, the
+    transition, the event and the audit entry are written together or not at all.
     """
     _require_operator(operator)
     _require_transfers()
@@ -1169,56 +1242,77 @@ def confirm_transfer(payment, operator, *, amount_received_centavos, now=None):
             raise _conflict("not_under_review", "This payment is no longer under review.")
         if (
             isinstance(amount_received_centavos, bool)
-            or amount_received_centavos != row.amount_centavos
+            or amount_received_centavos != row.amount_centavos - row.credit_centavos
         ):
             raise _conflict(
                 "amount_mismatch", "The amount received is not the amount due for this payment."
             )
-        if row.usage_centavos and usage.frozen_total(row) != row.usage_centavos:
-            raise _conflict(
-                "usage_changed", "The overage in this payment has changed. Reject it and ask "
-                "for a new proof."
-            )
-        cycle = None
-        if row.plan_code != plan.USAGE_ONLY:
-            transition = _settle_transfer(subscription, row, now)
-            cycle = BillingCycle.objects.get(
-                subscription=subscription, sequence=transition.detail["cycle"]
-            )
-        row.status = TransferStatus.CONFIRMED
-        row.decided_at, row.decided_by = now, operator
-        row.amount_received_centavos = amount_received_centavos
-        row.cycle = cycle
-        row.save()
-        settled_lines = usage.settle(row, now) if row.usage_centavos else 0
-        sequence = cycle.sequence if cycle else None
-        event = {"cycle": sequence}
-        if row.usage_centavos:
-            event["usage_lines"] = settled_lines
-        _transfer_event(row, "confirmed", BankTransferEvent.Actor.OPERATOR, event)
-        # The register's pending invoice item, in its own savepoint: an error there never
-        # fails the confirmation, and the safety net opens the item later. Off, this does nothing.
-        from apps.invoices import services as invoice_services  # noqa: PLC0415
-
-        invoice_services.open_item_safely(row, now=now)
-        audit.record(
-            operator, "billing_payment_confirmed", target_type="site",
-            target_id=subscription.site.public_id,
-            detail={
-                "payment": row.public_id, "plan": row.plan_code,
-                "amount_centavos": row.amount_centavos, "cycle": sequence,
-                **({"usage_centavos": row.usage_centavos} if row.usage_centavos else {}),
-            },
+        return _confirm_locked(
+            subscription, row, operator, amount_received_centavos, now,
+            BankTransferEvent.Actor.OPERATOR,
         )
-        try:  # custom domains: a callback after the commit; whatever goes wrong here never fails this
-            from apps.domains import services as domains  # noqa: PLC0415
-
-            domains.after_confirm(subscription.site_id)
-        except Exception:  # noqa: BLE001
-            logger.exception("domains hook could not be registered")
-        return row
 
     return _write(Subscription(pk=payment.subscription_id), now, change)
+
+
+def pay_with_credit(
+    subscription, account, *, plan_code, renewal_consent=None, consent_version=None, now=None,
+):
+    """R-2: the owner pays a bill that Subscription Credit covers in full. There is no proof and
+    no staff click: the payment settles at once, through the same settlement as a confirmed
+    transfer, with an audit entry. Returns the confirmed payment. Closed (404) while the
+    referral switch is off; a bill the credit does not cover in full is refused (409)."""
+    if not credits.enabled():
+        raise ApiError("not_found", "Not found.", status=404)
+    now = now or timezone.now()
+    only_usage = plan_code == plan.USAGE_ONLY and plan.any_usage_enabled()
+    chosen, fields = None, {}
+    if not only_usage:
+        chosen = plan.PLANS.get(plan_code) if isinstance(plan_code, str) else None
+        if chosen is None:
+            fields["plan"] = "This plan is not offered."
+    if chosen is not None and chosen.needs_consent:
+        if renewal_consent is not True and renewal_consent != "true":
+            fields["renewal_consent"] = "The terms after the first term must be accepted."
+        if consent_version != plan.CONSENT_VERSION:
+            fields["consent_version"] = "The terms shown are out of date. Reload and read them again."
+    if fields:
+        raise _invalid(fields)
+
+    def change(subscription):
+        code, version, months, amount, owed = _terms(subscription, only_usage, chosen, now)
+        payer = subscription.site.account
+        waiting = (
+            subscription.transfers.select_for_update()
+            .filter(status=TransferStatus.SUBMITTED).first()
+        )
+        if waiting is not None:  # a proof still waiting gives its credit back and is replaced
+            waiting.status, waiting.decided_at = TransferStatus.REPLACED, now
+            waiting.save()
+            credits.release(waiting)
+            _transfer_event(waiting, "replaced", BankTransferEvent.Actor.OWNER)
+        credit = credits.credit_for(subscription, payer, amount, now)
+        if credit < amount:
+            raise _conflict(
+                "credit_insufficient", "Your Subscription Credit does not cover this bill."
+            )
+        local = now.astimezone(clock.MANILA)
+        payment = BankTransferPayment.objects.create(
+            subscription=subscription, plan_code=code, plan_version=version, term_months=months,
+            amount_centavos=amount, usage_centavos=owed.centavos, usage_line_max_id=owed.max_id,
+            credit_centavos=credit, currency=plan.CURRENCY, transferred_on=local.date(),
+            transferred_at=local, proof_key="", proof_content_type="", proof_size=0,
+            proof_sha256="", submitted_by=account, submitted_at=now,
+        )
+        if chosen is not None and chosen.needs_consent:
+            _record_consent(subscription, payment, chosen, account, now)
+        credits.reserve(payment, payer)
+        _transfer_event(payment, "submitted", BankTransferEvent.Actor.OWNER, {"by_credit": True})
+        return _confirm_locked(
+            subscription, payment, None, 0, now, BankTransferEvent.Actor.OWNER, by_credit=True
+        )
+
+    return _write(subscription, now, change)
 
 
 def reject_transfer(payment, operator, *, reason, note="", now=None):
@@ -1249,6 +1343,7 @@ def reject_transfer(payment, operator, *, reason, note="", now=None):
         row.decided_at, row.decided_by = now, operator
         row.reject_reason, row.reject_note = reason, note
         row.save()
+        credits.release(row)
         _transfer_event(row, "rejected", BankTransferEvent.Actor.OPERATOR, {"reason": reason})
         audit.record(
             operator, "billing_payment_rejected", target_type="site",
@@ -1366,8 +1461,10 @@ def payment_options(subscription, at=None):
                 "then": _then(offered, end_at),
                 "consent": _consent_shown(offered, state, subscription),
             })
+    credit = _credit_view(subscription, offers, owed.centavos, alone, now)
     transfers = subscription.transfers.select_related("cycle")
     return {
+        "credit": credit,
         "payable": reason is None,
         "not_payable_reason": reason,
         "payable_from": _payable_from(latest) if reason == "too_early" else None,
@@ -1382,6 +1479,32 @@ def payment_options(subscription, at=None):
             status__in=(TransferStatus.CONFIRMED, TransferStatus.REJECTED)
         ).order_by("-pk").first(),
         "proof_rules": {"max_bytes": proofs.MAX_BYTES, "content_types": list(proofs.CONTENT_TYPES)},
+    }
+
+
+def _credit_view(subscription, offers, usage_only_centavos, usage_alone, now):
+    """The Subscription Credit a payment now would take (Billing B6), and so what is left to
+    transfer, for each offer and for a usage-only payment. Writes nothing. With the switch off,
+    or no credit to spend, every offer shows zero and `enabled` says which."""
+    account = subscription.site.account
+    on = credits.enabled()
+    available = credits.balance(account) if on else 0
+    first = bool(available) and credits.is_first_in_line(subscription, account, now)
+    spend = available if first else 0
+    for offer in offers:
+        taken = min(spend, offer["amount_centavos"])
+        offer["credit_centavos"] = taken
+        offer["transfer_centavos"] = offer["amount_centavos"] - taken
+        offer["covered_by_credit"] = taken > 0 and taken == offer["amount_centavos"]
+    taken = min(spend, usage_only_centavos) if usage_alone else 0
+    return {
+        "enabled": on,
+        "balance_centavos": available,
+        "reserved_centavos": credits.reserved(account) if on else 0,
+        "usage_only": {
+            "credit_centavos": taken, "transfer_centavos": usage_only_centavos - taken,
+            "covered_by_credit": usage_alone and taken > 0 and taken == usage_only_centavos,
+        },
     }
 
 
@@ -1405,6 +1528,8 @@ def proof_for_owner(subscription, payment_id):
     """The proof file as (content, content type), for the owner of the subscription it was
     sent for. The payment is found first, so no file is read for another id."""
     payment = transfer_of(subscription, payment_id)
+    if not payment.proof_key:  # a bill paid with credit has no proof
+        raise ApiError("not_found", "Not found.", status=404)
     return _read_proof(payment.proof_key), payment.proof_content_type
 
 
@@ -1412,6 +1537,8 @@ def proof_for_operator(payment, operator):
     """The proof file as (content, content type), for the operator. Each read is audited."""
     _require_operator(operator)
     _require_transfers()
+    if not payment.proof_key:  # a bill paid with credit has no proof
+        raise ApiError("not_found", "Not found.", status=404)
     content = _read_proof(payment.proof_key)
     audit.record(
         operator, "billing_proof_viewed", target_type="site",

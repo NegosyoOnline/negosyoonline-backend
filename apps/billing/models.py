@@ -8,6 +8,7 @@ from django.db import models
 from django.db.models import F, Q
 
 from apps.common.ids import new_public_id
+from apps.statements.managers import AppendOnlyMixin, AppendOnlyQuerySet
 
 
 class Subscription(models.Model):
@@ -210,6 +211,10 @@ class BankTransferPayment(models.Model):
     # The overage inside `amount_centavos` and the highest charge line it covers (Billing B4).
     usage_centavos = models.PositiveIntegerField(default=0)
     usage_line_max_id = models.PositiveBigIntegerField(default=0)
+    # Subscription Credit taken off `amount_centavos` when the payment was sent (Billing B6).
+    # The Subscriber transfers `amount_centavos - credit_centavos`. Zero while the referral
+    # switch is off, and on every payment written before it existed.
+    credit_centavos = models.PositiveIntegerField(default=0)
 
     class Meta:
         constraints = [
@@ -218,13 +223,19 @@ class BankTransferPayment(models.Model):
                 condition=Q(status="submitted"),
                 name="billing_one_transfer_under_review",
             ),
+            models.CheckConstraint(
+                condition=Q(credit_centavos__lte=F("amount_centavos")),
+                name="billing_transfer_credit_within_amount",
+            ),
             # A confirmed payment settled a cycle (a usage-only one settles charge lines
-            # instead), was decided by an operator, and the amount received is the amount due.
+            # instead), was decided by an operator (a bill the credit covers in full has none:
+            # no money moved, so no one confirmed it), and the amount received is the amount due
+            # after the credit.
             models.CheckConstraint(
                 condition=~Q(status="confirmed") | (
                     (Q(cycle__isnull=False) | Q(plan_code="usage_only"))
-                    & Q(decided_by__isnull=False)
-                    & Q(amount_received_centavos=F("amount_centavos"))
+                    & (Q(decided_by__isnull=False) | Q(credit_centavos=F("amount_centavos")))
+                    & Q(amount_received_centavos=F("amount_centavos") - F("credit_centavos"))
                 ),
                 name="billing_transfer_confirmed_in_full",
             ),
@@ -518,3 +529,71 @@ class ReceivingAccount(models.Model):
 
     def __str__(self):
         return f"Receiving account {self.public_id}"
+
+
+class CreditEntry(AppendOnlyMixin, models.Model):
+    """One movement of an account's Subscription Credit (Billing B6). Insert-only: nothing
+    updates or deletes a row (Django refuses, and on PostgreSQL a trigger does).
+
+    The balance is the sum of `amount_centavos`, and it is what can be spent: a `reserve`
+    takes credit out of it while a payment waits, `release` puts it back, and `apply` records
+    that the reserve was spent (it moves nothing: the reserve already did). Credit is in
+    centavos and is not cash. Write only through apps.billing.credits.
+    """
+
+    REFUSAL_TARGET_TYPE = "credit_entry"
+    REFUSAL_ID_PATH = "idempotency_key"
+
+    class Kind(models.TextChoices):
+        EARN = "earn"
+        RESERVE = "reserve"
+        RELEASE = "release"
+        APPLY = "apply"
+        REVERSE = "reverse"
+        CORRECTION = "correction"
+
+    account = models.ForeignKey("accounts.Account", on_delete=models.PROTECT, related_name="+")
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    amount_centavos = models.BigIntegerField()  # signed; see the class text
+    payment = models.ForeignKey(
+        BankTransferPayment, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="credit_entries",
+    )
+    idempotency_key = models.CharField(max_length=120, unique=True)
+    reason = models.CharField(max_length=300, blank=True)  # a correction's reason
+    operator = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    detail = models.JSONField(default=dict, blank=True)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    objects = AppendOnlyQuerySet.as_manager()
+
+    class Meta:
+        indexes = [models.Index(fields=["account", "kind"], name="billing_credit_account_kind")]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(kind="earn", amount_centavos__gt=0)
+                    | Q(kind="release", amount_centavos__gt=0)
+                    | Q(kind="reserve", amount_centavos__lt=0)
+                    | Q(kind="reverse", amount_centavos__lt=0)
+                    | Q(kind="apply", amount_centavos=0)
+                    | Q(kind="correction", amount_centavos__lt=0)
+                    | Q(kind="correction", amount_centavos__gt=0)
+                ),
+                name="billing_credit_amount_sign",
+            ),
+            models.CheckConstraint(
+                condition=~Q(kind="correction") | (~Q(reason="") & Q(operator__isnull=False)),
+                name="billing_credit_correction_has_reason",
+            ),
+            models.CheckConstraint(
+                condition=Q(kind__in=["earn", "reserve", "release", "apply"], payment__isnull=False)
+                | Q(kind__in=["reverse", "correction"]),
+                name="billing_credit_payment_kinds_have_payment",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.kind} {self.amount_centavos} on account {self.account_id}"

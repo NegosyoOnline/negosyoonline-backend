@@ -50,6 +50,7 @@ RESET_MODELS = (
     "statements.IssuerProfile",
     "statements.BillingProfile",
     # billing: payments, consent, notices, cycles, subscriptions, receiving accounts
+    "billing.CreditEntry",
     "billing.RenewalConsent",
     "billing.BankTransferEvent",
     "billing.BankTransferPayment",

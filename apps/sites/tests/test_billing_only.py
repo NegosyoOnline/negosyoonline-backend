@@ -199,6 +199,8 @@ STAYS_ON = [
     ("GET", "/sites/{site_id}/billing/meters/"),  # display only; a closed site sees it too
     ("GET", "/sites/{site_id}/billing/payments/"),
     ("POST", "/sites/{site_id}/billing/payments/"),
+    # Paying a bill the Subscription Credit covers (B6): a closed site must still be able to pay.
+    ("POST", "/sites/{site_id}/billing/pay-with-credit/"),
     ("GET", "/sites/{site_id}/billing/payments/{payment_id}/"),
     ("GET", "/sites/{site_id}/billing/payments/{payment_id}/proof/"),
     # The invoice copies (B5): billing records, like the payments, stay readable.

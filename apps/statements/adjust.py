@@ -13,7 +13,7 @@ from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 
-from apps.billing import clock
+from apps.billing import clock, credits
 from apps.common.errors import ApiError
 from apps.common.ids import is_public_id
 from apps.operators import audit
@@ -136,6 +136,8 @@ def adjust(operator, original_id, reason, raw_lines, *, now=None):
                     "original_number": original.number, "total_centavos": total,
                 },
             )
+            # Billing B6: a billing error or duplicate payment takes back the credit the payment earned.
+            credits.reverse_safely(adjustment, original, operator)
         except Exception:
             documents.discard(stored.key)
             raise

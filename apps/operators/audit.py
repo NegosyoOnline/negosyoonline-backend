@@ -69,6 +69,13 @@ ACTIONS = {
     "hq_site_reauth_failed": KEPT,
     "billing_payment_confirmed": KEPT,
     "billing_payment_rejected": KEPT,
+    # Billing B6: a bill the Subscription Credit covered in full settled with no staff click
+    # (no operator); a manual credit correction (reason required); credit written off when a
+    # credit note came after the credit was spent; HQ read of an account's referrals.
+    "billing_payment_confirmed_by_credit": KEPT,
+    "billing_credit_correction": KEPT,
+    "billing_credit_written_off": KEPT,
+    "hq_referrals_viewed": KEPT,
     "billing_usage_admitted": KEPT,
     "billing_usage_dismissed": KEPT,
     "billing_proof_viewed": KEPT,
