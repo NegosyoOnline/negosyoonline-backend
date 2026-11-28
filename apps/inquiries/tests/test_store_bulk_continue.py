@@ -240,3 +240,39 @@ class ContinueUnmaskedTests(ContinueCase):
         body = self.go(batch).json()
         self.assertEqual((body["state"], body["waiting"]), ("waiting", 3))  # 2 waiting + the 1 still queued
         self.assertEqual(batch.recipients.filter(state="waiting").count(), 2)
+
+
+class ContinueBlockedTests(ContinueCase):
+    """CONTINUE-246 (2026-11-28): batch_out says why Continue is not possible now."""
+
+    def shown(self, batch):
+        return self.get(f"{self.root}batches/{batch.public_id}/").json()
+
+    def test_held_store_names_the_reason_then_clears_when_lifted(self):
+        batch = self.ended()
+        self.hold()
+        shown = self.shown(batch)
+        self.assertEqual((shown["can_continue"], shown["continue_count"], shown["continue_blocked"]), (False, 2, "site_held"))
+        self.assertTrue(shown["continue_blocked_message"])
+        self.hold(False)
+        shown = self.shown(batch)
+        self.assertEqual((shown["can_continue"], shown["continue_blocked"], shown["continue_blocked_message"]), (True, "", ""))
+
+    def test_another_active_batch_is_batch_running(self):
+        batch = self.ended()
+        self.start(key="key-batch-0002")
+        shown = self.shown(batch)
+        self.assertEqual((shown["can_continue"], shown["continue_blocked"]), (False, "batch_running"))
+        self.assertTrue(shown["continue_blocked_message"])
+
+    def test_finished_and_stopped_batches_have_no_blocked_reason(self):
+        done = self.start()
+        self.pump(4)
+        done.refresh_from_db()
+        self.assertEqual(done.state, "finished")
+        shown = self.shown(done)
+        self.assertEqual((shown["continue_blocked"], shown["continue_blocked_message"]), ("", ""))
+        stopped = self.start(key="key-batch-0002")
+        self.send("post", self.url(stopped, "stop"))
+        shown = self.shown(stopped)
+        self.assertEqual((shown["continue_count"], shown["continue_blocked"], shown["continue_blocked_message"]), (0, "", ""))
